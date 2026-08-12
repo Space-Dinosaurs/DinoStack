@@ -14,11 +14,12 @@
 #          (f) a deferred-work open-count nudge (bin/ds-defer count) for the
 #          Follow-up Ticket Creation Discipline's sink
 #          (.agentic/deferred-work.jsonl); and (g) a worktree-accumulation
-#          nudge (bin/ds-reap-worktrees --dry-run) when the current project's
-#          non-root worktree count is at or above a small threshold - REPORT
-#          ONLY, this call site never removes a worktree. It is the FIRST and
-#          only SessionStart registration install.sh makes; the version-check
-#          script is no longer wired directly - it is invoked from here.
+#          nudge (bin/ds-reap-worktrees --count-only) when the current
+#          project's non-root worktree count is at or above a small
+#          threshold - REPORT ONLY, this call site never removes a worktree.
+#          It is the FIRST and only SessionStart registration install.sh
+#          makes; the version-check script is no longer wired directly - it
+#          is invoked from here.
 # Public API: bash hooks/session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)
@@ -77,12 +78,21 @@
 #              `bin/ds-defer count` subprocess for the deferred-work nudge (a
 #              single-file JSONL read, no network - runs on EVERY session
 #              start for EVERY project, not just when the sink is non-empty),
-#              one `bin/ds-reap-worktrees --dry-run --no-gh` subprocess for the
-#              worktree-accumulation nudge (a `git worktree list` plus a
-#              handful of `git status`/`git ls-remote`/`git merge-base` calls
-#              bounded by the project's own worktree count, no network - runs
-#              on EVERY session start for EVERY project, same cadence as the
-#              deferred-work nudge), and at most one detached daemon spawn
+#              one `bin/ds-reap-worktrees --count-only` subprocess for the
+#              worktree-accumulation nudge - a SINGLE `git worktree list
+#              --porcelain` call, no network, no per-entry `git status`/
+#              `git ls-remote`/`git merge-base`/`gh` calls of any kind (round-2
+#              Skeptic Major 4/5 correction: the FIRST-round implementation
+#              used `--dry-run --no-gh`, which still ran full per-entry
+#              evaluation including `git ls-remote` - measured 14.94s against
+#              this repo's live 38-worktree checkout on 2026-08-11, the exact
+#              opposite of "no network" this section previously claimed.
+#              `--count-only` measured 55ms against the same checkout at 37
+#              worktrees on 2026-08-11 via `time python3 bin/ds-reap-worktrees
+#              --repo <repo> --count-only` - see bin/ds-reap-worktrees's own
+#              `--count-only` flag description for the mechanism), runs on
+#              EVERY session start for EVERY project, same cadence as the
+#              deferred-work nudge, and at most one detached daemon spawn
 #              that the hook never waits on.
 
 set -euo pipefail
@@ -319,12 +329,15 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
     DS_REAP_BIN="$(command -v ds-reap-worktrees)"
   fi
   if [[ -n "${DS_REAP_BIN:-}" ]]; then
-    # --explain's "-- per-entry --" block isn't needed here; only the
-    # summary line's `entries=N` field (N includes the main worktree, so
-    # the non-root count is N-1). --no-gh keeps this fast and free of any
-    # gh auth-state dependency, matching the ds-base-sync advisory's own
-    # choice; --dry-run is unconditional (report-only, never removes).
-    reap_summary="$(python3 "$DS_REAP_BIN" --repo "$cwd" --dry-run --no-gh 2>/dev/null | head -n1 || true)"
+    # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
+    # is needed here (N includes the main worktree, so the non-root count
+    # is N-1) - zero network calls, zero per-entry `git` calls beyond the
+    # single `git worktree list --porcelain` --count-only itself needs.
+    # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
+    # the live checkout because --no-gh suppressed `gh` but NOT `git
+    # ls-remote`, one network round-trip per entry - this call site never
+    # needed anything beyond a count, so it never needed that cost.
+    reap_summary="$(python3 "$DS_REAP_BIN" --repo "$cwd" --count-only 2>/dev/null || true)"
     if [[ "$reap_summary" =~ entries=([0-9]+) ]]; then
       total_entries="${BASH_REMATCH[1]}"
       nonroot_count=$((total_entries - 1))

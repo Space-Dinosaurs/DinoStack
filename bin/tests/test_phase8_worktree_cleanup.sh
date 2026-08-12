@@ -117,24 +117,50 @@ assert $? "scenario 1: worktree directory removed"
 assert $? "scenario 1: local branch deleted"
 
 # --------------------------------------------------------------------------
-# Scenario 2: locked worktree -> unlock-then-force-remove recovery fires,
-# worktree still removed (this is the NEW behavior this ticket adds - the
-# original block had no lock-recovery path at all and would silently no-op
-# via `2>/dev/null || true`).
+# Scenario 2 (round-2 Skeptic Critical fix): locked worktree -> `git worktree
+# remove` REFUSES (no override), the refusal is surfaced to stderr and
+# recorded in the skip ledger, and the worktree is left fully intact. An
+# earlier version of this block unlocked + force-removed on a bare "agent may
+# have just finished" assumption - that violates
+# content/references/worktree-lifecycle.md §Guardrail verbatim ("No cleanup
+# or prune path in this document may call `git worktree remove -f -f`...
+# Never unlock... a worktree whose directory still exists") and has been
+# removed entirely. A refusal here is the CORRECT, safe outcome, never a
+# bug to route around.
 # --------------------------------------------------------------------------
 echo ""
-echo "== Scenario 2: locked worktree -> unlock+force-remove recovery =="
+echo "== Scenario 2: locked worktree -> remove REFUSES, recorded, never overridden =="
 REPO2="$(build_repo scenario2)"
 BRANCH2="feature/scenario-2"
 git -C "$REPO2" worktree add -q "$REPO2/.claude/worktrees/wt2" -b "$BRANCH2"
 git -C "$REPO2" push -q -u origin "$BRANCH2"
 git -C "$REPO2" worktree lock "$REPO2/.claude/worktrees/wt2"
-OUT2="$(run_block "$REPO2" "$BRANCH2")"
-assert $? "scenario 2: block exits 0"
-echo "$OUT2" | grep -q "\[phase: worktree-cleanup | branch=$BRANCH2"
-assert $? "scenario 2: breadcrumb line printed despite the lock"
-[ ! -d "$REPO2/.claude/worktrees/wt2" ]
-assert $? "scenario 2: worktree directory removed after unlock+force-remove"
+OUT2="$(run_block "$REPO2" "$BRANCH2" 2>&1)"
+BLOCK2_RC=$?
+assert $BLOCK2_RC "scenario 2: block exits 0 (soft-fail - a refusal never blocks Phase 8)"
+echo "$OUT2" | grep -q "WARNING: git worktree remove failed"
+assert $? "scenario 2: refusal is surfaced to stderr, not silently swallowed"
+[ -d "$REPO2/.claude/worktrees/wt2" ]
+assert $? "scenario 2: locked worktree directory is STILL PRESENT (never unlocked or force-removed)"
+git -C "$REPO2" show-ref --verify --quiet "refs/heads/$BRANCH2"
+assert $? "scenario 2: branch NOT deleted (removal never happened)"
+LOCK_CHECK="$(git -C "$REPO2" worktree list --porcelain)"
+echo "$LOCK_CHECK" | grep -q "locked"
+assert $? "scenario 2: worktree is STILL genuinely locked (unlock was never called)"
+LEDGER2="$REPO2/.agentic/worktree-cleanup-skips.jsonl"
+[ -f "$LEDGER2" ]
+assert $? "scenario 2: skip ledger file created for the refused removal"
+LEDGER2_LINE="$(tail -n1 "$LEDGER2" 2>/dev/null)"
+python3 -c "
+import json, sys
+rec = json.loads(sys.argv[1])
+assert rec['branch'] == sys.argv[2], rec
+assert 'wt2' in rec['path'], rec
+assert rec['stderr'], rec
+" "$LEDGER2_LINE" "$BRANCH2"
+assert $? "scenario 2: skip ledger line is valid JSON recording the refusal"
+git -C "$REPO2" worktree unlock "$REPO2/.claude/worktrees/wt2" >/dev/null 2>&1 || true
+git -C "$REPO2" worktree remove --force "$REPO2/.claude/worktrees/wt2" >/dev/null 2>&1 || true
 
 # --------------------------------------------------------------------------
 # Scenario 3: worktree remove fails for a reason OTHER than locking

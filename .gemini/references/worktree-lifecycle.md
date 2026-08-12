@@ -92,11 +92,17 @@ WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
 git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
 
-This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase.
+This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase. `content/commands/ds-implement-ticket.md` Phase 8 carries the hardened, canonical form of this block: single attempt, no force, surfacing stderr and appending a persisted skip record (`.agentic/worktree-cleanup-skips.jsonl`) to a refusal rather than discarding it - the illustrative snippet above omits that hardening for brevity.
 
 If the worktree is still locked by a running agent, `git worktree remove` will
-refuse until the agent finishes. That is expected and safe; the session-start
-prune script below remains a backstop.
+refuse until the agent finishes. That is expected and safe - it is the
+correct, permanent outcome for a refusal, NEVER a signal to unlock or
+force-remove (`git worktree unlock` may be used ONLY on a worktree whose
+directory is already gone - see §Guardrail below, unchanged by any cleanup
+block in this document). The refusal is recorded (Phase 8's ledger above) so
+it stays visible in a later session; the session-start prune script and
+`bin/ds-reap-worktrees` below remain the backstop that eventually reclaims it
+once the lock is genuinely released.
 
 ## Feature worktree cleanup commands
 

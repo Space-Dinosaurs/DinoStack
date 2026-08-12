@@ -342,11 +342,11 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 
 `/ds-implement-ticket` Phase 8's own cleanup only fires on that command's own success path. Any ad-hoc `isolation: "worktree"` spawn outside it is on the conductor: clean it up at the natural completion point, not "eventually."
 
-`bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - dirty, locked-present, and unproven branches are always reported, never removed:
+`bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - it delegates the locked/dirty/branch-evidence decision to `worktree_model.disposition_for` (the same normative function the command file cites), never a second copy of that logic:
 
-- Removable only when clean, unlocked, AND the branch is gone from origin, its PR is MERGED/CLOSED, or it's an ancestor of the base ref
-- `--dry-run` is report-only; two passive triggers use it automatically - `ds-base-sync`'s post-merge advisory note, and a SessionStart nudge past a small worktree-count threshold
-- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees` invocation
+- Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of non-allowlisted gitignored content, AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed
+- `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
+- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees --dry-run`/no-flags invocation
 
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.

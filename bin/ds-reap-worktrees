@@ -8,135 +8,206 @@ Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
          non-root worktrees measured in this repo alone, oldest from
          2026-07-09; see the ticket brief for the full diagnosis). This
          tool makes that predicate a real, machine-invocable command so it
-         can be wired into `bin/ds-base-sync` (advisory dry-run) and a
-         SessionStart nudge, in addition to remaining operator-invocable.
+         can be wired into `bin/ds-base-sync` (advisory --count-only) and a
+         SessionStart nudge (--count-only), in addition to remaining
+         operator-invocable.
 
-         Classification reuses `bin/tests/worktree_model.py`'s
-         `classify_entry` (path-prefix classification: `.claude/worktrees/`
-         = ISOLATION, `.agentic/worktrees/` = CONDUCTOR_CREATED, anything
-         else = UNMANAGED) - the single normative definition, never
-         restated here. `evals/.worktrees/*` (pinned per repo decision
-         #203) already classifies UNMANAGED under that model and is never
-         touched by this tool regardless.
+         Round-2 Skeptic (1 Critical, 6 Major) rewrite. The v1 removal
+         predicate was a bespoke, second copy of evidence semantics that
+         shadowed the shared normative model and was strictly MORE
+         permissive than it (branch-gone-from-origin and PR-CLOSED were
+         both treated as sufficient alone). This version deletes that
+         second copy entirely and delegates the LOCKED/DIRTY/branch-
+         evidence decision to `bin/tests/worktree_model.py`'s
+         `disposition_for` - the same function `content/commands/
+         ds-cleanup-worktrees.md` Steps 3/4 already cite as normative for
+         live worktree removal - so this tool can no longer diverge from
+         it. See "Removal predicate" below for the full gate order,
+         including three additional safety floors `disposition_for` does
+         not know about (self-worktree, age, and gitignored-content).
 
-         Removal predicate (worktree REMOVAL only - `git worktree remove`,
-         never `git branch -D`; a worktree's branch and its commits
-         survive removal, matching the existing rationale in
-         `disposition_for`'s own docstring: "git worktree remove does not
-         destroy commits", used to justify treating a bare MERGED PR as
-         sufficient there). A worktree is removable only when ALL of:
-           1. its working tree is clean (no uncommitted or untracked
-              changes) - checked with `git status --porcelain`;
-           2. it is not currently locked by a running agent OR is locked
-              but the directory is confirmed reclaimable per the harness's
-              own lock-while-running contract (see the Locked handling
-              note below);
-           3. its branch is provably resolved via ANY of, first match
-              wins:
-                a. branch is gone from origin (`git ls-remote --heads
-                   origin <branch>` returns no match) - safe here
-                   specifically BECAUSE this tool only ever removes the
-                   WORKTREE, never the branch or its commits; a
-                   never-pushed branch's local ref and reflog remain
-                   fully intact after worktree removal, so this leg
-                   cannot destroy anything a stricter, branch-deletion-
-                   grade predicate (bin/ds-branch-prune, DS-153) would
-                   refuse - it merely reclaims the checkout directory.
-                b. the branch's PR state (via `gh`) is MERGED or CLOSED -
-                   deliberately more permissive than `disposition_for`'s
-                   shared MERGED-only leg (see worktree_model.py), again
-                   because worktree removal is non-destructive of commits
-                   and a CLOSED (abandoned) PR means the operator already
-                   decided the branch's fate.
-                c. the branch is an ancestor of the base ref
-                   (`origin/main` by default).
-         Any leg failing (or all three inconclusive) reports the entry
-         rather than removing it - never a force-delete on an inconclusive
-         read.
+Classification reuses `bin/tests/worktree_model.py`'s `classify_entry`
+(path-prefix classification: `.claude/worktrees/` = ISOLATION,
+`.agentic/worktrees/` = CONDUCTOR_CREATED, anything else = UNMANAGED) - the
+single normative definition, never restated here. `evals/.worktrees/*`
+(pinned per repo decision #203) already classifies UNMANAGED under that
+model and is never touched by this tool regardless.
 
-         Anything failing leg 1 or 2 is ALWAYS reported, never removed,
-         regardless of what leg 3 would say - a dirty worktree is never
-         touched by this tool under any circumstance.
+Removal predicate (worktree REMOVAL only - `git worktree remove`, never
+`git branch -D`; a worktree's branch and its commits survive removal).
+Gate order, first match wins, ALL must clear for REMOVE:
+  1. UNMANAGED / MAIN -> never touched (classification-level exclusion,
+     before any of the gates below run at all).
+  2. Directory-missing admin entry -> SKIP_MISSING / SKIP_MISSING_LOCKED
+     (handled by `git worktree prune` at the end of the run, per the
+     existing session-start-prune unlock-then-prune pattern - see the
+     Locked handling note below for the one case where an unlock fires).
+  3. SELF (new, round-2 Major 2a) -> a worktree whose directory the
+     CURRENT PROCESS is running inside (compared via `Path.cwd()`) is
+     NEVER removed, unconditionally, before any other check. This is a
+     hard floor, not a heuristic: a v1 dry run against the live 38-
+     worktree checkout flagged this tool's OWN worktree as REMOVE.
+  4. AGE FLOOR (new, round-2 Major 2b) -> a worktree whose directory
+     mtime is within `--min-age-hours` (default 24) is never removed,
+     regardless of dirty/lock/branch state. This protects a resumable-idle
+     worktree - the harness releases its lock once an agent finishes a
+     TURN, not once the session is truly done; an unlocked, clean worktree
+     can still belong to work the operator will resume. See the Locked
+     handling note below for why this floor exists independently of
+     `SKIP_LOCKED`, not instead of it.
+  5. LOCKED (directory present) -> `disposition_for`'s own gate;
+     `SKIP_LOCKED`, unconditionally, never unlocked or force-removed here.
+  6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
+     computed together with the ignored-content check below in one call).
+  7. IGNORED CONTENT (new, round-2 Major 3) -> gitignored paths NOT on a
+     narrow ephemeral-artifact allowlist (`_IGNORED_ALLOWLIST_*` below)
+     block removal (`SKIP_IGNORED_CONTENT`), reporting the offending
+     paths. Proven empirically: a worktree holding only a gitignored
+     `.agentic/plan.md` reports a CLEAN `git status --porcelain` (no
+     `--ignored` flag) and a non-force `git worktree remove` destroys it
+     silently - `.agentic/` content is exactly the class this must catch.
+  8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
+     then a bare MERGED PR, then push status - `strict_pr_state=False`,
+     the same lenient grade the shared model already reserves for
+     worktree removal, since removal does not destroy commits). A
+     never-pushed branch with unique commits, or a CLOSED PR, both resolve
+     `SKIP_*` (never `ELIGIBLE`) under this model - NOT sufficient alone,
+     unlike v1's bespoke predicate.
+`ELIGIBLE` from `disposition_for`, with no ignored-content offenders, is
+the only path to `REMOVE`. Every other outcome is reported, never a
+force-delete on an inconclusive read.
 
 Public API (CLI):
   ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
-                    [--explain]
+                    [--explain] [--count-only] [--min-age-hours <float>]
 
-  --repo <path>     Repository to operate on. Default: cwd.
-  --base <ref>      Base ref to prove ancestor-of-base evidence against.
-                     Default: "origin/main".
-  --dry-run         Compute and report; remove nothing.
-  --no-gh           Force degraded mode (skip the PR-state leg) without
-                     attempting to invoke `gh` at all.
-  --explain         Print one line per worktree entry with its outcome
-                     (default: aggregate counts only).
+  --repo <path>          Repository to operate on. Default: cwd.
+  --base <ref>           Base ref to prove ancestor-of-base evidence
+                          against. Default: "origin/main".
+  --dry-run              Compute and report; remove nothing.
+  --no-gh                Force degraded mode: skip BOTH the PR-state leg
+                          AND `git ls-remote` (round-2 Major 4 - v1's
+                          --no-gh disabled only `gh`, so a "--no-gh" run
+                          still made one network round-trip per entry via
+                          `ls-remote`; measured 14.94s / ~31 entries on the
+                          live checkout). Genuinely offline: zero network
+                          calls of any kind. Degrades those legs to
+                          inconclusive - can only remove FEWER worktrees
+                          than a full run, never more.
+  --explain               Print one line per worktree entry with its
+                          outcome (default: aggregate counts only).
+  --count-only            Print ONLY `entries=N` (round-2 Major 4) - zero
+                          network calls AND zero per-entry `git` calls
+                          beyond the single `git worktree list --porcelain`
+                          already required to enumerate. This is the mode
+                          `bin/ds-base-sync`'s advisory note and
+                          `hooks/session-start-wrap.sh`'s SessionStart
+                          nudge both use - neither needs anything beyond a
+                          count. Measured 55ms via `time python3
+                          bin/ds-reap-worktrees --repo <repo> --count-only`
+                          against this repo's live 37-worktree checkout on
+                          2026-08-11 (replaces the FIRST-round `--dry-run
+                          --no-gh` figure of 14.94s against 31 entries on
+                          the same checkout, which still made one `git
+                          ls-remote` network round-trip per entry - see
+                          bin/ds-base-sync and hooks/session-start-wrap.sh's
+                          own manifests for that pre-fix figure).
+  --min-age-hours <float> Age floor in hours (see gate 4 above). Default
+                          24.
 
-Locked handling: the live Claude Code harness locks every isolation
-worktree at creation (`locked claude agent agent-<id> ...`) and a plain
-`git worktree remove` already refuses a locked entry. Per
-`content/references/worktree-lifecycle.md` §Guardrail, `git worktree
-unlock` may be used ONLY on a worktree whose directory is already gone (an
-admin-only entry - its agent cannot still be running). This tool honors
-that guardrail exactly: a locked entry whose directory still exists is
-ALWAYS reported (`skipped-locked`), never unlocked or force-removed,
-regardless of dirty status or branch resolution - the harness's lock is
-cross-session protection this tool must never override. A locked entry
-whose directory is already gone is handled by the admin-prune pass
-(`git worktree prune`) at the end of every run, same as an unlocked
-directory-missing entry - `git worktree unlock` fires first only for that
-directory-missing case, exactly mirroring the session-start prune script's
-own unlock-then-prune pattern in worktree-lifecycle.md.
+Locked handling: per `content/references/worktree-lifecycle.md`
+§Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
+directory is already gone (an admin-only entry - its agent cannot still be
+running when there is no directory left to run in). This tool honors that
+guardrail exactly: a locked entry whose directory still exists is ALWAYS
+reported (`SKIP_LOCKED`), NEVER unlocked or force-removed, regardless of
+any other check - the harness's lock is cross-session protection this tool
+must never override (AGENTS.md: "The live Claude Code harness auto-locks
+every `isolation:"worktree"` worktree at creation"). A locked entry whose
+directory is already gone is handled by the admin-prune pass (`git
+worktree prune`) at the end of every non-dry-run - `git worktree unlock`
+fires first only for that directory-missing case, mirroring the session-
+start prune script's own unlock-then-prune pattern. Absence of a lock does
+NOT prove a worktree is abandoned - the harness releases the lock once an
+agent finishes a TURN, and a session can be resumed into an unlocked,
+clean worktree later (this is exactly what a round-2 review correction
+established: a v1 dry run flagged this very tool's own live worktree as
+REMOVE, which SKIP_LOCKED alone would not have caught since it was
+unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
+BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
+independent, additive protections.
 
-Upstream deps: Python 3 stdlib only (argparse, shutil, subprocess, sys,
-               pathlib, collections). `git` (CLI) and, unless --no-gh,
-               `gh` (CLI, for the PR-state leg - degrades gracefully when
-               absent or unauthenticated). bin/tests/worktree_model.py
-               (WorktreeClass, classify_entry, parse_porcelain, imported
-               by path exactly like bin/ds-branch-prune does, so a
-               PATH-symlink invocation still finds it).
+Upstream deps: Python 3 stdlib only (argparse, fnmatch, shutil, subprocess,
+               sys, time, pathlib, collections). `git` (CLI) and, unless
+               --no-gh, `gh` (CLI, for the PR-state leg - degrades
+               gracefully when absent or unauthenticated).
+               bin/tests/worktree_model.py (WorktreeClass, classify_entry,
+               parse_porcelain, Disposition, DispositionFacts,
+               disposition_for - imported by path exactly like
+               bin/ds-branch-prune does, so a PATH-symlink invocation
+               still finds it; disposition_for is the SOLE authority for
+               the LOCKED/DIRTY/branch-evidence decision - see the module
+               docstring's Removal predicate section for why no second
+               copy of that logic exists here after round-2).
 
 Downstream consumers: content/commands/ds-cleanup-worktrees.md (this tool
                       is the executable form of that command's Steps 2-4
                       predicate; the command file remains the
                       operator-readable prose entry point);
-                      bin/ds-base-sync (advisory --dry-run report appended
-                      to its tail, non-blocking, never mutates - the one
-                      guaranteed post-merge trigger point);
+                      bin/ds-base-sync (advisory --count-only report
+                      appended to its tail, non-blocking, never mutates -
+                      the one guaranteed post-merge trigger point);
                       hooks/session-start-wrap.sh (a non-blocking advisory
-                      nudge line when the non-root worktree count exceeds
-                      a small threshold, pointing at
+                      --count-only nudge line when the non-root worktree
+                      count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
                       anything from that call site).
                       CI: bin/tests/test_reap_worktrees.py (pytest,
                       auto-collected by `python3 -m pytest bin/tests/`).
 
 Failure modes: exits 0 on success INCLUDING partial degradation (gh
-               unavailable/unauthenticated/erroring/--no-gh; individual
-               `git worktree remove` failures are reported to stderr and
-               the run continues). Exits 1 ONLY on an internal/usage
-               error: --repo is not a directory or not a git repository,
-               or an unhandled exception while enumerating worktrees.
-               Never removes a dirty worktree under any circumstance.
-               Never removes `evals/.worktrees/*` - those classify
-               UNMANAGED under `classify_entry` and are always reported,
-               never touched, same as any other UNMANAGED entry.
+               unavailable/unauthenticated/erroring/--no-gh/network
+               timeout; individual `git worktree remove` failures are
+               reported to stderr and the run continues). Exits 1 ONLY on
+               an internal/usage error: --repo is not a directory or not a
+               git repository, or an unhandled exception while
+               enumerating worktrees. Never removes a dirty, self, too-
+               young, locked, or ignored-content-bearing worktree under
+               any circumstance. Never removes `evals/.worktrees/*` -
+               those classify UNMANAGED under `classify_entry` and are
+               always reported, never touched, same as any other
+               UNMANAGED entry. Every network-touching subprocess call
+               (`git ls-remote`, `gh auth status`, `gh pr view`) is
+               wrapped with a timeout (`_NETWORK_TIMEOUT_SECONDS`); a
+               timeout degrades that leg to inconclusive exactly like a
+               `gh` error does, never a false ELIGIBLE.
 
-Performance: one `git worktree list --porcelain` call, a `git status
-             --porcelain` + `git ls-remote` + (optionally) one `gh pr
-             view` + one `git merge-base --is-ancestor` per managed
-             worktree entry, plus a final `git worktree prune`. Not
-             designed for repositories with very large worktree counts.
+Performance: `--count-only` - one `git worktree list --porcelain` call,
+             nothing else (see the --count-only flag description above for
+             the re-measured figure). Full mode - the above plus, per
+             managed worktree entry: `git status --porcelain
+             --ignored=matching`, `git merge-base --is-ancestor`, and
+             (unless --no-gh) `git ls-remote` + one `gh pr view`, plus a
+             final `git worktree prune`. Not designed for repositories
+             with very large worktree counts; v1's full-mode `--no-gh`
+             run measured 14.94s across ~31 entries on the live 38-
+             worktree checkout (the network round-trip `--no-gh` failed to
+             suppress) - fixed in this round, but full mode still performs
+             real subprocess work per entry and is not the mode either
+             automatic call site uses.
 """
 
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # --------------------------------------------------------------------------
 # Shared helpers: worktree_model.py (bin/tests/), imported by resolved path
@@ -149,10 +220,43 @@ _BIN_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BIN_DIR / "tests"))
 
 from worktree_model import (  # noqa: E402
+    Disposition,
+    DispositionFacts,
     WorktreeClass,
     classify_entry,
+    disposition_for,
     parse_porcelain,
 )
+
+#: Every network-touching subprocess call in this file is bounded by this
+#: timeout (round-2 Major 4) - `git ls-remote`, `gh auth status`, and
+#: `gh pr view` all cross the network. A timeout degrades that evidence
+#: leg to inconclusive, identically to a `gh` error - it can only ever
+#: cause FEWER removals, never a false ELIGIBLE.
+_NETWORK_TIMEOUT_SECONDS = 8
+
+#: Ephemeral/regenerable ignored-content allowlist (round-2 Major 3).
+#: `git status --porcelain` (no `--ignored` flag) never surfaces gitignored
+#: content, and a non-force `git worktree remove` deletes it unconditionally
+#: regardless - proven empirically in a scratch repo where a worktree
+#: holding only a gitignored `.agentic/plan.md` reported a CLEAN
+#: `git status --porcelain` and was silently destroyed. Anything ignored
+#: that is NOT one of these trivially-regenerable dependency/build/cache
+#: artifact directories or file patterns is treated as potentially
+#: irreplaceable work-in-progress (a plan file, session state, etc.) and
+#: blocks removal (`SKIP_IGNORED_CONTENT`) rather than being silently
+#: destroyed - `.agentic/` content is exactly the case this must catch.
+_IGNORED_ALLOWLIST_DIR_NAMES = (
+    "node_modules",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".next",
+    "target",
+    "coverage",
+)
+_IGNORED_ALLOWLIST_PATTERNS = (".DS_Store", "*.log")
 
 
 # --------------------------------------------------------------------------
@@ -160,8 +264,16 @@ from worktree_model import (  # noqa: E402
 # --------------------------------------------------------------------------
 
 
-def _run(args: List[str], cwd: Optional[str] = None) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+def _run(
+    args: List[str], cwd: Optional[str] = None, timeout: Optional[float] = None
+) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Synthetic failure result - callers treat any nonzero returncode as
+        # "could not determine", never as proof of anything. rc=124 mirrors
+        # the shell convention for a timed-out command.
+        return subprocess.CompletedProcess(args, returncode=124, stdout="", stderr=f"timeout after {timeout}s")
 
 
 def _resolve_repo(path: str) -> str:
@@ -181,17 +293,45 @@ def _worktree_list(repo: str) -> str:
     return proc.stdout
 
 
-def _is_dirty(worktree_path: str) -> bool:
-    proc = _run(["git", "-C", worktree_path, "status", "--porcelain"])
-    if proc.returncode != 0:
-        # Cannot determine status - fail closed (treat as dirty, never remove).
+def _is_allowlisted_ignored_path(rel_path: str) -> bool:
+    parts = rel_path.strip("/").split("/")
+    if any(part in _IGNORED_ALLOWLIST_DIR_NAMES for part in parts):
         return True
-    return bool(proc.stdout.strip())
+    basename = parts[-1] if parts else rel_path
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
+
+
+def _git_status_and_ignored(worktree_path: str) -> Tuple[str, List[str]]:
+    """Single combined `git status --porcelain --ignored=matching` call.
+    Returns (dirty_status, ignored_offenders). dirty_status is
+    "clean" | "dirty" - a git error fails CLOSED as "dirty" (never a
+    silent "clean" on an indeterminate read). ignored_offenders is the
+    list of ignored relative paths NOT covered by the ephemeral allowlist
+    above (round-2 Major 3).
+    """
+    proc = _run(["git", "-C", worktree_path, "status", "--porcelain", "--ignored=matching"])
+    if proc.returncode != 0:
+        return "dirty", []
+    offenders: List[str] = []
+    has_dirty_line = False
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("!! "):
+            rel = line[3:]
+            if not _is_allowlisted_ignored_path(rel):
+                offenders.append(rel)
+        else:
+            has_dirty_line = True
+    return ("dirty" if has_dirty_line else "clean"), offenders
 
 
 def _ls_remote_status(repo: str, branch: str) -> str:
     """Returns "pushed" | "not_pushed" | "error"."""
-    proc = _run(["git", "-C", repo, "ls-remote", "--exit-code", "--heads", "origin", branch])
+    proc = _run(
+        ["git", "-C", repo, "ls-remote", "--exit-code", "--heads", "origin", branch],
+        timeout=_NETWORK_TIMEOUT_SECONDS,
+    )
     if proc.returncode == 0:
         return "pushed"
     if proc.returncode == 2:
@@ -207,109 +347,151 @@ def _is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
 def _gh_available(repo: str, no_gh: bool) -> bool:
     if no_gh or shutil.which("gh") is None:
         return False
-    proc = _run(["gh", "auth", "status"], cwd=repo)
+    proc = _run(["gh", "auth", "status"], cwd=repo, timeout=_NETWORK_TIMEOUT_SECONDS)
     return proc.returncode == 0
 
 
 def _pr_state(repo: str, branch: str) -> Optional[str]:
-    """Returns "OPEN" | "MERGED" | "CLOSED" | None (no PR / gh error)."""
-    proc = _run(["gh", "pr", "view", branch, "--json", "state", "-q", ".state"], cwd=repo)
+    """Returns "OPEN" | "MERGED" | "CLOSED" | None (no PR / gh error / timeout)."""
+    proc = _run(
+        ["gh", "pr", "view", branch, "--json", "state", "-q", ".state"],
+        cwd=repo,
+        timeout=_NETWORK_TIMEOUT_SECONDS,
+    )
     if proc.returncode != 0:
         return None
     val = proc.stdout.strip()
     return val or None
 
 
-# --------------------------------------------------------------------------
-# Branch-resolution predicate (worktree-removal grade - see module
-# docstring for why this is deliberately more permissive than the
-# shared bin/tests/worktree_model.py disposition_for/_orphan_branch model)
-# --------------------------------------------------------------------------
-
-
-def resolve_branch(
-    repo: str, branch: str, base_ref: str, gh_ok: bool
-) -> Tuple[bool, str]:
-    """Returns (resolved, reason). `resolved=True` means the worktree's
-    branch is provably safe to reclaim the WORKTREE for (never the branch
-    itself - this tool never deletes a branch).
+def _is_self_worktree(entry_path: str) -> bool:
+    """True when the CURRENT PROCESS is running from inside `entry_path`
+    (round-2 Major 2a) - compared via `Path.cwd()`, resolved, against the
+    entry's own resolved path. A v1 dry run flagged this tool's own live
+    worktree as REMOVE; this is the absolute floor that makes that
+    structurally impossible, independent of lock state.
     """
-    ls = _ls_remote_status(repo, branch)
-    if ls == "not_pushed":
-        return True, "branch-gone-from-origin"
-
-    pr_state = _pr_state(repo, branch) if gh_ok else None
-    if pr_state == "OPEN":
-        return False, "pr-open"
-    if pr_state in ("MERGED", "CLOSED"):
-        return True, f"pr-{pr_state.lower()}"
-
-    if _is_ancestor(repo, branch, base_ref):
-        return True, "ancestor-of-base"
-
-    if ls == "error":
-        return False, "ls-remote-error"
-    return False, "unproven"
+    try:
+        cwd = Path.cwd().resolve()
+        wt = Path(entry_path).resolve()
+    except OSError:
+        return False
+    return cwd == wt or wt in cwd.parents
 
 
-# --------------------------------------------------------------------------
-# Per-entry evaluation
-# --------------------------------------------------------------------------
-
-
-def evaluate_entry(repo: str, entry, wt_class: WorktreeClass, base_ref: str, gh_ok: bool) -> dict:
-    """Resolves one worktree entry, returning a dict with at least `path`,
-    `branch`, `class`, and `outcome`. `outcome` is one of REMOVE,
-    SKIP_UNMANAGED, SKIP_DIRTY, SKIP_LOCKED, SKIP_MISSING_LOCKED,
-    SKIP_UNPROVEN, SKIP_DETACHED.
+def _worktree_age_hours(entry_path: str) -> Optional[float]:
+    """Hours since `entry_path`'s own mtime, or None if it cannot be
+    stat'd (treated as "too young" by the caller - fail closed, never
+    remove on an indeterminate age).
     """
+    try:
+        mtime = Path(entry_path).stat().st_mtime
+    except OSError:
+        return None
+    return (time.time() - mtime) / 3600.0
+
+
+# --------------------------------------------------------------------------
+# Per-entry evidence + evaluation (round-2: delegates the LOCKED/DIRTY/
+# branch-evidence decision entirely to worktree_model.disposition_for -
+# see the module docstring's Removal predicate section)
+# --------------------------------------------------------------------------
+
+
+def _build_facts(
+    repo: str,
+    entry,
+    dirty_status: str,
+    base_ref: str,
+    gh_ok: bool,
+    allow_network: bool,
+) -> DispositionFacts:
+    merge_evidence = "not_checked"
+    ls_remote_status = "not_checked"
+    pr_state = "not_checked"
+
+    if entry.branch is not None:
+        merge_evidence = "merged" if _is_ancestor(repo, entry.branch, base_ref) else "unmerged"
+        if allow_network:
+            ls_remote_status = _ls_remote_status(repo, entry.branch)
+        if gh_ok:
+            raw = _pr_state(repo, entry.branch)
+            pr_state = raw if raw else "NONE"
+
+    return DispositionFacts(
+        dirty_status=dirty_status,
+        head_reachable="not_checked",
+        ls_remote_status=ls_remote_status,
+        merge_evidence=merge_evidence,
+        content_subsumption="not_checked",
+        pr_state=pr_state,
+    )
+
+
+def _display_reason(facts: DispositionFacts) -> str:
+    """Informational only - does not affect the decision, which is fully
+    delegated to `disposition_for`. Mirrors that function's own evidence
+    precedence for a human-readable --explain label.
+    """
+    if facts.merge_evidence == "merged":
+        return "ancestor-of-base"
+    if facts.pr_state == "MERGED":
+        return "pr-merged"
+    return "eligible"
+
+
+def evaluate_entry(
+    repo: str,
+    entry,
+    wt_class: WorktreeClass,
+    base_ref: str,
+    gh_ok: bool,
+    allow_network: bool,
+    min_age_hours: float,
+) -> Dict:
+    """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
+    SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
+    SKIP_LOCKED, SKIP_DIRTY, SKIP_IGNORED_CONTENT, SKIP_UNPROVEN, REMOVE.
+    """
+    base = {"path": entry.path, "branch": entry.branch, "class": wt_class.value}
+
     if wt_class is WorktreeClass.UNMANAGED:
-        return {"path": entry.path, "branch": entry.branch, "class": wt_class.value, "outcome": "SKIP_UNMANAGED"}
+        return {**base, "outcome": "SKIP_UNMANAGED"}
 
     exists = Path(entry.path).is_dir()
-
     if not exists:
         # Admin-only entry (directory already gone). Unlock if locked (the
         # ONLY case the guardrail permits unlocking - its agent cannot
         # still be running when the directory is gone) so `git worktree
         # prune` at the end can actually reclaim it.
         if entry.locked:
-            return {
-                "path": entry.path,
-                "branch": entry.branch,
-                "class": wt_class.value,
-                "outcome": "SKIP_MISSING_LOCKED",
-            }
-        return {"path": entry.path, "branch": entry.branch, "class": wt_class.value, "outcome": "SKIP_MISSING"}
+            return {**base, "outcome": "SKIP_MISSING_LOCKED"}
+        return {**base, "outcome": "SKIP_MISSING"}
 
-    if entry.locked:
+    if _is_self_worktree(entry.path):
+        return {**base, "outcome": "SKIP_SELF"}
+
+    age_hours = _worktree_age_hours(entry.path)
+    if age_hours is None or age_hours < min_age_hours:
+        return {**base, "outcome": "SKIP_TOO_YOUNG"}
+
+    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path)
+    facts = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
+    disposition = disposition_for(entry, wt_class, facts)
+
+    if disposition is Disposition.SKIP_LOCKED:
         # Guardrail: never unlock or force-remove a worktree whose
-        # directory still exists - its agent may still be running.
-        return {"path": entry.path, "branch": entry.branch, "class": wt_class.value, "outcome": "SKIP_LOCKED"}
-
-    if _is_dirty(entry.path):
-        return {"path": entry.path, "branch": entry.branch, "class": wt_class.value, "outcome": "SKIP_DIRTY"}
-
-    if entry.branch is None:
-        # Detached HEAD - no branch to resolve; never remove without proof.
-        return {"path": entry.path, "branch": entry.branch, "class": wt_class.value, "outcome": "SKIP_DETACHED"}
-
-    resolved, reason = resolve_branch(repo, entry.branch, base_ref, gh_ok)
-    if resolved:
-        return {
-            "path": entry.path,
-            "branch": entry.branch,
-            "class": wt_class.value,
-            "outcome": "REMOVE",
-            "reason": reason,
-        }
-    return {
-        "path": entry.path,
-        "branch": entry.branch,
-        "class": wt_class.value,
-        "outcome": "SKIP_UNPROVEN",
-        "reason": reason,
-    }
+        # directory still exists - its agent may still be running (and
+        # absence of a lock elsewhere does not imply this one is stale -
+        # see the module docstring's Locked handling note).
+        return {**base, "outcome": "SKIP_LOCKED"}
+    if disposition is Disposition.SKIP_DIRTY:
+        return {**base, "outcome": "SKIP_DIRTY"}
+    if ignored_offenders:
+        return {**base, "outcome": "SKIP_IGNORED_CONTENT", "offenders": ignored_offenders[:5]}
+    if disposition is Disposition.ELIGIBLE:
+        return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
+    return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
 
 
 # --------------------------------------------------------------------------
@@ -327,7 +509,32 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-gh", action="store_true")
     p.add_argument("--explain", action="store_true")
+    p.add_argument("--count-only", action="store_true")
+    p.add_argument("--min-age-hours", type=float, default=24.0)
     return p.parse_args(argv)
+
+
+#: Every outcome `evaluate_entry`/the MAIN-entry/UNMANAGED-entry branches in
+#: `main()` can produce - used to assert the bucket-sum-equals-entries
+#: invariant (round-2 Minor a) and to build the summary line's field set.
+_ALL_OUTCOMES = (
+    "SKIP_MAIN",
+    "SKIP_UNMANAGED",
+    "SKIP_MISSING",
+    "SKIP_MISSING_LOCKED",
+    "SKIP_SELF",
+    "SKIP_TOO_YOUNG",
+    "SKIP_LOCKED",
+    "SKIP_DIRTY",
+    "SKIP_IGNORED_CONTENT",
+    "SKIP_UNPROVEN",
+    "REMOVE",
+)
+
+
+def _field_name(outcome: str) -> str:
+    """`SKIP_TOO_YOUNG` -> `skipped-too-young` for the summary line."""
+    return outcome.lower().replace("skip_", "skipped-").replace("_", "-")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -349,14 +556,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ds-reap-worktrees: internal error: {exc}", file=sys.stderr)
         return 1
 
+    # --count-only (round-2 Major 4): zero network calls, zero per-entry
+    # git calls - the SINGLE `git worktree list --porcelain` call above is
+    # the entire cost. Both automatic call sites (ds-base-sync, the
+    # SessionStart nudge) use this mode exclusively.
+    if args.count_only:
+        print(f"ds-reap-worktrees: mode=count-only entries={len(entries)}")
+        return 0
+
     if not entries:
         # Practically unreachable against a real git repo (`git worktree
         # list --porcelain` always emits at least the main worktree), but
         # the mode string is still composed from the SAME dry-run/degraded
-        # axes as the populated-entries path below, not hardcoded "live" -
-        # see the module docstring's --dry-run flag and the sibling
-        # bin/ds-branch-prune's own documented "mode must reflect every
-        # behavior-changing flag" lesson.
+        # axes as the populated-entries path below, not hardcoded "live".
         empty_degraded = not _gh_available(repo, args.no_gh)
         empty_mode_parts = []
         if empty_degraded:
@@ -364,13 +576,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if args.dry_run:
             empty_mode_parts.append("dry-run")
         empty_mode = ", ".join(empty_mode_parts) if empty_mode_parts else "live"
-        print(
-            f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 "
-            "skipped-dirty=0 skipped-locked=0 skipped-unproven=0 pruned-admin=0"
-        )
+        empty_fields = " ".join(f"{_field_name(o)}=0" for o in _ALL_OUTCOMES if o != "REMOVE")
+        print(f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 {empty_fields} pruned-admin=0")
         return 0
 
     gh_ok = _gh_available(repo, args.no_gh)
+    allow_network = not args.no_gh
     degraded = not gh_ok
 
     results = []
@@ -380,10 +591,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         if is_main:
             results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
             continue
-        results.append(evaluate_entry(repo, entry, wt_class, args.base, gh_ok))
+        results.append(
+            evaluate_entry(repo, entry, wt_class, args.base, gh_ok, allow_network, args.min_age_hours)
+        )
+
+    # Bucket-sum-equals-entries invariant (round-2 Minor a): every result
+    # must land in exactly one of _ALL_OUTCOMES - fail loudly (internal
+    # error) rather than silently under/over-counting the summary line.
+    outcome_counts = Counter(r["outcome"] for r in results)
+    unknown_outcomes = set(outcome_counts) - set(_ALL_OUTCOMES)
+    if unknown_outcomes:
+        print(f"ds-reap-worktrees: internal error: unrecognized outcome(s) {sorted(unknown_outcomes)}", file=sys.stderr)
+        return 1
+    assert sum(outcome_counts.values()) == len(results), "bucket sum must equal entries"
 
     remove_results = [r for r in results if r["outcome"] == "REMOVE"]
-    skip_counts = Counter(r["outcome"] for r in results if r["outcome"] != "REMOVE")
 
     removed = 0
     if not args.dry_run:
@@ -404,27 +626,22 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Unlock any directory-missing locked entries so the admin-prune pass
     # below can reclaim them (the sole permitted unlock case - see the
-    # Locked handling note in the module docstring).
+    # Locked handling note in the module docstring). Real action, real
+    # unlock, so this stays dry-run-gated like the removal loop above.
     missing_locked = [r for r in results if r["outcome"] == "SKIP_MISSING_LOCKED"]
     if not args.dry_run:
         for r in missing_locked:
             _run(["git", "-C", repo, "worktree", "unlock", r["path"]])
 
-    # `git worktree list --porcelain` does NOT report `prunable` for a
-    # LOCKED entry whose directory is gone (git withholds prunable status
-    # from a locked entry by design, even though the directory is
-    # confirmed missing) - verified empirically against a scratch repo.
-    # Count both directory-missing outcomes directly from `results` rather
-    # than `entry.prunable`, so a missing-and-locked entry (unlocked just
-    # above) is still counted here even though its ORIGINAL porcelain
-    # listing never set `prunable`.
-    pruned_admin = sum(1 for r in results if r["outcome"] in ("SKIP_MISSING", "SKIP_MISSING_LOCKED"))
+    # `pruned-admin` reports an ACTION TAKEN, not a candidate count (round-2
+    # Minor c - v1 reported a nonzero value under --dry-run even though
+    # `git worktree prune` was never invoked). It is 0 under --dry-run,
+    # unconditionally; the candidate set remains fully visible via
+    # SKIP_MISSING/SKIP_MISSING_LOCKED in the bucket counts and --explain.
+    pruned_admin = 0
     if not args.dry_run:
+        pruned_admin = sum(1 for r in results if r["outcome"] in ("SKIP_MISSING", "SKIP_MISSING_LOCKED"))
         _run(["git", "-C", repo, "worktree", "prune"])
-
-    skipped_dirty = skip_counts.get("SKIP_DIRTY", 0)
-    skipped_locked = skip_counts.get("SKIP_LOCKED", 0)
-    skipped_unproven = skip_counts.get("SKIP_UNPROVEN", 0) + skip_counts.get("SKIP_DETACHED", 0)
 
     mode_parts = []
     if degraded:
@@ -433,25 +650,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         mode_parts.append("dry-run")
     mode = ", ".join(mode_parts) if mode_parts else "live"
 
+    field_str = " ".join(
+        f"{_field_name(outcome)}={outcome_counts.get(outcome, 0)}" for outcome in _ALL_OUTCOMES if outcome != "REMOVE"
+    )
     print(
         f"ds-reap-worktrees: base={args.base} mode={mode} entries={len(results)} "
-        f"removed={removed} skipped-dirty={skipped_dirty} skipped-locked={skipped_locked} "
-        f"skipped-unproven={skipped_unproven} pruned-admin={pruned_admin}"
+        f"removed={removed} {field_str} pruned-admin={pruned_admin}"
     )
 
     if degraded:
         print(
-            "NOTE: degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - only "
-            "branch-gone-from-origin and ancestor-of-base evidence available for the "
-            "branch-resolution leg; this can only remove FEWER worktrees than a full run, "
-            "never more."
+            "NOTE: degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - the "
+            "PR-state leg is unavailable" + (" and git ls-remote was suppressed (--no-gh)" if args.no_gh else "")
+            + "; this can only remove FEWER worktrees than a full run, never more."
         )
 
     if args.explain:
         print("-- per-entry --")
         for r in results:
             reason = f" ({r['reason']})" if "reason" in r else ""
-            print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}")
+            offenders = f" offenders={r['offenders']}" if "offenders" in r else ""
+            print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}{offenders}")
 
     return 0
 

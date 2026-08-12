@@ -1314,11 +1314,11 @@ hr {
 <h2 id="ad-hoc-cleanup-obligation--the-automatic-reaper">Ad-hoc cleanup obligation + the automatic reaper</h2>
 
 <p><code>/ds-implement-ticket</code> Phase 8's own cleanup only fires on that command's own success path. Any ad-hoc <code>isolation: &quot;worktree&quot;</code> spawn outside it is on the conductor: clean it up at the natural completion point, not &quot;eventually.&quot;</p>
-<p><code>bin/ds-reap-worktrees</code> is the executable form of <code>/ds-cleanup-worktrees</code>'s predicate - dirty, locked-present, and unproven branches are always reported, never removed:</p>
+<p><code>bin/ds-reap-worktrees</code> is the executable form of <code>/ds-cleanup-worktrees</code>'s predicate - it delegates the locked/dirty/branch-evidence decision to <code>worktree_model.disposition_for</code> (the same normative function the command file cites), never a second copy of that logic:</p>
 <ul>
-<li>Removable only when clean, unlocked, AND the branch is gone from origin, its PR is MERGED/CLOSED, or it's an ancestor of the base ref</li>
-<li><code>--dry-run</code> is report-only; two passive triggers use it automatically - <code>ds-base-sync</code>'s post-merge advisory note, and a SessionStart nudge past a small worktree-count threshold</li>
-<li>Neither passive trigger ever removes anything - actual removal stays an explicit <code>/ds-cleanup-worktrees</code> or bare <code>ds-reap-worktrees</code> invocation</li>
+<li>Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of non-allowlisted gitignored content, AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed</li>
+<li><code>--count-only</code> is the mode both passive triggers use automatically - <code>ds-base-sync</code>'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single <code>git worktree list</code> call, no network, no per-entry evaluation</li>
+<li>Neither passive trigger ever removes anything - actual removal stays an explicit <code>/ds-cleanup-worktrees</code> or bare <code>ds-reap-worktrees --dry-run</code>/no-flags invocation</li>
 </ul>
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
