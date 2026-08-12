@@ -2691,16 +2691,22 @@ check(
     "downgraded to advisory" not in parse_output(out).get("reason", ""),
 )
 
-# ds158-e. _is_answer_shaped_prose unit coverage: a single well-formed,
-# reasonably long sentence is NOT answer-shaped (the multi-sentence floor
-# is load-bearing - see ds156-e above, the live regression this guards).
+# ds158-e. _is_answer_shaped_prose unit coverage. DS-159: the
+# multi-sentence floor moved OUT of this function into
+# _execution_prose_flag's whole-turn aggregate (see ds156-e above, still
+# BLOCKING end-to-end - the live regression this function no longer
+# guards alone). _is_answer_shaped_prose itself now checks ONLY the
+# average-words-per-unit condition, per block.
 check(
-    "ds158-e1. a single 12-word sentence is NOT answer-shaped (fails the "
-    "multi-sentence floor)",
+    "ds158-e1 (DS-159 REVISED). a single 12-word sentence's own PER-BLOCK "
+    "average clears the words threshold (12 words / 1 unit >= 8) - IS "
+    "answer-shaped at the per-block level; the multi-sentence floor that "
+    "still blocks ds156-e's identical sentence end-to-end now lives in "
+    "_execution_prose_flag's whole-turn aggregate, not here",
     _mod._is_answer_shaped_prose(
         "One more thing worth mentioning here that is not a status slot."
     )
-    is False,
+    is True,
 )
 check(
     "ds158-e2. two short templated sentences (well under the "
@@ -3073,6 +3079,148 @@ check(
     "(downgraded), hook-level end-to-end pin (was BLOCKING before this "
     "fix)",
     is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
+# DS-159: the operator's live complaint. A plain multi-paragraph prose
+# answer with ZERO status lines blocked at DS-158 round 3/round 4 HEAD,
+# because _execution_prose_flag's general branch required
+# _ANSWER_PROSE_MIN_SENTENCES (>=2 units) INSIDE EVERY INDIVIDUAL
+# contiguous block - and a terse, blank-line-separated conductor answer
+# (this repo's own mandated "1-3 lines per turn" style) routinely
+# produces several genuinely single-sentence paragraphs, each its own
+# block. The fix: the average-words-per-unit condition stays PER BLOCK
+# (unchanged, still the axis narrative-creep launders through), but the
+# minimum-unit-count floor is now a WHOLE-TURN AGGREGATE across every
+# block that already passed the average-words check.
+# ---------------------------------------------------------------------------
+
+# ds159-a. The reported repro shape: a completion-warrant turn with NO
+# status slot lines at all, just several blank-line-separated
+# single-sentence paragraphs (the operator's actual complaint) -> must
+# now DOWNGRADE (was BLOCKING at DS-158 round 4 HEAD, fadfcbf6).
+ds159_a_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "This is a genuinely single-sentence paragraph explaining what "
+    "happened here today, written the way a real terse conductor answer "
+    "actually reads.\n"
+    "\n"
+    "This is a second, similarly single-sentence paragraph carrying a "
+    "different but equally real piece of explanatory detail.\n"
+    "\n"
+    "This is a third single-sentence paragraph, again just one sentence "
+    "but with real substantive content behind it.\n"
+)
+rc, out, err = run_hook(make_payload(ds159_a_msg))
+check(
+    "ds159-a. multi-paragraph answer, EVERY paragraph a single sentence, "
+    "no status lines at all -> DOWNGRADE (was BLOCKING pre-DS-159, the "
+    "operator's founding complaint for this fix)",
+    is_advisory(rc, out, "downgraded to advisory (DS-159)"),
+)
+
+# ds159-b. The exact shape the spec requires: a single-sentence
+# paragraph SANDWICHED inside an otherwise excellent multi-paragraph
+# answer. Paragraph 1 and paragraph 3 are genuinely developed
+# (multi-sentence, reusing _pad_lines[0] and _pad_lines[1] - each
+# independently clears the OLD per-block floor on its own); paragraph 2
+# is a single well-formed sentence that alone could never clear a
+# per-block floor of 2. Pre-DS-159 this BLOCKED the whole turn over
+# paragraph 2 alone; post-DS-159 the aggregate (2 + 1 + 2 = 5 units)
+# clears the floor and the whole turn downgrades.
+ds159_b_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + _pad_lines[0] + "\n"
+    "\n"
+    "This one paragraph is only a single sentence, unlike its "
+    "neighbors.\n"
+    "\n"
+    + _pad_lines[1] + "\n"
+)
+rc, out, err = run_hook(make_payload(ds159_b_msg))
+check(
+    "ds159-b. single-sentence paragraph SANDWICHED inside two "
+    "genuinely-developed paragraphs -> DOWNGRADE (the exact shape "
+    "DS-159 fixes: one weak paragraph no longer sinks an otherwise "
+    "answer-shaped multi-paragraph turn)",
+    is_advisory(rc, out, "downgraded to advisory (DS-159)"),
+)
+
+# ds159-b2. CONTRAST at the per-block level: paragraph 2 alone still
+# fails _is_answer_shaped_prose's per-block AVERAGE check on its own
+# arithmetic (few words, but that's not what makes ds159-b downgrade -
+# it downgrades because paragraph 2's own average clears 8 words/unit
+# too; this direct check confirms paragraph 2 individually passes the
+# per-block predicate, which is a precondition for ds159-b's aggregate
+# math to be meaningful rather than accidental).
+check(
+    "ds159-b2. the sandwiched single sentence individually clears the "
+    "per-block average-words check on its own merits (precondition for "
+    "ds159-b's aggregate downgrade to be meaningful)",
+    _mod._is_answer_shaped_prose(
+        "This one paragraph is only a single sentence, unlike its "
+        "neighbors."
+    )
+    is True,
+)
+
+# ds159-c. THE BLANK-LINE-ONLY LAUNDERING BYPASS (required by the spawn
+# brief - ds158-f/f2 only ever separated creep from pad with a
+# recognized State: line, never with JUST a blank line and no other
+# separator). Narrative-creep sprawl (8 short pings, ALL on one single
+# physical line so no State:/Waiting:/fence line ever intervenes)
+# immediately followed by a blank line then one genuine answer-shaped
+# paragraph. This must still BLOCK: the creep block's own average-words
+# check fails regardless of DS-159, and DS-159's aggregate only ever
+# sums units from blocks that already independently passed that check -
+# a failing block contributes zero units and keeps `all(...)` False.
+ds159_c_creep_line = " ".join("Also did thing {}.".format(i) for i in range(1, 9))
+ds159_c_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "Done and shipped. PR merged cleanly.\n"
+    "\n"
+    + ds159_c_creep_line + "\n"
+    "\n"
+    + _pad_lines[0] + "\n"
+    + _pad_lines[1] + "\n"
+    + _pad_lines[2] + "\n"
+)
+rc, out, err = run_hook(make_payload(ds159_c_msg))
+check(
+    "ds159-c. narrative-creep sprawl + BLANK LINE (no other separator) + "
+    "genuine answer-shaped paragraph -> still BLOCKING (the blank-line-"
+    "only laundering shape DS-158's own fixtures never exercised)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+check(
+    "ds159-c2. the finding is NOT tagged 'downgraded to advisory' (proves "
+    "ds159-c blocks for the right reason, not by accident)",
+    "downgraded to advisory" not in parse_output(out).get("reason", ""),
+)
+
+# ds159-d. Direct unit-level pin of the aggregate arithmetic itself,
+# bypassing subprocess/JSON entirely: three blocks, each with exactly 1
+# unit that individually passes the average-words check, must produce a
+# combined total of 3 units - proving the aggregation genuinely SUMS
+# across blocks rather than, say, taking a max or re-testing only the
+# last block.
+_ds159_units_per_block = [
+    len(_mod._answer_prose_units([line]))
+    for line in [
+        "This first single-sentence block carries real explanatory "
+        "weight and enough words to clear the per-block average easily.",
+        "This second single-sentence block also carries real "
+        "explanatory weight and clears the same per-block average.",
+        "This third single-sentence block likewise carries real "
+        "explanatory weight and clears the same per-block average too.",
+    ]
+]
+check(
+    "ds159-d. three independent single-sentence blocks each contribute "
+    "exactly 1 unit (3 blocks x 1 unit = 3, precondition for the "
+    "aggregate floor of 2 to be meaningfully exercised by ds159-a/b "
+    "above, not accidentally satisfied by a single oversized block)",
+    _ds159_units_per_block == [1, 1, 1],
 )
 
 # ---------------------------------------------------------------------------

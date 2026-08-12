@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158) that checks the
-         SHAPE of the conductor's final assistant message against the
-         turn-shape contract in content/references/conductor-turn-format.md
-         §9 (the hook contract) / content/sections/02-delegation.md
-         ("Operator decisions go last in the turn"). As of DS-156 this
-         hook is NO LONGER uniformly advisory: it runs two checks with
-         DIFFERENT enforcement postures.
+Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
+         checks the SHAPE of the conductor's final assistant message
+         against the turn-shape contract in
+         content/references/conductor-turn-format.md §9 (the hook
+         contract) / content/sections/02-delegation.md ("Operator
+         decisions go last in the turn"). As of DS-156 this hook is NO
+         LONGER uniformly advisory: it runs two checks with DIFFERENT
+         enforcement postures.
 
            - `_execution_prose_flag` (execution-turn structural shape,
              REPLACES the deleted `_forced_yield_flag`) is BLOCKING BY
@@ -1450,26 +1451,38 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
 
 # DS-158 (round 2 Skeptic Major, residual-false-positive fix): minimum
 # unit count and average words-per-unit threshold used by
-# _is_answer_shaped_prose to distinguish genuine explanatory prose (a
-# developed, multi-sentence/multi-item paragraph or list) from
-# narrative-creep noise (single terse status pings, or a sprawl of many
-# short templated pings - see s5c-b in
+# _is_answer_shaped_prose / _execution_prose_flag to distinguish genuine
+# explanatory prose (a developed, multi-sentence/multi-item paragraph or
+# list) from narrative-creep noise (single terse status pings, or a
+# sprawl of many short templated pings - see s5c-b in
 # hooks/tests/test-enforce-turn-shape.py, which stays BLOCKING at ~4.75
-# words/unit across 8 lines like "Also did thing 1."). Requiring >=2 units
-# (not just a high word-count average) is load-bearing: a single
-# well-formed, 12-word sentence beside status slot lines (ds156-e's "One
-# more thing worth mentioning here that is not a status slot.") is
-# exactly the operator's founding narrative-creep complaint this hook
-# exists to catch, not an answer - one short sentence is never a
-# "paragraph". An unclosed fence's buffered content (s13) is 15 physical
-# lines with no sentence-terminal punctuation at all; each becomes its
-# own low-word-count unit (round 2: units are line-scoped, see below), so
-# it fails on the AVERAGE, not the count - still correctly BLOCKING. The
-# avg-words-per-unit threshold (8) is measured against the two DS-158
+# words/unit across 8 lines like "Also did thing 1."). The avg-words-
+# per-unit threshold (8) is PER BLOCK, evaluated inside
+# _is_answer_shaped_prose - this is load-bearing and unchanged by DS-159:
+# a short templated status ping averages only a handful of words per
+# unit even when there are many of them (narrative creep, fails on the
+# average) - see s5c-b above. An unclosed fence's buffered content (s13)
+# is 15 physical lines with no sentence-terminal punctuation at all; each
+# becomes its own low-word-count unit (round 2: units are line-scoped,
+# see below), so it fails on the AVERAGE, not the count - still
+# correctly BLOCKING. The threshold is measured against the two DS-158
 # false-positive reports named in the module docstring: the reported
 # answer paragraphs run well over 8 words/unit, s5c-b's narrative body
 # runs well under it. Not corpus-swept beyond those shapes; revisit if
 # false positives recur on either side.
+#
+# DS-159 (measured false positive - see _is_answer_shaped_prose's
+# docstring and _execution_prose_flag's DS-159 comment for the full
+# rationale): the >=2 unit floor moved from a PER-BLOCK requirement to a
+# WHOLE-TURN AGGREGATE, summed only across blocks that already clear the
+# average-words check above. A single well-formed sentence sitting ALONE
+# (the turn's only block) still fails this floor and BLOCKS - ds156-e's
+# "One more thing worth mentioning here that is not a status slot." is
+# unchanged, still the operator's founding narrative-creep complaint this
+# hook exists to catch. What changed is a genuinely multi-paragraph
+# answer where each paragraph happens to be one sentence: those
+# paragraphs' unit counts now sum together instead of each needing to
+# independently clear the floor.
 _ANSWER_PROSE_MIN_SENTENCES = 2
 _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE = 8
 
@@ -1558,33 +1571,52 @@ def _answer_prose_units(lines) -> list:
 
 def _is_answer_shaped_prose(lines) -> bool:
     """DS-158 (round 2: reworked to fix a measured residual
-    false-positive rate - see `_answer_prose_units`). True iff the
-    PHYSICAL LINES in `lines` (an iterable of raw block-line strings, NOT
-    a single joined blob - see `_execution_prose_flag`'s per-block
-    call site, Major 1 fix) read as genuine explanatory/answer prose
-    rather than narrative-creep noise (a single stray sentence/label, or
-    a sprawl of short templated status pings). Consumed ONLY by
+    false-positive rate - see `_answer_prose_units`). DS-159: checks the
+    average-words-per-unit condition ONLY, scoped to ONE contiguous
+    block - the min-unit floor is no longer evaluated here (see below).
+    True iff the PHYSICAL LINES in `lines` (an iterable of raw
+    block-line strings, NOT a single joined blob - see
+    `_execution_prose_flag`'s per-block call site, round-2 Major 1 fix)
+    average at least _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE words per unit
+    (see `_answer_prose_units`). Consumed ONLY by
     _execution_prose_flag's general branch, to decide whether ONE
-    contiguous block of unrecognized status-region lines downgrades to
-    ADVISORY instead of staying BLOCKING - see that function's docstring.
+    contiguous block of unrecognized status-region lines is narrative-
+    creep-shaped (a sprawl of short templated status pings averages only
+    a handful of words per unit even when there are many of them, and
+    still fails HERE regardless of how many other blocks the turn has) -
+    see that function's docstring for how this combines with the
+    whole-turn unit-count floor to produce the final ADVISORY/BLOCKING
+    decision.
 
-    Discriminator: at least _ANSWER_PROSE_MIN_SENTENCES units (see
-    `_answer_prose_units`) AND an average words-per-unit >=
-    _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE. Both conditions are required
-    (see the constants' docstring above for why each alone is
-    insufficient) - a short templated status ping averages only a
-    handful of words per unit even when there are many of them
-    (narrative creep, fails on the average); a single isolated sentence
-    never reaches the multi-unit floor no matter how long it is
-    (ds156-e, fails on the count). This is deliberately a volume/shape
-    heuristic, not a semantic one - matching this module's existing
-    "structural predicate, not phrase matching" design for the BLOCKING
-    check (see the module docstring's "Why the split" paragraph).
+    DS-159 (real false positive: a real multi-paragraph conductor
+    answer, terse in this repo's own mandated style, routinely produces
+    several genuinely single-sentence paragraphs - each its own
+    contiguous block once separated by a blank line, per DS-158 round 3.
+    Requiring >=2 units INSIDE EVERY INDIVIDUAL BLOCK meant one
+    well-formed single-sentence paragraph anywhere in an otherwise
+    excellent multi-paragraph answer blocked the WHOLE turn - reported
+    live against DS-158 round 3/round 4 HEAD (see `ds159-a`/`ds159-b` in
+    `hooks/tests/test-enforce-turn-shape.py` for the pinned shapes; no
+    rate is asserted here - see that fixture section's own note on why).
+    The average-words-per-unit condition
+    stays PER BLOCK - it is the axis a narrative-creep sprawl launders
+    through (many short pings), so weakening it per block would reopen
+    exactly the hole DS-158 closed; only the min-unit floor moved to a
+    whole-turn aggregate, in `_execution_prose_flag` itself, so a single
+    isolated sentence (ds156-e's "One more thing worth mentioning here
+    that is not a status slot.") sitting ALONE (its block is the only
+    block in the turn) still fails the aggregate floor and BLOCKS - the
+    floor only aggregates ACROSS blocks that already individually pass
+    this average-words check; it does not accept a lone low-word-count
+    filler unit riding beside good prose (that filler's own block would
+    still need to clear the average on its own to contribute any units
+    to the sum, and a distinct-block laundering sprawl still fails
+    right here, per block, regardless of the aggregate).
     """
     if isinstance(lines, str):
         lines = lines.splitlines()
     units = _answer_prose_units(lines)
-    if len(units) < _ANSWER_PROSE_MIN_SENTENCES:
+    if not units:
         return False
     total_words = sum(len(u.split()) for u in units)
     avg_words = total_words / len(units)
@@ -1643,6 +1675,25 @@ def _execution_prose_flag(text: str, warrants: dict):
         original union-based version had: one developed paragraph
         anywhere in the region could otherwise downgrade an arbitrarily
         large, non-adjacent narrative-creep sprawl riding alongside it.
+
+    DS-159: "EVERY CONTIGUOUS BLOCK is answer-shaped prose" above still
+    means every block clears the average-words-per-unit condition
+    (_is_answer_shaped_prose, unchanged) - but the minimum-unit-count
+    condition is no longer evaluated per block. A real multi-paragraph
+    conductor answer, in this repo's own mandated terse style, routinely
+    produces several genuinely single-sentence, blank-line-separated
+    paragraphs; requiring 2+ units INSIDE EVERY block meant one
+    well-formed single-sentence paragraph anywhere in an otherwise
+    excellent multi-paragraph answer blocked the WHOLE turn (reported
+    live against DS-158 round 3/round 4 HEAD; see `ds159-a`/`ds159-b` in
+    `hooks/tests/test-enforce-turn-shape.py` for the pinned shapes - no
+    rate is asserted here). The unit-count floor is now a WHOLE-TURN AGGREGATE:
+    sum the units of every block that already passed the average-words
+    check, and require that sum to clear _ANSWER_PROSE_MIN_SENTENCES.
+    This does not reopen DS-158 round 2's laundering bypass - a
+    narrative-creep block still fails the average-words check right
+    there, per block, and contributes zero units regardless of the
+    aggregate; only genuinely answer-shaped blocks ever reach the sum.
     """
     identity_line, body = _segment(text)
     if len(identity_line) > STATUS_LINE_MAX_CHARS:
@@ -1693,17 +1744,31 @@ def _execution_prose_flag(text: str, warrants: dict):
     # Skeptic Minor 2) a blank line BREAKS contiguity - it ends the
     # current block, since it is not itself part of the unrecognized
     # content, and a blank line is the canonical markdown block
-    # separator. Each block is then classified INDEPENDENTLY;
-    # the finding downgrades to advisory only when EVERY block is
-    # answer-shaped prose, and stays BLOCKING the moment any single block
-    # fails the discriminator. This matches
-    # content/references/conductor-turn-format.md's spec text ("an
-    # unrecognized line, or CONTIGUOUS BLOCK of unrecognized lines") and
-    # closes the laundering bypass the flat-union version had: a single
-    # developed paragraph ANYWHERE in the status region used to downgrade
-    # an arbitrarily large, non-adjacent narrative-creep sprawl riding
-    # alongside it, because the union's AVERAGE was computed across both
-    # regardless of whether they were ever adjacent in the actual turn.
+    # separator. Each block is then classified INDEPENDENTLY on the
+    # average-words-per-unit axis (see _is_answer_shaped_prose) - the
+    # finding stays BLOCKING the moment any single block fails THAT
+    # discriminator, closing the laundering bypass the flat-union version
+    # had: a single developed paragraph ANYWHERE in the status region used
+    # to downgrade an arbitrarily large, non-adjacent narrative-creep
+    # sprawl riding alongside it, because the union's AVERAGE was computed
+    # across both regardless of whether they were ever adjacent in the
+    # actual turn. This matches content/references/conductor-turn-format.md's
+    # spec text ("an unrecognized line, or CONTIGUOUS BLOCK of unrecognized
+    # lines").
+    #
+    # DS-159 (measured false positive, see _is_answer_shaped_prose's own
+    # docstring for the corpus figure): the minimum-unit-count floor
+    # (_ANSWER_PROSE_MIN_SENTENCES) is evaluated as a WHOLE-TURN AGGREGATE
+    # below, summed across every block that individually clears the
+    # average-words check, rather than per block. A real multi-paragraph
+    # answer routinely produces several single-sentence, blank-line-
+    # separated paragraphs - each its own contiguous block - and requiring
+    # 2+ units INSIDE EVERY block blocked the whole turn over one
+    # well-formed single-sentence paragraph. Aggregating only ACROSS
+    # blocks that already pass the average-words test does not reopen the
+    # round-2 laundering bypass: a narrative-creep block still fails right
+    # here, per block, on the average, and contributes zero units to the
+    # sum regardless of the floor.
     status_lines, _decisions_lines, _heading_present = _regions(body)
     blocks = []
     current_block = []
@@ -1756,10 +1821,12 @@ def _execution_prose_flag(text: str, warrants: dict):
         "Waiting: lines)"
     )
     if all(_is_answer_shaped_prose(block) for block in blocks):
-        return (
-            finding + " - downgraded to advisory (DS-158): content reads "
-            "as answer-shaped prose, not narrative creep"
-        ), False
+        total_units = sum(len(_answer_prose_units(block)) for block in blocks)
+        if total_units >= _ANSWER_PROSE_MIN_SENTENCES:
+            return (
+                finding + " - downgraded to advisory (DS-159): content "
+                "reads as answer-shaped prose, not narrative creep"
+            ), False
     return finding, True
 
 
