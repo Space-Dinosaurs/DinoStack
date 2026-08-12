@@ -2,7 +2,10 @@
 Purpose: Full reference for the post-merge local base-branch sync procedure -
          the `ds-base-sync` CLI contract, the underlying
          `ae_base_branch_sync` bash function, the divergence diagnostic
-         format, recovery guidance, and the two call sites that invoke it.
+         format, recovery guidance, the two call sites that invoke it, and
+         the two unconditional post-sync advisory notes (DS-54 hooks-
+         staleness, worktree-reaper) it prints - never blocking, never
+         mutating.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/commands/ds-implement-ticket.md Phase 12 (unconditional
@@ -10,7 +13,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md Conductor preflight step 6
             (session-start sync call).
 
-Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh.
+Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh,
+               bin/ds-reap-worktrees (worktree-reaper advisory note only).
 
 Downstream consumers: /ds-implement-ticket Phase 12; the conductor session-
                       start preflight in content/rules/conventions.md.
@@ -111,6 +115,14 @@ ds-base-sync: dinostack: hooks are not yet snapshotted - a bare 'git pull' can s
 ```
 
 (or the equivalent `half_applied`/`stale_but_stable` message - see `hooks/lib/hooks-staleness-core.sh`). This line is absent when the classifier finds nothing to report (the common case - snapshot already current), and its presence or absence never changes the exit code documented above. It is read-only: `bin/ds-base-sync` never calls `sync_hooks_snapshot` itself, satisfying the DS-54 invariant that a passive/automatic trigger (this call runs unconditionally at `/ds-implement-ticket` Phase 12, not on operator request) may never auto-rewire a live session's hooks - only an explicit `ds-doctor --fix` or an adapter `install.sh` run does that.
+
+**Worktree-reaper advisory line (unconditional, AFTER the hooks-staleness line, never affects exit code).** After the hooks-staleness advisory above, the CLI wrapper unconditionally runs `bin/ds-reap-worktrees --repo <repo> --count-only` against `<repo>` ITSELF (unlike the hooks-staleness note, which is always scoped to the operator's own DinoStack checkout regardless of `<repo>` - the worktree reaper is scoped to the project whose base branch was just synced, since that project's worktrees are what would be accumulating). `--count-only` (round-2 Skeptic Major 4 - see `bin/ds-reap-worktrees`'s own module docstring for the full rationale) does a SINGLE `git worktree list --porcelain` call and nothing else: no network, no per-entry `git status`/`git ls-remote`/`git merge-base`/`gh` calls. When the parsed non-root count (`entries=N` minus 1) is nonzero, a one-line note is printed, prefixed `ds-base-sync: `:
+
+```
+ds-base-sync: 6 non-root git worktree(s) in <repo> - consider `/ds-cleanup-worktrees` (or `ds-reap-worktrees --explain` for a dry-run report).
+```
+
+This is a raw worktree-count nudge, not a removal forecast - it does not run the removal predicate at all, so it says nothing about how many of those worktrees would actually resolve REMOVE-eligible (operators wanting that run `ds-reap-worktrees --dry-run --explain` or `/ds-cleanup-worktrees` directly). A missing `bin/ds-reap-worktrees`, or any error running it, is silently swallowed and the line is simply absent - same fail-open contract as the hooks-staleness advisory. It is ALSO absent whenever the non-root count is 0 - a repo with no non-root worktrees (just the main one, or a bare/nonexistent one) has nothing actionable to report, matching the hooks-staleness line's own "silent when there is nothing to report" contract. The FIRST-round implementation of this line used `--dry-run --no-gh`, which still performed a full per-entry evaluation including one `git ls-remote` network round-trip per worktree - measured 14.94s against this repo's live 38-worktree checkout; `--count-only` measured 55ms against the same checkout at 37 worktrees (both figures dated 2026-08-11 - see `bin/ds-base-sync`'s own manifest for the exact re-measurement command).
 
 **Structural rule.** `ref-locked-elsewhere` is reachable ONLY from the HEAD-elsewhere path - it requires `<base-branch>` to be checked out in a worktree OTHER than `<repo>`, a condition that cannot exist when `<repo>` itself has `<base-branch>` checked out (the HEAD-on-base path), so it is never emitted there. `refused-unknown` is NOT the symmetric opposite: it is reachable from BOTH paths - from HEAD-on-base as the generic "unrecognized git refusal" catch-all, and from HEAD-elsewhere when the post-refusal rev-list counts come back empty (`origin/<base-branch>` absent post-fetch, e.g. a `--single-branch` clone) - a state where "checked out in another worktree" cannot be confirmed, so `ref-locked-elsewhere` is correctly withheld in favor of `refused-unknown`. Each path computes and returns its own terminal status; there is no shared post-refusal code path between the two.
 

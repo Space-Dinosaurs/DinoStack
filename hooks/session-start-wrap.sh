@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Claude Code SessionStart wrapper for the deferred-wrap feature. It
-#          composes SIX concerns into a single fail-open SessionStart hook:
+#          composes SEVEN concerns into a single fail-open SessionStart hook:
 #          (a) the "newer version available" notice (delegated to the existing
 #          version-check wrapper); (b) a one-line auth-failed notice when the
 #          daemon previously could not authenticate; (c) a one-time migration of
@@ -10,12 +10,16 @@
 #          detached launch of the deferred-wrap daemon; (e) a hooks-snapshot
 #          staleness nudge (DS-54, hooks/lib/hooks-staleness-core.sh) when the
 #          methodology checkout has never been snapshotted, is half-migrated
-#          across adapters, or has moved since the last snapshot sync; and
+#          across adapters, or has moved since the last snapshot sync;
 #          (f) a deferred-work open-count nudge (bin/ds-defer count) for the
 #          Follow-up Ticket Creation Discipline's sink
-#          (.agentic/deferred-work.jsonl). It is the FIRST and only
-#          SessionStart registration install.sh makes; the version-check
-#          script is no longer wired directly - it is invoked from here.
+#          (.agentic/deferred-work.jsonl); and (g) a worktree-accumulation
+#          nudge (bin/ds-reap-worktrees --count-only) when the current
+#          project's non-root worktree count is at or above a small
+#          threshold - REPORT ONLY, this call site never removes a worktree.
+#          It is the FIRST and only SessionStart registration install.sh
+#          makes; the version-check script is no longer wired directly - it
+#          is invoked from here.
 # Public API: bash hooks/session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)
@@ -28,14 +32,20 @@
 #                AGENTIC_WRAP_DAEMON env var (loop-guard),
 #                hooks/lib/wrap-marker.js (wrapLockProvablyStaleLegacy - migration),
 #                hooks/lib/repo-dir-fallback.sh (resolve_ae_repo_dir_with_fallback -
-#                  locates bin/ds-defer for the deferred-work nudge; tries
-#                  scripts/lib/repo-dir.sh first, falls back to reading
+#                  locates bin/ds-defer for the deferred-work nudge and
+#                  bin/ds-reap-worktrees for the worktree-accumulation nudge;
+#                  tries scripts/lib/repo-dir.sh first, falls back to reading
 #                  $HOME/.agentic/agentic-engineering-config.json via python3
 #                  and validating with git when that lib is absent, e.g. the
 #                  deployed hooks-snapshot layout),
 #                bin/ds-defer (deferred-work open-count query for the nudge;
 #                  optional - a missing/unresolvable binary just yields an
-#                  empty message piece via the `command -v ds-defer` fallback).
+#                  empty message piece via the `command -v ds-defer` fallback),
+#                bin/ds-reap-worktrees (worktree-count query for the nudge,
+#                  invoked --count-only; optional - a missing/
+#                  unresolvable binary just yields an empty message piece via
+#                  the `command -v ds-reap-worktrees` fallback), python3
+#                  (bin/ds-reap-worktrees is a Python CLI).
 # Downstream consumers: Claude Code SessionStart hook, wired via
 #                       ~/.claude/settings.json by .claude/install.sh.
 # Failure modes: ALWAYS exits 0 (fail-open). A missing field, missing jq,
@@ -49,7 +59,14 @@
 #                is likewise fail-open: an unresolvable bin/ds-defer, a
 #                nonzero exit, or non-numeric output all degrade silently to
 #                an empty message piece (`2>/dev/null || true`), never a
-#                blocked session.
+#                blocked session. The worktree-accumulation nudge is likewise
+#                fail-open: an unresolvable bin/ds-reap-worktrees, a nonzero
+#                exit, unparsable summary output, or a non-git `cwd` all
+#                degrade silently to an empty message piece, never a blocked
+#                session - and this call site NEVER removes a worktree
+#                regardless of the count (report-only; removal remains
+#                operator-invoked via `/ds-cleanup-worktrees` or a bare
+#                `ds-reap-worktrees` with no --dry-run).
 #                There is NO stale-sweep (CRITICAL-A): this script never
 #                promotes a marker, it only relocates old-layout artifacts once
 #                per project, self-heals the sentinel, and conditionally launches
@@ -61,8 +78,22 @@
 #              `bin/ds-defer count` subprocess for the deferred-work nudge (a
 #              single-file JSONL read, no network - runs on EVERY session
 #              start for EVERY project, not just when the sink is non-empty),
-#              and at most one detached daemon spawn that the hook never
-#              waits on.
+#              one `bin/ds-reap-worktrees --count-only` subprocess for the
+#              worktree-accumulation nudge - a SINGLE `git worktree list
+#              --porcelain` call, no network, no per-entry `git status`/
+#              `git ls-remote`/`git merge-base`/`gh` calls of any kind (round-2
+#              Skeptic Major 4/5 correction: the FIRST-round implementation
+#              used `--dry-run --no-gh`, which still ran full per-entry
+#              evaluation including `git ls-remote` - measured 14.94s against
+#              this repo's live 38-worktree checkout on 2026-08-11, the exact
+#              opposite of "no network" this section previously claimed.
+#              `--count-only` measured 55ms against the same checkout at 37
+#              worktrees on 2026-08-11 via `time python3 bin/ds-reap-worktrees
+#              --repo <repo> --count-only` - see bin/ds-reap-worktrees's own
+#              `--count-only` flag description for the mechanism), runs on
+#              EVERY session start for EVERY project, same cadence as the
+#              deferred-work nudge, and at most one detached daemon spawn
+#              that the hook never waits on.
 
 set -euo pipefail
 
@@ -279,11 +310,49 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
     fi
   fi
 
+  # --- Worktree-accumulation nudge (5th contributor). Report-only - this
+  # SessionStart call site NEVER removes anything, per the worktree-reaper
+  # ticket's explicit requirement (passive triggers report; only an
+  # explicit invocation of ds-reap-worktrees or /ds-cleanup-worktrees
+  # removes). Resolved the same way as ds-defer above: AE_REPO_DIR (already
+  # resolved by resolve_ae_repo_dir_with_fallback for the defer nudge)
+  # first, PATH fallback second - the deployed hooks-snapshot layout does
+  # NOT include the rest of bin/, so DS_REAP_BIN is very commonly absent
+  # there and this nudge silently degrades to empty, same as ds-defer's own
+  # `command -v ds-defer` fallback comment explains above.
+  worktree_msg=""
+  WORKTREE_NUDGE_THRESHOLD=5
+  if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-reap-worktrees" ]]; then
+    DS_REAP_BIN="$AE_REPO_DIR/bin/ds-reap-worktrees"
+  fi
+  if [[ -z "${DS_REAP_BIN:-}" ]] && command -v ds-reap-worktrees >/dev/null 2>&1; then
+    DS_REAP_BIN="$(command -v ds-reap-worktrees)"
+  fi
+  if [[ -n "${DS_REAP_BIN:-}" ]]; then
+    # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
+    # is needed here (N includes the main worktree, so the non-root count
+    # is N-1) - zero network calls, zero per-entry `git` calls beyond the
+    # single `git worktree list --porcelain` --count-only itself needs.
+    # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
+    # the live checkout because --no-gh suppressed `gh` but NOT `git
+    # ls-remote`, one network round-trip per entry - this call site never
+    # needed anything beyond a count, so it never needed that cost.
+    reap_summary="$(python3 "$DS_REAP_BIN" --repo "$cwd" --count-only 2>/dev/null || true)"
+    if [[ "$reap_summary" =~ entries=([0-9]+) ]]; then
+      total_entries="${BASH_REMATCH[1]}"
+      nonroot_count=$((total_entries - 1))
+      if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
+        worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees\` for a dry-run report)."
+      fi
+    fi
+  fi
+
   parts=()
   [[ -n "$version_msg" ]] && parts+=("$version_msg")
   [[ -n "$auth_msg" ]] && parts+=("$auth_msg")
   [[ -n "$staleness_msg" ]] && parts+=("$staleness_msg")
   [[ -n "$defer_msg" ]] && parts+=("$defer_msg")
+  [[ -n "$worktree_msg" ]] && parts+=("$worktree_msg")
   if [[ ${#parts[@]} -gt 0 ]]; then
     sep=""
     for part in "${parts[@]}"; do
