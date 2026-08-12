@@ -60,6 +60,7 @@ Maintain & curate
   /ds-wrap-deferred               Non-interactive single-pass session enrichment invoked by the deferred-wrap daemon; not for direct use.
 
 Audit & improve the methodology
+  /ds-evaluate                   Evaluate methodology effectiveness against the North Star pillars from live telemetry.
   /ds-failure-audit              Mine session telemetry and categorize failure modes per model/harness with quantified frequency.
   /ds-prune-harness               Propose deletions of rules that are not earning their keep.
   /ds-representation-audit        Propose prose rewrites where the methodology is unclear or bloated.

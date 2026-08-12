@@ -51,6 +51,8 @@ The methodology already measures two axes of agent work; this command adds the t
 
 The audit reuses the same telemetry the two siblings read - it is a new read pattern over existing files, not a parallel telemetry silo. Where the siblings surface "what happened" (cost) and "what recurred" (friction), this command surfaces "which model/harness failed, how often, and in what way".
 
+**Related command:** `/ds-evaluate` is the pillar-effectiveness axis - it scores the methodology against the North Star pillars from live telemetry, using this audit's failure-mode categories as one measured input. This command stays focused on failure-mode categorization; `/ds-evaluate` does the per-pillar scoring.
+
 ## What the audit reads
 
 The audit subagent reads three telemetry sources, plus one optional supplementary source if present:
