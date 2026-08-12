@@ -120,7 +120,7 @@ Consult the sources in order. Stop at the first source that yields a default. A 
 3. Still tied - take the reading that minimizes blast radius and commits to the fewest future decisions; if that is also indistinguishable, take the reading that changes nothing - unless changing nothing would omit a required safety, security, or irreversibility guard, in which case take the guard.
 4. Act, state the resolution in one line, and record the conflict as an intent-layer defect (capture trigger 6 - `content/references/conductor-operating-rules.md` §learnings-agent; recording satisfies the trigger, any doc fix is a follow-up).
 
-An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session.
+An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session. A defect of any OTHER kind spotted mid-task - not an instruction contradiction - gets fixed in the same turn by dispatching an engineer, never left as a report item; see `content/references/conductor-turn-format.md` §Self-discovered defects for the rule and its three exemptions.
 
 If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
 

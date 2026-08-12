@@ -312,7 +312,7 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
                              (amendment A1) - otherwise it charges 1 like
                              any other line. The "unbounded Waiting: line
                              count" promise
-                             (content/references/conductor-turn-format.md:31)
+                             (content/references/conductor-turn-format.md:64)
                              is scoped to the sole-stoppage forced-yield
                              shape, not to every turn that happens to
                              mention a Waiting: line: an unconditional
@@ -402,7 +402,7 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
            - A legitimate paste over FENCE_FREE_LINES aggregate lines in
              the status region charges its excess (a 40-line diff pasted
              into the status region charges 20 and fires). Spec-aligned,
-             not a defect: content/references/conductor-turn-format.md:44
+             not a defect: content/references/conductor-turn-format.md:282
              routes that content to the PR body, plan artifact, or memory
              file instead.
            - (amendment A10) No character bound exists on ordinary prose
@@ -1645,7 +1645,7 @@ def _decision_item_sprawl_flag(text: str):
     fenced content per amendment A2): each item must fit within
     ITEM_FREE_LINES (aliased MAX_LINES_PER_DECISION_ITEM) lines, matching
     the mandated "recommended action, one line of why, and the reversal
-    offer" shape (content/references/conductor-turn-format.md:34). Stays
+    offer" shape (content/references/conductor-turn-format.md:83). Stays
     ADDITIONAL to the volume check: a lone over-long item can be under the
     whole-message BASE_BODY_BUDGET while still violating per-item shape.
     """
