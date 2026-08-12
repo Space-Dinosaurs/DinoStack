@@ -6,25 +6,50 @@
 #          content, except to repair an out-of-order .agentic/ umbrella
 #          pattern (may rewrite bare-form lines, drop duplicates, and
 #          relocate a comment line attached to a misordered pattern).
-# Public API: check / apply / diff subcommands
+# Public API: check / apply / diff / verify-commit-path subcommands
 #   ds-migrate check  [--manifest PATH]
 #   ds-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
 #   ds-migrate diff   [--manifest PATH] [--project-root PATH]
+#   ds-migrate verify-commit-path <path> [--project-root PATH]
+#       Point-of-use commit-time check (round 12): verify ONE exactly-known
+#       path is not a DEFEATED negation right before a caller stages/commits
+#       it - no probe-guessing, the caller supplies the real path. See
+#       cmd_verify_commit_path's docstring for the full exit-code contract.
+#       Consumed by content/commands/ds-implement-ticket.md Phase 8
+#       (telemetry commit) and Phase 11e, and content/commands/ds-wrap.md
+#       Part G (all three knowledge-file commit sites).
 # Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
 #           Shared helpers: bin/_lib (atomic_write).
 # Downstream: invoked by Activation preflight Step 6, /ds-migrate-project command,
 #             and /ds-init-project Step 9 (as of v7) as the sole mechanism for a
-#             fresh project's .agentic/ gitignore
+#             fresh project's .agentic/ gitignore. `verify-commit-path` is
+#             invoked directly by the three knowledge-commit sites listed above.
 # Failure modes: silent-fail discipline; never throws to caller; exit codes signal status
 #   0 = success / no-op
-#   1 = drift detected (check subcommand only)
-#   2 = manifest not found / parse error
+#   1 = drift detected (check subcommand only); for verify-commit-path, a
+#       DEFEATED negation on the queried path (caller must fail loudly)
+#   2 = manifest not found / parse error; for verify-commit-path, could not
+#       verify (git missing, not a worktree, or an untrusted check-ignore
+#       result) - soft-fail, caller should proceed as if unverified
 #   3 = partial apply (some rules errored; also raised when a manifest entry's
 #       path resolves outside project_root - path-traversal guard); also
 #       raised (round 10+) when every rule applied successfully but a
 #       post-apply behavioral `git check-ignore` recheck still reports a
 #       manifest-negated path ignored - a spelling neither repair matcher
-#       recognizes, named on stderr for manual .gitignore repair
+#       recognizes. On this failure `cmd_apply` does TWO things, not one:
+#       (a) names the affected path(s) on stderr for manual .gitignore
+#       repair, and (b) appends a deduped, timestamped FAILED line to the
+#       `scaffolding-notices` context.d shard (see _append_context_line and
+#       the FAILED-append call site in cmd_apply) - stderr is discarded by
+#       the activation-preflight route under its silent-fail discipline, so
+#       the shard is the only durable record most callers ever see. The
+#       success path (all_satisfied and wrote_anything) appends its own
+#       undeduped, timestamped shard line the same way; a resolution
+#       transition (a prior FAILED entry followed by a since-fixed apply)
+#       additionally appends a RESOLVED line even when wrote_anything is
+#       False, so a hand-fix that needed no further gitignore/file writes
+#       still leaves a visible resolution marker instead of stranding the
+#       reader on a stale FAILED line forever.
 # Note: _acquire_lock/_release_lock use a one-shot fcntl.LOCK_NB pattern with
 #       stale-lock detection and raw os.open fd - structurally distinct from the
 #       sleep-retry acquire_exclusive_lock context manager in _lib; not extracted.
@@ -1018,6 +1043,92 @@ def _git_check_ignore_batch(project_root: Path, paths: list[str]) -> set[str] | 
     return ignored
 
 
+def _negation_covers_path(gitignore_lines: list[str], path: str) -> bool:
+    """True if the CURRENT (live) `.gitignore` contains at least one
+    negation line (`!`-prefixed) that appears to target `path` - either an
+    exact-path negation or a directory-form negation (`!<dir>/` or
+    `!<dir>/**`) whose directory is `path` itself or an ancestor of it.
+
+    This is a coarse, best-effort SYNTACTIC signal, deliberately NOT the
+    authoritative ignored/not-ignored answer (that always comes from
+    `_git_check_ignore_batch`, the git oracle - see
+    `cmd_verify_commit_path`). Its only job is to distinguish two states
+    that both make git report a path as ignored:
+
+    - A negation line targeting this exact path IS present but git still
+      reports the path ignored - a DEFEATED negation (an attempt was made
+      and it does not work; worth a loud failure at the commit site).
+    - NO negation line targets this path at all - this project's
+      `.gitignore` never attempted to reach it (e.g. DinoStack's own repo,
+      which categorically excludes all of `.agentic/*` with zero
+      negations, by decision - not a defect). `cmd_verify_commit_path`
+      must not flag this case, or every `/ds-implement-ticket` telemetry
+      commit and Phase 11e/Part G sweep in a repo that has opted out of
+      the negation scheme entirely would report a false "defeated
+      negation" error on every run.
+
+    Matching is intentionally permissive (leading `/` and trailing `/` are
+    stripped before comparison) - false positives here only cost an extra,
+    still-correct git-oracle round trip in `cmd_verify_commit_path`; false
+    negatives would silently reintroduce the exact "ignored path masquerades
+    as intentional" gap this check exists to close."""
+    path_norm = path.lstrip("/")
+    for line in gitignore_lines:
+        stripped = line.strip()
+        if not stripped.startswith("!"):
+            continue
+        candidate = stripped[1:].lstrip("/")
+        if candidate.endswith("/**"):
+            dir_part = candidate[: -len("/**")].rstrip("/")
+        elif candidate.endswith("/"):
+            dir_part = candidate.rstrip("/")
+        else:
+            dir_part = None
+        if dir_part is not None:
+            if path_norm == dir_part or path_norm.startswith(dir_part + "/"):
+                return True
+        elif path_norm == candidate:
+            return True
+    return False
+
+
+# Shard-line helpers shared by cmd_apply's FAILED/RESOLVED bookkeeping (see
+# the FAILED-append call site below).
+_TIMESTAMP_SUFFIX_RE = re.compile(
+    r" (?:Detected|Resolved) at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.$"
+)
+
+
+def _last_shard_line(project_root: Path) -> str | None:
+    """Return the last non-empty line of the scaffolding-notices shard, or
+    None if the shard is absent, empty, or unreadable (never raises).
+
+    Used for two things at the cmd_apply FAILED-append call site: deduping a
+    repeated FAILED entry across consecutive `apply` runs while the same
+    drift persists (preflight calls `apply` every session, so an un-deduped
+    append would accumulate one near-identical line per session forever),
+    and detecting a FAILED -> resolved transition so a hand-fix that needed
+    no further gitignore/file writes still leaves a visible resolution
+    marker instead of stranding the reader on a stale, undated FAILED line
+    with no way to tell whether it is still current."""
+    try:
+        shard_path = project_root / ".agentic" / "context.d" / f"{_NOTICES_SHARD}.md"
+        text = shard_path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    for line in reversed(text.splitlines()):
+        if line.strip():
+            return line
+    return None
+
+
+def _strip_shard_timestamp(line: str) -> str:
+    """Remove a trailing ` Detected at <ISO8601>.` or ` Resolved at
+    <ISO8601>.` suffix (as appended by cmd_apply) so two FAILED lines that
+    differ only in when they fired compare equal for dedup purposes."""
+    return _TIMESTAMP_SUFFIX_RE.sub(".", line)
+
+
 def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
     """Return the behavioral (git-oracle) verification result:
     {
@@ -1315,6 +1426,85 @@ def cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify_commit_path(args: argparse.Namespace) -> int:
+    """Point-of-use commit-time check: verify that ONE exactly-known path is
+    safe to `git add`/commit right now, at the moment a caller is about to
+    stage it - not a manifest-wide, probe-based sweep.
+
+    Closes the residual `_compute_negations_defeated`'s docstring documents
+    for the 2 directory-form manifest negations (`!.agentic/session-log/`
+    and its `/**` twin): that check must synthesize candidate probe paths
+    when no real file exists yet on disk, and a defeater keyed to an
+    unguessed name returns "ok" undetected. At a commit site the exact
+    target path is already known - no probe-guessing is required, so this
+    check is exact where the manifest-wide sweep is necessarily
+    probabilistic for those 2 patterns. This does NOT shrink or replace
+    that documented residual in `check`/`apply` (the probe-guessing gap in
+    the manifest-wide sweep still exists exactly as documented there) - it
+    closes the operational CONSEQUENCE of it at the three sites that
+    actually commit a knowledge file, by verifying the one path each site
+    is about to stage rather than a set of guesses.
+
+    Distinguishes two states that both make `git check-ignore` report a
+    path as ignored (see `_negation_covers_path`'s docstring for the full
+    rationale):
+      - A negation line in the LIVE `.gitignore` appears to target this
+        exact path, but git still reports it ignored - a DEFEATED
+        negation. Exit 1; the caller MUST fail loudly and name the path.
+      - No negation line in the LIVE `.gitignore` targets this path at all
+        (e.g. DinoStack's own repo, which categorically excludes all of
+        `.agentic/*` by decision, with zero negations) - not a defect,
+        nothing for this check to flag. Exit 0; the caller proceeds with
+        whatever ignored/not-ignored handling it already has.
+      - The path is genuinely not ignored. Exit 0.
+
+    Exit codes:
+      0 = safe to proceed (either genuinely not ignored, or ignored with no
+          negation attempt on it - not this check's concern)
+      1 = DEFEATED negation on this exact path - caller MUST fail loudly
+      2 = could not verify (git missing, not a worktree, or `git
+          check-ignore` returned an untrusted result) - soft-fail: this is
+          a safety check layered on top of pre-existing behavior, not a new
+          hard requirement, so tooling absence must never itself block a
+          commit that would otherwise have succeeded.
+
+    Prints exactly one line to stdout: "ok" | "defeated: <detail>" |
+    "unavailable: <reason>" - callers may capture it for a diagnostic
+    message but should branch on the exit code, not the text.
+    """
+    project_root = Path(args.project_root) if args.project_root else Path.cwd()
+    path = args.path
+
+    if not _is_git_available():
+        print("unavailable: git binary not found on PATH")
+        return 2
+    if not _is_git_worktree(project_root):
+        print(f"unavailable: {project_root} is not inside a git working tree")
+        return 2
+
+    gitignore_path = project_root / ".gitignore"
+    lines = _gitignore_lines(gitignore_path) if gitignore_path.is_file() else []
+    if not _negation_covers_path(lines, path):
+        print("ok")
+        return 0
+
+    ignored = _git_check_ignore_batch(project_root, [path])
+    if ignored is None:
+        print(
+            "unavailable: git check-ignore invocation failed or returned "
+            "an untrusted result"
+        )
+        return 2
+    if path in ignored:
+        print(
+            f"defeated: {path} has a negation in .gitignore that appears "
+            "to target it, but git still reports it ignored"
+        )
+        return 1
+    print("ok")
+    return 0
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     """Apply additive migration rules. Acquires lock; silent-fail."""
     manifest_path = _resolve_manifest_path(args)
@@ -1457,12 +1647,46 @@ def cmd_apply(args: argparse.Namespace) -> int:
             # this failure is visible in the same channel the success case
             # uses, every time, regardless of whether a prior apply in this
             # project's history ever stamped successfully.
-            _append_context_line(
-                project_root,
+            #
+            # Timestamped (unlike the round-10 original) so a reader can date
+            # the failure, same as the success line below. Deduped against
+            # the shard's own last line so preflight's every-session `apply`
+            # call does not accumulate one near-identical FAILED line per
+            # session while the same drift persists - only a genuinely new
+            # (or newly-recurring) failure appends again.
+            failed_line = (
                 "[scaffolding-sync] FAILED: manifest-negated path(s) still "
                 f"reported ignored by git after repair: {affected}. Fix "
-                ".gitignore by hand, then re-run `ds-migrate apply`.",
+                f".gitignore by hand, then re-run `ds-migrate apply`. "
+                f"Detected at {_now_iso()}."
             )
+            last_line = _last_shard_line(project_root)
+            if (
+                last_line is None
+                or _strip_shard_timestamp(last_line) != _strip_shard_timestamp(failed_line)
+            ):
+                _append_context_line(project_root, failed_line)
+        elif diff["gitignore_verification"] == "behavioral":
+            # Resolution-transition marker. A hand-fix to .gitignore can
+            # resolve the defeat with NO further gitignore/file writes
+            # needed (wrote_anything stays False), so the success branch
+            # below - gated on `wrote_anything` - would otherwise never fire
+            # and the shard's last line would stay a stale, undated-looking
+            # FAILED entry forever, with no way for a reader to tell the
+            # failure was since fixed. Fire only on an actual FAILED ->
+            # resolved transition (never on an unrelated already-clean
+            # shard) so a project that was never in a defeated state does
+            # not get a spurious RESOLVED line.
+            last_line = _last_shard_line(project_root)
+            if last_line is not None and last_line.startswith(
+                "[scaffolding-sync] FAILED:"
+            ):
+                _append_context_line(
+                    project_root,
+                    "[scaffolding-sync] RESOLVED: manifest-negated path(s) "
+                    "previously reported ignored by git are now reachable. "
+                    f"Resolved at {_now_iso()}.",
+                )
 
         if all_satisfied:
             _stamp_project_version(project_root, manifest_version)
@@ -1525,6 +1749,15 @@ def main() -> int:
     p_diff.add_argument("--manifest", default=None)
     p_diff.add_argument("--project-root", dest="project_root", default=None)
 
+    # verify-commit-path
+    p_verify = sub.add_parser(
+        "verify-commit-path",
+        help="Point-of-use check: verify ONE exact path is not a defeated-negation "
+        "gitignore ignore before staging/committing it.",
+    )
+    p_verify.add_argument("path")
+    p_verify.add_argument("--project-root", dest="project_root", default=None)
+
     args = parser.parse_args()
 
     if not args.subcommand:
@@ -1538,6 +1771,8 @@ def main() -> int:
             return cmd_apply(args)
         elif args.subcommand == "diff":
             return cmd_diff(args)
+        elif args.subcommand == "verify-commit-path":
+            return cmd_verify_commit_path(args)
     except Exception:
         return 2
 
