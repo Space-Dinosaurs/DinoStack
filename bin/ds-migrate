@@ -53,6 +53,16 @@
 # Note: _acquire_lock/_release_lock use a one-shot fcntl.LOCK_NB pattern with
 #       stale-lock detection and raw os.open fd - structurally distinct from the
 #       sleep-retry acquire_exclusive_lock context manager in _lib; not extracted.
+# Note: _is_self_repo(project_root) makes check/apply/diff a no-op (`check`
+#       prints `"status": "self_repo_exempt"`, rc 0) when project_root IS the
+#       dinostack/agentic-engineering methodology source repo, not a
+#       scaffolding consumer - the manifest's `.agentic/*` umbrella +
+#       negation set must never be layered onto this repo's own deliberate,
+#       negation-free categorical `.agentic/*` ignore (root AGENTS.md).
+#       Detection is structural (manifest + build script + sections dir +
+#       this script's own presence under project_root), never name- or
+#       path-based, so a fork/rename/differently-named clone is still
+#       recognized; see content/references/activation-detail.md Step 6d.
 
 from __future__ import annotations
 
@@ -822,6 +832,65 @@ def _resolve_manifest_path(args: argparse.Namespace) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# Self-repo (methodology source) exemption
+# ---------------------------------------------------------------------------
+
+def _is_self_repo(project_root: Path) -> bool:
+    """True if `project_root` IS the agentic-engineering/dinostack methodology
+    source repo, as opposed to a project that has adopted it (a "consumer").
+    The self-repo ships `content/project-scaffolding.yml` (the manifest this
+    tool scaffolds consumers FROM) and never wants that manifest's consumer
+    scaffolding applied to itself - its own `.agentic/` gitignore rule is a
+    deliberate, negation-free categorical `.agentic/*` (see root AGENTS.md:
+    "DinoStack does not commit its own `.agentic/` runtime files"), and
+    layering the manifest's 13 `!.agentic/<file>` negations on top of it
+    would silently start tracking the methodology's own runtime state - see
+    this function's docstring reference in cmd_check/cmd_apply/cmd_diff for
+    the reproduced defect.
+
+    Deliberately NOT name- or path-based (no check on the directory being
+    called "DinoStack", no hardcoded absolute path) so a fork, a rename, or a
+    clone under any directory name is still recognized. Instead this checks
+    for STRUCTURAL evidence that `project_root` is the methodology source
+    tree: the manifest itself, the build tooling that assembles it into
+    adapters, the sections directory the methodology is authored in, and
+    this very script living at the expected relative location under
+    `project_root`. All four must be present - requiring the full set (not
+    any single marker) is what keeps this from firing on a consumer that
+    happens to have its own unrelated `content/` or `scripts/build-all.sh`.
+
+    Failure direction (explicit, per design requirement): a consumer project
+    is defined as one that does NOT ship a copy of the manifest it is
+    scaffolded FROM - `content/project-scaffolding.yml` is DinoStack-only by
+    construction, so a real consumer structurally cannot satisfy all four
+    markers simultaneously unless it is itself a full checkout/fork of this
+    methodology (in which case treating it as self-repo is correct per the
+    fork requirement above). When any marker is missing - the common case
+    for every real consumer - this returns False and the caller falls
+    through to ordinary consumer scaffolding, i.e. detection fails toward
+    the pre-existing (consumer) behavior on ambiguity, never toward
+    incorrectly skipping a real user's scaffolding.
+    """
+    try:
+        return (
+            (project_root / "content" / "project-scaffolding.yml").is_file()
+            and (project_root / "scripts" / "build-all.sh").is_file()
+            and (project_root / "content" / "sections").is_dir()
+            and (project_root / "bin" / "ds-migrate").is_file()
+        )
+    except Exception:
+        return False
+
+
+_SELF_REPO_EXEMPT_REASON = (
+    "project_root is the dinostack (agentic-engineering) methodology source "
+    "repo, not a scaffolding consumer; consumer-manifest drift/apply is not "
+    "a meaningful operation here and has been skipped. See root AGENTS.md: "
+    "DinoStack does not commit its own .agentic/ runtime files."
+)
+
+
+# ---------------------------------------------------------------------------
 # Behavioral gitignore-drift detection
 #
 # Round 10 rework. Rounds 6-9 each fixed one reported spelling of "a pattern
@@ -1315,7 +1384,22 @@ def cmd_check(args: argparse.Namespace) -> int:
     gitignore construct that defeats a negation, regardless of whether this
     tool's syntactic matchers recognize its spelling.
     Exit 2 on error.
+
+    Exit 0 with `"status": "self_repo_exempt"` (a distinct value from "ok",
+    never to be read as "migrated" or as "drift, apply me") when
+    `project_root` IS the methodology source repo rather than a consumer -
+    see `_is_self_repo`. Checked first, before the manifest is even
+    resolved, since a manifest-not-found condition must never mask this
+    higher-priority answer.
     """
+    project_root = Path(args.project_root) if hasattr(args, "project_root") and args.project_root else Path.cwd()
+    if _is_self_repo(project_root):
+        print(json.dumps({
+            "status": "self_repo_exempt",
+            "reason": _SELF_REPO_EXEMPT_REASON,
+        }))
+        return 0
+
     manifest_path = _resolve_manifest_path(args)
     if not manifest_path:
         print(json.dumps({"status": "error", "reason": "manifest not found"}))
@@ -1326,8 +1410,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(json.dumps({"status": "error", "reason": "manifest parse error"}))
         return 2
 
-    # For check, project_root defaults to cwd
-    project_root = Path(args.project_root) if hasattr(args, "project_root") and args.project_root else Path.cwd()
+    # project_root was already resolved above for the self-repo check.
     project_version = _read_project_version(project_root)
     manifest_version = manifest["scaffolding_version"]
     diff = _compute_diff(manifest, project_root)
@@ -1358,7 +1441,16 @@ def cmd_check(args: argparse.Namespace) -> int:
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
-    """Print human-readable diff of what apply would do. Read-only."""
+    """Print human-readable diff of what apply would do. Read-only.
+
+    Self-repo exempt (see `_is_self_repo`): checked first, before manifest
+    resolution, same rationale as `cmd_check`.
+    """
+    project_root = Path(args.project_root) if getattr(args, "project_root", None) else Path.cwd()
+    if _is_self_repo(project_root):
+        print(f"[scaffolding-migrate] self_repo_exempt: {_SELF_REPO_EXEMPT_REASON}")
+        return 0
+
     manifest_path = _resolve_manifest_path(args)
     if not manifest_path:
         print("[scaffolding-migrate] manifest not found")
@@ -1369,7 +1461,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
         print("[scaffolding-migrate] manifest parse error")
         return 2
 
-    project_root = Path(args.project_root) if args.project_root else Path.cwd()
+    # project_root was already resolved above for the self-repo check.
     diff = _compute_diff(manifest, project_root)
 
     project_version = _read_project_version(project_root)
@@ -1506,9 +1598,25 @@ def cmd_verify_commit_path(args: argparse.Namespace) -> int:
 
 
 def cmd_apply(args: argparse.Namespace) -> int:
-    """Apply additive migration rules. Acquires lock; silent-fail."""
-    manifest_path = _resolve_manifest_path(args)
+    """Apply additive migration rules. Acquires lock; silent-fail.
+
+    Self-repo exempt (see `_is_self_repo`): checked first, before manifest
+    resolution and before the lock is even acquired, since applying
+    consumer scaffolding to the methodology source repo itself is never a
+    meaningful operation - it would start tracking this repo's own
+    `.agentic/` runtime state (see root AGENTS.md). Prints why on stdout
+    rather than silently no-op'ing, unlike the pre-existing
+    manifest-not-found no-op path below (which is silent by design for a
+    different reason - an unconfigured/uninstalled manifest is not
+    noteworthy on every session-start preflight call, whereas a self-repo
+    exemption is a one-time-relevant fact worth surfacing when this command
+    is invoked directly)."""
     project_root = Path(args.project_root) if args.project_root else Path.cwd()
+    if _is_self_repo(project_root):
+        print(f"ds-migrate: self_repo_exempt - {_SELF_REPO_EXEMPT_REASON}")
+        return 0
+
+    manifest_path = _resolve_manifest_path(args)
 
     if not manifest_path:
         _warn_manifest_not_found(project_root)
