@@ -1588,15 +1588,17 @@ def _is_answer_shaped_prose(lines) -> bool:
     whole-turn unit-count floor to produce the final ADVISORY/BLOCKING
     decision.
 
-    DS-159 (measured false positive: a real multi-paragraph conductor
+    DS-159 (real false positive: a real multi-paragraph conductor
     answer, terse in this repo's own mandated style, routinely produces
     several genuinely single-sentence paragraphs - each its own
     contiguous block once separated by a blank line, per DS-158 round 3.
     Requiring >=2 units INSIDE EVERY INDIVIDUAL BLOCK meant one
     well-formed single-sentence paragraph anywhere in an otherwise
-    excellent multi-paragraph answer blocked the WHOLE turn - measured
-    10/10 block on a hand-written corpus of realistic terse answers at
-    DS-158 round 3/round 4 HEAD.) The average-words-per-unit condition
+    excellent multi-paragraph answer blocked the WHOLE turn - reported
+    live against DS-158 round 3/round 4 HEAD (see `ds159-a`/`ds159-b` in
+    `hooks/tests/test-enforce-turn-shape.py` for the pinned shapes; no
+    rate is asserted here - see that fixture section's own note on why).
+    The average-words-per-unit condition
     stays PER BLOCK - it is the axis a narrative-creep sprawl launders
     through (many short pings), so weakening it per block would reopen
     exactly the hole DS-158 closed; only the min-unit floor moved to a
@@ -1682,9 +1684,10 @@ def _execution_prose_flag(text: str, warrants: dict):
     produces several genuinely single-sentence, blank-line-separated
     paragraphs; requiring 2+ units INSIDE EVERY block meant one
     well-formed single-sentence paragraph anywhere in an otherwise
-    excellent multi-paragraph answer blocked the WHOLE turn (measured
-    10/10 block on a hand-written realistic-answer corpus at DS-158 round
-    3/round 4 HEAD). The unit-count floor is now a WHOLE-TURN AGGREGATE:
+    excellent multi-paragraph answer blocked the WHOLE turn (reported
+    live against DS-158 round 3/round 4 HEAD; see `ds159-a`/`ds159-b` in
+    `hooks/tests/test-enforce-turn-shape.py` for the pinned shapes - no
+    rate is asserted here). The unit-count floor is now a WHOLE-TURN AGGREGATE:
     sum the units of every block that already passed the average-words
     check, and require that sum to clear _ANSWER_PROSE_MIN_SENTENCES.
     This does not reopen DS-158 round 2's laundering bypass - a

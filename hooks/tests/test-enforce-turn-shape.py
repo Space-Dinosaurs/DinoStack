@@ -3083,8 +3083,8 @@ check(
 
 # ---------------------------------------------------------------------------
 # DS-159: the operator's live complaint. A plain multi-paragraph prose
-# answer with ZERO status lines was measured 10/10 BLOCK at DS-158 round
-# 3/round 4 HEAD, because _execution_prose_flag's general branch required
+# answer with ZERO status lines blocked at DS-158 round 3/round 4 HEAD,
+# because _execution_prose_flag's general branch required
 # _ANSWER_PROSE_MIN_SENTENCES (>=2 units) INSIDE EVERY INDIVIDUAL
 # contiguous block - and a terse, blank-line-separated conductor answer
 # (this repo's own mandated "1-3 lines per turn" style) routinely
