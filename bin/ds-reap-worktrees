@@ -59,13 +59,23 @@ Gate order, first match wins, ALL must clear for REMOVE:
      `SKIP_LOCKED`, unconditionally, never unlocked or force-removed here.
   6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
      computed together with the ignored-content check below in one call).
-  7. IGNORED CONTENT (new, round-2 Major 3) -> gitignored paths NOT on a
-     narrow ephemeral-artifact allowlist (`_IGNORED_ALLOWLIST_*` below)
-     block removal (`SKIP_IGNORED_CONTENT`), reporting the offending
-     paths. Proven empirically: a worktree holding only a gitignored
-     `.agentic/plan.md` reports a CLEAN `git status --porcelain` (no
-     `--ignored` flag) and a non-force `git worktree remove` destroys it
-     silently - `.agentic/` content is exactly the class this must catch.
+  7. PROTECTED CONTENT (round-2 Major 3, round-3 OPERATOR DECISION on
+     polarity) -> gitignored content is a PROTECTED DENYLIST by default,
+     not a fail-safe allowlist: a path blocks removal ONLY when it matches
+     `_PROTECTED_CONTENT_DIR_PREFIXES`/`_PROTECTED_CONTENT_BASENAME_PATTERNS`
+     below (`.agentic/**`, `docs/planning/**`, `.env*`, `*.local`) -
+     `SKIP_PROTECTED_CONTENT`, reporting the offending paths. Everything
+     else ignored, INCLUDING generated adapter output (`.kimi/`, `.codex/`,
+     `.claude/skills/`) and the round-2 ephemeral set (`node_modules/`,
+     `dist/`, etc.), is disposable and does NOT block. Round 2 shipped the
+     opposite polarity (a fail-safe allowlist) and measured `removed=0`
+     against the live checkout - see `_PROTECTED_CONTENT_DIR_PREFIXES`'s
+     own comment for the full rationale and trade-off. The round-2
+     allowlist behavior remains reachable via `--strict-ignored`.
+     `.agentic/**` is the highest-value entry, proven empirically: a
+     worktree holding only a gitignored `.agentic/plan.md` reports a CLEAN
+     `git status --porcelain` (no `--ignored` flag) and a non-force
+     `git worktree remove` destroys it silently.
   8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
      then a bare MERGED PR, then push status - `strict_pr_state=False`,
      the same lenient grade the shared model already reserves for
@@ -73,13 +83,14 @@ Gate order, first match wins, ALL must clear for REMOVE:
      never-pushed branch with unique commits, or a CLOSED PR, both resolve
      `SKIP_*` (never `ELIGIBLE`) under this model - NOT sufficient alone,
      unlike v1's bespoke predicate.
-`ELIGIBLE` from `disposition_for`, with no ignored-content offenders, is
+`ELIGIBLE` from `disposition_for`, with no protected-content offenders, is
 the only path to `REMOVE`. Every other outcome is reported, never a
 force-delete on an inconclusive read.
 
 Public API (CLI):
   ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
+                    [--strict-ignored]
 
   --repo <path>          Repository to operate on. Default: cwd.
   --base <ref>           Base ref to prove ancestor-of-base evidence
@@ -114,6 +125,13 @@ Public API (CLI):
                           own manifests for that pre-fix figure).
   --min-age-hours <float> Age floor in hours (see gate 4 above). Default
                           24.
+  --strict-ignored        Round-3 escape hatch back to the round-2 default:
+                          gate 7 (PROTECTED CONTENT) becomes a fail-safe
+                          ALLOWLIST again - block unless every ignored path
+                          is covered by `_IGNORED_ALLOWLIST_*` (see gate 7
+                          above and `_PROTECTED_CONTENT_DIR_PREFIXES`'s own
+                          comment for the operator-decision rationale this
+                          flag exists to preserve).
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -235,17 +253,42 @@ from worktree_model import (  # noqa: E402
 #: cause FEWER removals, never a false ELIGIBLE.
 _NETWORK_TIMEOUT_SECONDS = 8
 
-#: Ephemeral/regenerable ignored-content allowlist (round-2 Major 3).
-#: `git status --porcelain` (no `--ignored` flag) never surfaces gitignored
-#: content, and a non-force `git worktree remove` deletes it unconditionally
-#: regardless - proven empirically in a scratch repo where a worktree
-#: holding only a gitignored `.agentic/plan.md` reported a CLEAN
-#: `git status --porcelain` and was silently destroyed. Anything ignored
-#: that is NOT one of these trivially-regenerable dependency/build/cache
-#: artifact directories or file patterns is treated as potentially
-#: irreplaceable work-in-progress (a plan file, session state, etc.) and
-#: blocks removal (`SKIP_IGNORED_CONTENT`) rather than being silently
-#: destroyed - `.agentic/` content is exactly the case this must catch.
+#: Round-3 OPERATOR DECISION: the gitignored-content policy is a PROTECTED
+#: DENYLIST by default, not a fail-safe allowlist. `git status --porcelain`
+#: (no `--ignored` flag) never surfaces gitignored content, and a non-force
+#: `git worktree remove` deletes it unconditionally regardless - proven
+#: empirically in a scratch repo where a worktree holding only a gitignored
+#: `.agentic/plan.md` reported a CLEAN `git status --porcelain` and was
+#: silently destroyed. Round 2 shipped the opposite polarity (a fail-safe
+#: ALLOWLIST - block unless the ignored path is a known-ephemeral
+#: build/dependency artifact) and measured `removed=0` against the live
+#: checkout: nearly every worktree here carries generated adapter output
+#: (`.kimi/skills/*/`, etc.) that isn't a build artifact by name but also
+#: isn't irreplaceable, so the allowlist blocked everything and the tool
+#: reaped nothing - the ORIGINAL complaint this ticket exists to fix. The
+#: operator explicitly traded a small unanticipated-authored-file risk
+#: (an ignored file outside this protected set that turns out to matter,
+#: which this denylist will not catch) for a tool that actually reaps by
+#: default. The old fail-safe allowlist remains available via
+#: `--strict-ignored` for an operator who wants the more conservative
+#: (and, per round 2's own measurement, far less useful) behavior instead.
+#: Single named constant, per the operator decision - do not scatter these
+#: patterns elsewhere. `.agentic/**` is the highest-value entry: it is
+#: exactly the empirically-proven data-loss case above.
+_PROTECTED_CONTENT_DIR_PREFIXES = (
+    ".agentic",  # plans, notes, session state
+    "docs/planning",  # gitignored plans
+)
+_PROTECTED_CONTENT_BASENAME_PATTERNS = (
+    ".env*",  # secrets
+    "*.local",  # local config
+)
+
+#: Ephemeral/regenerable allowlist - the round-2 default, kept reachable
+#: via `--strict-ignored` (round-3). Under `--strict-ignored`, an ignored
+#: path blocks removal UNLESS it is covered here; everything else ignored
+#: (including generated adapter output like `.kimi/`, `.codex/`,
+#: `.claude/skills/`) is treated as potentially irreplaceable and blocks.
 _IGNORED_ALLOWLIST_DIR_NAMES = (
     "node_modules",
     "dist",
@@ -294,6 +337,8 @@ def _worktree_list(repo: str) -> str:
 
 
 def _is_allowlisted_ignored_path(rel_path: str) -> bool:
+    """`--strict-ignored` mode (round-3): True when `rel_path` is covered
+    by the ephemeral/regenerable allowlist - i.e. safe to ignore."""
     parts = rel_path.strip("/").split("/")
     if any(part in _IGNORED_ALLOWLIST_DIR_NAMES for part in parts):
         return True
@@ -301,13 +346,39 @@ def _is_allowlisted_ignored_path(rel_path: str) -> bool:
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
 
 
-def _git_status_and_ignored(worktree_path: str) -> Tuple[str, List[str]]:
+def _is_protected_ignored_path(rel_path: str) -> bool:
+    """Default mode (round-3 operator decision): True when `rel_path`
+    matches the PROTECTED denylist above - i.e. blocks removal. Everything
+    else ignored is disposable and does not block.
+
+    A directory-form ignore entry (e.g. `git status --ignored=matching`
+    reporting the collapsed `.agentic/` when the whole directory is
+    ignored, rather than descending into it) is matched as a PREFIX via
+    the first path segment, not only as an exact filename - `.agentic/`,
+    `.agentic/plan.md`, and `.agentic/wrap/lock` must all match the
+    `.agentic` prefix identically.
+    """
+    normalized = rel_path.strip("/")
+    parts = normalized.split("/")
+    for prefix in _PROTECTED_CONTENT_DIR_PREFIXES:
+        prefix_parts = prefix.split("/")
+        if parts[: len(prefix_parts)] == prefix_parts:
+            return True
+    basename = parts[-1] if parts else normalized
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _PROTECTED_CONTENT_BASENAME_PATTERNS)
+
+
+def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[str, List[str]]:
     """Single combined `git status --porcelain --ignored=matching` call.
-    Returns (dirty_status, ignored_offenders). dirty_status is
+    Returns (dirty_status, offending_ignored_paths). dirty_status is
     "clean" | "dirty" - a git error fails CLOSED as "dirty" (never a
-    silent "clean" on an indeterminate read). ignored_offenders is the
-    list of ignored relative paths NOT covered by the ephemeral allowlist
-    above (round-2 Major 3).
+    silent "clean" on an indeterminate read). `offending_ignored_paths` is
+    the list of ignored relative paths that BLOCK removal under the active
+    mode: everything NOT on the ephemeral allowlist when `strict_ignored`
+    is True (round-2 behavior), or everything matching the protected
+    denylist when `strict_ignored` is False (round-3 default - see
+    `_is_protected_ignored_path`'s docstring and the operator-decision
+    comment on `_PROTECTED_CONTENT_DIR_PREFIXES` above).
     """
     proc = _run(["git", "-C", worktree_path, "status", "--porcelain", "--ignored=matching"])
     if proc.returncode != 0:
@@ -319,7 +390,8 @@ def _git_status_and_ignored(worktree_path: str) -> Tuple[str, List[str]]:
             continue
         if line.startswith("!! "):
             rel = line[3:]
-            if not _is_allowlisted_ignored_path(rel):
+            blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel)
+            if blocked:
                 offenders.append(rel)
         else:
             has_dirty_line = True
@@ -448,10 +520,11 @@ def evaluate_entry(
     gh_ok: bool,
     allow_network: bool,
     min_age_hours: float,
+    strict_ignored: bool,
 ) -> Dict:
     """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
     SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
-    SKIP_LOCKED, SKIP_DIRTY, SKIP_IGNORED_CONTENT, SKIP_UNPROVEN, REMOVE.
+    SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT, SKIP_UNPROVEN, REMOVE.
     """
     base = {"path": entry.path, "branch": entry.branch, "class": wt_class.value}
 
@@ -475,7 +548,7 @@ def evaluate_entry(
     if age_hours is None or age_hours < min_age_hours:
         return {**base, "outcome": "SKIP_TOO_YOUNG"}
 
-    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path)
+    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored)
     facts = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
     disposition = disposition_for(entry, wt_class, facts)
 
@@ -488,7 +561,7 @@ def evaluate_entry(
     if disposition is Disposition.SKIP_DIRTY:
         return {**base, "outcome": "SKIP_DIRTY"}
     if ignored_offenders:
-        return {**base, "outcome": "SKIP_IGNORED_CONTENT", "offenders": ignored_offenders[:5]}
+        return {**base, "outcome": "SKIP_PROTECTED_CONTENT", "offenders": ignored_offenders[:5]}
     if disposition is Disposition.ELIGIBLE:
         return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
     return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
@@ -511,6 +584,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--explain", action="store_true")
     p.add_argument("--count-only", action="store_true")
     p.add_argument("--min-age-hours", type=float, default=24.0)
+    p.add_argument("--strict-ignored", action="store_true")
     return p.parse_args(argv)
 
 
@@ -526,7 +600,7 @@ _ALL_OUTCOMES = (
     "SKIP_TOO_YOUNG",
     "SKIP_LOCKED",
     "SKIP_DIRTY",
-    "SKIP_IGNORED_CONTENT",
+    "SKIP_PROTECTED_CONTENT",
     "SKIP_UNPROVEN",
     "REMOVE",
 )
@@ -592,7 +666,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
             continue
         results.append(
-            evaluate_entry(repo, entry, wt_class, args.base, gh_ok, allow_network, args.min_age_hours)
+            evaluate_entry(
+                repo, entry, wt_class, args.base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+            )
         )
 
     # Bucket-sum-equals-entries invariant (round-2 Minor a): every result

@@ -473,22 +473,23 @@ def test_age_floor_blocks_a_young_otherwise_eligible_worktree(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# 14. (round-2 Major 3) Gitignored content that is NOT on the ephemeral
-#     allowlist blocks removal (SKIP_IGNORED_CONTENT), even though
+# 14. (round-3 operator decision) DEFAULT mode is now a PROTECTED DENYLIST:
+#     `.agentic/**` blocks removal (SKIP_PROTECTED_CONTENT), even though
 #     `git status --porcelain` (no --ignored flag) reports the worktree as
 #     CLEAN. Reproduces the exact empirical finding: a worktree holding
 #     only a gitignored `.agentic/plan.md` would otherwise be silently
-#     destroyed by a non-force `git worktree remove`.
+#     destroyed by a non-force `git worktree remove` - the highest-value
+#     entry in the protected set, per the operator decision.
 # --------------------------------------------------------------------------
 
 
-def test_gitignored_non_allowlisted_content_blocks_removal(tmp_path):
+def test_agentic_directory_content_blocks_removal_by_default(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     commit_gitignore_on_main(repo, ".agentic/\n")
     wt = add_worktree(repo, ".claude/worktrees/agent-ignored", "worktree-agent-ignored", push=False)
     # Zero unique commits beyond the .gitignore already on `main` -
     # otherwise ancestor-of-base REMOVE-eligible, isolating this scenario
-    # to the ignored-content gate alone.
+    # to the protected-content gate alone.
     (wt / ".agentic").mkdir()
     (wt / ".agentic" / "plan.md").write_text("irreplaceable session plan\n")
 
@@ -502,19 +503,93 @@ def test_gitignored_non_allowlisted_content_blocks_removal(tmp_path):
     proc = run_reap(repo, dry_run=False)
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
-    assert result[str(wt)].startswith("SKIP_IGNORED_CONTENT")
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
     assert ".agentic/" in result[str(wt)]
     assert str(wt) in worktree_paths(repo)
     assert (wt / ".agentic" / "plan.md").exists(), "the irreplaceable file must survive"
 
 
 # --------------------------------------------------------------------------
-# 15. (round-2 Major 3) Gitignored content that IS on the ephemeral
-#     allowlist (e.g. node_modules/) does NOT block removal.
+# 14b. Same fixture, nested individually-ignored file (not a wholesale
+#      directory ignore) - proves the `.agentic` prefix match catches a
+#      nested path too, not only the collapsed directory-form entry.
 # --------------------------------------------------------------------------
 
 
-def test_gitignored_allowlisted_content_does_not_block_removal(tmp_path):
+def test_agentic_nested_file_blocks_removal_by_default(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # Only files INSIDE .agentic/ are ignored (not the directory itself),
+    # so `git status --ignored=matching` reports the individual nested
+    # path rather than a collapsed `.agentic/` entry.
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-nested", "worktree-agent-nested", push=False)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "plan.md").write_text("irreplaceable session plan\n")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
+    assert ".agentic/plan.md" in result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 14c. `docs/planning/**` and `.env*`/`*.local` are also protected.
+# --------------------------------------------------------------------------
+
+
+def test_docs_planning_content_blocks_removal_by_default(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "docs/planning/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-planning", "worktree-agent-planning", push=False)
+    (wt / "docs" / "planning").mkdir(parents=True)
+    (wt / "docs" / "planning" / "roadmap.md").write_text("plan\n")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
+    assert str(wt) in worktree_paths(repo)
+
+
+def test_env_and_local_files_block_removal_by_default(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".env*\n*.local\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-secrets", "worktree-agent-secrets", push=False)
+    (wt / ".env.local").write_text("SECRET=1\n")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
+    assert str(wt) in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 15. (round-3 operator decision) DEFAULT mode treats generated adapter
+#     output and the round-2 ephemeral set as DISPOSABLE - it does NOT
+#     block removal, even though it would have under round-2's fail-safe
+#     allowlist (`.kimi/skills/*/` is not a "build artifact" by name and
+#     was exactly what drove round-2's `removed=0` measurement).
+# --------------------------------------------------------------------------
+
+
+def test_generated_adapter_output_does_not_block_removal_by_default(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".kimi/skills/*/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-adapter", "worktree-agent-adapter", push=False)
+    (wt / ".kimi" / "skills" / "ds-brief").mkdir(parents=True)
+    (wt / ".kimi" / "skills" / "ds-brief" / "SKILL.md").write_text("generated\n")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (ancestor-of-base)"
+    assert str(wt) not in worktree_paths(repo)
+
+
+def test_ephemeral_content_does_not_block_removal_by_default(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     commit_gitignore_on_main(repo, "node_modules/\n")
     wt = add_worktree(repo, ".claude/worktrees/agent-allowlisted", "worktree-agent-allowlisted", push=False)
@@ -526,6 +601,47 @@ def test_gitignored_allowlisted_content_does_not_block_removal(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "REMOVE (ancestor-of-base)"
     assert str(wt) not in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 15b. `--strict-ignored` restores the round-2 fail-safe-allowlist
+#      behavior: the SAME generated-adapter-output fixture that is
+#      disposable by default now blocks, because `.kimi/skills/*/` is not
+#      on the ephemeral allowlist. Proves the escape hatch genuinely
+#      preserves the old, more conservative polarity end-to-end.
+# --------------------------------------------------------------------------
+
+
+def test_strict_ignored_restores_round2_allowlist_behavior(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".kimi/skills/*/\nnode_modules/\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-strict", "worktree-agent-strict", push=False)
+    (wt / ".kimi" / "skills" / "ds-brief").mkdir(parents=True)
+    (wt / ".kimi" / "skills" / "ds-brief" / "SKILL.md").write_text("generated\n")
+
+    # Default mode: disposable, REMOVE-eligible.
+    default_proc = run_reap(repo, dry_run=True)
+    assert default_proc.returncode == 0, default_proc.stderr
+    default_result = outcomes(default_proc.stdout)
+    assert default_result[str(wt)] == "REMOVE (ancestor-of-base)"
+
+    # --strict-ignored: NOT on the ephemeral allowlist -> blocks.
+    strict_proc = run_reap(repo, dry_run=True, extra=["--strict-ignored"])
+    assert strict_proc.returncode == 0, strict_proc.stderr
+    strict_result = outcomes(strict_proc.stdout)
+    assert strict_result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
+    assert ".kimi/skills/ds-brief/" in strict_result[str(wt)]
+
+    # --strict-ignored on an ephemeral-allowlisted path (node_modules/)
+    # still resolves REMOVE - the escape hatch is the round-2 ALLOWLIST,
+    # not a blanket block-everything-ignored mode.
+    wt2 = add_worktree(repo, ".claude/worktrees/agent-strict-nm", "worktree-agent-strict-nm", push=False)
+    (wt2 / "node_modules").mkdir()
+    (wt2 / "node_modules" / "pkg.js").write_text("// regenerable\n")
+    strict_nm_proc = run_reap(repo, dry_run=True, extra=["--strict-ignored"])
+    assert strict_nm_proc.returncode == 0, strict_nm_proc.stderr
+    strict_nm_result = outcomes(strict_nm_proc.stdout)
+    assert strict_nm_result[str(wt2)] == "REMOVE (ancestor-of-base)"
 
 
 # --------------------------------------------------------------------------

@@ -344,7 +344,7 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 
 `bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - it delegates the locked/dirty/branch-evidence decision to `worktree_model.disposition_for` (the same normative function the command file cites), never a second copy of that logic:
 
-- Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of non-allowlisted gitignored content, AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed
+- Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of PROTECTED gitignored content (`.agentic/**`, `docs/planning/**`, `.env*`, `*.local` - an operator decision; everything else ignored, including generated adapter output, is disposable by default, `--strict-ignored` for the old fail-safe-allowlist polarity), AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed
 - `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
 - Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees --dry-run`/no-flags invocation
 
