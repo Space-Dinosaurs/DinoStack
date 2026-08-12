@@ -322,7 +322,6 @@ content/agents/learning-extractor.md
 content/agents/learnings-agent.md
 content/agents/wrap-ticket.md
 content/commands/ds-implement-ticket.md
-content/commands/ds-init-project.md
 content/commands/ds-ticket-triage.md
 content/commands/ds-wrap.md
 content/references/conductor-operating-rules.md
