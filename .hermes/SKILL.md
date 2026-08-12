@@ -7558,7 +7558,9 @@ Downstream consumers: conductor (/ds-implement-ticket multi-unit orchestration;
                       rewrites); engineer agents (receive task_id in
                       execution contract for identification only - never
                       write to tasks.jsonl); skeptic / security-auditor (read
-                      author_model before selecting their own model).
+                      author_model before selecting their own model);
+                      /ds-implement-ticket Phase 9 (reads author_model for the
+                      PR body Model: attribution line beside Developer:).
 
 Failure modes: tasks.jsonl IS gitignored, like other .agentic/ state files
                (see ds-init-project.md's scaffolded .gitignore block and
@@ -7628,7 +7630,9 @@ a different model when role-model routing is active -- reviewer-diversity
 prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
 The conductor records `author_model` at engineer spawn time (Phase 5) as part
 of the ownership claim's append, and reviewer spawns read the folded value
-before selecting their own model.
+before selecting their own model. `/ds-implement-ticket` Phase 9 also reads the
+folded value to emit a `Model:` attribution line beside `Developer:` on the PR
+body, so a PR carries the model(s) that produced it.
 
 ---
 
@@ -17498,7 +17502,7 @@ Closes [[TICKET_PREFIX]-NNN]([JIRA_BASE_URL]/browse/[TICKET_PREFIX]-NNN)
 
 #### If TRACKER is `none`
 
-Omit the tracker reference block entirely. The PR body will have only Summary and Test plan, and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
+Omit the tracker reference block entirely. The PR body will have only Summary, Test plan, and the Developer/Model attribution lines (each appended only when its value is known), and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
 
 ---
 
@@ -17514,6 +17518,21 @@ Run:
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
 if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+
+# Engineer model for the PR Model: attribution line (DS-166). Source-of-truth is
+# .agentic/tasks.jsonl, NOT a conductor-held variable: author_model is the durable record
+# written once per engineer task at Phase 5 spawn, so the read survives context loss and a
+# resumed session (mirrors how DEVELOPER re-resolves from ds-identity at this point). Dedupe
+# distinct non-null values so a multi-unit PR lists every model that contributed; the line is
+# omitted (like Developer) when task state is absent (single-unit plans never write
+# tasks.jsonl), author_model is null (model unknown / routing off), or ticket_id is empty
+# (null-ticket projects). The pipeline records no per-task harness slug - author_model is the
+# only model identifier - so the attribution line is Model: carrying the model id(s).
+ENGINEER_MODEL=$(jq -sr --arg t "$TICKET_ID" '
+  [.[] | select(.ticket_id == $t and .assigned_agent == "engineer"
+    and .author_model != null and (.status == "in_progress" or .status == "done"))
+    | .author_model]
+  | unique | join(", ")' .agentic/tasks.jsonl 2>/dev/null || true)
 
 # UNIT_IS_BEHAVIOR_VISIBLE: true only when QA ran+passed, evidence URLs exist, AND risk class is
 # not security/auth/crypto/payments/Elevated-correctness (derived in-context from Phase 2/3
@@ -17561,6 +17580,7 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 - [ ] [step 2]
 PRBODY
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "Model: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
@@ -17585,8 +17605,9 @@ else
 - [ ] [step 1]
 - [ ] [step 2]
 PRBODY
-  # Append Developer: line when identity is confirmed (survives --squash via PR body).
+  # Append Developer:/Model: attribution lines when identity/model are known (survives --squash via PR body).
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "Model: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
