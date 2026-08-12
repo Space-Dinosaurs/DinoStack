@@ -63,6 +63,24 @@ task and get back a verifiable outcome.
    and 15 review rounds on one change, with independent units run serially, one review round per
    individual finding, and three units blocked behind an infrastructure-only unit that shipped no
    user-visible behavior.)
+7. **Prevent defects at the producing step, not just catch them at the reviewing step.** Prefer
+   changes that stop a defect from being produced over changes that catch it after the fact. When
+   a review check is mechanical - a grep, a diff, a count comparison, a lookup - give the
+   producing agent that same check to run before it submits, so the check never becomes a review
+   round at all. This applies only to mechanical checks: judgment-based checks (logic errors, edge
+   cases, an adversarial brief, a fabrication spot-check) structurally require an independent
+   reader and must NOT be left-shifted - moving those to the author destroys the independence that
+   makes them work. The boundary is exact, the same way Pillars 5 and 6 state theirs: left-shift is
+   won only by giving the producer the mechanical checks, never by weakening or deleting the
+   reviewer's copy of them - the reviewer keeps running everything it ran before; this is
+   redundancy, not a handoff. A change that removes a Skeptic check because "the engineer now does
+   it" is a regression against Pillar 2, not a win against this one. (The "prevention test": does
+   this change move a mechanical check earlier without weakening the later one? A single session
+   once ran a 5-round Skeptic loop where rounds 1-2 found real code defects and rounds 3-5
+   re-litigated a single comment in a test file; separately, as of 2026-08, four of the Skeptic's mechanical
+   checks - the cross-file reference-consistency check, the async error-handling check, the
+   new-test-CI-wiring check, and the per-consumer impact-table check - had no counterpart anywhere
+   in the engineer's own process, so the engineer had no way to catch them before submitting.)
 
 ## What it does
 
@@ -83,6 +101,8 @@ trust — escalating to the human only for genuine decisions.
   context efficiency.
 - **Not** speed at the cost of verification: a gate, review round, or enforcement floor removed
   to finish sooner is a regression against verifiability, never a win for wall-clock time.
+- **Not** a license to skip the reviewer's copy of a check because the producer now runs it too:
+  a mechanical check moved earlier augments the review, it does not replace it.
 
 ## How to use this for PR alignment
 
@@ -94,8 +114,10 @@ portability test (works only for the author's identity, tracker, or setup), or g
 always-loaded surface, duplicates binding prose, or adds an unconsumed output field without a
 proportional gain (fails the efficiency test), or needlessly serializes independent work, spends
 a full review cycle on a single non-blocking finding, or otherwise adds wall-clock delay without
-a proportional gain (fails the latency test). Symmetrically, a PR that cuts a gate, review round,
-verification step, or enforcement floor to save tokens or to finish sooner is also misaligned,
-regardless of how it scores on the efficiency or latency test - that trade-off is never on the
-table. Misalignment is a *direction* signal for the operator — not necessarily a request-changes
-verdict on correctness.
+a proportional gain (fails the latency test), or leaves a mechanical review check unmoved to the
+producing step when it could catch the defect earlier without weakening the review (fails the
+prevention test). Symmetrically, a PR that cuts a gate, review round, verification step, or
+enforcement floor to save tokens or to finish sooner - or that removes a reviewer's mechanical
+check because the producer now runs it too - is also misaligned, regardless of how it scores on
+the efficiency, latency, or prevention test - that trade-off is never on the table. Misalignment is
+a *direction* signal for the operator — not necessarily a request-changes verdict on correctness.
