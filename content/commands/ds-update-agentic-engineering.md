@@ -171,9 +171,9 @@ this check runs unconditionally, with no separate proportionality gate.
 
 Before presenting the diff in Step 2, read `docs/overview/vision.md` if it exists (it is the
 operator-owned North Star for this repo) and apply its "How to use this for PR alignment" rubric
-to the diff produced in Step 1: does the change advance at least one pillar (guard operator
-attention, produce verifiable outcomes autonomously, low friction, works for everyone) without
-regressing another?
+to the diff produced in Step 1: does the change advance at least one of the file's own listed
+pillars without regressing another? Take the pillar set from the file itself, not from memory or
+an inline list here - it changes over time and this step must never hardcode a stale copy.
 
 Write a short alignment note (2-4 sentences - this is a check, not a report):
 - Which pillar(s) the change advances, in one line each.
