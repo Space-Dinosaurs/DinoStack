@@ -11,9 +11,9 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 22 parametrized functions x {bash, zsh}
-            = 44 collected IDs, plus 3 static shell-independent assertions =
-            47 - see the collected-count floor in
+Public API: none (pytest test module; 23 parametrized functions x {bash, zsh}
+            = 46 collected IDs, plus 3 static shell-independent assertions =
+            49 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
@@ -389,6 +389,39 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
             f"the diagnostic for {rel_path} must quote the matched rule from "
             f"`check-ignore -v`, got {rule!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 4b. Point-of-use defeated-negation check (round 12).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_defeated_negation_is_skipped_loudly_others_still_commit(tmp_path, shell):
+    """The consumer shape has WORKING negations for all three candidates and
+    would otherwise commit all three (see the positive-path tests) - here a
+    PATH-shadowed stub `ds-migrate` reports `.agentic/learnings.md`
+    specifically as a DEFEATED negation. That file must be skipped with a
+    visible ERROR naming it, while MEMORY.md and decisions.md - unaffected
+    by the stub - still commit normally: per-file gating, not a whole-sweep
+    abort."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    git_fixture.install_ds_migrate_stub(tmp_path, fixture.env, LEARNINGS)
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert "ERROR" in result.stdout, f"expected a visible ERROR line:\n{result.stdout}"
+    assert "DEFEATED NEGATION" in result.stdout
+    assert LEARNINGS in result.stdout
+
+    assert _origin_count(fixture) == before + 1, "expected exactly one commit"
+    tip_files = _origin_tip_files(fixture)
+    assert LEARNINGS not in tip_files, f"defeated-negation file must not be committed: {tip_files}"
+    assert MEMORY in tip_files, f"unaffected files must still commit: {tip_files}"
+    assert DECISIONS in tip_files, f"unaffected files must still commit: {tip_files}"
 
 
 # ---------------------------------------------------------------------------
