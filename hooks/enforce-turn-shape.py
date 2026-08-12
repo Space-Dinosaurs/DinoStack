@@ -692,6 +692,64 @@ _OPERATOR_DECISIONS_HEADING_RE = re.compile(
 # A "Waiting:" line - the forced-yield / hard-stop marker.
 _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
 
+# Markup-blindspot fix (real-corpus turn_0267/turn_0314, measured against
+# 320 real conductor turns extracted from ~/.claude/projects at DS-159
+# HEAD - see content/references/conductor-turn-format.md's
+# residual-false-positive list). A markdown ATX heading ("#" through
+# "######") or a pipe-delimited table row (a data row OR its `---`
+# separator row) is a recognized STRUCTURAL element in the status
+# region, the same way a State:/Running:/Blocked: slot line or a
+# Waiting: line already is - not narrative prose to be judged on
+# average-words-per-unit. A short, entirely legitimate heading like
+# "## /ds-wrap complete" or a compact status table forms its own
+# low-word-count "unit" with no terminal sentence punctuation and
+# routinely failed _is_answer_shaped_prose's discriminator purely
+# because a heading/table row is not a sentence - not because it is
+# narrative creep. Recognized here the same way a slot/Waiting: line is:
+# the line breaks block contiguity and is SKIPPED entirely, never folded
+# into a block's word/unit count, so it can never itself supply the
+# average-words evidence another block needs to downgrade.
+#
+# Can a creep author defeat this by formatting narrative pings as
+# headings or a table? Two distinct axes, both now bounded, and it is
+# important not to overstate what closes each one (Skeptic Major 1/2,
+# original bound claim measured false - see below):
+#
+#   1. LENGTH (a single arbitrarily long line prefixed "## " or wrapped
+#      in "| ... |"). This is bounded DIRECTLY by _STATUS_LINE_MAX_CHARS
+#      at the recognition site itself, in _execution_prose_flag - a
+#      recognized heading/table row over STATUS_LINE_MAX_CHARS is NOT
+#      treated as exempt structure at all; it is a length violation and
+#      BLOCKS immediately, exactly the same way an over-length
+#      State:/Running:/Blocked: slot line already does. Measured before
+#      this bound existed: a 1,406-character single line prefixed "## "
+#      or wrapped in "| ... |" produced NO block and NO advisory finding
+#      at all (the volume check's LINE-COUNT model never saw it, since
+#      it was one recognized, skipped line) - the exact gap DS-156's
+#      STATUS_LINE_MAX_CHARS bound on the identity line was built to
+#      close, reopened by this fix's own two-character prefix. Closed.
+#   2. VOLUME (many separate SHORT recognized heading/table lines, each
+#      individually within STATUS_LINE_MAX_CHARS). A well-formed-length
+#      recognized line is skipped by this STRUCTURAL shape check
+#      (_execution_prose_flag) but is NOT exempted from the separate
+#      CHARGE model (_turn_charge/_volume_flag) below - every such line
+#      still charges 1 status-region line there (neither pattern is
+#      referenced anywhere in _turn_charge), so an unbounded SPRAWL of
+#      short heading- or table-formatted lines still trips the existing
+#      ADVISORY turn-volume check at BASE_BODY_BUDGET (see
+#      hooks/tests/test-enforce-turn-shape.py's mb1-creep/mb2-creep).
+#      This axis is a LINE-COUNT budget only - it does not, and never
+#      did, bound the CONTENT LENGTH of an individual line; axis 1 above
+#      is what closes that. Recognition is also NOT a fixed label
+#      vocabulary the way State:/Running:/Blocked: is - a well-formed-
+#      length heading/table row's CONTENT remains as unbounded as a
+#      well-formed-length slot line's content already is (bounded SHAPE
+#      and LENGTH, never MEANING, the same limitation the Known
+#      uncovered shapes table in conductor-turn-format.md already
+#      discloses for slot lines).
+_MARKDOWN_HEADING_RE = re.compile(r"^ {0,3}#{1,6}[ \t]+\S")
+_TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
+
 # DS-156. A recognized State:/Running:/Blocked: status slot line - the
 # fixed-set label whitelist _execution_prose_flag's general branch
 # permits (content/references/conductor-turn-format.md §4 step 2). A
@@ -1697,10 +1755,32 @@ def _execution_prose_flag(text: str, warrants: dict):
     """
     identity_line, body = _segment(text)
     if len(identity_line) > STATUS_LINE_MAX_CHARS:
-        return (
+        # Markup-blindspot fix (real-corpus turn_0090/turn_0096): a long
+        # identity line is not automatically narrative creep - it can be
+        # genuine multi-sentence answer content that simply landed on the
+        # first line with no line break (a formatting slip, not a shape
+        # violation). Apply the SAME evidentiary standard the general/
+        # sole-stoppage branches already use for a status-region block:
+        # the identity line, treated as one block, must clear both the
+        # average-words-per-unit discriminator AND the >=2-unit floor
+        # before this downgrades from BLOCKING to ADVISORY. A genuine
+        # run-on single "sentence" (no recognizable sentence boundary -
+        # e.g. ds156-h's repeated-character stress fixture) still fails
+        # the unit floor and stays BLOCKING, matching the module
+        # docstring's "identity line ... checked for LENGTH ONLY" intent
+        # for anything that is not demonstrably real prose.
+        finding = (
             "execution turn: identity line is {} characters, over the "
             "{}-character limit"
-        ).format(len(identity_line), STATUS_LINE_MAX_CHARS), True
+        ).format(len(identity_line), STATUS_LINE_MAX_CHARS)
+        if _is_answer_shaped_prose([identity_line]) and len(
+            _answer_prose_units([identity_line])
+        ) >= _ANSWER_PROSE_MIN_SENTENCES:
+            return (
+                finding + " - downgraded to advisory: identity line "
+                "reads as answer-shaped prose, not narrative creep"
+            ), False
+        return finding, True
 
     stoppage_sole = warrants["stoppage"] and not (
         warrants["decision"] or warrants["completion"]
@@ -1708,15 +1788,39 @@ def _execution_prose_flag(text: str, warrants: dict):
 
     if stoppage_sole:
         # Sole-stoppage branch: every non-blank RAW line after the
-        # identity line, fenced or not, must be a Waiting: line or a
+        # identity line, fenced or not, must be a Waiting: line, a
         # well-formed State:/Running:/Blocked: status slot line (DS-158:
         # "here is my status and here is what I'm blocked on" is
-        # legitimate conductor output). Same domain _forced_yield_flag
-        # inspected today via _body_after_identity_line.
+        # legitimate conductor output), or a recognized markdown heading/
+        # table row (see _MARKDOWN_HEADING_RE/_TABLE_ROW_RE above). Same
+        # domain _forced_yield_flag inspected today via
+        # _body_after_identity_line.
+        #
+        # Markup-blindspot fix (real-corpus turn_0093): unlike the
+        # general branch, this branch previously had NO downgrade path at
+        # all - any unrecognized line blocked unconditionally, even a
+        # genuine multi-sentence explanatory paragraph following a
+        # Waiting: line ("here is my status, here is what I'm blocked on,
+        # and here is why"). Extended to the same contiguous-block +
+        # answer-shaped-prose + whole-turn-aggregate-unit-floor mechanism
+        # the general branch already uses (DS-158/DS-159), preserving the
+        # same anti-laundering property: a narrative-creep block still
+        # fails the average-words check right there, per block, and
+        # contributes zero units regardless of the aggregate.
+        blocks = []
+        current_block = []
+
+        def _break_block():
+            if current_block:
+                blocks.append(list(current_block))
+                current_block.clear()
+
         for line in _body_after_identity_line(text):
             if not line.strip():
+                _break_block()
                 continue
             if _WAITING_LINE_RE.match(line):
+                _break_block()
                 continue
             stripped = line.strip()
             if _STATUS_SLOT_LINE_RE.match(line):
@@ -1725,13 +1829,36 @@ def _execution_prose_flag(text: str, warrants: dict):
                         "execution turn (sole-stoppage): status slot line "
                         "is {} characters, over the {}-character limit"
                     ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+                _break_block()
                 continue
-            return (
-                "execution turn (sole-stoppage): line other than a "
-                "Waiting: line or a State:/Running:/Blocked: slot line "
-                "present after the identity line"
-            ), True
-        return None
+            if _MARKDOWN_HEADING_RE.match(line) or _TABLE_ROW_RE.match(line):
+                if len(stripped) > STATUS_LINE_MAX_CHARS:
+                    return (
+                        "execution turn (sole-stoppage): markdown heading/"
+                        "table row is {} characters, over the "
+                        "{}-character limit"
+                    ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+                _break_block()
+                continue
+            current_block.append(line)
+        _break_block()
+
+        if not blocks:
+            return None
+
+        finding = (
+            "execution turn (sole-stoppage): line other than a "
+            "Waiting: line or a State:/Running:/Blocked: slot line "
+            "present after the identity line"
+        )
+        if all(_is_answer_shaped_prose(block) for block in blocks):
+            total_units = sum(len(_answer_prose_units(block)) for block in blocks)
+            if total_units >= _ANSWER_PROSE_MIN_SENTENCES:
+                return (
+                    finding + " - downgraded to advisory: content reads "
+                    "as answer-shaped prose, not narrative creep"
+                ), False
+        return finding, True
 
     # General branch: decision and/or completion present, with or without
     # stoppage. Inspects only the unfenced lines of the fence-aware status
@@ -1803,6 +1930,28 @@ def _execution_prose_flag(text: str, warrants: dict):
                 return (
                     "execution turn: status slot line is {} characters, "
                     "over the {}-character limit"
+                ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+            continue
+        if _MARKDOWN_HEADING_RE.match(line) or _TABLE_ROW_RE.match(line):
+            # Markup-blindspot fix (real-corpus turn_0267/turn_0314): a
+            # markdown heading or table row is recognized structure, same
+            # posture as a slot/Waiting: line - it breaks contiguity and
+            # is skipped, never folded into a block's word/unit count.
+            # Skeptic Major 1: length-bounded the SAME way a slot line
+            # is, closing the gap where an arbitrarily long narrative
+            # line prefixed "## " or wrapped in "| ... |" passed with no
+            # block and no advisory - over STATUS_LINE_MAX_CHARS it is a
+            # length violation and BLOCKS, exactly like an over-length
+            # slot line does, rather than being silently recognized.
+            # See _MARKDOWN_HEADING_RE/_TABLE_ROW_RE above for the
+            # "can a creep author defeat this" analysis and its bound.
+            if len(stripped) > STATUS_LINE_MAX_CHARS:
+                return (
+                    "execution turn: markdown heading/table row is {} "
+                    "characters, over the {}-character limit"
                 ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
             if current_block:
                 blocks.append(current_block)
