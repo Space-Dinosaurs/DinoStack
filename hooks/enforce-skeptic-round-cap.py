@@ -27,6 +27,34 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          no state) rather than falling back to a weaker key that could
          collide across unrelated units - see Failure modes below.
 
+         **Two follow-up fixes to that same "Diff under review" line,
+         found when this hook failed to fire on its own verification
+         round:**
+         (a) `_DIFF_UNDER_REVIEW_RE` originally only matched a numbered
+         list-item form ("6. Diff under review: ..."). Real spawn
+         prompts also use a hyphen bullet, an asterisk bullet, and bold
+         markup with or without a bullet (e.g. "- **Diff under
+         review:**") - all of which the original regex missed entirely,
+         including the exact form the verification round's own prompt
+         used. `_DIFF_UNDER_REVIEW_RE` now covers all of these. The same
+         regex fix also closed a second bug: the whitespace class around
+         the captured value used to cross newlines, so an EMPTY field followed by a
+         blank line captured the NEXT line (typically the pasted Worker
+         output under "What to review") as the identity instead of
+         failing open. The whitespace around the capture is now
+         `[ \t]*`, which cannot cross a newline.
+         (b) The extracted line's raw text was used as the identity
+         verbatim, which is stable for the common branch-relative form
+         (`git diff origin/main...<branch>`) but NOT for a literal
+         `<base-sha>..<head-sha>` range - every rework round mints a new
+         head SHA, so every round produced its own key and the cap never
+         engaged (measured: 4 sequential rounds on one unit, 4 separate
+         state files, ALLOW every time). `_normalize_diff_identity()` now
+         extracts a stable token from the range (the branch/PR-like ref
+         when one is present, else the base SHA) instead of hashing the
+         full raw text - see that function's docstring for the exact
+         precedence and the one documented residual collision case.
+
          Decision algorithm (see `_decide()`):
            - round_count is the number of Skeptic rounds already recorded
              for this unit. On a spawn attempt, next_round = round_count + 1.
@@ -164,10 +192,44 @@ from pathlib import Path
 _ROUND_CAP = 3
 _KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _MAX_KEY_LEN = 80
+# Covers: numbered ("6. Diff under review: ..."), hyphen-bullet
+# ("- Diff under review: ..."), asterisk-bullet, bold with/without a
+# bullet ("- **Diff under review:** ..." / "**Diff under review:** ..."),
+# and leading whitespace. The colon is mandatory but its position relative
+# to the bold markers is not (`\*{0,2}Diff under review\*{0,2}:\*{0,2}`
+# matches the colon whether it sits inside or outside the closing `**`).
+# An earlier draft made the colon itself optional (`:?`), which let the
+# engine choose NOT to consume it and instead capture the bare colon as
+# the identity's first character on an empty field - deliberately not
+# repeated. `[ \t]*` (never `\s*`) around the captured value keeps the
+# match confined to a single line - `\s*` previously crossed the newline
+# after an EMPTY field and captured the next line (e.g. the pasted Worker
+# output under "What to review:") as the identity instead of failing open.
 _DIFF_UNDER_REVIEW_RE = re.compile(
-    r"(?im)^[ \t]*(?:\d+\.\s*)?Diff under review:\s*(\S.*?)\s*$"
+    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*(\S[^\n]*)$"
 )
-_WHAT_TO_REVIEW_RE = re.compile(r"(?is)what to review:?\**\s*(.*)")
+# Bounds the captured "What to review" body to the Worker output itself -
+# stops at the next bold-labeled section header (e.g. "**Resolved issues
+# preflight:**") when one follows, rather than swallowing everything to
+# end-of-prompt. Keeps round-fingerprint coalescing (see
+# `_round_fingerprint()`) working even if a future template places
+# per-companion text (e.g. a differing Adversarial brief) after the
+# Worker-output section instead of before it, as the shipped
+# `ds-skeptic.md` ordering does today - see MINOR 2 in the round-cap
+# review.
+_WHAT_TO_REVIEW_RE = re.compile(
+    r"(?is)what to review:?\**\s*(.*?)(?=\n[ \t]*\*\*[A-Za-z][^\n*]*:\*\*|\Z)"
+)
+# Matches a git diff-range expression ANCHORED at the start of the
+# (already stripped) "Diff under review" value - e.g.
+# "git diff origin/main...feature/foo" or a bare "abc1234..def5678" - used
+# by `_normalize_diff_identity()` below (MAJOR 2). Anchoring at `^`
+# prevents false positives on ordinary prose containing an ellipsis
+# ("...") that happens to sit between two word-like tokens.
+_DIFF_RANGE_RE = re.compile(
+    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/-]+)"
+)
+_SHA_LIKE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 
 def _load_log_fire():
@@ -196,6 +258,60 @@ def _sanitize_key(raw: str) -> str:
     return safe or "unknown"
 
 
+def _normalize_diff_identity(raw: str) -> str:
+    """Reduce a "Diff under review" value to a token that stays stable
+    across rework rounds of the SAME unit (MAJOR 2).
+
+    The literal diff-command text is NOT a stable identity by
+    construction: every rework round produces a new head commit, so a
+    "Diff under review: git diff <base-sha>..<head-sha>" value mints a
+    brand-new key on every single round (measured: 4 sequential rounds on
+    one unit produced 4 separate state files and ALLOWed round 4). Only
+    the branch-relative form (`git diff origin/main...<branch>`) happened
+    to be round-stable by accident, and that is the only form the
+    original tests exercised - which is why they passed.
+
+    Strategy, in order:
+      1. If the value is a `<ref1>..<ref2>` / `<ref1>...<ref2>` range
+         (with an optional leading "git diff "), and `ref2` is NOT a
+         bare hex SHA (i.e. it looks like a branch name, e.g.
+         "feature/foo", or a ref like "origin/main"), use `ref2` - the
+         common case per `skeptic-protocol.md` Section 4.5, and the one
+         part of the range that actually names the unit rather than a
+         shared merge-base.
+      2. Else if `ref1` is not SHA-like (unusual, e.g. a bare "origin/
+         main..<sha>" form with no branch name at all), use `ref1`.
+      3. Else (both refs are bare hex SHAs - a "base-sha..head-sha" range
+         with no branch or PR name anywhere in the value): use `ref1`
+         (the base). The base is the one anchor that stays constant
+         across rework rounds of the same unit (the head SHA changes on
+         every fix commit) - this is the literal case measured in the
+         round-stability regression. Known residual risk, deliberately
+         accepted rather than fixing by never keying at all: two SIBLING
+         units that both branch from the identical origin/main commit and
+         are reviewed via a bare SHA-range (no branch/PR name) would
+         coalesce onto one counter. Branch-name and PR-number forms -
+         the common case - never reach this branch.
+      4. If the value is not a recognizable diff-range at all (free text,
+         file paths, a PR reference), return it unchanged - already
+         stable across rounds as long as the conductor writes the same
+         value each round, matching the pre-existing (working) behavior
+         for those forms.
+    """
+    text = raw.strip()
+    match = _DIFF_RANGE_RE.match(text)
+    if not match:
+        return text
+    ref1, ref2 = match.group(1), match.group(2)
+    ref1_sha = bool(_SHA_LIKE_RE.match(ref1))
+    ref2_sha = bool(_SHA_LIKE_RE.match(ref2))
+    if not ref2_sha:
+        return ref2
+    if not ref1_sha:
+        return ref1
+    return ref1
+
+
 def _extract_unit_identity(tinput: dict) -> str | None:
     """Extract a stable per-unit identity string from the Skeptic spawn's
     prompt text.
@@ -204,24 +320,34 @@ def _extract_unit_identity(tinput: dict) -> str | None:
     skeptic-protocol.md` Section 4.5 mandates in every Skeptic spawn's
     `## Global-context inputs` block (item 6) - the field that identifies
     the actual reviewed artifact (a branch, a PR, a SHA range, or file
-    paths) and is the one part of the prompt that stays constant across
-    re-review rounds of the SAME unit, even though everything else in the
-    prompt (the pasted Worker output under "What to review") changes every
-    round. Falls back to `description` (also often unit-scoped) only when
-    no such line exists in `prompt`. Returns None when neither yields
-    anything - the caller must fail open, never falling back to a weaker
-    key such as the conductor's own branch.
+    paths). The extracted value is then run through
+    `_normalize_diff_identity()` (MAJOR 2) before being returned: the raw
+    line text is NOT itself stable across re-review rounds of the SAME
+    unit when it is a literal SHA range (a new head SHA every round mints
+    a new raw string), so identity is derived from a stable token WITHIN
+    the value rather than the value's full text. Falls back to
+    `description` (also often unit-scoped) only when no such line exists
+    in `prompt`. Returns None when neither yields anything, OR when a
+    single field carries two or more "Diff under review" lines with
+    DIFFERING values - an ambiguous prompt is never guessed at by picking
+    the first match; the caller must fail open, never falling back to a
+    weaker key such as the conductor's own branch.
     """
     for field in ("prompt", "description"):
         value = tinput.get(field)
         text = value if isinstance(value, str) else ""
         if not text:
             continue
-        match = _DIFF_UNDER_REVIEW_RE.search(text)
-        if match:
-            identity = match.group(1).strip()
-            if identity:
-                return identity
+        raw_values = []
+        for match in _DIFF_UNDER_REVIEW_RE.finditer(text):
+            candidate = match.group(1).strip()
+            if candidate:
+                raw_values.append(candidate)
+        if not raw_values:
+            continue
+        if len(set(raw_values)) > 1:
+            return None
+        return _normalize_diff_identity(raw_values[0])
     return None
 
 

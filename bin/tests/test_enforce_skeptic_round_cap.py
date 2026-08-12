@@ -58,6 +58,19 @@ Test groups:
  20. test_read_only_agentic_dir_failopen              - state write failure (read-only .agentic/) -> the
                                                          ALLOW/DENY decision for that call still fires
                                                          correctly, never a false deny.
+ 21. test_diff_under_review_format_matrix             - MAJOR 1 regression: numbered, hyphen-bullet,
+                                                         asterisk-bullet, bold-with-bullet, and bold-no-bullet
+                                                         "Diff under review" forms all produce state - not just
+                                                         the numbered form the original tests happened to use.
+ 22. test_round_stability_across_sha_range_rounds     - MAJOR 2 regression: a `git diff <base>..<head>` identity
+                                                         resolves to ONE key across 4 sequential rework rounds
+                                                         (changing head SHA, same base) and actually DENIES at
+                                                         round 4, instead of minting a fresh key every round.
+ 23. test_diff_under_review_edge_cases_failopen       - MAJOR 1 + MAJOR 3 combined: absent field, malformed
+                                                         (missing colon), field present twice with differing
+                                                         values, empty value + blank line + prose (the literal
+                                                         MAJOR 3 defect), and a value reflowed onto the next
+                                                         line all allow and write NO state.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -166,7 +179,24 @@ def _deny_reason(parsed: dict | None) -> str:
 
 
 def _unit_key(unit: str) -> str:
-    identity = _diff_identity(unit)
+    """Mirrors `_unit_key()` in the hook, INCLUDING the MAJOR 2
+    normalization step: for the branch-relative form used by
+    `_diff_identity()` (`git diff origin/main...<unit>`), the hook's
+    `_normalize_diff_identity()` extracts the branch token (`unit`
+    itself) rather than hashing the full "git diff origin/main..." text -
+    see `test_round_stability_across_sha_range_rounds` for the bare
+    SHA-range form, which normalizes differently (to the base SHA)."""
+    identity = unit
+    sanitized = _KEY_SAFE_RE.sub("-", identity.strip())[:_MAX_KEY_LEN]
+    digest = hashlib.sha1(identity.encode("utf-8", "replace")).hexdigest()[:10]
+    return f"{sanitized}-{digest}"
+
+
+def _unit_key_for_raw_identity(identity: str) -> str:
+    """Same sanitize+digest as `_unit_key()`, but takes an ALREADY
+    NORMALIZED identity string directly (used by tests that construct a
+    "Diff under review" value the hook's normalizer reduces to something
+    other than the plain unit/branch name, e.g. a bare SHA range)."""
     sanitized = _KEY_SAFE_RE.sub("-", identity.strip())[:_MAX_KEY_LEN]
     digest = hashlib.sha1(identity.encode("utf-8", "replace")).hexdigest()[:10]
     return f"{sanitized}-{digest}"
@@ -594,6 +624,158 @@ def test_read_only_agentic_dir_failopen():
             assert not _is_denied(parsed), "a state-write failure must never turn into a deny"
         finally:
             agentic_dir.chmod(stat.S_IRWXU)
+
+
+# --------------------------------------------------------------------------- #
+# 21-23. Round-2 review fixes: real-shape "Diff under review" format matrix
+# (MAJOR 1), SHA-range round stability (MAJOR 2), and the extended
+# fail-open matrix (MAJOR 1 + MAJOR 3 combined).
+# --------------------------------------------------------------------------- #
+def _raw_prompt(diff_line: str, what_to_review: str | None = None) -> str:
+    """Build a spawn prompt from a literal "Diff under review" line,
+    mirroring the real `content/commands/ds-skeptic.md` template shape
+    (`## Global-context inputs` block, item 6, followed by "What to
+    review")."""
+    lines = [
+        "## Global-context inputs",
+        "1. Architect plan: n/a - Trivial",
+        diff_line,
+        "",
+    ]
+    if what_to_review is not None:
+        lines.append(f"**What to review:** {what_to_review}")
+    lines.append("Evaluate and return your findings using the sign-off format.")
+    return "\n".join(lines)
+
+
+def _raw_payload(tmp: str, diff_line: str, what_to_review: str | None = None) -> dict:
+    return {
+        "tool_name": "Agent",
+        "cwd": tmp,
+        "tool_input": {
+            "subagent_type": "skeptic",
+            "description": "review",
+            "prompt": _raw_prompt(diff_line, what_to_review),
+        },
+    }
+
+
+# The exact hyphen-bullet form at content/references/skeptic-protocol.md:340
+# ("- Diff under review: <as today>") and the bold-bullet form real spawn
+# briefs use ("- **Diff under review:**") are both included below - the
+# verification round's own prompt used the latter and the pre-fix hook
+# never fired on it.
+_DIFF_LINE_FORMS = {
+    "numbered": "6. Diff under review: {value}",
+    "hyphen_bullet": "- Diff under review: {value}",
+    "asterisk_bullet": "* Diff under review: {value}",
+    "bold_with_hyphen_bullet": "- **Diff under review:** {value}",
+    "bold_no_bullet": "**Diff under review:** {value}",
+}
+
+
+def test_diff_under_review_format_matrix():
+    """MAJOR 1 regression: every real spawn-prompt format for the "Diff
+    under review" line must produce state, not just the numbered form the
+    original tests happened to use."""
+    unit = "feature/round-cap-test"
+    for label, template in _DIFF_LINE_FORMS.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            diff_line = template.format(value=_diff_identity(unit))
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+            )
+            assert rc == 0
+            assert not _is_denied(parsed), f"{label} form unexpectedly denied: {parsed}"
+            state_path = _state_path(tmp, unit)
+            assert state_path.exists(), (
+                f"{label} form ({diff_line!r}) produced NO state file - the hook did "
+                f"not extract an identity from this real spawn-prompt shape"
+            )
+            state = json.loads(state_path.read_text())
+            assert state["round_count"] == 1, f"{label} form: unexpected state {state}"
+
+
+def test_round_stability_across_sha_range_rounds():
+    """MAJOR 2 regression: a `git diff <base-sha>..<changing-head-sha>`
+    identity (the form the Skeptic sign-off contract's own `Reviewed:
+    <base-sha>..<head-sha>` shape mirrors) must resolve to ONE key across
+    sequential rework rounds and actually DENY at round 4 - pre-fix, each
+    round's new head SHA minted its own state file and the cap never
+    engaged (measured: round 4 ALLOWed, 4 separate state files)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        base_sha = "a" * 40
+        heads = ["b" * 40, "c" * 40, "d" * 40, "e" * 40]
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(base_sha)}.json"
+        )
+
+        for i, head in enumerate(heads[:3], start=1):
+            diff_line = f"6. Diff under review: git diff {base_sha}..{head}"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"round {i} unexpectedly denied: {parsed}"
+            assert expected_path.exists(), (
+                "all rounds of the SAME unit must resolve to the base-SHA-keyed state file"
+            )
+            state = json.loads(expected_path.read_text())
+            assert state["round_count"] == i, (
+                f"MAJOR 2 regression: base..head SHA range must resolve to ONE stable "
+                f"key across rounds - got round_count={state['round_count']} at round {i}"
+            )
+
+        # 4th round (yet another new head SHA) must DENY - proves the cap
+        # actually engages instead of minting a fresh key every round.
+        diff_line = f"6. Diff under review: git diff {base_sha}..{heads[3]}"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+        )
+        assert _is_denied(parsed), "round 4 of a SHA-range-keyed unit must be denied at the cap"
+
+        state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 1, (
+            f"expected exactly ONE state file across all 4 rounds, got {[p.name for p in state_files]}"
+        )
+
+
+def test_diff_under_review_edge_cases_failopen():
+    """MAJOR 1 + MAJOR 3 combined fail-open matrix: an absent field, a
+    malformed field (missing colon), a field carrying two DIFFERING
+    values, an empty value followed by a blank line then other prose (the
+    literal MAJOR 3 defect - the old `\\s*` crossed the newline and
+    captured the Worker output as the identity), and a value reflowed
+    onto the next line must all allow and write NO state at all."""
+    cases = {
+        "absent_field": "no structured fields here, just prose about the change",
+        "malformed_missing_colon": "6. Diff under review git diff origin/main...feature/x",
+        "field_present_twice_differing_values": (
+            "6. Diff under review: git diff origin/main...feature/a\n"
+            "6. Diff under review: git diff origin/main...feature/b"
+        ),
+        "empty_value_then_blank_line_then_prose": (
+            "6. Diff under review:\n\n**What to review:** <worker output round 1>"
+        ),
+        "reflowed_across_lines": "6. Diff under review:\ngit diff origin/main...feature/x",
+    }
+    for label, prompt_text in cases.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = {
+                "tool_name": "Agent",
+                "cwd": tmp,
+                "tool_input": {
+                    "subagent_type": "skeptic",
+                    "description": "review",
+                    "prompt": prompt_text,
+                },
+            }
+            rc, parsed = _run_hook(payload)
+            assert rc == 0
+            assert not _is_denied(parsed), f"{label} must allow: {parsed}"
+            assert not (Path(tmp) / ".agentic").exists(), (
+                f"{label} must fail open with NO state written at all, but "
+                f".agentic/ was created"
+            )
 
 
 if __name__ == "__main__":
