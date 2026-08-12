@@ -125,7 +125,7 @@ config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -142,9 +142,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -280,40 +280,59 @@ symlink_files() {
 # Symlink skill
 # ---------------------------------------------------------------------------
 
-echo "Linking skill: agentic-engineering..."
+echo "Linking skill: dinostack..."
 
-SKILLS_SRC="$REPO_DIR/.opencode/skills/agentic-engineering"
-SKILLS_DST="$HOME/.config/opencode/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.opencode/skills/dinostack"
+SKILLS_DST="$HOME/.config/opencode/skills/dinostack"
 
 mkdir -p "$(dirname "$SKILLS_DST")"
 
 if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
-    echo "  = agentic-engineering (already linked)"
+    echo "  = dinostack (already linked)"
   elif _ae_is_ours "$SKILLS_DST"; then
     # Stale symlink pointing to another methodology checkout - re-point it.
     if [[ "$AE_DRY_RUN" == "true" ]]; then
-      echo "  ~ agentic-engineering (would re-point to repo_dir)"
+      echo "  ~ dinostack (would re-point to repo_dir)"
     else
       ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
-      echo "  ~ agentic-engineering (re-pointed to repo_dir)"
+      echo "  ~ dinostack (re-pointed to repo_dir)"
     fi
   else
     if [[ "$AE_DRY_RUN" == "true" ]]; then
-      echo "  ! agentic-engineering (would skip: symlink points outside methodology checkout: $current_target)"
+      echo "  ! dinostack (would skip: symlink points outside methodology checkout: $current_target)"
     else
-      echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+      echo "  ! dinostack (symlink points elsewhere: $current_target - skipping)"
     fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  ! agentic-engineering (real file/directory exists at destination - skipping)"
+  echo "  ! dinostack (real file/directory exists at destination - skipping)"
 else
   if [[ "$AE_DRY_RUN" == "true" ]]; then
-    echo "  + agentic-engineering (would create)"
+    echo "  + dinostack (would create)"
   else
     ln -s "$SKILLS_SRC" "$SKILLS_DST"
-    echo "  + agentic-engineering"
+    echo "  + dinostack"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Remove stale pre-rename skill symlink (agentic-engineering -> dinostack)
+#
+# Same ownership discipline as the stale-command prune below: a symlink
+# node only, unlinking never traverses its target so no -r is needed, and
+# it is only removed when _ae_is_ours() confirms it points inside a
+# methodology checkout.
+# ---------------------------------------------------------------------------
+
+_ae_stale_skill_dst="$(dirname "$SKILLS_DST")/agentic-engineering"
+if _ae_is_ours "$_ae_stale_skill_dst"; then
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  ~ agentic-engineering (would remove: stale pre-rename skill symlink)"
+  else
+    rm -f "$_ae_stale_skill_dst"
+    echo "  - removed agentic-engineering (stale pre-rename skill symlink)"
   fi
 fi
 
@@ -426,7 +445,7 @@ Before starting any task, check if a domain skill should be loaded:
 
 | Signal | Skill |
 |---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
 <!-- END managed-by-agentic-engineering -->"""
@@ -480,15 +499,15 @@ else:
 
 config.setdefault("permission", {})
 
-# Allow the agentic-engineering skill
+# Allow the dinostack skill
 config["permission"].setdefault("skill", {})
-config["permission"]["skill"]["agentic-engineering"] = "allow"
+config["permission"]["skill"]["dinostack"] = "allow"
 
-# Allow agents to spawn agentic-engineering subagents
+# Allow agents to spawn dinostack subagents
 config["permission"].setdefault("task", {})
 config["permission"]["task"]["*"] = "allow"
 
-# Allow external directory access to the agentic-engineering repo
+# Allow external directory access to the dinostack repo
 config["permission"].setdefault("external_directory", {})
 ae_path = repo_dir + "/**"
 config["permission"]["external_directory"][ae_path] = "allow"
@@ -496,7 +515,7 @@ config["permission"]["external_directory"][ae_path] = "allow"
 # Add instructions pointing to the rules files
 instructions = config.get("instructions", [])
 rules_files = [
-    repo_dir + "/.opencode/skills/agentic-engineering/METHODOLOGY.md",
+    repo_dir + "/.opencode/skills/dinostack/METHODOLOGY.md",
     repo_dir + "/content/rules/code-standards.md",
     repo_dir + "/content/rules/conventions.md",
 ]
@@ -584,7 +603,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 # ---------------------------------------------------------------------------
@@ -595,7 +614,7 @@ echo ""
 echo "OpenCode adapter install complete."
 echo ""
 echo "Installed to:"
-echo "  ~/.config/opencode/skills/agentic-engineering/ -> $REPO_DIR/.opencode/skills/agentic-engineering/"
+echo "  ~/.config/opencode/skills/dinostack/ -> $REPO_DIR/.opencode/skills/dinostack/"
 echo "  ~/.config/opencode/agents/ -> $REPO_DIR/.opencode/agents/"
 echo "  ~/.config/opencode/commands/ -> $REPO_DIR/.opencode/commands/"
 echo "  ~/.config/opencode/plugins/ -> $REPO_DIR/.opencode/plugins/"

@@ -119,7 +119,7 @@ echo "Rebuilt references/ hardlinks"
 #   description = "<first non-empty non-header line from body>"
 #   prompt = """<full markdown body>"""
 #
-# The /agentic-engineering prerequisite blockquote is NOT added here -
+# The /dinostack prerequisite blockquote is NOT added here -
 # it is Claude Code-specific and never appears in content/commands/*.md.
 #
 # If the command body contains any """ sequences, they are escaped as \"\"\"
@@ -431,7 +431,7 @@ done
 
 echo "Built ${#generated_agents[@]} agent files in .gemini/agents/"
 
-# project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter
+# project-scaffolding.yml and templates/: hardlink so ds-migrate can resolve from adapter
 hardlink_from_content "$CONTENT/project-scaffolding.yml" "$GEMINI_DIR/project-scaffolding.yml"
 mkdir -p "$GEMINI_DIR/templates/.agentic"
 for tmpl_src in "$CONTENT"/templates/.agentic/*; do

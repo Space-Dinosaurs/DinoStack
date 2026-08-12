@@ -161,7 +161,7 @@ for block in d['hooks'].get('UserPromptSubmit', []):
             print(h['command'])
 " 2>/dev/null)"
 
-WIRED_PATH="$(echo "$SKILL_CMD_AFTER" | sed -E 's/^bash //')"
+WIRED_PATH="$(echo "$SKILL_CMD_AFTER" | sed -E 's/^([A-Za-z_][A-Za-z0-9_]*=[^ ]* )*bash //')"
 if [[ -f "$WIRED_PATH" ]] && ! grep -q "$MARKER" "$WIRED_PATH" 2>/dev/null; then
   _pass "the exact wired hook command path is unaffected by the checkout mutation"
 else

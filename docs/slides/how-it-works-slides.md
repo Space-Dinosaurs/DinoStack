@@ -410,7 +410,7 @@ The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration 
 <div class="columns">
 <div class="card">
 <strong>cap_reached</strong><br/>
-3 fix passes ran, Critical/Major findings still open. Loop exits. QA is skipped. Human receives the open findings list and three options: clarify, defer, or scope as follow-on.
+3 fix passes ran. An unresolved Critical always escalates - the cap never ships a Critical. Otherwise the conductor ships (accepted debt in the PR body) or escalates, per operator approval inside Phase 6 today.
 </div>
 <div class="card">
 <strong>convergence_failure</strong><br/>

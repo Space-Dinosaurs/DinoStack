@@ -105,7 +105,10 @@ push_ahead_commit() {
 
 # invoke_updater: run agentic-update with AGENTIC_CONFIG_PATH pointing at
 # the temp config. HOME is also overridden so version-check-cache writes
-# go to TEMP_HOME rather than the real user home.
+# go to TEMP_HOME rather than the real user home. If INSTALL_ARGS_LOG is set
+# in the calling shell, it is forwarded so a fixture's install.sh can record
+# the exact argv it received (used by the --mode/--profile/--identity
+# forwarding tests below).
 invoke_updater() {
   local config_path="$TEMP_HOME/.agentic/agentic-engineering-config.json"
   (
@@ -113,9 +116,41 @@ invoke_updater() {
     export HOME
     AGENTIC_CONFIG_PATH="$config_path"
     export AGENTIC_CONFIG_PATH
+    if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+      export INSTALL_ARGS_LOG
+    fi
     python3 "$UPDATER" "$@"
   ) > "$TEMP_HOME/.out" 2>&1
   echo $? > "$TEMP_HOME/.exit"
+}
+
+# push_ahead_flags_commit: like push_ahead_commit, but the pushed
+# .claude/install.sh records its received argv (one arg per line) to
+# $INSTALL_ARGS_LOG instead of being a pure no-op. Used to verify
+# --mode/--profile/--identity/--no-identity are forwarded verbatim.
+push_ahead_flags_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p .claude
+    cat > .claude/install.sh <<'INSTALLEOF'
+#!/usr/bin/env bash
+if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+  for arg in "$@"; do
+    echo "$arg" >> "$INSTALL_ARGS_LOG"
+  done
+fi
+exit 0
+INSTALLEOF
+    chmod +x .claude/install.sh
+    git add .claude/install.sh
+    git commit -m "add argv-recording .claude/install.sh" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -641,6 +676,634 @@ if echo "$OUT" | grep -q "this update changed files under hooks/"; then
   _fail "T11d no-op pull: warning present but should be ABSENT (already up to date)"
 else
   _pass "T11d no-op pull: warning ABSENT (no-op / already up to date)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 12: --mode/--profile/--identity are forwarded verbatim to install.sh
+#
+# Regression coverage for the new passthrough flags added when
+# content/commands/ds-update.md's UPDATE-FLOW was rewritten to delegate its
+# adapter loop to agentic-update instead of reimplementing it. Before this
+# option existed, agentic-update always invoked install.sh with zero flags -
+# ds-update.md could not delegate without losing the user's chosen
+# mode/profile/identity.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict --identity=octocat
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T12 flag forwarding: exits 0"
+else
+  _fail "T12 flag forwarding: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out"; then
+  _pass "T12 flag forwarding: --mode=opt-out forwarded"
+else
+  _fail "T12 flag forwarding: --mode=opt-out NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict"; then
+  _pass "T12 flag forwarding: --profile=strict forwarded"
+else
+  _fail "T12 flag forwarding: --profile=strict NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--identity=octocat"; then
+  _pass "T12 flag forwarding: --identity=octocat forwarded"
+else
+  _fail "T12 flag forwarding: --identity=octocat NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 13: --no-identity is forwarded verbatim, and is mutually exclusive
+# with --identity (argparse-enforced).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --no-identity
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T13 --no-identity forwarding: exits 0"
+else
+  _fail "T13 --no-identity forwarding: expected exit 0, got $RC"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--no-identity"; then
+  _pass "T13 --no-identity forwarding: --no-identity forwarded"
+else
+  _fail "T13 --no-identity forwarding: --no-identity NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+# Mutual exclusion: --identity and --no-identity together must be rejected
+# by argparse before any git/adapter work happens.
+(
+  HOME="$TEMP_HOME"
+  export HOME
+  AGENTIC_CONFIG_PATH="$TEMP_HOME/.agentic/agentic-engineering-config.json"
+  export AGENTIC_CONFIG_PATH
+  python3 "$UPDATER" --check --identity=foo --no-identity
+) > "$TEMP_HOME/.mutex_out" 2>&1
+MUTEX_RC=$?
+
+if [[ "$MUTEX_RC" != "0" ]]; then
+  _pass "T13 mutual exclusion: --identity + --no-identity together exits non-zero"
+else
+  _fail "T13 mutual exclusion: --identity + --no-identity together should be rejected, got exit 0"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 14: no flags supplied -> install.sh receives zero args, matching
+# pre-existing behavior exactly (non-regression for the default/omitted
+# case introduced alongside the new flags).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T14 no flags: exits 0"
+else
+  _fail "T14 no flags: expected exit 0, got $RC"
+fi
+
+if [[ -z "$ARGS_RECORDED" ]]; then
+  _pass "T14 no flags: install.sh received zero args (default-omitted behavior preserved)"
+else
+  _fail "T14 no flags: install.sh unexpectedly received args: $ARGS_RECORDED"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# setup_git_fixture_with_argv_install: like setup_git_fixture, but commits
+# an argv-recording .claude/install.sh directly to FAKE_REPO and pushes it,
+# so local and remote HEAD stay identical (still "up to date") after this
+# call - unlike push_ahead_flags_commit, which deliberately leaves the
+# pushed commit unpulled so a subsequent update has something to pull.
+# Must be called after setup_git_fixture.
+setup_git_fixture_with_argv_install() {
+  (
+    cd "$FAKE_REPO"
+    mkdir -p .claude
+    cat > .claude/install.sh <<'INSTALLEOF'
+#!/usr/bin/env bash
+if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+  # Unconditional marker line: proves install.sh actually ran even when it
+  # receives zero forwarded flags (e.g. an --adapters-only forced install),
+  # which the argv-only loop below would otherwise leave undetectable.
+  echo "RAN" >> "$INSTALL_ARGS_LOG"
+  for arg in "$@"; do
+    echo "$arg" >> "$INSTALL_ARGS_LOG"
+  done
+fi
+exit 0
+INSTALLEOF
+    chmod +x .claude/install.sh
+    git add .claude/install.sh
+    git commit -m "add argv-recording .claude/install.sh" -q
+    git push -q origin main 2>/dev/null
+  )
+}
+
+# push_ahead_docs_commit: like push_ahead_commit, but the pushed commit adds
+# a doc-only file that does NOT match any REBUILD_TRIGGER, so _needs_rebuild
+# returns False for it (unlike push_ahead_commit's .claude/install.sh, which
+# is itself an exact-path trigger). Used to exercise the "no adapter source
+# changed" (not-rebuild) early-return path with a real pulled commit.
+push_ahead_docs_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p docs
+    echo "docs-only change" > docs/somefile.md
+    git add docs/somefile.md
+    git commit -m "docs-only change" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
+}
+
+# ---------------------------------------------------------------------------
+# Test 15 (CRITICAL fix): a confirmed config change (--mode/--profile/
+# --identity) must force the adapter install loop even on the
+# old_head==new_head ("Already up to date") early-return path.
+#
+# Before the fix, this path printed "Already up to date" and returned 0
+# WITHOUT ever invoking install.sh - so an operator who ran /ds-update
+# specifically to flip profile=strict (or set an identity) got exit 0
+# having silently applied nothing.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE
+# (setup_git_fixture_with_argv_install committed+pushed directly to both).
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict --identity=octocat
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T15 already-up-to-date + config change: exits 0"
+else
+  _fail "T15 already-up-to-date + config change: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qiE "Already up to date"; then
+  _pass "T15 already-up-to-date + config change: still reports 'Already up to date'"
+else
+  _fail "T15 already-up-to-date + config change: missing 'Already up to date' (got: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T15 already-up-to-date + config change: reports forced install"
+else
+  _fail "T15 already-up-to-date + config change: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--identity=octocat"; then
+  _pass "T15 already-up-to-date + config change: install.sh actually ran with the confirmed flags"
+else
+  _fail "T15 already-up-to-date + config change: install.sh did NOT run with confirmed flags (recorded: $ARGS_RECORDED) - the Critical bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 16 (CRITICAL fix): a confirmed config change must also force the
+# adapter install loop on the "no adapter source changed" (not-rebuild)
+# early-return path, when a real pull DID happen but touched no
+# REBUILD_TRIGGER path.
+#
+# Before the fix, this path printed "No rebuild needed" and returned 0
+# WITHOUT ever invoking install.sh, identical failure shape to T15 but on
+# the second of the two early-return sites.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+push_ahead_docs_commit   # remote 1 ahead; docs-only, not a REBUILD_TRIGGER
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T16 no-rebuild-needed + config change: exits 0"
+else
+  _fail "T16 no-rebuild-needed + config change: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T16 no-rebuild-needed + config change: reports forced install"
+else
+  _fail "T16 no-rebuild-needed + config change: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict"; then
+  _pass "T16 no-rebuild-needed + config change: install.sh actually ran with the confirmed flags"
+else
+  _fail "T16 no-rebuild-needed + config change: install.sh did NOT run with confirmed flags (recorded: $ARGS_RECORDED) - the Critical bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 17 (Minor fix): an explicit --adapters selection alone (no --mode/
+# --profile/--identity/--no-identity) must also force the adapter install
+# loop on the old_head==new_head ("Already up to date") early-return path.
+#
+# Before the fix, forced_install was `bool(install_flags)` only, so
+# --adapters=.claude on an up-to-date repo printed "Already up to date",
+# exited 0, and never invoked install.sh at all - the operator's explicit
+# adapter selection was silently dropped.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --adapters=.claude
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T17 already-up-to-date + --adapters only: exits 0"
+else
+  _fail "T17 already-up-to-date + --adapters only: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T17 already-up-to-date + --adapters only: reports forced install"
+else
+  _fail "T17 already-up-to-date + --adapters only: missing forced-install message (got: $OUT) - the Minor bug reproduces here"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "RAN"; then
+  _pass "T17 already-up-to-date + --adapters only: install.sh actually ran"
+else
+  _fail "T17 already-up-to-date + --adapters only: install.sh did NOT run (recorded: $ARGS_RECORDED) - the Minor bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# seed_fake_hooks_source: commit REAL, mutually-distinguishable content at
+# all six hooks_source_paths() locations under FAKE_REPO (hooks/,
+# bin/ds-identity, .codex/config/hooks.json, .codex/hooks/, .gemini/hooks/,
+# .kimi/hooks/). Without this, FAKE_REPO ships only README.md + a stub
+# .claude/install.sh, so compute_hooks_source_hash returns the SAME
+# empty-input digest (e3b0c442...) for every one of those six paths,
+# zero of them, or any subset - a fixture that cannot distinguish "the
+# right six paths were hashed" from "an arbitrary wrong list was hashed".
+# Must be called after setup_git_fixture, before sync_fake_hooks_snapshot.
+seed_fake_hooks_source() {
+  (
+    cd "$FAKE_REPO"
+    mkdir -p hooks bin .codex/config .codex/hooks .gemini/hooks .kimi/hooks
+    echo "fake-hooks-content" > hooks/fake-hook.sh
+    printf '#!/usr/bin/env bash\necho fake-identity\n' > bin/ds-identity
+    chmod +x bin/ds-identity
+    echo '{"hooks": []}' > .codex/config/hooks.json
+    echo "fake-codex-hook-content" > .codex/hooks/fake.sh
+    echo "fake-gemini-hook-content" > .gemini/hooks/fake.sh
+    echo "fake-kimi-hook-content" > .kimi/hooks/fake.sh
+    git add hooks bin/ds-identity .codex .gemini .kimi
+    git commit -m "seed fake hooks source for hash fixture" -q
+    git push -q origin main 2>/dev/null
+  )
+}
+
+# sync_fake_hooks_snapshot: write a REAL session-stable snapshot for
+# FAKE_REPO under the isolated TEMP_HOME by calling the actual PRODUCT
+# writer, sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh) - the same
+# function install.sh calls and the same one bin/ds-update's
+# _hooks_snapshot_diverged compares against. Deliberately does NOT
+# hand-compute an expected hash in this test file (that would just be a
+# fourth unpinned copy of the six-path list); the meta this writes is
+# exactly what a real install.sh run would produce for FAKE_REPO's seeded
+# content. Must be called after seed_fake_hooks_source.
+sync_fake_hooks_snapshot() {
+  local hooks_snapshot_lib="$SCRIPT_DIR/../scripts/lib/hooks-snapshot.sh"
+  (
+    HOME="$TEMP_HOME"
+    export HOME
+    # shellcheck source=/dev/null
+    source "$hooks_snapshot_lib"
+    sync_hooks_snapshot "$FAKE_REPO" >/dev/null
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Test 18 (DS-54): a hooks-snapshot that has drifted from the checkout's live
+# hook source (here: no snapshot has EVER been created - the never_migrated
+# state) forces the adapter install loop on the old_head==new_head
+# ("Already up to date") early-return path, even with no --mode/--profile/
+# --identity/--adapters forcing flag.
+#
+# Before this fix, this path printed "Already up to date" and returned 0
+# WITHOUT ever invoking install.sh - an operator who manually `git pull`ed a
+# hooks/ fix before running ds-update got a silent no-op (the dogfooding gap
+# this ticket closes).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE
+# (old_head==new_head). No snapshot is ever written for FAKE_REPO in this
+# TEMP_HOME, so _hooks_snapshot_diverged must report "diverged" (never_migrated).
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: exits 0"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "hooks.*snapshot.*drifted\|forcing adapter install"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: reports forced install"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "RAN"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: install.sh actually ran"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: install.sh did NOT run (recorded: $ARGS_RECORDED) - the DS-54 dogfooding gap reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 19 (DS-54, negative/mutation-verification case): when the local
+# hooks-snapshot's stored source_hash ALREADY matches the checkout's live
+# hook source, the old_head==new_head path must NOT force an adapter
+# install - proves _hooks_snapshot_diverged is not just "always true", and
+# that T18 is exercising the actual comparison, not a constant.
+#
+# FAKE_REPO carries REAL, distinguishable content at all six
+# hooks_source_paths() locations (seed_fake_hooks_source), and the snapshot
+# is written by the actual product function (sync_fake_hooks_snapshot calls
+# sync_hooks_snapshot) - so this test can distinguish "the right six paths
+# were compared" from "an arbitrary/wrong list was compared" (Major 2 fix:
+# the prior all-absent-paths fixture produced the same empty-input digest
+# for any list, correct or corrupted, and could not tell the difference).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+seed_fake_hooks_source
+sync_fake_hooks_snapshot
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: exits 0"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _fail "T19 already-up-to-date + hooks-snapshot matching: unexpectedly forced adapter install (got: $OUT)"
+else
+  _pass "T19 already-up-to-date + hooks-snapshot matching: did NOT force adapter install"
+fi
+
+if [[ -z "$ARGS_RECORDED" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: install.sh did NOT run"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: install.sh unexpectedly ran (recorded: $ARGS_RECORDED)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# push_ahead_nontrigger_commit: like push_ahead_commit, but the pushed
+# commit only touches README.md - not a REBUILD_TRIGGER path - so
+# _needs_rebuild() returns False and main()'s "No rebuild needed" branch
+# (bin/ds-update:627-634, doctor call at :634) fires instead of the
+# rebuild-triggered branch (Step 14, doctor call at :724).
+# Must be called after setup_git_fixture.
+# ---------------------------------------------------------------------------
+push_ahead_nontrigger_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "non-trigger update" >> README.md
+    git add README.md
+    git commit -m "non-trigger README update" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# _run_doctor_cwd_check: shared body for the T18a/T18b/T18c call-site
+# variants below. Assumes setup_git_fixture (and, for T18b/T18c, the
+# appropriate push_ahead_* helper) has already run for this scenario.
+# A stub ds-doctor on PATH records the cwd it was invoked in (it never runs
+# the real binary) so the assertion is deterministic and side-effect-free.
+# Sets (globals, deliberately not `local` - read by the caller after return):
+#   RC, OUT              - invoke_updater's exit code / captured output
+#   DOCTOR_CWD_LOG        - path to the stub's recorded-cwd file
+#   REAL_SUM_BEFORE/AFTER - checksums of the REAL bin/agentic-update (the
+#                           test runner's own copy, not the FAKE_REPO
+#                           fixture) asserting the test never escapes its
+#                           sandbox.
+# Args: $1 = test id/label (e.g. "T18a"), remainder = extra invoke_updater args.
+# ---------------------------------------------------------------------------
+_run_doctor_cwd_check() {
+  local tid="$1"
+  shift
+
+  STUB_BIN="$TEMP_HOME/stubbin"
+  mkdir -p "$STUB_BIN"
+  DOCTOR_CWD_LOG="$TEMP_HOME/doctor_cwd.log"
+  cat > "$STUB_BIN/ds-doctor" <<STUBEOF
+#!/usr/bin/env bash
+pwd > "$DOCTOR_CWD_LOG"
+exit 0
+STUBEOF
+  chmod +x "$STUB_BIN/ds-doctor"
+
+  REAL_SUM_BEFORE="$(sha256_of "$UPDATER")"
+
+  OTHER_DIR="$(mktemp -d)"
+  ORIGINAL_PATH="$PATH"
+  PATH="$STUB_BIN:$PATH"
+  export PATH
+
+  (
+    cd "$OTHER_DIR"
+    invoke_updater "$@"
+  )
+
+  PATH="$ORIGINAL_PATH"
+  export PATH
+
+  RC=$(cat "$TEMP_HOME/.exit")
+  OUT=$(cat "$TEMP_HOME/.out")
+  REAL_SUM_AFTER="$(sha256_of "$UPDATER")"
+
+  if [[ "$RC" == "0" ]]; then
+    _pass "$tid doctor cwd: exits 0"
+  else
+    _fail "$tid doctor cwd: expected exit 0, got $RC (output: $OUT)"
+  fi
+
+  if [[ -f "$DOCTOR_CWD_LOG" ]]; then
+    RECORDED_CWD="$(cat "$DOCTOR_CWD_LOG")"
+    RECORDED_REAL="$(cd "$RECORDED_CWD" 2>/dev/null && pwd -P)"
+    EXPECTED_REAL="$(cd "$FAKE_REPO" && pwd -P)"
+    OTHER_REAL="$(cd "$OTHER_DIR" && pwd -P)"
+
+    if [[ "$RECORDED_REAL" == "$EXPECTED_REAL" ]]; then
+      _pass "$tid doctor cwd: ds-doctor invoked with cwd == repo_dir"
+    else
+      _fail "$tid doctor cwd: ds-doctor invoked with cwd '$RECORDED_REAL', expected repo_dir '$EXPECTED_REAL' - the sandbox-escape bug reproduces here"
+    fi
+
+    if [[ "$RECORDED_REAL" != "$OTHER_REAL" ]]; then
+      _pass "$tid doctor cwd: ds-doctor cwd is NOT the invoking shell's cwd"
+    else
+      _fail "$tid doctor cwd: ds-doctor cwd equals the invoking shell's cwd ($OTHER_REAL) - inherited-cwd bug reproduces here"
+    fi
+  else
+    _fail "$tid doctor cwd: stub ds-doctor was never invoked (no cwd log written)"
+  fi
+
+  if [[ "$REAL_SUM_BEFORE" == "$REAL_SUM_AFTER" ]]; then
+    _pass "$tid doctor cwd: real repo's bin/agentic-update unchanged (sandbox intact)"
+  else
+    _fail "$tid doctor cwd: real repo's bin/agentic-update CHECKSUM CHANGED - test escaped its sandbox"
+  fi
+
+  rm -rf "$OTHER_DIR"
+}
+
+# ---------------------------------------------------------------------------
+# Test 18a (regression, dormant sandbox-escape hazard fix): "Already up to
+# date" branch. old_head == new_head (no push), so main() returns
+# _run_doctor(repo_dir) directly at bin/ds-update:588.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+
+_run_doctor_cwd_check "T18a"
+
+if echo "$OUT" | grep -q "Already up to date"; then
+  _pass "T18a doctor cwd: reached the 'Already up to date' branch (:588)"
+else
+  _fail "T18a doctor cwd: did not reach 'Already up to date' (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 18b (regression, dormant sandbox-escape hazard fix): "No rebuild
+# needed" branch. old_head != new_head but the pulled commit only touches a
+# non-REBUILD_TRIGGER path, so _needs_rebuild() is False and main() calls
+# _run_doctor(repo_dir) at bin/ds-update:634.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_nontrigger_commit
+
+_run_doctor_cwd_check "T18b"
+
+if echo "$OUT" | grep -q "No rebuild needed"; then
+  _pass "T18b doctor cwd: reached the 'No rebuild needed' branch (:634)"
+else
+  _fail "T18b doctor cwd: did not reach 'No rebuild needed' (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 18c (regression, dormant sandbox-escape hazard fix): rebuild-triggered
+# Step 14 branch. push_ahead_commit's pushed commit adds .claude/install.sh,
+# an exact-path REBUILD_TRIGGER, so _needs_rebuild() is True and control
+# reaches _run_adapter_installs -> Step 14's _run_doctor(repo_dir) at
+# bin/ds-update:724.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_commit
+
+_run_doctor_cwd_check "T18c"
+
+if echo "$OUT" | grep -q "Rebuild triggered by"; then
+  _pass "T18c doctor cwd: reached the rebuild-triggered Step 14 branch (:724)"
+else
+  _fail "T18c doctor cwd: did not reach 'Rebuild triggered by' (got: $OUT)"
 fi
 
 rm -rf "$TEMP_HOME"

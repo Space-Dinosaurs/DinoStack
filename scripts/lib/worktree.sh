@@ -13,12 +13,12 @@
 # Downstream consumers: content/references/worktree-lifecycle.md,
 #                       content/commands/ds-implement-ticket.md,
 #                       content/commands/ds-cleanup-worktrees.md,
-#                       bin/agentic-resolve-worktree.
+#                       bin/ds-resolve-worktree.
 #
 # Failure modes:
 #   - Prints nothing and exits 0 when no worktree matches the branch.
 #   - Does not validate that <repo> is a git repository; callers must ensure
-#     this (bin/agentic-resolve-worktree does).
+#     this (bin/ds-resolve-worktree does).
 #   - Does not distinguish between "branch not checked out" and "branch does
 #     not exist"; both result in empty output.
 #   - Intentionally does not match detached-HEAD worktrees or remote-tracking

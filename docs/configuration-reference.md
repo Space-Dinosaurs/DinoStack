@@ -1,6 +1,6 @@
 # Configuration reference
 
-Every user-facing setting in the agentic-engineering methodology, with its
+Every user-facing setting in the dinostack methodology, with its
 default value and where to set it. This is the complete catalog - if you only
 want to tune Skeptic overhead, you need only `profile`. Change settings
 interactively with `/ds-config` (guided prompts). See
@@ -55,7 +55,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 20 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 22 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -76,6 +76,7 @@ it manually.
 | `motion_aware` | `false` | bool | qa-engineer runs CDP-emulated reduced-motion checks |
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/ds-init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
+| `knowledge_commit_on_pr` | `true` | bool | Phase 11e commits changed `MEMORY.md` / `decisions.md` / `.agentic/learnings.md` onto the ticket's PR branch; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/ds-wrap` jobs (tuned by the `deferred_wrap_*` params below) |
 | `abdication_guard_enabled` | absent → guard inert; `/ds-init-project` template sets `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or presenting a prose co-equal ballot in an `## Operator decisions` block; requires an explicit `true` to run; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
@@ -84,7 +85,8 @@ it manually.
 | `rework_detection` | `true` | bool | Disables the Phase 9 ledger write, Phase 1 detection, the notice, the `/ds-ticket-triage` badge, and the escalation with a single flag when `false` |
 | `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable |
 | `tracker_state_diagnostic` | `true` | bool | Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable |
-| `turn_shape_guard_enabled` | `true` | bool | Advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule; never blocks the stop, only logs; absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
+| `turn_shape_guard_enabled` | `true` | bool | Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 NOT uniformly advisory: the execution-turn structural check (`_execution_prose_flag`) is BLOCKING and can block the stop; the answer-turn phrasing check (`_answer_relevance_flag`) remains advisory-only and only logs. Absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
+| `worktree_read_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Read` guard (`hooks/enforce-worktree-read.py`); ships empty. Kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1` |
 
 ### Tuning parameters
 
@@ -108,7 +110,8 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
 | `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
-| `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape advisory hook (only relevant when `turn_shape_guard_enabled: true`) |
+| `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check and the advisory phrasing check (only relevant when `turn_shape_guard_enabled: true`) |
+| `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |
 
@@ -120,8 +123,12 @@ directory; setting it to a non-root path disables the graph risk signal).
 
 ## 5. Identity files
 
-`.agentic/identity.yml` (project-scoped, gitignored) and `~/.agentic/identity.yml`
-(global). Used for telemetry attribution.
+`.agentic/identity.yml` (project-scoped, gitignored),
+`<active-config-dir>/identity.yml` (profile-scoped), and
+`~/.agentic/identity.yml` (global). Used for telemetry attribution. The active
+profile config dir resolves from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`, then `PI_CODING_AGENT_DIR`; profile-scope subcommands accept `--profile-dir <dir>` as
+an override.
 
 | Field | Default | Valid values |
 |---|---|---|
@@ -130,15 +137,17 @@ directory; setting it to a non-root path disables the graph risk signal).
 
 **Absent file / absent `developer_id`:** no telemetry is attributed; session
 logs are not written. The effective default is no identity. Use
-`agentic-identity auto` to auto-derive a provisional handle from the GitHub
+`ds-identity auto` to auto-derive a provisional handle from the GitHub
 login (lowest-friction starting point).
 
-**4-tier precedence:** project-confirmed > global-confirmed >
-project-provisional > global-provisional > none.
+**6-tier precedence:** project-confirmed > profile-confirmed >
+global-confirmed > project-provisional > profile-provisional >
+global-provisional > none.
 
-Commands: `agentic-identity auto` (derive from GitHub login, writes provisional
-global), `agentic-identity init <handle> [--scope project]` (manual),
-`agentic-identity confirm` (strip provisional flag, flush pending telemetry).
+Commands: `ds-identity auto` (derive from GitHub login, writes provisional
+global), `ds-identity init <handle> [--scope profile|project]` (manual),
+`ds-identity confirm [--scope global|profile|project]` (strip provisional
+flag and flush only pending telemetry routed to that scope).
 
 ---
 
@@ -192,9 +201,9 @@ Project-local, gitignored, pure data (never executes). Merged field-by-field, ov
 
 Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
 
-Commands: `agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `agentic-tracker show [--scope project|effective]`, `agentic-tracker set <key> <value>`, `agentic-tracker resolve [--json]`, `agentic-tracker path`.
+Commands: `ds-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `ds-tracker show [--scope project|effective]`, `ds-tracker set <key> <value>`, `ds-tracker resolve [--json]`, `ds-tracker path`.
 
-`agentic-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
+`ds-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
 
 ---
 

@@ -1,6 +1,6 @@
 <!--
 Purpose: Operator-facing guide for the cross-harness agent-teams feature
-         introduced with bin/agentic-team. Explains what it does, when to use
+         introduced with bin/ds-team. Explains what it does, when to use
          it, how to set it up, the four subcommands, the self-containment
          guard, and the concrete failure modes the operator should expect.
          Works on any conductor harness (Claude, Codex, Gemini, Kimi, etc.);
@@ -11,7 +11,7 @@ Public API: Operator-facing prose. Read first if you are new to cross-harness
             live in `content/references/cross-harness-teams.md`.
 
 Upstream deps: content/references/cross-harness-teams.md (full spec);
-               bin/agentic-team (discover|dispatch|status|collect|configure).
+               bin/ds-team (discover|dispatch|status|collect|configure).
 
 See also: content/references/role-models.md (Pi/omp role-model routing schema,
           Layer 1 - separate from this layer).
@@ -19,7 +19,7 @@ See also: content/references/role-models.md (Pi/omp role-model routing schema,
 Downstream consumers: docs site root index; doc-sync-obligation.md
                       cross-references.
 
-Failure modes: Stale if bin/agentic-team or content/references/cross-harness-teams.md
+Failure modes: Stale if bin/ds-team or content/references/cross-harness-teams.md
                changes. When the schema changes, update both this doc and the
                reference in content/references/ in the same change.
 
@@ -99,8 +99,9 @@ The file can live globally (`~/.agentic/team.yml`) or per-project
 (`.agentic/team.yml`, committed). Project keys win on collision; the merge
 is shallow per top-level key.
 
-The `.gitignore` umbrella excludes `.agentic/*` by default; the project file
-requires an explicit carve-out line `!.agentic/team.yml` so it commits.
+`/ds-init-project` Step 9's `.agentic/*` umbrella ignore carries a matching
+`!.agentic/team.yml` negation (see `content/project-scaffolding.yml`), so
+`.agentic/team.yml` is committed by default rather than gitignored.
 
 Minimum useful file:
 
@@ -119,7 +120,7 @@ Full schema:
 enabled: true
 default_harness: codex          # where a role goes when not listed under roles:
                                 # validated against the 9 known harness labels;
-                                # unknown value -> non-zero exit from agentic-team
+                                # unknown value -> non-zero exit from ds-team
 roles:
   engineer:         { harness: codex,         model: gpt-5.3-codex }
   qa-engineer:      { harness: gemini,        model: gemini-2.5-flash }
@@ -154,7 +155,7 @@ The recommended entry point is the slash command (available in all harnesses):
 Or run the binary directly:
 
 ```bash
-bin/agentic-team configure
+bin/ds-team configure
 ```
 
 The wizard discovers installed harnesses, ranks roles to the best available
@@ -164,7 +165,7 @@ for non-interactive assignment of a single role.
 ### 3. Verify
 
 ```bash
-agentic-team discover
+ds-team discover
 ```
 
 This probes each known harness and reports `installed` or `absent` per
@@ -178,21 +179,21 @@ the harness's own stderr/exit code -- not as a named discover status.
 
 ## The four subcommands
 
-- `agentic-team discover` - probe all 9 known harnesses; reports installed
+- `ds-team discover` - probe all 9 known harnesses; reports installed
   status, version, reachable models, and invocation family. Use `--json` for
   machine-readable output.
-- `agentic-team dispatch --harness <h> --role <r> --brief <file> --workdir <dir>` -
+- `ds-team dispatch --harness <h> --role <r> --brief <file> --workdir <dir>` -
   spawn a worker in the background; prints a run-id to stdout immediately.
   The conductor uses the run-id to check status and collect output later.
-- `agentic-team status <run-id>` - prints `running`, `done`, or `failed`.
+- `ds-team status <run-id>` - prints `running`, `done`, or `failed`.
   Poll this after dispatch to know when the worker has finished.
-- `agentic-team collect <run-id>` - demux the per-harness output shape and
+- `ds-team collect <run-id>` - demux the per-harness output shape and
   print the final message text. The conductor passes this text to the standard
   Skeptic and QA gates unchanged.
 
 ## Per-harness dispatch table
 
-How `agentic-team dispatch` invokes each harness non-interactively:
+How `ds-team dispatch` invokes each harness non-interactively:
 
 | Harness | Non-interactive invocation | Notes |
 |---|---|---|
@@ -289,7 +290,7 @@ The guard is layered. Layers are listed strongest to weakest:
    (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`)
    whose resolved harness (role entry, else `default_harness`) is anything
    other than `claude`, denies the native spawn with an actionable
-   `bin/agentic-team dispatch ...` instruction. `conductor`, `investigator`,
+   `bin/ds-team dispatch ...` instruction. `conductor`, `investigator`,
    `architect`, and `orchestration-planner` are never denied by this branch.
    Fails open on every error path (missing file, unreadable, malformed YAML,
    import failure) -- a broken or absent `team.yml` never blocks native
@@ -322,7 +323,7 @@ The guard is layered. Layers are listed strongest to weakest:
   then reports `failed` correctly rather than hanging.
 - **No team.yml or `enabled: false`.** Feature is inactive. The conductor
   falls back to native delegation unchanged -- no error, no degraded mode.
-- **Malformed team.yml.** `agentic-team` exits non-zero with a YAML parse
+- **Malformed team.yml.** `ds-team` exits non-zero with a YAML parse
   error on stderr before any dispatch occurs.
 - **Unknown harness or role in team.yml.** Non-zero exit with a named error
   line listing the known values.
@@ -331,6 +332,6 @@ The guard is layered. Layers are listed strongest to weakest:
 
 - `content/references/cross-harness-teams.md` - full spec: schema, dispatch
   table, self-containment design, output collection, Skeptic/QA re-entry
-- `bin/agentic-team` - discover, dispatch, status, collect, configure implementation
+- `bin/ds-team` - discover, dispatch, status, collect, configure implementation
 - `docs/role-model-routing.md` - operator guide for role-model routing (Layer 1, Pi/omp only)
 - `content/references/role-models.md` - Pi/omp per-role model routing schema (Layer 1)

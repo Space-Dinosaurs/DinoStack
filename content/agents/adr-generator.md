@@ -6,7 +6,7 @@ tools: Read, Bash, Grep, Glob, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # ADR Generator Agent
 
@@ -48,7 +48,7 @@ Create an ADR as a markdown file following the standardized format below with th
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Required ADR Structure (template)
 
@@ -65,7 +65,7 @@ supersedes: ""
 superseded_by: ""
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 ```
 
 ### Document Sections
@@ -183,7 +183,7 @@ All ADRs must be saved in: `docs/adr/`
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Quality Checklist
 
@@ -218,10 +218,11 @@ Before finalizing the ADR, verify:
 7. **Be Timely**: Use the current date unless specified otherwise
 8. **Be Connected**: Reference related ADRs when applicable
 9. **Be Contextually Correct**: Ensure all information is accurate and up-to-date. Use the current repository state as the source of truth.
+10. **Capture Learnings In Flight**: the shard CLI is your capture path - `adr-generator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Agent Success Criteria
 

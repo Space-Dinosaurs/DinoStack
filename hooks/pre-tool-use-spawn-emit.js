@@ -19,13 +19,26 @@
  *          available from hook payloads. This hook emits spawn_start only, with
  *          tokens_note:"unavailable (harness)" marking the limitation.
  *
+ *          DS-160 correlation fields (pairs with hooks/subagent-stop-spawn-emit.js):
+ *          each emitted event now carries a self-generated `data.spawn_id`
+ *          (crypto.randomUUID(), never null) plus `data.tool_use_id` (from the
+ *          PreToolUse payload's top-level `tool_use_id` field, best-effort - may
+ *          be absent depending on harness version) and `data.parent_agent_id`
+ *          (the top-level `agent_id` field, present only when THIS spawn call is
+ *          itself being made from inside a running subagent, i.e. a nested spawn;
+ *          null for a normal top-level launch). `spawn_id` is the primary
+ *          correlation key the SubagentStop-side hook uses to pair a
+ *          spawn_complete event back to this spawn_start; `tool_use_id` is
+ *          carried for back-compat with the conductor-emitted schema in
+ *          content/references/events-log.md and is not required for pairing.
+ *
  * Public API: run() - invoked immediately at module load via run() call at the
  *             bottom of the file. Not imported in production; executed as a CLI
  *             script by the Claude Code PreToolUse(Task/Agent) hook.
  *
- * Upstream deps: Node built-ins only (fs, path) plus the local CommonJS module
- *                hooks/lib/stdin-guard.js (readStdinGuarded, bounded stdin
- *                reader). No npm dependencies.
+ * Upstream deps: Node built-ins only (fs, path, crypto) plus the local
+ *                CommonJS module hooks/lib/stdin-guard.js (readStdinGuarded,
+ *                bounded stdin reader). No npm dependencies.
  *                Reads PreToolUse payload from stdin (fd 0) via the bounded
  *                reader (see Failure modes).
  *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
@@ -35,6 +48,9 @@
  *
  * Downstream consumers: Claude Code PreToolUse(Task/Agent) hook (wired by
  *                        .claude/install.sh; matchers "Task" and "Agent").
+ *                        hooks/subagent-stop-spawn-emit.js (SubagentStop hook)
+ *                        reads events.jsonl backward to find this event's
+ *                        `data.spawn_id` and pair it with a spawn_complete.
  *                        hooks/stop-context.js scanSessionAggregate() reads
  *                        spawn_start events with data.source==="hook" to count
  *                        spawns in ad-hoc sessions (double-count guard: skipped
@@ -75,6 +91,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 
 /**
@@ -111,6 +128,23 @@ async function run() {
       ? toolInput.subagent_type.trim()
       : 'unknown';
 
+    // Best-effort correlation fields (see DS-160 note in the header comment).
+    const toolUseId = (typeof payload.tool_use_id === 'string' && payload.tool_use_id.trim())
+      ? payload.tool_use_id.trim()
+      : null;
+    // agent_id present at the TOP LEVEL of a PreToolUse(Agent) payload means
+    // THIS launch call is itself being made from inside a running subagent
+    // (a nested spawn) - see hooks/enforce-orchestrator-singularity.py for the
+    // same agent_id-presence convention.
+    const parentAgentId = (typeof payload.agent_id === 'string' && payload.agent_id.trim())
+      ? payload.agent_id.trim()
+      : null;
+    // Purpose-built correlation key: never null, generated fresh per spawn so
+    // hooks/subagent-stop-spawn-emit.js can pair a spawn_complete back to this
+    // exact spawn_start regardless of whether the harness threads tool_use_id
+    // through to SubagentStop.
+    const spawnId = crypto.randomUUID();
+
     // Ensure .agentic/ dir exists (safe to call even if it already exists).
     const agenticDir = path.join(cwd, '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
@@ -126,6 +160,9 @@ async function run() {
         source: 'hook',
         session_uuid: sessionId || null,
         tokens_note: 'unavailable (harness)',
+        spawn_id: spawnId,
+        tool_use_id: toolUseId,
+        parent_agent_id: parentAgentId,
       },
     };
     const eventsPath = path.join(agenticDir, 'events.jsonl');

@@ -6,7 +6,7 @@ kind: local
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out for the exact write-permission boundaries, file ownership rules, and soft-fail discipline. The carve-out lists every file you are authorized to write and every file you are forbidden from touching. Operating outside that boundary is a protocol violation.
 
@@ -124,7 +124,7 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
 }
 ```
 
-**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /ds-implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `ds-wrap-release-lock`) at /ds-implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -229,7 +229,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
+The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -237,17 +237,17 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "memory_md_appends": ["<entry text>", ...],
-  "decisions_md_appends": ["<entry text>", ...],
-  "context_md_recent_focus_addition": "<paragraph text or null>",
+  "memory_md_appends": ["capped at 3 items: '<entry text>'", ...],
+  "decisions_md_appends": ["capped at 2 items: '<entry text>'", ...],
+  "context_md_recent_focus_addition": "<paragraph text, capped at 500 chars, or null>",
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": ["<file path>: appended <N> entries", ...],
-  "skipped_reason": null,
-  "size_advisory": null,
-  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}],
+  "writer_actions": ["capped at 6 items: '<file path>: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance" | "wrap-lock-contention",
+  "size_advisory": "<one-line advisory text, or null>",
+  "cluster_results": ["capped at 5 items: {domain: <slug>, exampleNote: <one-line sentence>}", ...],
   "resolved_paths": {
-    "memory_md": "MEMORY.md",
-    "decisions_md": "<Step-4-resolved path, e.g. decisions.md or docs/adr/001-foo.md>"
+    "memory_md": <path, or null>
+    "decisions_md": <path, or null>
   }
 }
 ```
@@ -298,7 +298,8 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to `_wrap.md` - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `ds-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /ds-wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.

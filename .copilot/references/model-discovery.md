@@ -9,9 +9,9 @@ Public API: Read-only reference. Load when seeding role-models.yml, when
 
 Upstream deps: content/references/role-models.md (parent schema);
                content/sections/04-risk-classification.md (Role-model
-               routing tier); bin/agentic-models (ranking implementation).
+               routing tier); bin/ds-models (ranking implementation).
 
-Downstream consumers: bin/agentic-configure (TUI; ranking input);
+Downstream consumers: bin/ds-configure (TUI; ranking input);
                       content/commands/ds-init-project.md (Step 6g seed path);
                       content/sections/04-risk-classification.md.
 
@@ -35,18 +35,18 @@ This is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Cla
 
 There are three paths - use whichever matches your setup:
 
-**1. Ask-user (the configure wizard).** Run `bin/agentic-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
+**1. Ask-user (the configure wizard).** Run `bin/ds-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
 
 **2. Harness-native.** Your Pi or oh-my-pi login already grants access to a set of models. Open the harness's own model picker or settings panel, find the models your subscription includes, and copy those names into the wizard prompt or directly into `role-models.yml`. There is no separate network call needed - the harness already knows what you have.
 
 **3. Pin by hand.** Skip the wizard. Open `~/.agentic/role-models.yml` and write model names directly. The format is simple: see the schema in `content/references/role-models.md`. Use the harness's exact model handle (the string you would pass to a spawn call). The conductor forwards it verbatim.
 
-There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any built-in list.
+There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/ds-models` applied to the names you supply - not from any built-in list.
 
-## The binary: `bin/agentic-models`
+## The binary: `bin/ds-models`
 
 ```
-agentic-models [--json] [--suggest <role>] [--all-suggestions] \
+ds-models [--json] [--suggest <role>] [--all-suggestions] \
                [model-name ...] [--models-from FILE]
 ```
 
@@ -56,7 +56,7 @@ Model names are supplied as positional arguments, via `--models-from FILE` (one 
 
 **Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-class models surface for the architect / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
 
-**No hardcoded model IDs.** The hint tables in `bin/agentic-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
+**No hardcoded model IDs.** The hint tables in `bin/ds-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
 
 ## Schema extension: effort and reasoning
 

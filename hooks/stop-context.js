@@ -16,7 +16,8 @@
  *          this script directly without the flag. Writes
  *          per-developer session telemetry via a three-branch identity gate:
  *          confirmed identity -> per-project log + global mirror; provisional
- *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
+ *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/).
+ *          Provisional records carry identity_scope from the winning identity;
  *          no identity also appends a one-time nudge to this session's shard.
  *          Runs a capture-gap backstop that detects learning-worthy sessions with
  *          no captured learnings and appends a nudge to the shard. ALWAYS creates
@@ -29,9 +30,8 @@
  *             Claude Code Stop hook. Internal helpers:
  *             scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
  *             writeSessionTotal(cwd, sessionId[, cachedRaw]), computeSessionTotals(cwd, sessionId[, cachedRaw]),
- *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId[, cachedRaw]),
- *             writeSessionLogGlobal(identity, sessionId, data),
- *             writePendingBuffer(cwd, sessionId[, cachedRaw]),
+ *             getIdentity(cwd),
+ *             writeTelemetrySafely(cwd, identity, sessionId[, cachedRaw]),
  *             appendIdentityNudgeToContextMd(repoRoot, sessionId),
  *             appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId),
  *             writeContextShardAndRollup(cwd, sessionId, shardBody) — replaces the
@@ -48,7 +48,9 @@
  *             liveMarkerExists - stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process) plus five
+ * Upstream deps: Node built-ins (fs, path, os, child_process), the bounded
+ *                descriptor-safe bin/ds-identity resolve-hook/write-hook
+ *                helper, plus six
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
@@ -85,8 +87,12 @@
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
  *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer),
  *                ~/.agentic/identity.yml (read-only, global),
+ *                <config-dir>/identity.yml (read-only, profile scope; config dir
+ *                env-detected via AGENTIC_CONFIG_DIR/CLAUDE_CONFIG_DIR/
+ *                CODEX_HOME/PI_CODING_AGENT_DIR),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
- *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                over profile and global when confirmed, per 6-tier resolution in
+ *                getIdentity(cwd)),
  *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon +
  *                skill_candidate_detection toggles),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop and
@@ -108,19 +114,29 @@
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
  *                        Output files are read by Worker agents at session start.
- *                        bin/agentic-cost team reads .agentic/session-log/ for
+ *                        bin/ds-cost team reads .agentic/session-log/ for
  *                        team-level aggregation.
- *                        bin/agentic-cost operator reads ~/.agentic/session-log/*.jsonl
+ *                        bin/ds-cost operator reads ~/.agentic/session-log/*.jsonl
  *                        for global operator rollup. The .pending/ subdir is NOT
- *                        globbed by agentic-cost (operator or team) - it is consumed
- *                        only by agentic-identity confirm/init via flushPendingBuffer.
+ *                        globbed by ds-cost (operator or team) - it is consumed
+ *                        only by ds-identity confirm/init via flushPendingBuffer.
  *
  * Failure modes: All failures are silent (process.exit(0)). Stdin acquisition
  *                (step 1 of run()) is bounded via hooks/lib/stdin-guard.js's
  *                readStdinGuarded(), which never rejects and resolves via one
  *                of three paths - parse-success, EOF, or timeout - all feeding
  *                the same downstream write paths below, so a spawning process
- *                that never closes stdin cannot hang this hook's exit. Twelve
+ *                that never closes stdin cannot hang this hook's exit.
+ *                Identity reads run through the bounded descriptor-relative
+ *                Python helper because Node lacks openat-style component
+ *                traversal. Invalid handles/UTF-8, symlinks, special files,
+ *                multiply-linked files, wrong-owner files, and oversized files
+ *                are absent/corrupt. Profile config candidates use the same
+ *                component validation before selection; unsafe candidates are
+ *                skipped so a safe lower-precedence env candidate can qualify.
+ *                A root-owned top-level platform alias
+ *                (for example macOS /var -> /private/var) is normalized before
+ *                the nofollow walk; later components are never resolved. Twelve
  *                independent write paths (plus the health-flush observability
  *                layer described below): (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
@@ -147,21 +163,24 @@
  *                silently on a positively-differing session_id, on missing
  *                file, or on parse error. Best-effort silent-fail; failure of
  *                this path does not block writeSessionTotal.
- *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
- *                any fs error is swallowed independently of all other paths.
+ *                (5) writeTelemetrySafely asks the bundled helper to append to
+ *                .agentic/session-log/<dev>.jsonl through validated directory
+ *                and file descriptors; refusal is swallowed independently.
  *                (6) appendIdentityNudgeToContextMd appends to THIS SESSION'S
  *                shard; any fs error is swallowed independently. It is no longer
  *                deferred behind the wrap lock - the target is session-private,
  *                so there is nothing to serialize against, and deferring behind
  *                a lock let an ORPHANED lock suppress the one-time notice
  *                indefinitely.
- *                (7) writeSessionLogGlobal appends to ~/.agentic/session-log/<dev>.jsonl;
- *                any fs error is swallowed independently of the per-project write
- *                (path 5) - a global failure never affects the per-project write.
- *                (8) writePendingBuffer writes atomically (tmp+rename) to
- *                ~/.agentic/session-log/.pending/<uuid>.json; enforces cap-100
- *                (drops oldest by ts with one stderr notice); any fs error swallowed
- *                independently of all other paths.
+ *                (7) the same helper independently appends to
+ *                ~/.agentic/session-log/<dev>.jsonl through a bounded, owned,
+ *                singly-linked regular-file descriptor; a global refusal never
+ *                affects path 5.
+ *                (8) for provisional or absent identity, the same helper
+ *                publishes ~/.agentic/session-log/.pending/<uuid>.json through
+ *                an exclusive unpredictable sibling and no-clobber link;
+ *                validates cap-100 candidates before pruning. Any refusal is
+ *                swallowed independently of all other paths.
  *                (9) appendCaptureGapNoticeToContextMd appends to THIS SESSION'S
  *                shard; any fs error is swallowed independently. The
  *                .capture-gap-last-sweep cursor update is also best-effort and
@@ -240,13 +259,14 @@
  *                activity, or under the AGENTIC_WRAP_DAEMON loop-guard. Staging is
  *                fail-open and never blocks exit.
  *
- * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout)
+ * Performance: ~150-400 ms typical including bounded identity-helper process
+ *              launches; one git status subprocess call (5 s timeout)
  *              plus one git diff subprocess call for the capture-gap backstop
  *              (5 s timeout, soft-fail). Synchronous I/O throughout; runs as a
  *              short-lived CLI process. events.jsonl is read ONCE at the top of
  *              run() and the raw string is threaded to all consumers
  *              (scanSessionAggregate, computeSessionTotals, writeSessionTotal,
- *              writeSessionLog, writePendingBuffer, detectCaptureGap) so no
+ *              writeTelemetrySafely, detectCaptureGap) so no
  *              consumer re-reads the file. On large projects (5-10 MB events
  *              files) this eliminates 3-4 redundant full-file reads per exit.
  */
@@ -260,7 +280,7 @@
  *
  * Design goals:
  *  - Silent failure: any error exits 0, nothing written to stderr
- *  - No external dependencies: only Node built-ins
+ *  - No npm dependencies: Node built-ins plus the bundled Python identity helper
  *  - Fast: no LLM call, pure text extraction
  *  - /ds-wrap coexistence, partitioned at the `## Session Activity` sentinel:
  *    `.agentic/_wrap.md` owns everything up to the sentinel (including
@@ -279,7 +299,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 // Single source of truth for the deferred-/ds-wrap marker state machine, lock,
 // heartbeat, and sentinel. The local helpers that previously lived in this file
@@ -359,6 +379,38 @@ function recordHealth(target, success, errMsg) {
 }
 
 /**
+ * Record an INDETERMINATE outcome for a named write-path target - the
+ * write may or may not have landed, and this call deliberately does not
+ * touch `failures`, `last_success`, or `last_error` (DS-158 round 3
+ * Major 2). A write whose outcome cannot be confirmed must never be
+ * reported as a confirmed failure: the operator-facing telemetry-health
+ * surface (bin/ds-status) would then assert something untrue about data
+ * that may actually be on disk. Used when the write-hook subprocess is
+ * killed by its own timeout ceiling before it can checkpoint that
+ * specific target's result.
+ *
+ * @param {string} target - Stable label for the write path.
+ * @param {string|null} note - Human-readable reason it is unknown.
+ */
+function recordHealthUnknown(target, note) {
+  try {
+    if (!healthOutcomes[target]) {
+      healthOutcomes[target] = {
+        failures: 0,
+        last_success: null,
+        last_error: null,
+        last_error_ts: null,
+      };
+    }
+    healthOutcomes[target].last_unknown =
+      note || 'write outcome indeterminate (helper killed before reporting)';
+    healthOutcomes[target].last_unknown_ts = new Date().toISOString();
+  } catch (_) {
+    // Never throw from the health layer.
+  }
+}
+
+/**
  * Flush accumulated health outcomes to [cwd]/.agentic/.telemetry-health.json.
  * Single atomic read-merge-write: reads existing file (parse-fail or absent ->
  * start fresh), merges accumulated outcomes (cumulative failures, latest
@@ -414,6 +466,12 @@ function flushHealth(cwd) {
       if (outcome.last_error_ts) {
         stored.last_error = outcome.last_error;
         stored.last_error_ts = outcome.last_error_ts;
+      }
+      // DS-158 round 3 Major 2: an indeterminate outcome is tracked
+      // separately from confirmed failure - it never increments `failures`.
+      if (outcome.last_unknown_ts) {
+        stored.last_unknown = outcome.last_unknown;
+        stored.last_unknown_ts = outcome.last_unknown_ts;
       }
     }
     existing.updated_at = new Date().toISOString();
@@ -480,17 +538,62 @@ function skillCandidateDetectionEnabled(cwd) {
  * Returns null if the file is absent, empty, or unreadable.
  *
  * Counting rules:
- *   - spawn_complete events contribute wall_seconds + tokens + spawn count.
+ *   - conductor-emitted spawn_complete events (data.source !== 'hook') always
+ *     contribute wall_seconds + tokens + spawn count. Their presence in a
+ *     session (data.source !== 'hook') is what defines a "ticketed" session
+ *     for the double-count guard below - NOT the mere presence of ANY
+ *     spawn_complete (see DS-160 fix note).
  *   - conductor_direct events are NO LONGER counted (deprecated; hook-emitted
  *     spawn_start events replace them for ad-hoc session tracking).
- *   - spawn_start events with data.source === 'hook' contribute spawn count
- *     (wall_seconds 0, no tokens) ONLY when the session has zero spawn_complete
- *     events (ad-hoc session double-count guard). In /ds-implement-ticket sessions
- *     that carry conductor spawn_complete events the hook spawn_starts are
- *     skipped to avoid inflating counts with unverified duplicates. The resulting
- *     mild undercount of advisory spawn counts in mixed sessions is accepted
- *     (per plan deferred default: per-spawn reconciliation is impossible without
- *     a harness-provided correlation id).
+ *   - DS-160 double-count guard: when the session has at least one
+ *     conductor-emitted spawn_complete (a ticketed session), ALL hook-emitted
+ *     telemetry (both spawn_start AND spawn_complete, data.source === 'hook')
+ *     is excluded entirely - the conductor's own richer spawn_complete is
+ *     authoritative and the hook variant would otherwise double-count the
+ *     same spawn. (Prior to DS-160 this guard only existed for spawn_start
+ *     because spawn_complete had no hook-emitted variant; once
+ *     hooks/subagent-stop-spawn-emit.js started emitting hook spawn_complete
+ *     too, the guard had to be extended to cover it as well - a hook
+ *     spawn_complete for a spawn the conductor already reported would
+ *     otherwise be counted a second time.) This still leaves a mild
+ *     UNDERCOUNT in genuinely mixed sessions: a hook-only ad-hoc spawn that
+ *     co-occurs in the same session as a conductor-ticketed spawn is
+ *     excluded entirely, not reconciled against the conductor's spawn - the
+ *     same accepted tradeoff as the pre-DS-160 guard (per-spawn
+ *     reconciliation across the conductor/hook boundary is not attempted;
+ *     per plan deferred default, since a harness-provided cross-source
+ *     correlation id does not exist).
+ *   - In a pure ad-hoc session (zero conductor-emitted spawn_complete), hook
+ *     spawn_start events are the authoritative "this spawn happened" signal
+ *     and are DEDUPED by data.spawn_id so each real spawn counts exactly
+ *     once: a spawn_start with no matching spawn_complete yet (SubagentStop
+ *     still pending, or permanently lost) still counts once with
+ *     wall_seconds 0 - it is NOT silently dropped. A PAIRED spawn_complete
+ *     (data.paired_spawn_id referencing a spawn_start already counted via
+ *     the dedup above) enriches that same spawn's record with a real
+ *     wall_seconds - it does NOT add a second spawn.
+ *   - DS-160 round-2 fix: an UNPAIRED hook spawn_complete (paired_spawn_id:
+ *     null) does NOT contribute a spawn count of its own. Earlier this
+ *     function counted it as a distinct spawn on the theory that its
+ *     spawn_start had "rotated out of the [hook's 2MB tail] scan window" -
+ *     but this consumer reads the WHOLE file (no tail bound), so exactly the
+ *     case the hook's tail-window comment describes is the case where the
+ *     spawn_start IS still visible here and would be double-counted (once
+ *     via the spawn_start dedup, once via the unpaired-complete branch).
+ *     Pairing can also fail for reasons that have nothing to do with a
+ *     rotated-out spawn_start (a null session_id on the SubagentStop side,
+ *     or a same-session concurrency race - see hooks/subagent-stop-spawn-emit.js
+ *     Failure modes) - in every one of those cases the spawn's spawn_start is
+ *     either already counted here or was never written at all, and there is
+ *     no reliable way to distinguish "genuinely spawn_start-less" from
+ *     "spawn_start present but pairing failed" from this side. Given
+ *     pre-tool-use-spawn-emit.js fires unconditionally on every real spawn
+ *     (fail-open, but deterministic on the happy path), the spawn_start-less
+ *     case is treated as rare enough that undercounting it is the safer
+ *     failure mode than double-counting the common case. Unpaired
+ *     spawn_complete events are therefore treated as completion METADATA
+ *     only (available for forensic inspection directly in events.jsonl) and
+ *     contribute nothing to spawn_count/wall_seconds/by_agent here.
  *
  * The returned by_agent map uses the rich token structure (4 bands) needed by
  * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
@@ -524,68 +627,110 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
   const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
   const byAgent = {};
 
-  // First pass: count spawn_complete events to determine session type.
-  // If any spawn_complete exists this is a ticketed/mixed session; hook
-  // spawn_starts will be skipped in the second pass (double-count guard).
-  let hasSpawnComplete = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    if (obj && obj.event === 'spawn_complete') {
-      const data = (obj && obj.data) || {};
-      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
-      hasSpawnComplete = true;
-      break;
-    }
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    const ev = obj && obj.event;
-    const data = (obj && obj.data) || {};
-
-    // Determine whether this line is a hook-emitted spawn_start.
-    const isHookSpawn = ev === 'spawn_start' && data.source === 'hook';
-
-    // Count: spawn_complete always; hook spawn_start only in ad-hoc sessions
-    // (no spawn_complete in this session). conductor_direct is no longer counted.
-    if (ev !== 'spawn_complete' && !isHookSpawn) continue;
-    if (isHookSpawn && hasSpawnComplete) continue; // double-count guard
-
-    // Filter to current session when session_uuid is present on the
-    // event payload. Events without session_uuid are included
-    // unconditionally (tolerant of pre-instrumentation events).
-    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) {
-      continue;
-    }
-    const wall = Number(data.wall_seconds) || 0;
+  function recordSpawn(agentName, wall, tokens) {
     totalWall += wall;
-    const tokens = data.tokens || {};
-    for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-      totalTokens[k] += Number(tokens[k]) || 0;
+    if (tokens) {
+      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+        totalTokens[k] += Number(tokens[k]) || 0;
+      }
     }
-    // Count the spawn (both spawn_complete and hook spawn_start count as spawns).
     spawnCount += 1;
-    const agentName = obj.agent || 'unknown';
-    if (!byAgent[agentName]) {
-      byAgent[agentName] = {
+    const name = agentName || 'unknown';
+    if (!byAgent[name]) {
+      byAgent[name] = {
         spawns: 0, wall_seconds: 0,
         tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
       };
     }
-    byAgent[agentName].spawns += 1;
-    byAgent[agentName].wall_seconds += wall;
-    if (ev === 'spawn_complete') {
+    byAgent[name].spawns += 1;
+    byAgent[name].wall_seconds += wall;
+    if (tokens) {
       for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-        byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
+        byAgent[name].tokens[k] += Number(tokens[k]) || 0;
       }
     }
-    // Hook spawn_starts carry no token data (harness ceiling) - tokens stay 0.
+  }
+
+  // Parse once, filtering to the current session (events without a
+  // session_uuid are tolerated/included for back-compat with
+  // pre-instrumentation lines).
+  const parsed = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+    if (!obj) continue;
+    const data = obj.data || {};
+    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
+    parsed.push(obj);
+  }
+
+  // Session-type determination: ONLY a conductor-emitted (non-hook)
+  // spawn_complete marks this a "ticketed" session. A hook-emitted
+  // spawn_complete does NOT, by itself, imply the conductor also reported
+  // this spawn (see DS-160 fix note above).
+  const hasConductorSpawnComplete = parsed.some(
+    obj => obj.event === 'spawn_complete' && (obj.data || {}).source !== 'hook'
+  );
+
+  if (hasConductorSpawnComplete) {
+    // Ticketed/mixed session: count ONLY conductor-emitted spawn_complete
+    // events. ALL hook-emitted telemetry (spawn_start and spawn_complete)
+    // is excluded - double-count guard.
+    for (const obj of parsed) {
+      if (obj.event !== 'spawn_complete') continue;
+      const data = obj.data || {};
+      if (data.source === 'hook') continue;
+      recordSpawn(obj.agent, Number(data.wall_seconds) || 0, data.tokens || {});
+    }
+  } else {
+    // Pure ad-hoc session: dedup hook-emitted spawn_start/spawn_complete by
+    // spawn_id so each real spawn counts exactly once, and a spawn whose
+    // SubagentStop was lost (spawn_start with no paired spawn_complete)
+    // still counts rather than being silently dropped. Legacy spawn_start
+    // events written before DS-160 (no data.spawn_id) get a synthetic
+    // per-event key so they still count individually - back-compat, no
+    // dedup possible without a correlation id.
+    let legacySyntheticCounter = 0;
+    const bySpawnId = new Map();
+    // First pass: every hook spawn_start is the counted spawn. Built first
+    // so the enrichment pass below can always tell whether a spawn_complete's
+    // paired_spawn_id resolves to an already-counted spawn.
+    for (const obj of parsed) {
+      const data = obj.data || {};
+      if (obj.event !== 'spawn_start' || data.source !== 'hook') continue;
+      const key = data.spawn_id || `__legacy_${legacySyntheticCounter++}__`;
+      if (!bySpawnId.has(key)) {
+        bySpawnId.set(key, { agent: obj.agent, wall: 0 });
+      }
+    }
+    // Second pass: a spawn_complete NEVER creates a new spawn count. When its
+    // paired_spawn_id resolves to a spawn already counted above, it enriches
+    // that spawn's wall_seconds (completion metadata). Any other
+    // spawn_complete - unpaired (paired_spawn_id: null) OR paired to a
+    // spawn_id not present in this session's spawn_starts - is dropped from
+    // the aggregate entirely (see the DS-160 round-2 fix note in the doc
+    // comment above for why: this consumer reads the whole file, so a
+    // "missing" spawn_start here is not a scan-window artifact, and treating
+    // it as a new spawn risks double-counting far more often than it
+    // recovers a genuinely spawn_start-less spawn).
+    for (const obj of parsed) {
+      const data = obj.data || {};
+      if (obj.event !== 'spawn_complete' || data.source !== 'hook') continue;
+      if (!data.paired_spawn_id) continue;
+      const existing = bySpawnId.get(data.paired_spawn_id);
+      if (!existing) continue;
+      // A capped/suspect wall_seconds (see hooks/subagent-stop-spawn-emit.js)
+      // is emitted as null, not a fabricated ceiling value; Number(null)||0
+      // naturally contributes 0 here rather than injecting a false duration.
+      existing.wall = Number(data.wall_seconds) || 0;
+      existing.agent = obj.agent || existing.agent;
+    }
+    for (const rec of bySpawnId.values()) {
+      // Hook spawn_starts/completes carry no token data (harness ceiling).
+      recordSpawn(rec.agent, rec.wall, null);
+    }
   }
 
   return {
@@ -672,57 +817,52 @@ function removeLearningsAgentSession(cwd, sessionId) {
   }
 }
 
-/**
- * Parse a YAML identity file at filePath. Returns {developer_id, provisional} or null.
- * Silent on ENOENT or any parse error.
- *
- * @param {string} filePath - Absolute path to the identity.yml file.
- * @returns {{developer_id: string, provisional: boolean}|null}
- */
-function _parseIdentityFile(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const m = raw.match(/^developer_id:\s*(\S+)\s*$/m);
-    if (!m) return null;
-    const pm = raw.match(/^provisional:\s*(true|false)\s*$/m);
-    const provisional = pm ? pm[1] === 'true' : false;
-    return { developer_id: m[1], provisional };
-  } catch (_) {
-    return null;
-  }
-}
+const IDENTITY_SCOPE_FIELD = 'identity_scope';
+const HANDLE_RE = /^[a-z0-9._-]{1,64}$/;
 
 /**
- * Resolve effective identity via 4-tier total ordering:
- *   project-confirmed > global-confirmed > project-provisional > global-provisional > null
+ * Resolve effective identity via 6-tier total ordering:
+ *   project-confirmed > profile-confirmed > global-confirmed >
+ *   project-provisional > profile-provisional > global-provisional > null
  *
- * Reads project file (<cwd>/.agentic/identity.yml) and global file
- * (~/.agentic/identity.yml) using two synchronous existsSync+readFileSync calls
- * (~1ms, Node built-ins only, no subprocess).
+ * Delegates identity file traversal to the Python CLI's descriptor-relative
+ * resolver because Node does not expose openat-style component traversal.
+ * The helper is repo-relative, shell-free, time-bounded, and output-bounded.
  *
  * The existing three-branch write-vs-buffer gate (identity && !identity.provisional)
- * remains valid: confirmed at either scope -> direct write; provisional -> pending buffer.
+ * remains valid: confirmed at any scope -> direct write; provisional -> pending buffer.
  *
  * @param {string} cwd - The repo working directory (already validated by run()).
  * @returns {{developer_id: string, provisional: boolean}|null}
  */
 function getIdentity(cwd) {
-  const projectPath = path.join(cwd, '.agentic', 'identity.yml');
-  const globalPath = path.join(os.homedir(), '.agentic', 'identity.yml');
-
-  const projId = _parseIdentityFile(projectPath);
-  const globId = _parseIdentityFile(globalPath);
-
-  // Pass 1: first confirmed candidate in [project, global] order
-  if (projId && !projId.provisional) return projId;
-  if (globId && !globId.provisional) return globId;
-
-  // Pass 2: first provisional candidate in [project, global] order
-  if (projId) return projId;
-  if (globId) return globId;
-
-  return null;
+  try {
+    const helper = path.resolve(__dirname, '..', 'bin', 'ds-identity');
+    const result = spawnSync(helper, ['resolve-hook', '--cwd', cwd], {
+      encoding: 'utf8',
+      timeout: 2000,
+      maxBuffer: 64 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: process.env,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
+      return null;
+    }
+    const identity = JSON.parse(result.stdout);
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
+    if (!HANDLE_RE.test(identity.developer_id || '')) return null;
+    if (!['global', 'profile', 'project'].includes(identity[IDENTITY_SCOPE_FIELD])) {
+      return null;
+    }
+    if (identity.provisional !== true && identity.provisional !== false) return null;
+    if (
+      identity[IDENTITY_SCOPE_FIELD] === 'profile'
+      && typeof identity.config_dir !== 'string'
+    ) return null;
+    return identity;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -743,8 +883,8 @@ function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
     const nudge = [
       '',
       '---',
-      '[agentic-engineering] No developer identity set. Session telemetry is local-only.',
-      'To enable team telemetry: agentic-identity init <handle>',
+      '[dinostack] No developer identity set. Session telemetry is local-only.',
+      'To enable team telemetry: ds-identity init <handle>',
       'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
     ].join('\n') + '\n';
     const ok = contextRollup.appendToShard(repoRoot, sessionId || NO_SESSION_SHARD, nudge);
@@ -775,7 +915,7 @@ function computeSessionTotals(cwd, sessionId, cachedRaw) {
     if (!agg) return null;
 
     // Re-shape by_agent: flatten 4-band tokens to a single tokens_total for the
-    // session-log format consumed by agentic-cost team.
+    // session-log format consumed by ds-cost team.
     const byAgentFlat = {};
     for (const [name, entry] of Object.entries(agg.by_agent)) {
       const t = entry.tokens || {};
@@ -799,172 +939,100 @@ function computeSessionTotals(cwd, sessionId, cachedRaw) {
 }
 
 /**
- * Write a session-log line to .agentic/session-log/<developer_id>.jsonl.
- * Creates the directory if needed. Silent failure on any fs error.
- *
- * @param {string} cwd - Verified project directory.
- * @param {{developer_id: string}} identity - Identity from getIdentity().
- * @param {string|null} sessionId - Current session uuid.
- * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
- *   single read. When provided (non-undefined), no additional file read occurs.
- *   null means file was absent/unreadable; undefined triggers back-compat read.
- */
-function writeSessionLog(cwd, identity, sessionId, cachedRaw) {
-  try {
-    // Resolve project slug and branch best-effort
-    const projectSlug = path.basename(cwd);
-    let branch = '';
-    try {
-      const { execSync: _exec } = require('child_process');
-      branch = _exec('git symbolic-ref --short HEAD', {
-        cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch (_) {
-      // Not a git repo or detached HEAD - leave branch as empty string
-    }
-
-    const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
-    const data = totals || {
-      wall_seconds: 0,
-      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-      spawn_count: 0,
-      by_agent: {},
-    };
-
-    const logLine = JSON.stringify({
-      ts: new Date().toISOString(),
-      phase: 'session_end',
-      event: 'session_total',
-      agent: null,
-      task_id: null,
-      developer_id: identity.developer_id,
-      session_uuid: sessionId || null,
-      project_slug: projectSlug,
-      branch,
-      data,
-    });
-
-    const sessionLogDir = path.join(cwd, '.agentic', 'session-log');
-    fs.mkdirSync(sessionLogDir, { recursive: true });
-    const logFile = path.join(sessionLogDir, `${identity.developer_id}.jsonl`);
-    fs.appendFileSync(logFile, logLine + '\n', 'utf8');
-    recordHealth('writeSessionLog', true, null);
-  } catch (_) {
-    recordHealth('writeSessionLog', false, _ && _.message);
-    // Silent failure - consistent with all other write paths
-  }
-}
-
-/**
- * Write the same session-log line that writeSessionLog writes per-project,
- * but to the global operator mirror: ~/.agentic/session-log/<dev>.jsonl.
- * Independent of the per-project write - a failure here never affects it.
- * Creates the directory if needed. Silent failure on any fs error.
- *
- * @param {{developer_id: string, provisional: boolean}} identity - From getIdentity().
- * @param {string|null} sessionId - Current session uuid.
- * @param {{wall_seconds: number, tokens: object, spawn_count: number, by_agent: object}} data - Telemetry.
- */
-function writeSessionLogGlobal(identity, sessionId, data) {
-  try {
-    const globalLogDir = path.join(os.homedir(), '.agentic', 'session-log');
-    fs.mkdirSync(globalLogDir, { recursive: true });
-    const logLine = JSON.stringify({
-      ts: new Date().toISOString(),
-      phase: 'session_end',
-      event: 'session_total',
-      agent: null,
-      task_id: null,
-      developer_id: identity.developer_id,
-      session_uuid: sessionId || null,
-      project_slug: data.project_slug || null,
-      branch: data.branch || '',
-      data: {
-        wall_seconds: data.wall_seconds,
-        tokens: data.tokens,
-        spawn_count: data.spawn_count,
-        by_agent: data.by_agent,
-      },
-    });
-    const logFile = path.join(globalLogDir, `${identity.developer_id}.jsonl`);
-    fs.appendFileSync(logFile, logLine + '\n', 'utf8');
-    recordHealth('writeSessionLogGlobal', true, null);
-  } catch (_) {
-    recordHealth('writeSessionLogGlobal', false, _ && _.message);
-    // Silent failure - independent of per-project write
-  }
-}
-
-/**
  * Generate a UUID v4 using crypto.randomUUID when available (Node 14.17+),
- * falling back to a Math.random-based implementation for older runtimes.
+ * falling back to a crypto.randomBytes-derived v4 construction for older
+ * runtimes. Both paths draw from a cryptographically secure random source -
+ * never Math.random, which is not suitable for identifier generation.
  *
  * @returns {string} UUID v4 string.
  */
 function generateUuid() {
+  const crypto = require('crypto');
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback: RFC 4122 v4 via crypto.randomBytes
+  const bytes = crypto.randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
+}
+
+// DS-158 round 3 Major 1: the JS-side spawnSync ceiling below must be
+// provably derived from bin/ds-identity's SESSION_LOG_LOCK_BUDGET_SECONDS,
+// not merely commented as such. SESSION_LOG_LOCK_BUDGET_MS mirrors that
+// Python constant (5.0s) and is now, as of round 3, the SHARED lock-retry
+// budget for the helper's WHOLE invocation - cmd_write_hook computes one
+// deadline and passes it to both the project and global appends, so a
+// permanently-contended lock on either target costs this budget once, not
+// twice (round 2's bug). HELPER_STARTUP_HEADROOM_MS covers process
+// startup/imports, the `git symbolic-ref` probe above, and the
+// read/render/write work outside the lock itself.
+// bin/tests/test_agentic_identity.py::test_hook_ceiling_matches_python_budget
+// parses this file and bin/ds-identity and fails the moment either value
+// changes without the other - this is enforced by that test, not by this
+// comment.
+const SESSION_LOG_LOCK_BUDGET_MS = 5000;
+const HELPER_STARTUP_HEADROOM_MS = 1000;
+const WRITE_HOOK_SPAWN_CEILING_MS = SESSION_LOG_LOCK_BUDGET_MS + HELPER_STARTUP_HEADROOM_MS;
+
+/**
+ * Best-effort read of the write-hook helper's partial-progress checkpoint
+ * (DS-158 round 3 Major 2). Returns `{}` on any absence/parse failure -
+ * the checkpoint is a diagnostic aid, never a correctness dependency.
+ *
+ * @param {string} statusFile - Path passed to the helper via --status-file.
+ * @returns {object}
+ */
+function readWriteHookCheckpoint(statusFile) {
   try {
-    const crypto = require('crypto');
-    if (typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-  } catch (_) { /* no crypto module */ }
-  // Fallback: RFC 4122 v4 via Math.random
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+    const raw = fs.readFileSync(statusFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
 }
 
 /**
- * Write unattributed session telemetry to the pending buffer.
- * Used when identity is null (no identity) or provisional (not yet confirmed).
- * Writes atomically via tmp+rename to ~/.agentic/session-log/.pending/<uuid>.json.
- * Enforces a cap of 100 pending files: when at or above cap, deletes the single
- * oldest file by `ts` field and emits one stderr notice before writing.
- * No developer_id field in the pending record - it is unattributed until flush.
- * Silent failure on any fs error.
+ * Persist one telemetry record through the descriptor-safe Python helper.
+ * Identity resolution is compared again in the helper before any write, so an
+ * identity swap between resolution and persistence fails closed. The helper
+ * independently reports project/global/pending outcomes for health telemetry.
  *
- * @param {string} cwd - Verified project directory.
- * @param {string|null} sessionId - Current session uuid (uuid v4 generated if null).
- * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
- *   single read. When provided (non-undefined), no additional file read occurs.
- *   null means file was absent/unreadable; undefined triggers back-compat read.
+ * DS-158 round 2: this call is deliberately single-shot, not wrapped in its
+ * own retry. The Python helper already retries its flock acquisition with
+ * backoff across its own bounded wall-clock budget (see the spawnSync
+ * `timeout` comment below); a caller-side retry here would re-spawn the
+ * whole subprocess and could double the worst-case Stop-hook latency for no
+ * added chance of success, since a second attempt would race the same
+ * contention the first one just spent its full budget failing to clear.
+ * On a project/global write failure, status is surfaced through
+ * recordHealth() -> flushHealth() (unconditional, not debug-gated) rather
+ * than retried here.
+ *
+ * DS-158 round 3 Major 2: on a spawnSync error/timeout (no parseable
+ * stdout), this now consults the helper's --status-file checkpoint before
+ * concluding total failure. A target present in the checkpoint gets its
+ * confirmed outcome recorded normally; a target absent from it (never
+ * attempted, or killed mid-attempt) is recorded as indeterminate via
+ * recordHealthUnknown, never as a confirmed failure.
  */
-function writePendingBuffer(cwd, sessionId, cachedRaw) {
-  let pendingTmpFile = null;
+function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
+  const confirmed = Boolean(identity && !identity.provisional);
+  const effectiveSessionId = sessionId || generateUuid();
+  const statusFile = path.join(
+    os.tmpdir(),
+    `ds-identity-write-hook-${process.pid}-${effectiveSessionId}.json`,
+  );
   try {
-    const pendingDir = path.join(os.homedir(), '.agentic', 'session-log', '.pending');
-    fs.mkdirSync(pendingDir, { recursive: true });
-
-    // Enforce cap-100: count existing pending files
-    let existingFiles = [];
-    try {
-      existingFiles = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.json'));
-    } catch (_) { /* silent */ }
-
-    if (existingFiles.length >= 100) {
-      // Parse ts from each file, find oldest, delete it
-      let oldestTs = null;
-      let oldestFile = null;
-      for (const fname of existingFiles) {
-        try {
-          const raw = fs.readFileSync(path.join(pendingDir, fname), 'utf8');
-          const obj = JSON.parse(raw);
-          const ts = obj.ts || '';
-          if (oldestTs === null || ts < oldestTs) {
-            oldestTs = ts;
-            oldestFile = fname;
-          }
-        } catch (_) { /* skip unreadable files */ }
-      }
-      if (oldestFile) {
-        try { fs.unlinkSync(path.join(pendingDir, oldestFile)); } catch (_) { /* silent */ }
-        process.stderr.write('agentic-engineering: pending buffer at cap (100); oldest session dropped\n');
-      }
-    }
-
-    // Compute telemetry
     const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
     const data = totals || {
       wall_seconds: 0,
@@ -972,10 +1040,6 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
       spawn_count: 0,
       by_agent: {},
     };
-
-    // Resolve metadata
-    const projectSlug = path.basename(cwd);
-    const repoRoot = cwd;
     let branch = '';
     try {
       branch = execSync('git symbolic-ref --short HEAD', {
@@ -983,34 +1047,80 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
       }).trim();
     } catch (_) { /* detached HEAD or non-git dir */ }
 
-    const sessionUuid = sessionId || generateUuid();
-    const record = {
-      schema_version: 1,
-      session_uuid: sessionUuid,
-      ts: new Date().toISOString(),
-      project_slug: projectSlug,
-      repo_root: repoRoot,
+    const helper = path.resolve(__dirname, '..', 'bin', 'ds-identity');
+    const request = JSON.stringify({
+      identity,
+      session_uuid: effectiveSessionId,
       branch,
-      data: {
-        wall_seconds: data.wall_seconds,
-        tokens: data.tokens,
-        spawn_count: data.spawn_count,
-        by_agent: data.by_agent,
+      data,
+    });
+    const result = spawnSync(
+      helper,
+      ['write-hook', '--cwd', cwd, '--status-file', statusFile],
+      {
+        encoding: 'utf8',
+        // DS-158 round 2/3: bin/ds-identity's session-log append(s) retry
+        // their flock with backoff across a SESSION_LOG_LOCK_BUDGET_SECONDS
+        // (5.0s) wall-clock budget, capped at
+        // SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS (1.0s) per attempt.
+        // As of round 3, that budget is SHARED across the whole helper
+        // invocation (both the project and global append below draw from
+        // one deadline computed once in cmd_write_hook), so this ceiling
+        // is WRITE_HOOK_SPAWN_CEILING_MS = SESSION_LOG_LOCK_BUDGET_MS +
+        // HELPER_STARTUP_HEADROOM_MS, not a multiple of the budget - see
+        // those constants' definitions above this function for the
+        // cross-file consistency test. A genuinely contended write must
+        // exhaust its own retry budget and report a graceful failure back
+        // to recordHealth(), not get SIGKILLed here first; if it IS
+        // SIGKILLed (e.g. real budget/headroom drift), the --status-file
+        // checkpoint below still lets us report per-target outcomes
+        // honestly instead of asserting uniform failure.
+        timeout: WRITE_HOOK_SPAWN_CEILING_MS,
+        maxBuffer: 64 * 1024,
+        stdio: ['pipe', 'pipe', 'ignore'],
+        input: request,
+        env: process.env,
       },
-    };
-
-    // Atomic write: tmp + rename
-    const outFile = path.join(pendingDir, `${sessionUuid}.json`);
-    pendingTmpFile = outFile + '.tmp';
-    fs.writeFileSync(pendingTmpFile, JSON.stringify(record, null, 2), 'utf8');
-    fs.renameSync(pendingTmpFile, outFile);
-    recordHealth('writePendingBuffer', true, null);
-  } catch (_) {
-    recordHealth('writePendingBuffer', false, _ && _.message);
-    // Silent failure - consistent with all other write paths
-    if (pendingTmpFile) {
-      try { fs.unlinkSync(pendingTmpFile); } catch (_e) { /* tmp absent or never created */ }
+    );
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
+      throw result.error || new Error('safe telemetry helper failed');
     }
+    const status = JSON.parse(result.stdout);
+    if (!status || typeof status !== 'object' || Array.isArray(status)) {
+      throw new Error('safe telemetry helper returned invalid status');
+    }
+    if (confirmed) {
+      recordHealth('writeSessionLog', status.project === true, status.project === true ? null : 'safe helper refused project log');
+      recordHealth('writeSessionLogGlobal', status.global === true, status.global === true ? null : 'safe helper refused global log');
+    } else {
+      recordHealth('writePendingBuffer', status.pending === true, status.pending === true ? null : 'safe helper refused pending record');
+    }
+  } catch (_) {
+    // DS-158 round 3 Major 2: no parseable stdout - consult the helper's
+    // partial-progress checkpoint before asserting uniform failure. A
+    // target present in the checkpoint has a confirmed outcome; a target
+    // absent from it (never attempted, or interrupted mid-attempt) is
+    // reported as indeterminate, not as a confirmed failure.
+    const checkpoint = readWriteHookCheckpoint(statusFile);
+    const errMsg = _ && _.message;
+    if (confirmed) {
+      if (typeof checkpoint.project === 'boolean') {
+        recordHealth('writeSessionLog', checkpoint.project, checkpoint.project ? null : 'safe helper refused project log');
+      } else {
+        recordHealthUnknown('writeSessionLog', errMsg);
+      }
+      if (typeof checkpoint.global === 'boolean') {
+        recordHealth('writeSessionLogGlobal', checkpoint.global, checkpoint.global ? null : 'safe helper refused global log');
+      } else {
+        recordHealthUnknown('writeSessionLogGlobal', errMsg);
+      }
+    } else if (typeof checkpoint.pending === 'boolean') {
+      recordHealth('writePendingBuffer', checkpoint.pending, checkpoint.pending ? null : 'safe helper refused pending record');
+    } else {
+      recordHealthUnknown('writePendingBuffer', errMsg);
+    }
+  } finally {
+    try { fs.unlinkSync(statusFile); } catch (_e) { /* absent or never created */ }
   }
 }
 
@@ -1435,29 +1545,11 @@ ${toolsLine}
   try {
     const identity = getIdentity(cwd);
     if (identity && !identity.provisional) {
-      // Confirmed identity: per-project write + global mirror
-      writeSessionLog(cwd, identity, sessionId, cachedEventsRaw);
-      // Build shared metadata for global mirror
-      const totals = computeSessionTotals(cwd, sessionId, cachedEventsRaw);
-      const globalData = Object.assign(
-        {
-          wall_seconds: 0,
-          tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-          spawn_count: 0,
-          by_agent: {},
-        },
-        totals,
-        { project_slug: path.basename(cwd), branch: '' }
-      );
-      try {
-        globalData.branch = execSync('git symbolic-ref --short HEAD', {
-          cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim();
-      } catch (_) { /* detached HEAD or non-git dir */ }
-      writeSessionLogGlobal(identity, sessionId, globalData);
+      // Confirmed identity: descriptor-safe project log + global mirror.
+      writeTelemetrySafely(cwd, identity, sessionId, cachedEventsRaw);
     } else {
-      // Provisional or no identity: pending buffer
-      writePendingBuffer(cwd, sessionId, cachedEventsRaw);
+      // Provisional or no identity: descriptor-safe pending buffer.
+      writeTelemetrySafely(cwd, identity, sessionId, cachedEventsRaw);
       // The `!wrapLockHeld(cwd)` gate that used to guard this nudge is REMOVED.
       // Its target is now a session-private shard, so there is nothing to
       // serialize against - and because the sentinel is consumed atomically with
@@ -1538,5 +1630,12 @@ run().catch(() => { try { process.exit(0); } catch (_) {} });
 // executing run(). stop-context.js has no production module.exports; this shim
 // is only reached when the test replaces `run();` before requiring.
 if (typeof module !== 'undefined') {
-  module.exports = { recordHealth, flushHealth, healthOutcomes, appendCaptureGapNoticeToContextMd };
+  module.exports = {
+    recordHealth,
+    recordHealthUnknown,
+    flushHealth,
+    healthOutcomes,
+    appendCaptureGapNoticeToContextMd,
+    readWriteHookCheckpoint,
+  };
 }

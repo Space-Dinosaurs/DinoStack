@@ -4,16 +4,16 @@ agent: build
 ---
 # /ds-status
 
-Read-only inspection of the agentic-engineering activation resolver.
+Read-only inspection of the dinostack activation resolver.
 Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
-Implementation: `bin/agentic-status` (Python 3 stdlib).
+Implementation: `bin/ds-status` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-status
+ds-status
 ```
 
 No subcommands, no flags. Reads:
@@ -27,7 +27,7 @@ No subcommands, no flags. Reads:
 ## Output
 
 ```
-agentic-engineering status
+dinostack status
   global config: /Users/<you>/.claude/agentic-engineering.json (found)
   mode: opt-out (source: global config)
   profile: default (source: global)
@@ -41,7 +41,7 @@ agentic-engineering status
 
 Held examples (only when .agentic/wrap/lock exists):
   wrap lock: held role=agent session=f176f720-a218-4cac-84a0-1489abe7aa1d age=3m
-  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `agentic-wrap-acquire-lock` clears it if the holder is gone
+  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `ds-wrap-acquire-lock` clears it if the holder is gone
 
 DEPRECATED example (only shown when a legacy preset key is present at some scope):
   DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
@@ -100,7 +100,7 @@ the effective value came from:
   session id) or 4 hours (without one). It is **advisory, not authoritative**:
   it reports observable facts and does not re-derive the abandonment predicate,
   which lives once in `wrapLockAbandoned` (`hooks/lib/wrap-marker.js`) and is
-  acted on only by `agentic-wrap-acquire-lock`. This line exists because **no
+  acted on only by `ds-wrap-acquire-lock`. This line exists because **no
   operator-invocable command could previously reveal a wedged lock** - the
   10.3-hour orphan that silently discarded 49 `context.md` writes across 6
   sessions had to be diagnosed by hand. `context.md` writes are no longer

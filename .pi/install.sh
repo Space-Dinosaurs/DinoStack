@@ -13,6 +13,11 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_DIR
 
+# shellcheck source=scripts/lib/prune-stale-skill-dir.sh
+[[ -f "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" ]] && . "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" || {
+  echo "  ! scripts/lib/prune-stale-skill-dir.sh not found - stale skill dir prune skipped"
+}
+
 # shellcheck source=scripts/lib/identity.sh
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
@@ -53,6 +58,16 @@ AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 # at the skill-install section, but needed here too to compute the redirect
 # target for AE_CONFIG_PATH).
 PI_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}}"
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-}}" ]]; then
+    _ae_identity_bind_config_dir "$PI_CONFIG_DIR" true
+  else
+    # --config-dir is install-time only and is not visible to later Pi
+    # sessions. Without a runtime env binding, keep identity global rather
+    # than create an unreachable profile identity.
+    _ae_identity_bind_config_dir "$PI_CONFIG_DIR" false
+  fi
+fi
 if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-}}}" ]]; then
   AE_CONFIG_PATH="$PI_CONFIG_DIR/agentic-engineering.json"
 fi
@@ -101,7 +116,7 @@ data["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d
 if "skill_auto_load" not in data:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         data["skill_auto_load"] = answer in ("y", "yes")
@@ -150,12 +165,12 @@ write_config "$mode" "$profile"
 echo "  + activation config written to $AE_CONFIG_PATH (mode=$mode, profile=$profile)"
 
 PI_HOME="$PI_CONFIG_DIR"
-SKILL_SRC="$REPO_DIR/.pi/skills/agentic-engineering"
-SKILL_DST="$PI_HOME/skills/agentic-engineering"
+SKILL_SRC="$REPO_DIR/.pi/skills/dinostack"
+SKILL_DST="$PI_HOME/skills/dinostack"
 PROMPT_SRC="$REPO_DIR/.pi/prompts"
 PROMPT_DST="$PI_HOME/prompts"
-EXT_SRC="$REPO_DIR/.pi/extensions/agentic-engineering"
-EXT_DST="$PI_HOME/extensions/agentic-engineering"
+EXT_SRC="$REPO_DIR/.pi/extensions/dinostack"
+EXT_DST="$PI_HOME/extensions/dinostack"
 
 # Symlink guard: refuse if the pi harness config dir is a symlinked dir.
 # mkdir -p silently follows dir symlinks (CWE-59).
@@ -164,6 +179,17 @@ EXT_DST="$PI_HOME/extensions/agentic-engineering"
   exit 1
 }
 mkdir -p "$SKILL_DST" "$PROMPT_DST" "$EXT_DST"
+
+# Remove stale pre-rename skill and extension directories left at
+# skills/agentic-engineering and extensions/agentic-engineering by a
+# pre-rename install. The skill dir gets real SKILL.md/METHODOLOGY.md copies
+# alongside symlinked commands/references/rules/agents; the extension dir
+# holds only a symlinked index.ts.
+if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" "$REPO_DIR" SKILL.md METHODOLOGY.md || true
+  ae_prune_stale_skill_dir "$(dirname "$EXT_DST")/agentic-engineering" "$REPO_DIR" || true
+fi
+
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
 cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
 echo "  + skill files copied to $SKILL_DST"
@@ -342,11 +368,11 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 echo ""
 echo "Pi coding agent adapter install complete."
 echo "Project-local: .pi/skills/ and .pi/prompts/ are auto-discovered in this repo."
 echo "Global: skill installed to ~/.pi/agent/skills/, prompts linked to ~/.pi/agent/prompts/, and extension linked to ~/.pi/agent/extensions/."
-echo "Use: pi, then /skill:agentic-engineering or slash prompts such as /ds-brief and /ds-wrap."
+echo "Use: pi, then /skill:dinostack or slash prompts such as /ds-brief and /ds-wrap."

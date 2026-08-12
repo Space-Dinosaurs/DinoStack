@@ -16,7 +16,7 @@ DinoStack adapter for [OpenCode](https://opencode.ai).
 
 ## What's adapted
 
-- **Skill**: `agentic-engineering` SKILL.md with opencode-compatible frontmatter. Risk classification reminder embedded directly in the skill body (since opencode lacks a UserPromptSubmit hook equivalent).
+- **Skill**: `dinostack` SKILL.md with opencode-compatible frontmatter. Risk classification reminder embedded directly in the skill body (since opencode lacks a UserPromptSubmit hook equivalent).
 - **Agents**: 13 agent definitions converted to opencode markdown agent format with proper `description`, `mode: subagent`, and `permission` frontmatter. Engineers get `edit: allow, bash: allow`; read-only agents (skeptic, architect, etc.) get `edit: deny` with restricted bash.
 - **Commands**: 9 commands converted to opencode command format with `description` and `agent: build` frontmatter. Prerequisite blockquotes stripped (opencode loads the skill via its own mechanism).
 - **Rules**: Loaded via `instructions` in opencode.json rather than symlinked into a skill directory (opencode's native mechanism for auto-loading rules).
@@ -30,7 +30,7 @@ bash ~/DinoStack/.opencode/install.sh
 ```
 
 This installs:
-- `agentic-engineering` skill into `~/.config/opencode/skills/`
+- `dinostack` skill into `~/.config/opencode/skills/`
 - 13 named agent definitions into `~/.config/opencode/agents/`
 - 9 workflow commands into `~/.config/opencode/commands/`
 - Rule instructions wired into `~/.config/opencode/opencode.json`
@@ -40,7 +40,7 @@ It also configures the activation mode (opt-out or opt-in) and installs the pre-
 ## Post-install verification
 
 ```bash
-ls ~/.config/opencode/skills/agentic-engineering/SKILL.md
+ls ~/.config/opencode/skills/dinostack/SKILL.md
 ```
 
 Should show the skill file. Then open OpenCode and ask: "What risk tiers does DinoStack define?" - it should reference Trivial/Low/Elevated/Elevated+Cleanup.

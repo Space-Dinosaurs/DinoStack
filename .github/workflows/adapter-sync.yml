@@ -45,5 +45,5 @@ jobs:
           fi
       - name: Verify Codex hook commands resolve (DS-57 regression guard)
         run: bash bin/tests/test_codex_hooks_resolve.sh
-      - name: Verify agentic-engineering skill symlinks are relative (DS-104 regression guard)
+      - name: Verify dinostack skill symlinks are relative (DS-104 regression guard)
         run: bash scripts/check-symlinks-relative.sh "${{ github.sha }}"

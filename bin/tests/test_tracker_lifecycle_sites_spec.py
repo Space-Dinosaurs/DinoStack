@@ -115,20 +115,20 @@ TOGGLE_SURFACES = [
 ]
 
 
-def _extract_w1_block(text: str) -> str:
-    """Extract the '### Tracker writeback (W1)' subsection: from the exact
-    heading line up to (exclusive) the next line that is itself a '## ' or
-    '### ' heading. Matches on an exact-stripped heading line so inline
-    backtick mentions elsewhere (e.g. in a fused multi-command embed like
-    .hermes/SKILL.md) are not mistaken for the heading itself."""
+def _extract_subsection(text: str, heading: str) -> str:
+    """Extract a subsection: from the exact heading line up to (exclusive)
+    the next line that is itself a '## ' or '### ' heading. Matches on an
+    exact-stripped heading line so inline backtick mentions elsewhere (e.g.
+    in a fused multi-command embed like .hermes/SKILL.md) are not mistaken
+    for the heading itself."""
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if line.strip() == W1_HEADING:
+        if line.strip() == heading:
             start = i
             break
     if start is None:
-        raise AssertionError(f"heading {W1_HEADING!r} not found")
+        raise AssertionError(f"heading {heading!r} not found")
     end = len(lines)
     for j in range(start + 1, len(lines)):
         stripped = lines[j].strip()
@@ -136,6 +136,12 @@ def _extract_w1_block(text: str) -> str:
             end = j
             break
     return "\n".join(lines[start:end])
+
+
+def _extract_w1_block(text: str) -> str:
+    """Extract the '### Tracker writeback (W1)' subsection. See
+    _extract_subsection for the extraction rule."""
+    return _extract_subsection(text, W1_HEADING)
 
 
 def _section(text: str, heading: str) -> str:
@@ -171,6 +177,14 @@ def status_sync_text() -> str:
 @pytest.fixture(scope="module")
 def w1_block(implement_ticket_text) -> str:
     return _extract_w1_block(implement_ticket_text)
+
+
+@pytest.fixture(scope="module")
+def per_ticket_reset_block(implement_ticket_text) -> str:
+    return _extract_subsection(
+        implement_ticket_text,
+        "### Per-ticket variable reset (binding, runs FIRST on every entry)",
+    )
 
 
 @pytest.fixture(scope="module")
@@ -238,6 +252,272 @@ def test_w1_subsection_has_guard_and_cites_phase_0_regex_site(w1_block):
         "W1 subsection's regex citation should name the TICKET_PREFIX sites "
         "it is cross-referencing"
     )
+
+
+def test_site_w1_precedes_phase_3_3b_5_headings(implement_ticket_text):
+    # DS-163 observability follow-up: W1 must fire before the architect
+    # (Phase 3), orchestration-planner (Phase 3b), and engineer (Phase 5)
+    # spawn sites - the ordering fix this pins is already shipped (PR #517);
+    # this test is a regression guard against it silently moving back.
+    w1_idx = implement_ticket_text.index("site: W1")
+    phase3_idx = implement_ticket_text.index("## Phase 3: Architecture plan")
+    phase3b_idx = implement_ticket_text.index("## Phase 3b: Orchestration plan")
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    assert w1_idx < phase3_idx < phase3b_idx < phase5_idx, (
+        f"expected offset ordering W1({w1_idx}) < Phase 3({phase3_idx}) < "
+        f"Phase 3b({phase3b_idx}) < Phase 5({phase5_idx})"
+    )
+
+
+def _assert_no_w1_site_in_phase5(text: str) -> None:
+    """The real production assertion: Phase 5 must not carry a 'site: W1'
+    fire site. Extracted into a standalone function (rather than inlined in
+    a test body) so a mutation test can call it directly against a poisoned
+    fixture and confirm it actually raises - see
+    test_phase_5_no_w1_site_guard_catches_reintroduction below. The prior
+    version of this guard built a `poisoned` string and asserted against
+    that same string - a same-source tautology that could never redden."""
+    phase5_idx = text.index("## Phase 5: Implement")
+    phase6_idx = text.index("## Phase 6:")
+    phase5_text = text[phase5_idx:phase6_idx]
+    assert "site: W1" not in phase5_text, (
+        "Phase 5 must not carry a 'site: W1' fire site - In Progress is "
+        "written at Phase 1 only"
+    )
+
+
+def test_phase_5_has_no_w1_site_and_carries_the_anti_regression_note(implement_ticket_text):
+    _assert_no_w1_site_in_phase5(implement_ticket_text)
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    phase6_idx = implement_ticket_text.index("## Phase 6:")
+    phase5_text = implement_ticket_text[phase5_idx:phase6_idx]
+    assert (
+        "Phase 5 deliberately has no W1 site. Do not re-add one."
+        in phase5_text
+    ), (
+        "Phase 5 must retain the anti-regression note against re-adding a "
+        "W1 fire site"
+    )
+
+
+def test_phase_5_no_w1_site_guard_catches_reintroduction():
+    # Non-vacuous proof: call the REAL production assertion helper
+    # (_assert_no_w1_site_in_phase5, the same function the passing test
+    # above calls) against a poisoned fixture that DOES re-add a Phase-5
+    # W1 site, and confirm it actually raises AssertionError. Unlike the
+    # prior version of this test, both operands here do not trace to the
+    # same source: the helper is the live production check, and the
+    # fixture is a synthetic input constructed independently of it.
+    poisoned = (
+        "## Phase 5: Implement\n\n"
+        "[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]\n\n"
+        "## Phase 6: Something\n"
+    )
+    with pytest.raises(AssertionError):
+        _assert_no_w1_site_in_phase5(poisoned)
+
+
+def _assert_w1_outcome_mechanism(w1_block: str, reset_block: str) -> None:
+    """The real production assertion: pins the MECHANISM that produces each
+    outcome/reason, not merely the English prose that names it. Extracted
+    into a standalone function so a mutation test can call it directly -
+    see test_w1_outcome_breadcrumb_mechanism_mutation_guard below.
+
+    A prior version of this check asserted only bare substring membership
+    (e.g. `"prefix_mismatch" in w1_block`), which the surrounding English
+    prose already satisfies even with the entire W1 resolution block
+    deleted, a single elif branch deleted, or every reason code renamed
+    throughout. This version pins the literal shell assignment statements
+    that actually produce each value."""
+    assert "ds-emit tracker_writeback" in w1_block, (
+        "W1 subsection must invoke `ds-emit tracker_writeback`"
+    )
+
+    # --- skip-reason mechanism: each reason must be an actual elif-branch
+    # assignment, in the correct mutually-exclusive if/elif chain, not just
+    # a word appearing anywhere in prose.
+    reason_assignments = [
+        ('W1_REASON="tracker_none"', 'if [ "$TRACKER" = "none" ]'),
+        (
+            'W1_REASON="ticket_id_format"',
+            "elif ! printf '%s' \"${TICKET_ID:-}\" | grep -qE",
+        ),
+        (
+            'W1_REASON="prefix_mismatch"',
+            'elif [ -n "${TICKET_PREFIX:-}" ]',
+        ),
+        (
+            'W1_REASON="fetch_failed"',
+            'elif [ "${W1_FETCH_FAILED:-false}" = "true" ]',
+        ),
+    ]
+    for assignment, guarding_condition in reason_assignments:
+        assert assignment in w1_block, (
+            f"W1 subsection must contain the literal assignment {assignment!r} "
+            "- prose naming the reason is not sufficient"
+        )
+        assert guarding_condition in w1_block, (
+            f"W1 subsection must contain the literal guarding condition "
+            f"{guarding_condition!r} that produces {assignment!r}"
+        )
+
+    # --- skip-outcome mechanism: the skip emit line must fire only inside
+    # the `if [ -n "$W1_REASON" ]` guard and carry the literal "skipped"
+    # outcome plus the resolved $W1_REASON as its reason.
+    assert 'if [ -n "$W1_REASON" ]' in w1_block, (
+        "W1 subsection must gate the skip emit on a non-empty $W1_REASON"
+    )
+    assert (
+        '\\"outcome\\":\\"skipped\\",\\"reason\\":\\"$W1_REASON\\"' in w1_block
+    ), (
+        "W1 subsection's skip emit line must carry outcome:skipped paired "
+        "with the resolved $W1_REASON as reason"
+    )
+
+    # --- dispatch-outcome mechanism (the Critical finding): both branches
+    # of W1_DISPATCH_OUTCOME must be explicit literal assignments, and the
+    # emit line's expansion must be set -u-safe (a bare $W1_DISPATCH_OUTCOME
+    # would abort the whole step under `set -u` if either assignment above
+    # were ever skipped).
+    assert 'W1_DISPATCH_OUTCOME="dispatched"' in w1_block, (
+        "W1 subsection must explicitly assign W1_DISPATCH_OUTCOME=\"dispatched\" "
+        "on the tool-call-accepted branch"
+    )
+    assert 'W1_DISPATCH_OUTCOME="dispatch_failed"' in w1_block, (
+        "W1 subsection must explicitly assign W1_DISPATCH_OUTCOME=\"dispatch_failed\" "
+        "on the tool-call-error branch"
+    )
+    assert (
+        '\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\"' in w1_block
+    ), (
+        "the dispatch emit line must use the set -u-safe "
+        "${W1_DISPATCH_OUTCOME:-dispatch_failed} expansion, not a bare "
+        "$W1_DISPATCH_OUTCOME reference"
+    )
+    assert "$W1_DISPATCH_OUTCOME}" not in w1_block.replace(
+        "${W1_DISPATCH_OUTCOME:-dispatch_failed}", ""
+    ), (
+        "found a bare, non-defaulted $W1_DISPATCH_OUTCOME expansion outside "
+        "the set -u-safe form - this is exactly the unassigned-reference "
+        "defect the Critical finding flagged"
+    )
+
+    # --- per-ticket reset: W1_DISPATCH_OUTCOME (like W1_FETCH_FAILED) must
+    # be reset at the top of every entry, or a batch ticket that never
+    # reaches the dispatch branch inherits the previous ticket's value.
+    assert 'W1_DISPATCH_OUTCOME=""' in reset_block, (
+        "the per-ticket variable reset block must reset W1_DISPATCH_OUTCOME "
+        "alongside W1_FETCH_FAILED"
+    )
+    assert "W1_FETCH_FAILED=false" in reset_block, (
+        "sanity check: the per-ticket variable reset block must still reset "
+        "W1_FETCH_FAILED"
+    )
+
+
+def test_w1_outcome_breadcrumb_covers_all_three_outcomes(w1_block, per_ticket_reset_block):
+    # DS-163 (round 2): every W1 evaluation must emit exactly one ds-emit
+    # `tracker_writeback` breadcrumb, distinctly covering all three
+    # outcomes - skipped, dispatched, and dispatch_failed - via the actual
+    # assignment mechanism, not prose that merely names the outcome.
+    _assert_w1_outcome_mechanism(w1_block, per_ticket_reset_block)
+
+
+def test_w1_outcome_breadcrumb_mechanism_mutation_guard():
+    # Non-vacuous proof: call the REAL production assertion helper
+    # (_assert_w1_outcome_mechanism, the same function the passing test
+    # above calls) against poisoned fixtures that preserve the surrounding
+    # prose but break the mechanism, and confirm each one actually raises.
+    real_w1_block = _extract_w1_block(
+        IMPLEMENT_TICKET_PATH.read_text(encoding="utf-8")
+    )
+    real_reset_block = _extract_subsection(
+        IMPLEMENT_TICKET_PATH.read_text(encoding="utf-8"),
+        "### Per-ticket variable reset (binding, runs FIRST on every entry)",
+    )
+
+    # Mutation 1: delete the entire W1_REASON resolution block (the exact
+    # class of deletion the Skeptic used to falsify the round-1 assertions).
+    poisoned_1 = real_w1_block.replace(
+        'W1_REASON="tracker_none"', "# deleted"
+    ).replace(
+        'W1_REASON="ticket_id_format"', "# deleted"
+    ).replace(
+        'W1_REASON="prefix_mismatch"', "# deleted"
+    ).replace(
+        'W1_REASON="fetch_failed"', "# deleted"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_1, real_reset_block)
+
+    # Mutation 2: delete just the prefix_mismatch elif branch's assignment.
+    poisoned_2 = real_w1_block.replace('W1_REASON="prefix_mismatch"', "# deleted")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_2, real_reset_block)
+
+    # Mutation 3: rename prefix_mismatch throughout (simulates the
+    # substring-satisfying-prose failure mode the Skeptic identified).
+    poisoned_3 = real_w1_block.replace("prefix_mismatch", "prefix_mismatch_renamed")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_3, real_reset_block)
+
+    # Mutation 4 (the Critical finding): delete the dispatched-branch
+    # assignment, leaving only the bare set -u-safe fallback.
+    poisoned_4 = real_w1_block.replace('W1_DISPATCH_OUTCOME="dispatched"', "# deleted")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_4, real_reset_block)
+
+    # Mutation 5: delete the dispatch_failed-branch assignment.
+    poisoned_5 = real_w1_block.replace(
+        'W1_DISPATCH_OUTCOME="dispatch_failed"', "# deleted"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_5, real_reset_block)
+
+    # Mutation 6: revert the emit line to a bare, non-defaulted expansion
+    # (the exact shape the Critical finding was filed against).
+    poisoned_6 = real_w1_block.replace(
+        '${W1_DISPATCH_OUTCOME:-dispatch_failed}', "$W1_DISPATCH_OUTCOME"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_6, real_reset_block)
+
+    # Mutation 7: drop the per-ticket reset for W1_DISPATCH_OUTCOME.
+    poisoned_reset = real_reset_block.replace('W1_DISPATCH_OUTCOME=""', "")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(real_w1_block, poisoned_reset)
+
+    # Sanity: the unmodified real blocks must pass (proves the helper is
+    # not simply always-raising).
+    _assert_w1_outcome_mechanism(real_w1_block, real_reset_block)
+
+
+def test_w1_tracker_none_advisory_present_and_scoped(w1_block):
+    # The tracker_none skip must be operator-visible via a one-line advisory,
+    # and that advisory must be scoped to tracker_none only (not fired for
+    # the other three skip reasons).
+    assert "TRACKER is none for this project" in w1_block, (
+        "W1 subsection must carry the tracker_none advisory line"
+    )
+    assert (
+        "No advisory line fires for the other three reasons" in w1_block
+    ), (
+        "W1 subsection must explicitly scope the advisory to tracker_none "
+        "only, not the other three skip reasons"
+    )
+
+
+def test_w1_outcome_breadcrumb_soft_fail(w1_block):
+    # A missing or failing ds-emit must never block Phase 1 - every emit
+    # call site must be soft-failed.
+    emit_lines = [
+        line for line in w1_block.splitlines() if "ds-emit tracker_writeback" in line
+    ]
+    assert emit_lines, "expected at least one ds-emit tracker_writeback call site"
+    for line in emit_lines:
+        assert "2>/dev/null || true" in line, (
+            f"ds-emit tracker_writeback call site must be soft-failed: {line!r}"
+        )
 
 
 def test_w1_subsection_cited_phase_0_sites_actually_exist(implement_ticket_text):
@@ -473,116 +753,49 @@ def init_project_text() -> str:
     return INIT_PROJECT_PATH.read_text(encoding="utf-8")
 
 
-def _step9_fenced_block(text: str) -> str:
-    # Scope every anchor/position assertion below to the Step 9 gitignore
-    # fenced block itself, not the whole file. A file-wide str.index() is
-    # sound only as long as every anchor is unique across the entire
-    # document; Step 11 (prose row 8) adds a second, later
-    # ".agentic/tracker.yml" mention, so scoping here is what keeps this
-    # test non-vacuous against that addition (Minor 2, r3 changelog).
-    marker = "# Agentic engineering runtime artifacts"
-    idx = text.index(marker)
-    fence_start = text.rfind("```", 0, idx)
-    fence_end = text.index("```", idx)
-    return text[fence_start:fence_end]
-
-
-def test_tracker_yml_ignore_line_between_anchors(init_project_text):
-    # Position assertion: `.agentic/tracker.yml` must sit strictly between
-    # the two anchor lines, inside the ignore-pattern run of the fenced
-    # block. This fails both if the line is dropped entirely AND if it is
-    # re-placed under the "# Tracked (explicitly NOT ignored):" comment
-    # block, where it would misleadingly read as one of the tracked files.
-    block = _step9_fenced_block(init_project_text)
-    compression_idx = block.index(".agentic/compression-state.json")
-    tracker_states_idx = block.index(".agentic/tracker-states.json")
-    assert compression_idx < tracker_states_idx, (
-        "anchor ordering assumption violated: .agentic/compression-state.json "
-        "must precede .agentic/tracker-states.json"
+def test_tracker_yml_ignored_by_default_no_negation(init_project_text):
+    # Round 3 rework (fix/shipped-gitignore-umbrella-gaps): Step 9 no longer
+    # hand-enumerates `.agentic/tracker.yml` as an ignore line at all - it
+    # delegates the whole `.agentic/` gitignore portion to `ds-migrate apply`
+    # against content/project-scaffolding.yml (default-deny umbrella). The
+    # DS-74 consumer-protection concern this test class originally guarded
+    # ("the ignore rule must land before the .agentic/tracker.yml overlay
+    # file itself exists anywhere") is now satisfied structurally: any path
+    # under `.agentic/` with no explicit `!.agentic/<file>` negation in the
+    # manifest is ignored by construction, with no enumeration step required.
+    # This test asserts the other half of that invariant directly against
+    # the manifest: tracker.yml (per-operator local tracker config, may carry
+    # an operator's own account ID) must NOT be negated.
+    manifest_text = (REPO_ROOT / "content" / "project-scaffolding.yml").read_text(
+        encoding="utf-8"
     )
-    tracker_yml_idx = block.index(".agentic/tracker.yml")
-    assert compression_idx < tracker_yml_idx < tracker_states_idx, (
-        ".agentic/tracker.yml must occur strictly between "
-        ".agentic/compression-state.json and .agentic/tracker-states.json "
-        "in the Step 9 gitignore block - this is the consumer-protection "
-        "line that must land before the .agentic/tracker.yml overlay file "
-        "itself exists anywhere (DS-74)"
+    assert '"!.agentic/tracker.yml"' not in manifest_text, (
+        ".agentic/tracker.yml must stay ignored by default (no negation) - "
+        "it is per-operator local tracker config that may carry an "
+        "operator's own account ID, and must never be committed"
     )
-    tracked_comment_idx = block.index(
-        "# Tracked (explicitly NOT ignored):"
+    # Step 9 must actually delegate to ds-migrate apply for this to hold in
+    # practice, not just in the manifest - covered by
+    # TestInitProjectStep9SingleSourced.test_step9_delegates_to_ds_migrate_apply
+    # in bin/tests/test_agentic_migrate.py; re-asserted here narrowly so this
+    # file does not depend on that one for its own non-vacuousness.
+    #
+    # MAJOR 1 (round 4): anchored on the fenced executable block, not a bare
+    # substring-in-section check. A bare `"ds-migrate apply" in section`
+    # check stayed green even with the executable block replaced by
+    # `echo 'nothing to do'`, because the substring survives in incidental
+    # prose mentions elsewhere in the section - see the sibling fix and
+    # mutation proof in bin/tests/test_agentic_migrate.py.
+    section_start = init_project_text.index("### 9. Create `.gitignore`")
+    section_end = init_project_text.index("\n### 10.", section_start)
+    section = init_project_text[section_start:section_end]
+    fences = re.findall(r"```\n(.*?)```", section, re.DOTALL)
+    executable_fences = [f for f in fences if f.strip().startswith("ds-migrate apply")]
+    assert len(executable_fences) == 1, (
+        "Step 9 must contain exactly one fenced block whose content IS the "
+        "literal `ds-migrate apply` invocation; found "
+        f"{len(executable_fences)}."
     )
-    assert tracker_yml_idx < tracked_comment_idx, (
-        ".agentic/tracker.yml must appear BEFORE the "
-        "'# Tracked (explicitly NOT ignored):' comment block - placed after "
-        "it, the line would misleadingly read as one of the tracked files "
-        "rather than an ignored one"
-    )
-
-
-def _step9_enumeration_paragraph(text: str) -> str:
-    marker = "since none of the"
-    idx = text.index(marker)
-    # The enumeration paragraph is a single unbroken line in the source
-    # (no internal newlines); isolate it by line boundaries around the
-    # marker so the paragraph-scoped assertions below are non-vacuous
-    # against the rest of the file.
-    line_start = text.rfind("\n", 0, idx) + 1
-    line_end = text.find("\n", idx)
-    if line_end == -1:
-        line_end = len(text)
-    return text[line_start:line_end]
-
-
-def test_step9_enumeration_names_tracker_yml(init_project_text):
-    paragraph = _step9_enumeration_paragraph(init_project_text)
-    assert "`tracker-states.json`" in paragraph, (
-        "sanity check: the Step 9 enumeration paragraph anchor must be "
-        "present"
-    )
-    assert (
-        "per-operator local tracker config; never committed"
-        in paragraph
-    ), (
-        "the Step 9 enumeration paragraph must name tracker.yml explicitly "
-        "('per-operator local tracker config; never committed'), not just "
-        "update the count word"
-    )
-
-
-# Word forms for the plausible ignore-pattern-line-count range. Extend this
-# map (never re-pin a literal count word) if the block legitimately grows
-# past 20 lines.
-_NUMBER_WORDS = {
-    10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
-    15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
-    19: "nineteen", 20: "twenty",
-}
-
-
-def test_step9_enumeration_count_word_matches_actual_line_count(init_project_text):
-    # Derived, not pinned (Minor 1, r3 changelog): parse the actual number
-    # of `.agentic/...` ignore-pattern lines in the fenced block and assert
-    # the enumeration paragraph's count word matches THAT number - a future
-    # 17th ignore line added without updating the prose now fails this
-    # assertion instead of silently passing against a stale literal.
-    block = _step9_fenced_block(init_project_text)
-    ignore_lines = [
-        line for line in block.splitlines()
-        if re.match(r"^\.agentic/", line.strip())
-    ]
-    count = len(ignore_lines)
-    assert count in _NUMBER_WORDS, (
-        f"ignore-pattern-line count {count} is outside the mapped word range; "
-        "extend _NUMBER_WORDS"
-    )
-    expected_word = _NUMBER_WORDS[count]
-    paragraph = _step9_enumeration_paragraph(init_project_text)
-    assert f"since none of the {expected_word} lines above them" in paragraph, (
-        f"the Step 9 enumeration paragraph's count word must match the actual "
-        f"count of ignore-pattern lines in the fenced block ({count} -> "
-        f"'{expected_word}'); paragraph: {paragraph!r}"
-    )
-
 
 # ---------------------------------------------------------------------------
 # PR2 prose assertions (DS-74): the .agentic/tracker.yml overlay merge rule,
@@ -673,8 +886,38 @@ def test_config_cmd_out_of_scope_names_agentic_tracker():
     identity_idx = text.index(
         "identity (owned by `/ds-identity`)", out_of_scope_idx
     )
-    tracker_idx = text.index("agentic-tracker", out_of_scope_idx)
+    tracker_idx = text.index("ds-tracker", out_of_scope_idx)
     assert out_of_scope_idx < identity_idx < tracker_idx, (
-        "agentic-tracker must be named in the ds-config.md Out-of-scope "
+        "ds-tracker must be named in the ds-config.md Out-of-scope "
         "clause, after the identity clause it extends"
+    )
+
+
+def test_no_duplicate_top_level_test_function_names():
+    # DS-163 round-3 rework: no F811 lint runs on bin/tests/, so a second
+    # `def test_foo` in this module silently shadows the first (Python
+    # keeps only the last binding; pytest collects only the survivor). A
+    # duplicate copy of test_phase_5_has_no_w1_site_and_carries_the_anti_
+    # regression_note shipped this way in round 2. Guard against a repeat
+    # by parsing this file's own AST and asserting every top-level
+    # function name is unique.
+    import ast
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(Path(__file__)))
+    names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    seen = set()
+    dupes = set()
+    for name in names:
+        if name in seen:
+            dupes.add(name)
+        seen.add(name)
+    assert not dupes, (
+        f"duplicate top-level function definition(s) in this test module: "
+        f"{sorted(dupes)} - Python silently shadows the earlier definition "
+        f"and pytest only collects the survivor"
     )

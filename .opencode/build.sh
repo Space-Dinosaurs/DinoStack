@@ -4,7 +4,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 AGENTS_DST="$REPO_DIR/.opencode/agents"
 COMMANDS_DST="$REPO_DIR/.opencode/commands"
-SKILL_DST="$REPO_DIR/.opencode/skills/agentic-engineering"
+SKILL_DST="$REPO_DIR/.opencode/skills/dinostack"
 
 mkdir -p "$AGENTS_DST" "$COMMANDS_DST"
 

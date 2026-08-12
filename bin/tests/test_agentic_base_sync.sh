@@ -9,7 +9,11 @@
 # Public API: ./bin/tests/test_agentic_base_sync.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp, awk.
+# Upstream deps: bash, git, mktemp, awk, python3, bin/ds-reap-worktrees (case
+#                18 exercises bin/agentic-base-sync's worktree-reaper
+#                advisory note, which shells out to `python3
+#                bin/ds-reap-worktrees --count-only` - both are load-bearing
+#                for that case, not merely for the tool under test).
 #
 # Downstream consumers: bin-tests CI job (glob-picked-up test_*.sh).
 #
@@ -18,7 +22,11 @@
 #                every failure, not just the first). All fixtures live under
 #                a temporary directory; the real repo is never touched.
 #
-# Performance: < 10 s wall time (pure git + shell, no network).
+# Performance: ~12.7 s wall time (pure git + shell, no network) - measured via
+#              `time bash bin/tests/test_agentic_base_sync.sh`; this figure
+#              was already stale (previously cited as "< 10 s") before this
+#              ticket, and case 18's `python3` subprocess is a small
+#              additional contributor, not the whole gap.
 #
 # Regression coverage: see plan-base-branch-sync.md cases 1-14 (11 and 14
 #                       revised per round-3 Skeptic correction - see inline
@@ -383,12 +391,12 @@ echo "=== Case 12: empty <base-branch> and empty <repo> arguments -> exit 3, no 
   ERR="$("$TOOL" "$C/repo" "" 2>&1 1>/dev/null)"; RC=$?
   SNAP_AFTER="$(_snapshot "$C/repo")"
   _assert_eq "case12: empty base -> exit 3" "3" "$RC"
-  _assert_contains "case12: empty base -> usage message on stderr" "$ERR" "usage: agentic-base-sync"
+  _assert_contains "case12: empty base -> usage message on stderr" "$ERR" "usage: ds-base-sync"
   _assert_eq "case12: empty base -> local ref byte-identical pre/post (no git call made)" "$SNAP_BEFORE" "$SNAP_AFTER"
 
   ERR2="$("$TOOL" "" base 2>&1 1>/dev/null)"; RC2=$?
   _assert_eq "case12: empty repo -> exit 3" "3" "$RC2"
-  _assert_contains "case12: empty repo -> error message on stderr" "$ERR2" "agentic-base-sync"
+  _assert_contains "case12: empty repo -> error message on stderr" "$ERR2" "ds-base-sync"
 }
 
 echo "=== Case 13: HEAD on base, pull succeeds trivially with local already ahead, origin unchanged -> ff-pulled + NOTE ==="
@@ -502,6 +510,88 @@ echo "=== Case 15 (round-4 CRITICAL regression): invoked via a PATH symlink stil
   _assert_contains "case15: symlink invocation breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
   _assert_not_contains "case15: symlink invocation did NOT fail to find base-branch-sync.sh" "$OUT" "base-branch-sync.sh not found"
   _assert_eq "case15: symlink invocation local ref == origin ref" "$ORIGIN_SHA" "$LOCAL_SHA"
+}
+
+echo "=== Case 16 (DS-54): hooks-snapshot staleness advisory note is printed after a sync, and never affects the exit code ==="
+# Uses an isolated FAKE_HOME with repo_dir pointed at REPO_DIR (the real
+# checkout, which actually ships hooks/lib/hooks-staleness-core.sh - the
+# scratch <repo> fixtures used by the other cases do not) so the note fires
+# deterministically regardless of this machine's real ~/.agentic state.
+# Read-only: hooks-staleness-core.sh never writes; nothing under REPO_DIR
+# itself is ever touched.
+{
+  C="$TMP_ROOT/case16"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance16"
+
+  FAKE_HOME="$TMP_ROOT/case16-home"
+  mkdir -p "$FAKE_HOME/.agentic"
+  cat > "$FAKE_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$REPO_DIR"
+}
+EOF
+  # No snapshot has ever been synced under FAKE_HOME for REPO_DIR -> never_migrated.
+  OUT="$(HOME="$FAKE_HOME" "$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case16: exit 0 (advisory note does not affect exit code)" "0" "$RC"
+  _assert_contains "case16: breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_contains "case16: advisory note present" "$OUT" "ds-base-sync: dinostack: hooks are not yet snapshotted"
+}
+
+echo "=== Case 17 (DS-54): advisory note ABSENT when the operator's hooks snapshot is already current ==="
+{
+  C="$TMP_ROOT/case17"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance17"
+
+  FAKE_HOME="$TMP_ROOT/case17-home"
+  mkdir -p "$FAKE_HOME/.agentic"
+  cat > "$FAKE_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$REPO_DIR"
+}
+EOF
+  # Sync the snapshot under FAKE_HOME for REPO_DIR first (mirrors what
+  # install.sh does), so hooks-staleness-core.sh classifies "current"
+  # (silent - no note).
+  (
+    HOME="$FAKE_HOME"
+    export HOME
+    # shellcheck source=/dev/null
+    source "$REPO_DIR/scripts/lib/hooks-snapshot.sh"
+    sync_hooks_snapshot "$REPO_DIR" >/dev/null
+  )
+  OUT="$(HOME="$FAKE_HOME" "$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case17: exit 0" "0" "$RC"
+  _assert_not_contains "case17: advisory note ABSENT (snapshot already current)" "$OUT" "ds-base-sync:"
+}
+
+echo "=== Case 18 (round-6): worktree-reaper --count-only advisory note ACTUALLY EMITS when the synced repo has a non-root worktree ==="
+# Case 17 above passes vacuously for the worktree-advisory leg specifically:
+# its fixture repo has zero non-root worktrees, so _ds_reap_nonroot is
+# always 0 and the note branch is never exercised - nothing in the
+# existing suite actually drives a nonzero non-root count through
+# bin/ds-reap-worktrees --count-only and asserts the note text. This case
+# closes that gap by adding one extra worktree to $C/repo before syncing.
+{
+  C="$TMP_ROOT/case18"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance18"
+  git -C "$C/repo" worktree add -q "$C/repo/wt-extra" -b worktree-case18-extra >/dev/null
+
+  # ds-base-sync resolves REPO_DIR via `pwd -P` (symlink-resolved), so the
+  # path in its printed note can differ from the literal $C/repo (e.g. a
+  # /var -> /private/var symlink on macOS) - match against the SAME
+  # resolved path, not the literal one.
+  RESOLVED_REPO="$(cd "$C/repo" && pwd -P)"
+
+  OUT="$("$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case18: exit 0" "0" "$RC"
+  _assert_contains "case18: breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_contains "case18: worktree-reaper advisory note present with correct non-root count" "$OUT" \
+    "ds-base-sync: 1 non-root git worktree(s) in $RESOLVED_REPO - consider \`/ds-cleanup-worktrees\`"
+
+  git -C "$C/repo" worktree remove "$C/repo/wt-extra" 2>/dev/null || true
 }
 
 echo "=== Locale robustness note (Finding N2 / LC_ALL=C) ==="

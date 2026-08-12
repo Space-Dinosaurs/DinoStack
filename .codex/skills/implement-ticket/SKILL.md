@@ -11,7 +11,7 @@ Before executing this skill, resolve the physical directory containing this load
 (follow the installed skill-directory symlink) and bind it as `AE_SKILL_ROOT`. Set
 `AE_CORE_SKILL_ROOT` to `resources` beneath that physical root and validate its
 `.dinostack-skill.json` marker has `magic=DINOSTACK_CODEX_SKILL`, `adapter=codex`,
-`name=agentic-engineering`, and `schema_version=1`. Resolve every logical resource through
+`name=dinostack`, and `schema_version=1`. Resolve every logical resource through
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
@@ -20,16 +20,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.
@@ -39,7 +39,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -49,7 +49,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -206,9 +206,9 @@ NOTE: a batch session is active for this project root (session_id=<X>, updated_a
 
 On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only single-entry interaction with `batch-state.json`.
 
-**Contract D — Stop hook / SessionEnd hook mirror.**
+**Contract D - Codex runtime boundary.**
 
-The Claude Code Stop hook (`$AE_REPO_DIR/hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks the loop-state / `batch-state.json` files interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `$AE_REPO_DIR/hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (every loop-state candidate) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`.
+The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`. It does not mark `loop-state.json` interrupted or mirror `batch-state.json` (the Claude Code Stop hook's per-turn liveness refresh and the separate SessionEnd hook's terminal interrupted-mark are both Claude-only); stale active state is recovered by the existing age-based resume path. Project-local state writer migration is deferred to `context-writer-migration`.
 
 The terminal interrupted-mark now lives on `$AE_REPO_DIR/hooks/session-end-wrap.js` (the SessionEnd hook, which fires once per session). On a terminal reason (`clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` - `resume` is excluded), it calls `$AE_REPO_DIR/hooks/lib/state-mark.js`'s `markInterrupted(cwd, sessionId)`, which mirrors the ownership check across every candidate file: if the file's `session_id` is a non-empty string and does not match the current session's uuid, the write is aborted silently (the hook does not steal another session's state); absent/null/empty `session_id` on disk PROCEEDS (opposite polarity from `refreshLiveness` - see `$AE_REPO_DIR/hooks/lib/state-mark.js`'s module manifest for why). Best-effort silent-fail throughout, gated per file. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"` on every candidate, plus `updated_at=now` on `batch-state.json` only (`$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`'s `last_updated` is deliberately NOT touched by the terminal mark - see below); all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
 
@@ -371,7 +371,7 @@ Ticket id '<raw>' sanitizes to empty; loop state keyed on session instead (<LOOP
 
 Emit it after the key is derived and only under that condition. It must not live inside `ae_derive_loop_key`: that function's only output is the key via `printf`, so a diagnostic there corrupts every caller and every assertion in `$AE_REPO_DIR/bin/tests/test_loop_key_derivation.sh`.
 
-`LOOP_KEY` also governs telemetry attribution: export `AGENTIC_LOOP_KEY="$LOOP_KEY"` at every `$AE_REPO_DIR/bin/agentic-emit` call site (see Phase 6).
+`LOOP_KEY` also governs telemetry attribution: export `AGENTIC_LOOP_KEY="$LOOP_KEY"` at every `$AE_REPO_DIR/bin/ds-emit` call site (see Phase 6).
 
 ### Candidate check
 
@@ -477,7 +477,7 @@ else:
 Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
-- `REPO_DIR` — absolute path to the **agentic-engineering / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `$AE_REPO_DIR/scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `$AE_REPO_DIR`. Used by `$AE_REPO_DIR/bin/agentic-resolve-worktree` (Phase 8 cleanup) and `$AE_REPO_DIR/bin/agentic-base-sync` (Phase 12, repo-relative invocation).
+- `REPO_DIR` — absolute path to the **dinostack / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `$AE_REPO_DIR/scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `$AE_REPO_DIR`. Used by `$AE_REPO_DIR/bin/ds-resolve-worktree` (Phase 8 cleanup) and `$AE_REPO_DIR/bin/ds-base-sync` (Phase 12, repo-relative invocation).
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally; (3) else `development` if it exists locally; (4) else stop and ask the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; (5) on decline / main preference, resolve `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
@@ -485,7 +485,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `AUTO_MERGE_ON_CI_GREEN` — read from `$AE_PROJECT_DIR/.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
 - `PR_WORKFLOW_REVIEWERS` — read from `AGENTS.md` `## PR Workflow` section, `Reviewers:` field (comma-separated GitHub usernames). Default: empty string. Section absence = empty. Used in Phase 10b as fallback reviewer assignment when no CODEOWNERS file is found.
 - `REWORK_DETECTION` — read from `$AE_PROJECT_DIR/.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). When `false`, the ticket-rework alert goes fully dark: the Phase 9 ledger write, the Phase 1 detection read, the REWORK notice, and the escalation (Elevated risk floor, architect/Skeptic callouts, Tier-3 bump) are all disabled. See `$AE_REPO_DIR/content/references/ticket-rework.md`.
-- `TRACKER_STATE_DIAGNOSTIC` — read from `$AE_PROJECT_DIR/.agentic/config.json` key `tracker_state_diagnostic` (boolean, default `true`). When `false`, the writeback subagent's diagnostic-enrichment sub-step (see `## Tracker Writeback Helper` step 5) never runs; the subagent behaves exactly as it did before this plan (a plain transition attempt, generic soft-fail on error only, no extra operator-visible line naming available states). Set `false` for a project that has deliberately decided not to model a given `TRACKER_STATE_*` column and does not want a recurring diagnostic line about it.
+- `TRACKER_STATE_DIAGNOSTIC` - read from `$AE_PROJECT_DIR/.agentic/config.json` key `tracker_state_diagnostic` (boolean, default `true`). When `false`, the writeback subagent's diagnostic-enrichment sub-step (see `$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper` step 5) never runs; the subagent behaves exactly as it did before this plan (a plain transition attempt, generic soft-fail on error only, no extra operator-visible line naming available states). Set `false` for a project that has deliberately decided not to model a given `TRACKER_STATE_*` column and does not want a recurring diagnostic line about it.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
@@ -499,11 +499,11 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 **Legacy `## Linear` shape guard** — if `TRACKER=linear` was resolved from a `## Linear` section AND the section is missing the `Workspace:` field (required for URL generation), stop immediately and print:
 
 ```
-Your tracker config is missing fields $implement-ticket needs. Run manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project` to update it —
+Your tracker config is missing fields $implement-ticket needs. Run manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` to update it —
 discovery will fill in most fields automatically.
 ```
 
-Do not continue. Do not attempt to write the migration. All config-mutation logic lives in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`.
+Do not continue. Do not attempt to write the migration. All config-mutation logic lives in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`.
 
 **`$AE_PROJECT_DIR/.agentic/tracker.yml` local overlay.** After the fallback chain above resolves a base result (steps 1-4), check for a project-local, gitignored `<repo>/.agentic/tracker.yml` overlay and merge it in: the overlay wins field-by-field over the `AGENTS.md` result, and any changed field is disclosed. This lets a repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` still resolve `TRACKER` at runtime, without baking one operator's workspace or account ID into a public file.
 
@@ -515,7 +515,7 @@ Do not continue. Do not attempt to write the migration. All config-mutation logi
 - **Data-only.** `$AE_PROJECT_DIR/.agentic/tracker.yml` is data-only and executes nothing - unlike `$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml`, which runs with full conductor privileges (see the Trigger-based Phase 0 section below).
 - **Tracked-file warning.** If the overlay file is git-tracked (rather than ignored), print one warning before proceeding - it may hold another operator's tracker config committed by mistake or hand-authored outside the write-path guard.
 - **Guard interaction:** the legacy `## Linear` shape guard is evaluated before this overlay and is never suppressed by it.
-- Prefer `agentic-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
+- Prefer `ds-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
 
 Print a summary of resolved values before Phase 1:
 
@@ -541,76 +541,20 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
+Full reference (invocation contract, forward-only guard algorithm, diagnostic enrichment, failure/skip logging): `$AE_REPO_DIR/content/references/tracker-writeback.md`. Reusable subagent invocation pattern used by Phase 11, the 7 writeback call sites below (W1-W7), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F. Gated on `TRACKER != none`; no-op otherwise. Read that reference before invoking this Helper from any call site or modifying its algorithm.
 
-**Invocation contract:**
-
-When the conductor reaches a writeback boundary:
-1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - are enumerated in the guard's step 4.d.iv below.
-3. Pass to the subagent:
-   - `tracker`: `linear` | `jira`
-   - `ticket_id`: from current task context
-   - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F
-   - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 6 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
-   - `diagnostic_enabled`: `$TRACKER_STATE_DIAGNOSTIC` (boolean, resolved once in Setup; gates the diagnostic-enrichment sub-step of step 5 below)
-   - `linear_team_key`: `$TICKET_PREFIX` (Linear only; the team key already resolved in Setup from the `## Linear` `Team:` field - scopes the live `list_workflow_states` call in step 5's diagnostic-enrichment sub-step to the correct team, exactly as Phase 2c's own Fetch step already does for its advisory-only call)
-   - `pipeline_order`: the ordered list of pipeline tokens resolved once in Setup as `TRACKER_PIPELINE_ORDER`, defaulting to `["IN_PROGRESS","IN_REVIEW","QA"]`; a declared order may omit `DEV_COMPLETE`, in which case `DEV_COMPLETE` is appended at the trailing position, so the effective list consumed by the guard is always the 4 tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE`. Rank = index within that effective list, consumed by step 4.d.iv's pipeline sub-rank.
-   - `dev_complete_declared`: boolean, resolved once in Setup as `TRACKER_DEV_COMPLETE_DECLARED`. `true` when the project declared a dev-complete field (`JIRA_STATE_DEV_COMPLETE`, `State Dev Complete:`, or the overlay's `state_dev_complete`); `false` when `TRACKER_STATE_DEV_COMPLETE` was inherited from the resolved `TRACKER_STATE_DONE`. Consumed by step 4.d.iv: `DEV_COMPLETE` participates in the pipeline sub-rank only when this is `true`. Absent or unparseable is treated as `false` (fail-safe: an inherited value carries no rank, which is the pre-DS-117 behavior).
-   - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
-
-**Subagent responsibilities (extended for `forward_only_guard`):**
-
-1. **Pre-read current state:**
-   - Linear: call `mcp__linear__get_issue` to read the ticket's current state, capturing both `state.type` and `state.name` (e.g. `"In Review"`) from the response.
-   - Jira: call `mcp__mcp-atlassian__jira_get_issue` to read the ticket's current status, capturing both `fields.status.statusCategory.key` and `fields.status.name` (e.g. `"In Review"`) from the response.
-
-2. **Field-absence guard.** If the pre-read call succeeds (no MCP/API error) but the returned object omits `state.type` (Linear) or `fields.status.statusCategory.key` (Jira) - a successful call with an incomplete response, not a call failure - treat it identically to the pre-read failure in step 5: **skip** the transition, do not compute any rank, and emit one stderr line: `tracker-writeback: <ticket_id> pre-read succeeded but response omitted the state-type field ('state.type' / 'statusCategory.key') - skipping, no rank assumed.` Absence always routes to skip, never to permit - a missing category must never be read as "already past every target" or "not yet at any target."
-
-3. **Compute category rank** (governs cross-category comparisons only):
-   - Linear: `backlog` < `unstarted` < `started` < `completed` < `canceled` < `duplicate`; `canceled` and `duplicate` are both terminal (never overwritten by any automatic transition).
-   - Linear defensive fallback (separate from the primary enum above): if a state's `type` is instead spelled `cancelled` (double L) - e.g. a differently-shaped MCP response or a stale cached row - treat it as terminal too. The canonical/primary spelling the Linear API emits is single-L `canceled`; this fallback exists only for robustness against a non-conforming response shape.
-   - Jira: `new` < `indeterminate` < `done` (via `statusCategory.key`); a status whose category or name matches cancellation semantics (Won't Do, Cancelled, Duplicate, Will Not Fix) is terminal (never overwritten).
-
-4. **Apply the guard** - category rank first, then a same-category pipeline sub-rank:
-   a. If current state is terminal (Linear `canceled` / `duplicate` / defensive `cancelled` (double L), or Jira cancellation-semantic): **skip** unconditionally.
-   b. If `category_rank(current) < category_rank(target)`: **permit** (forward move across categories).
-   c. If `category_rank(current) > category_rank(target)`: **skip** (backward move across categories - this is what prevents Blocked or In Review from ever overwriting Done).
-   d. If `category_rank(current) == category_rank(target)` (the same-category band that holds In Progress / In Review / QA / Blocked on both trackers), apply the **pipeline sub-rank** by case-insensitive exact-name match against the 6 values in `tracker_state_values`:
-      - i. If `target_state`'s name case-insensitive-exact-matches the CURRENT state's name: **skip** (idempotent no-op - already there).
-      - ii. Else if `target_state` matches `BLOCKED`: **permit** unconditionally. Blocked is always a permitted same-category target on both trackers - a genuine problem signal that must never be silently dropped, regardless of where the tracker's columns happen to sit.
-      - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
-      - iv. Else, look up current and target against `pipeline_order` (an ordered list of the tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE`, each resolved against `tracker_state_values` the same way): rank = index within `pipeline_order`. A declared `pipeline_order` may omit `DEV_COMPLETE`; when it does, `DEV_COMPLETE` is appended at the trailing position before ranking, so the effective list is always 4 tokens. `pipeline_order` defaults to the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) < `DEV_COMPLETE` (rank 3) - the historical order in which AE's own writeback sites fire (W1 < W2 < W3 < W7) - unless the project declares `JIRA_PIPELINE_ORDER` / `Pipeline order:` in `AGENTS.md` (see Setup), in which case the declared order governs instead. `BLOCKED` and `DONE` are never pipeline tokens and can never be declared as one: `BLOCKED` is resolved earlier by ii/iii, and `DONE` is terminal by construction, so a correctly configured `DONE` is always in the terminal category band and is protected by the cross-category comparison in 4.c rather than by a sub-rank. Giving `DONE` a pipeline rank would be inert in every correct configuration and would, in a misconfiguration where `DONE` names a non-terminal lane, permit an automatic transition into terminal Done - which AE must never fire.
-        - **Inherited dev-complete carries no rank.** `DEV_COMPLETE` participates in this sub-rank ONLY when the project DECLARED a dev-complete field (`JIRA_STATE_DEV_COMPLETE`, `State Dev Complete:`, or the overlay's `state_dev_complete`), as reported by the `dev_complete_declared` input. When the value was INHERITED from the resolved `TRACKER_STATE_DONE` because no dev-complete field was declared, it resolves to no pipeline rank and falls through to the skip branch below, exactly as it did before dev-complete existed. This applies to `DEV_COMPLETE` wherever it appears in the comparison, as the CURRENT state's name as well as the target's. Rationale: a project that points its Done field at a non-terminal lane as a workaround has, by construction, not told AE where that lane sits relative to its QA lane - and on a real board the two commonly sit in the opposite order (`Ready for QA` before `QA in Progress`). Ranking an inherited value trailing would let W7 permit a move from the QA lane BACK to the dev-complete lane, undoing W3's own write. Declaring a dev-complete field is the operator's signal that the position is intentional; inheritance is not.
-        - **Name collision.** The lookup is a name-to-rank lookup over the pipeline tokens only, so a name that matches a pipeline token resolves to that token's rank regardless of also matching a non-pipeline key such as `DONE`. This rule applies only to a DECLARED `DEV_COMPLETE`; an inherited one has no rank to collide with (see the preceding bullet). When a DECLARED name matches more than one PIPELINE token - for example an operator pointing both `State QA:` and `State Dev Complete:` at the same lane on a short board - it resolves to the HIGHEST such rank.
-        - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 6 known `tracker_state_values` at all, or because it matches one of the 6 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 6 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
-5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
-
-   **Diagnostic enrichment (new, gated on `diagnostic_enabled`; runs strictly AFTER a transition attempt, never before, and can never change whether the write happens).** When step 4 permits a transition, the subagent attempts it using the EXISTING mechanism, completely unchanged from today - Linear: a single `mcp__linear__save_issue` call with `state: target_state`; Jira: discover available transitions via `mcp__mcp-atlassian__jira_get_transitions` on this ticket, then call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id. **Nothing runs before this attempt - there is no new round-trip on the happy path on either tracker.** (Jira's discovery call is not new API surface introduced by this plan - it is already required to obtain a transition id before any Jira transition can be attempted at all; Linear's `save_issue` remains the single direct call it is today.)
-
-   Only when that attempt does NOT succeed, and only when `diagnostic_enabled` is true, does the subagent attempt - best-effort - to enrich the outcome with a `diagnostic` string, using ONLY a data source positively established as sound for the claim being made on that tracker. **Any failure of this enrichment step itself is swallowed: it degrades the message (`diagnostic` stays `null`), it never changes `status`, `transitioned`, or any other part of the original outcome.**
-   - **Jira** - reuse the `jira_get_transitions` result already fetched during the attempt above (no new call). If `target_state` did not match any available transition's target name (this was already known before `jira_transition_issue` was ever called): relabel the outcome `status: "skipped_unconfigured_state"` and set `diagnostic` to: `"'<target_state>' not among the transitions currently available for this ticket (currently in '<current_status>') - available right now: [<comma-separated available transition target names, or "(none)">]. This is a per-ticket snapshot, not the project's full workflow - if '<target_state>' is reachable via a different path, this ticket just isn't there yet. Verify the name in AGENTS.md, or check the tracker directly."`. If instead a matching transition WAS found but the `jira_transition_issue` call itself errored (a genuine API/transient failure - the configured name was fine), leave `status: "failed"` exactly as today; there is nothing meaningful to enrich.
-   - **Linear** - make ONE best-effort call to `mcp__linear__list_workflow_states` filtered to `linear_team_key` (team-scoped, genuinely global for this team, confirmed via the `@linear/sdk` `WorkflowState` type). If this call itself fails: swallow it per the rule above - leave `status: "failed"` and `diagnostic: null`. If it succeeds: check whether `target_state` case-insensitive-exact-matches any returned state name. If NOT found: relabel the outcome `status: "skipped_unconfigured_state"` and set `diagnostic` to: `"'<target_state>' not found among <linear_team_key>'s live workflow states - available: [<comma-separated live state names>]."`. If `target_state` WAS found among the live states (the `save_issue` failure had some other cause - transient error, permissions, etc. - the configured name was fine), leave `status: "failed"` with `diagnostic` still attached as informational context, since a live list was already fetched successfully.
-
-   This step can only relabel a `"failed"` outcome to `"skipped_unconfigured_state"` when live data positively confirms the configured name is not currently usable; it can never convert `"failed"` into `"ok"`, and it can never prevent, delay, or retry the original transition attempt.
-
-   Fire-and-forget call sites (W1-W7, Phase 11) emit, for a `"skipped_unconfigured_state"` outcome only, the `diagnostic` text as ONE stderr line: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. A plain `"failed"` outcome (enriched with `diagnostic` or not) continues to use the existing `FAILED:` line format (see "Failure logging" below, extended for this case). Callers that await the result (3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`, `$wrap` Part F) read `status` and `diagnostic` from the return payload and format them per their own operator-visible-line conventions (see the edits to those files below).
-
-**Rejected: fully tracker-derived pipeline order.** A live-fetched global ordering was considered instead of a declarable default. Jira's only available state-enumeration call (`jira_get_transitions` on a probe ticket) returns transitions available from that ticket's CURRENT status only - an edge-local view of the workflow graph, not a global ordering of all states - so no cross-tracker-symmetric live-derived order can be built that works the same way for both currently-supported trackers. A mechanism that only works for one tracker breaks universality; the explicit-declaration-with-fixed-default design above is the soundest project-level alternative.
-
-**This ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 6 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
-
-**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
-
-For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, and `pipeline_order` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" above - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed; this plan does not change what Phase 11 writes or when, only what it reports when it does not write.
+**Caller enumeration (kept in the kernel so `$AE_REPO_DIR/scripts/codex-skills.py` can transform these caller-name tokens; `$AE_REPO_DIR/content/references/tracker-writeback.md` is a symlinked resource the transform never scans, so it points back here instead of repeating them):**
+- Fire-and-forget applies at W1-W7 and Phase 11; the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - are enumerated in the forward-only guard's step 4.d.iv (see the reference for the full algorithm).
+- `forward_only_guard: true` for every writeback caller - the 7 W1-W7 sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F.
+- On the step 4.d.iv unmatched-state-name branch, fire-and-forget call sites (W1-W7, Phase 11) each emit one stderr line per fire. **Callers that await the result** - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - do NOT get that per-ticket stderr line; they instead read `unmatched_state_name` from each ticket's return payload, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+- Fire-and-forget call sites (W1-W7, Phase 11) emit a `SKIPPED:` stderr line for a `skipped_unconfigured_state` outcome. Callers that await the result - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - read `status` and `diagnostic` from the return payload instead and format them per their own operator-visible-line conventions.
+- **This ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state and the 6 `tracker_state_values` strings resolved once in Setup above. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
 
 ---
 
 ## Tracker Create Helper
 
-Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `$implement-ticket`. Called by the ticket-offer gate (cross-ref `$AE_REPO_DIR/content/sections/02-delegation.md` §Ticket-offer gate).
+Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `$implement-ticket`. Called by the ticket-offer gate (cross-ref `$AE_REPO_DIR/content/sections/02-delegation.md` §Ticket-offer gate). Mid-session discovery tickets (found during an in-progress unit rather than at top-level intake) are governed by a separate carve-out, promotion bar, and absolute batching rule before this Helper is ever invoked: `$AE_REPO_DIR/content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
 **Invocation contract:**
 
@@ -903,7 +847,7 @@ On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. 
 
 1. `git fetch origin`.
 2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
-3. Run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
+3. Run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
 4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
 5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
 
@@ -915,12 +859,12 @@ Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
 
 <!--
 Phase 0a manifest:
-  Purpose: run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm by reference) over the Phase 0
+  Purpose: run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm by reference) over the Phase 0
            entries[], surface triage results to the operator, map lane-assigned tickets
            to batch-state.json, then iterate per-ticket phases 1-12 in array order.
   Public API: reads Phase 0 entries[]; writes $AE_PROJECT_DIR/.agentic/batch-state.json tickets[]
               (lane-assigned only; deferred and in-progress-excluded are NOT written).
-  Upstream deps: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm reference - no copy);
+  Upstream deps: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm reference - no copy);
                  investigator (Phase 2b Level 2, conditional on len(entries) <= 20);
                  Phase 0 entries[] (already normalized, no re-normalization).
   Downstream consumers: Phase 0a-pre (resume), Phase 12a (handoff), all per-ticket
@@ -936,15 +880,15 @@ Phase 0a manifest:
 
 **Flow:**
 
-1. **Run the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
+1. **Run the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
 
-   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 1 rules.
+   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 1 rules.
 
    - **Phase 2a (DAG + cycle handling, conductor-direct):** build the dependency graph from `blocks`/`is-blocked-by` links, detect cycles (break at lowest-confidence link, defer both with `cycle_warning: true`). External deps noted but not used for lane assignment.
 
-   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
+   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
 
-   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the $implement-ticket integration path).
+   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the $implement-ticket integration path).
 
    The result is an in-memory `triage_result` containing:
    `{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`.
@@ -1036,7 +980,7 @@ After risk has been classified, if the current ticket is Elevated, snapshot any 
 3. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md` exists and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `$AE_PROJECT_DIR/.agentic/qa.md` to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
 4. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
 
-The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `$AE_PROJECT_DIR/.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `$AE_PROJECT_DIR/.agentic/` umbrella; no `$AE_PROJECT_DIR/.gitignore` change is needed.
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `$AE_PROJECT_DIR/.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path matches manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 ### On-resume Brief migration (qa_criteria backfill)
 
@@ -1069,15 +1013,25 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 
 ### Per-ticket variable reset (binding, runs FIRST on every entry)
 
-**Before the tracker sub-section dispatch below, clear every in-context variable that feeds the Phase 9 ticket-rework ledger write or the rework notice:**
+**Before the tracker sub-section dispatch below, clear every in-context variable that feeds the Phase 9 ticket-rework ledger write, the rework notice, or the W1 outcome breadcrumb below:**
 
 ```bash
 # Phase 1: per-ticket variable reset (runs first on EVERY entry, before sub-section dispatch).
-# These three have exactly one definition site each, on one path. A ticket that does not take
-# that path inherits the previous batch ticket's value - see the table below.
+# These five have exactly one definition site each, on one path. A ticket that does not take
+# that path inherits the previous batch ticket's value - see the table below for the first
+# three; W1_FETCH_FAILED is set only by the Linear/Jira fetch steps on an MCP/API error and
+# consumed only by the W1 outcome breadcrumb ("Tracker writeback (W1)" below), so an unreset
+# `true` from a prior ticket's failed fetch would misreport THIS ticket's clean fetch as
+# fetch_failed. W1_DISPATCH_OUTCOME is set only on the W1 dispatch-attempted path below and
+# consumed only by the same breadcrumb; an unreset value from a prior ticket's dispatch would
+# misreport THIS ticket's outcome if the assignment below were ever skipped - the reset here
+# is a second, independent line of defense alongside the explicit assignment on both branches
+# and the `set -u`-safe expansion at the emit call site.
 RISK_CLASS=""
 SKEPTIC_ROUNDS=""
 QA_STATUS=""
+W1_FETCH_FAILED=false
+W1_DISPATCH_OUTCOME=""
 ```
 
 **Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
@@ -1104,7 +1058,7 @@ Clearing rather than leaving unset is deliberate: it makes the Phase 9 disk fall
 
 #### If TRACKER is `linear`
 
-1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`.
+1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`. On an MCP/API error, set `W1_FETCH_FAILED=true` (consumed by the W1 outcome breadcrumb below).
 2. Read the full description — specifically the **Implementation**, **Files**, and **QA** sections.
 3. Note any blocking tickets (`blockedBy`) — confirm they are done before proceeding.
 4. Note the ticket type (feature vs bug) — this drives branch naming.
@@ -1112,7 +1066,7 @@ Clearing rather than leaving unset is deliberate: it makes the Phase 9 disk fall
 
 #### If TRACKER is `jira`
 
-1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status.
+1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status. On an MCP/API error, set `W1_FETCH_FAILED=true` (consumed by the W1 outcome breadcrumb below).
 2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
 3. Note any blocking issues — confirm they are resolved before proceeding.
 4. Note the issue type (Story, Bug, Task) — this drives branch naming.
@@ -1197,9 +1151,59 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 **Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
 
-The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch. That fetch failure is tracked in `W1_FETCH_FAILED` (see "Per-ticket variable reset" above and the Linear/Jira fetch steps, which set it to `true` on an MCP/API error).
 
-If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+**Outcome breadcrumb (binding).** Every W1 evaluation for this entry - skipped, dispatched, or dispatch-failed - emits exactly one `tracker_writeback` event via `$AE_REPO_DIR/bin/ds-emit`, soft-fail (`2>/dev/null || true`; a missing or failing `ds-emit` never blocks Phase 1 or this step). Resolve the gate's failing condition, if any, in this order and take the first match as `reason` - the four reason codes are mutually exclusive by construction, since each `elif` only runs when the prior conditions did not match:
+
+```bash
+# Phase 1 W1: resolve outcome + reason before dispatch.
+W1_REASON=""
+if [ "$TRACKER" = "none" ]; then
+  W1_REASON="tracker_none"
+elif ! printf '%s' "${TICKET_ID:-}" | grep -qE '^[A-Z][A-Z0-9_]+-[0-9]+$'; then
+  W1_REASON="ticket_id_format"
+elif [ -n "${TICKET_PREFIX:-}" ] && ! printf '%s' "${TICKET_ID:-}" | grep -q "^${TICKET_PREFIX}-"; then
+  W1_REASON="prefix_mismatch"
+elif [ "${W1_FETCH_FAILED:-false}" = "true" ]; then
+  W1_REASON="fetch_failed"
+fi
+```
+
+If `W1_REASON` is non-empty, the gate does not hold: emit the breadcrumb immediately with `outcome:"skipped"` and do NOT dispatch.
+
+```bash
+export AGENTIC_LOOP_KEY="${LOOP_KEY:-}"
+if [ -n "$W1_REASON" ]; then
+  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"skipped\",\"reason\":\"$W1_REASON\",\"target_state\":\"${TRACKER_STATE_IN_PROGRESS:-}\"}" 2>/dev/null || true
+fi
+```
+
+**`tracker_none` advisory (binding).** When `W1_REASON` is `tracker_none` specifically, additionally print exactly one line at the conductor's first user-facing turn for this ticket, before any spawn. This is informational only - never an `## Operator decisions` item, never a stop-and-ask:
+
+```
+NOTE: [phase: tracker-writeback-w1] TRACKER is none for this project - <ID> was not moved to In Progress. Configure a tracker in AGENTS.md to enable ticket-state writeback.
+```
+
+No advisory line fires for the other three reasons: `ticket_id_format` (open-goal synthetic ids are never tracker keys - by design, see "Why the real-key guard exists" below) and `prefix_mismatch` are by-design skips, and `fetch_failed` is already surfaced by the sub-section's own fetch-failure logging.
+
+If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `spawn_agent` tool call attempt (`reason` stays `null` in both cases below - `reason` is populated only for `outcome:"skipped"`).
+
+**`W1_DISPATCH_OUTCOME` must be assigned explicitly on both branches** - it is never left to fall through to the `set -u`-safe default in the emit line below. This assignment is conductor-level judgment on the `spawn_agent` tool call's own outcome, not a bash test, so it is decided in prose rather than inside the fence: set `W1_DISPATCH_OUTCOME="dispatch_failed"` if the `spawn_agent` tool call for the Tracker Writeback Helper raised an error before the subagent could be spawned, otherwise set `W1_DISPATCH_OUTCOME="dispatched"`. Then run:
+
+```bash
+# `${W1_DISPATCH_OUTCOME:-dispatch_failed}` is a set -u-safe expansion: under
+# `set -u`, an unset/unassigned `$W1_DISPATCH_OUTCOME` would abort the whole
+# Phase 1 step on this line rather than falling through to `|| true` (that
+# fallback only catches ds-emit's own exit status, not an unbound-variable
+# shell error raised while building the argument string). The `:-` default
+# is defense-in-depth only - the prose assignment above is the real
+# assignment, and its two branches are the sole two definition sites for
+# this variable outside the per-ticket reset.
+export AGENTIC_LOOP_KEY="${LOOP_KEY:-}"
+if [ -z "$W1_REASON" ]; then
+  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\",\"reason\":null,\"target_state\":\"${TRACKER_STATE_IN_PROGRESS:-}\"}" 2>/dev/null || true
+fi
+```
 
 ```
 [phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
@@ -1207,7 +1211,7 @@ If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRAC
 
 **Why the real-key guard exists.** Open-goal loop iterations carry synthetic ids of the form `<goal-slug>-iter-N` (see "Per-iteration ticket lifecycle" above) that are not tracker keys - without this guard every open-goal iteration would attempt a doomed pre-read against a nonexistent ticket.
 
-**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json` (see "This ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json`" in the Tracker Writeback Helper above) - it pre-reads the ticket's live current state directly.
+**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json` (see "This ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json`" in `$AE_REPO_DIR/content/references/tracker-writeback.md`) - it pre-reads the ticket's live current state directly.
 
 **Accepted consequence.** A ticket abandoned after Phase 1 but before any branch exists stays showing In Progress - a compensating backward transition is exactly what the forward-only guard skips. This is a decision, not an oversight.
 
@@ -1230,7 +1234,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -1326,12 +1330,12 @@ Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the
 }
 ```
 
-`$AE_PROJECT_DIR/.agentic/tracker-states.json` is a runtime cache, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+`$AE_PROJECT_DIR/.agentic/tracker-states.json` is a runtime cache, matching manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
 
 **Validate.** For each of the 6 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
 
 ```
-WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - at write time, the transition is attempted with this exact name first; if that attempt does not succeed, a live diagnostic then names what IS currently available (see "Diagnostic enrichment" in `## Tracker Writeback Helper` step 5). It never blocks and never writes to an unconfigured state.
+WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - at write time, the transition is attempted with this exact name first; if that attempt does not succeed, a live diagnostic then names what IS currently available (see "Diagnostic enrichment" in `$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper` step 5). It never blocks and never writes to an unconfigured state.
 ```
 
 Append each warning to the cache's `warnings[]` array. Do NOT block execution.
@@ -1598,9 +1602,9 @@ fi
 
 This subsection is reached exactly once per ticket, on every ticket path, before any engineer spawns - it is the fix for gaps 1 and 2 (Plan-tier directories and the promotion-gate path had no commit step), not for gap 3 (re-commit on revision - see DS-124).
 
-**Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
+**Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands. The literal `create_commands` form (initial spawn vs. preseeded vs. round-N rework) is NOT restated here - Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) is the sole canonical definition site; every other spawn site points there.
 
-**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH` command. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
+**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the create command. Initial spawn (branch does not yet exist on origin): `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH`. Round-N rework fix pass on a Trivial-path branch that already exists on origin (same `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` existence check as the canonical definition in `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic): `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME` instead - this resets/checks out the existing branch at the origin tip rather than branching fresh from `$BASE_BRANCH`. **`checkout -B`'s already-checked-out behavior is git-version-dependent - do not assume it matches `worktree add`'s protection.** `git worktree add -B` refuses (exit 128, "already checked out at ..." on older git / "already used by worktree at ..." on newer git - the wording is not stable across versions either, but the refusal is) when `$BRANCH_NAME` is checked out in another worktree, on every measured version. `git checkout -B $BRANCH_NAME origin/$BRANCH_NAME` is different: on OLDER git (observed: 2.39.5), it does NOT refuse - it exits 0, force-moves the shared `refs/heads/$BRANCH_NAME` ref to `origin/$BRANCH_NAME`'s tip, and silently drags that OTHER worktree's `HEAD` along with it, so an unpushed commit sitting in that other worktree becomes unreachable from the branch tip (still recoverable via reflog, but silently dropped from the branch). On NEWER git (observed: 2.55.0, and matching the exit behavior seen on a CI runner's 2.54.0), `checkout -B` now refuses the same way `worktree add` does (non-zero exit, other worktree's `HEAD` untouched) - this protection was added upstream at some point between those two measured versions; the exact boundary release is not verified here, so it is not named. **The porcelain precheck is MANDATORY (not a convenience) on the Trivial path before running `checkout -B` under BOTH behaviors**: on older git it is the ONLY thing preventing silent data loss; on newer git it converts what would otherwise be a hard, unhandled fatal into the guarded reuse-vs-recovery path instead of an unhandled failure. Locate any existing worktree for `$BRANCH_NAME` via the same `git -C $REPO worktree list --porcelain` awk extraction documented in the canonical Elevated-path definition above, and if one exists, apply the same precheck-gated reuse-vs-recovery logic (never running `checkout -B` from a location other than that existing worktree while it may hold local-only state) rather than assuming a clean switch. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
 
 **Phase 5 parallel fan-out path.** Conductor-side worktree creation is preserved as today; the fan-out logic lives in Phase 5 itself.
 
@@ -1674,11 +1678,36 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 
-  **`PLAN_PRESEEDED` gates which literal form `create_commands` uses (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of this flag, see "Create one worktree per unit" below).** `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
-  - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
-  - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
+  **This bullet is the single canonical definition site for which literal `create_commands` form applies in each situation.** Every other reference to `create_commands` form in this file or in `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic points back here rather than restating the forms.
+
+  **Which form applies (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of the below, see "Create one worktree per unit" below).** Determine branch existence via `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` (the same check Phase 4's stale-remote-branch preflight already uses). `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
+  - **Branch does not yet exist on origin** (`PLAN_PRESEEDED == false`, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
+  - **Branch already exists on origin** - this covers BOTH `PLAN_PRESEEDED == true` (Phase 4 already pushed a plan commit to `$BRANCH_NAME`) AND round N>=2 rework fix passes (Phase 6 Step 4, Phase 6b Step 4, Phase 7 fix passes) against an already-open PR's branch - mechanically identical, since both start the engineer's worktree from an already-existing remote branch tip: `create_commands` is `git -C $REPO fetch origin && git -C $REPO worktree add $WORKTREE_PATH -B $BRANCH_NAME origin/$BRANCH_NAME`. Use `-B` (force-reset-and-checkout), never a bare `worktree add $WORKTREE_PATH $BRANCH_NAME` with no branch flag and never `--track origin/$BRANCH_NAME` as a positional (that form is a git syntax error, exits 129 - `--track` takes no argument). `-B` is required, not cosmetic: a bare form checks out whatever the LOCAL branch ref currently points at in `$REPO`, which can lag `origin/$BRANCH_NAME`'s tip if `$REPO` branched or fetched earlier and never advanced that local ref; `-B origin/$BRANCH_NAME` guarantees the new worktree starts from the current origin tip regardless of local staleness (verified empirically, git 2.39.5 - see `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic for the reproduction). **Trade-off:** `-B` force-resets the local branch ref, discarding anything the local ref alone was holding - which is exactly why the already-checked-out remedy below is precheck-gated rather than resetting unconditionally.
+
+    **Guard (already checked out):** `git worktree add` fails fatally (exit 128, `already checked out at ...` on older git / `already used by worktree at ...` on newer git - the wording is not stable across versions, but the refusal is) if `$BRANCH_NAME` is already checked out in another worktree under `$REPO` (e.g. a prior round's worktree was never cleaned up). Before running the add, locate the existing worktree's path from `git -C $REPO worktree list --porcelain` (matched by exact string equality on the `branch` line, not a shell-interpolated regex, to avoid `$BRANCH_NAME` metacharacters mis-parsing):
+
+    ```bash
+    EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$BRANCH_NAME" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+    ```
+
+    If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
+
+    ```bash
+    git -C $EXISTING_WT fetch origin
+    DIRTY="$(git -C $EXISTING_WT status --porcelain)"
+    UNPUSHED="$(git -C $EXISTING_WT log origin/$BRANCH_NAME..HEAD --oneline)"
+    UNPUSHED_RC=$?
+    ```
+
+    Fetching BEFORE the predicates matters: a stale or absent `refs/remotes/origin/$BRANCH_NAME` tracking ref (never fetched yet in `$EXISTING_WT`, or pruned by an earlier `--delete-branch` cleanup) makes `git log origin/$BRANCH_NAME..HEAD` exit 128 with EMPTY stdout - indistinguishable from "no unpushed commits" if only the stdout is checked. Fetching first eliminates the ordinary case of this; capturing `$UNPUSHED_RC` explicitly and treating a non-zero exit as unsafe (never as empty-means-safe) closes the residual case where the ref is still unresolvable after the fetch.
+
+    Evaluate in this order - a checked command's failure is never read as "safe to reset":
+    - If `$UNPUSHED_RC` is non-zero: do NOT reset. Route to the §Recovery procedure in `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic and escalate - a failed check is not evidence of safety.
+    - Else if `$DIRTY` is non-empty (uncommitted work that was never committed): do NOT reset. Escalate directly and leave `$EXISTING_WT` untouched - there is no commit to push here, so a push does not rescue this state; preservation means not touching the worktree, not pushing.
+    - Else if `$UNPUSHED` is non-empty (a local-only commit exists): do NOT reset. Push the existing local `HEAD` SHA onto `$BRANCH_NAME` first per `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Round-N rework mechanic's Recovery procedure, then escalate to confirm before proceeding.
+    - Else (both checks succeeded and both are empty): reuse is safe - `git -C $EXISTING_WT reset --hard origin/$BRANCH_NAME`.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
-- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
+- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `ds-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
   **Non-fast-forward recovery.** On a rejected (non-fast-forward) push, the engineer runs this specified recovery once:
 
@@ -1704,7 +1733,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: apply the **task-state fold** (`$AE_REPO_DIR/content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
+Before spawning each worker: apply the **task-state fold** (`$AE_REPO_DIR/content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off), and `ticket_id` (the ticket this unit belongs to - the Phase 9 Model: attribution read scopes on it).
 
 After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Append an output-only entry to `$AE_PROJECT_DIR/.agentic/tasks.jsonl` with these output fields and **no `status` field** - an output append is never a claim and never a status transition (`$AE_REPO_DIR/content/references/task-state-file.md` §Task-state fold). "Status remains `in_progress`" is a statement about what the fold reports for this task until Skeptic sign-off or final determination, **not an instruction to re-emit the field**: re-emitting `status: in_progress` here would make this append a fresh ownership claim under the fold's state machine, letting a dispossessed session (rows 14/15) reclaim ownership merely by returning its engineer's outputs.
 
@@ -1732,7 +1761,7 @@ git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_sl
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-**Task-state reads (when `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+**Task-state reads (when `$AE_PROJECT_DIR/.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`), `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off), and `ticket_id` (the ticket this unit belongs to - the Phase 9 Model: attribution read scopes on it).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
 - The execution contract block from `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
@@ -1922,19 +1951,19 @@ Emit the inline breadcrumb:
 
 **Telemetry emit (V1):** Bracket the Skeptic `spawn_agent` tool call with:
 ```
-# Every agentic-emit call site exports the resolved key so the event's `phase`
-# resolves from THIS ticket's own $AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json. Without it, agentic-emit
+# Every ds-emit call site exports the resolved key so the event's `phase`
+# resolves from THIS ticket's own $AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json. Without it, ds-emit
 # falls back to its unset-env rows: with 2+ keyed files present (the whole
 # point of this design) it must answer "unknown", so every event in a
 # multi-ticket checkout would lose its phase.
 export AGENTIC_LOOP_KEY="$LOOP_KEY"
-agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$AE_SESSION_ID"'"}'
+ds-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$AE_SESSION_ID"'"}'
 # ... `spawn_agent` invocation ...
 # After return, parse subagent transcript for tokens/wall_seconds:
-USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
-agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$AE_SESSION_ID" "${USAGE#\{}")"
+USAGE="$(ds-parse-subagent-usage <session_uuid> <agent_id>)"
+ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$AE_SESSION_ID" "${USAGE#\{}")"
 ```
-`export AGENTIC_LOOP_KEY="$LOOP_KEY"` applies at **every** `agentic-emit` call site in this document, not just this one - Phase 6, Phase 6b, the calibration/meta-review emits, and the Phase 7/10a fix-engineer brackets. See `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$AE_SESSION_ID"` in the `data` JSON object; the shell expands `$AE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
+`export AGENTIC_LOOP_KEY="$LOOP_KEY"` applies at **every** `ds-emit` call site in this document, not just this one - Phase 6, Phase 6b, the calibration/meta-review emits, and the Phase 7/10a fix-engineer brackets. See `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$AE_SESSION_ID"` in the `data` JSON object; the shell expands `$AE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -1960,7 +1989,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Tracker append is a single line per `original_task_id`; the file is created if absent (`$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
+Tracker append is a single line per `original_task_id`; the file is created if absent (`$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`, matching manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
@@ -1990,14 +2019,14 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 1. **Build the calibration data block.** Compute `diff_lines` from the reviewed diff (`git -C $REPO diff origin/$BASE_BRANCH..HEAD | wc -l`, or the unit-scoped equivalent for fan-out). Tally `findings_count` from the final Skeptic round's findings list (Critical / Major / Minor counts). Read `iteration` from the loop state.
 
-2. **Emit the extended `spawn_complete` event.** Construct the merged JSON inline (no `$AE_REPO_DIR/bin/agentic-emit` flag changes) and call:
+2. **Emit the extended `spawn_complete` event.** Construct the merged JSON inline (no `$AE_REPO_DIR/bin/ds-emit` flag changes) and call:
 
    ```bash
    USAGE_AND_CALIBRATION="$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s","wall_seconds":<n>,"tokens":{...},"findings_count":{"critical":<c>,"major":<m>,"minor":<n>},"diff_lines":<d>,"signed_off":true,"iteration":<i>,"meta_review":null}' "$AE_SESSION_ID")"
-   agentic-emit spawn_complete skeptic <task_id> "$USAGE_AND_CALIBRATION"
+   ds-emit spawn_complete skeptic <task_id> "$USAGE_AND_CALIBRATION"
    ```
 
-   The conductor builds the JSON by merging the existing usage fields (from `agentic-parse-subagent-usage`) with the calibration fields. `$AE_REPO_DIR/bin/agentic-emit` is unchanged.
+   The conductor builds the JSON by merging the existing usage fields (from `ds-parse-subagent-usage`) with the calibration fields. `$AE_REPO_DIR/bin/ds-emit` is unchanged.
 
 3. **Compute the deterministic sampling bucket.** Hash `<task_id><iteration>` into a uniform 0-99 bucket (`python3 -c 'import hashlib,sys; print(int(hashlib.sha256(sys.argv[1].encode()).hexdigest(),16) % 100)' "<task_id><iteration>"`). If `bucket < 5`, the spawn is sampled.
 
@@ -2013,14 +2042,14 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
    ```bash
    META_DATA="$(printf '{"original_task_id":"<id>","session_uuid":"%s","divergence":{"critical_missed":[...],"major_missed":[...],"minor_missed":[...]},"agreement":<bool>}' "$AE_SESSION_ID")"
-   agentic-emit meta_review_complete skeptic-meta <original_task_id> "$META_DATA"
+   ds-emit meta_review_complete skeptic-meta <original_task_id> "$META_DATA"
    ```
 
    The next in-session scan or session-start sweep will surface any Critical/Major divergence per the Meta-divergence surfacing block above.
 
 See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
-**Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
+**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)
 - The `last_engineer_summary` from the prior iteration
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
@@ -2028,7 +2057,7 @@ See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the ful
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
 
-**Telemetry emit (V1):** Bracket the Engineer `spawn_agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
+**Telemetry emit (V1):** Bracket the Engineer `spawn_agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -2168,7 +2197,7 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`$AE_PROJECT_DIR/.agentic/qa.md` preferred, legacy `$AE_PROJECT_DIR/.claude/qa.md` fallback). Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA `spawn_agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** Bracket the QA `spawn_agent` tool call with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
 ```
 ## Prior QA failures
@@ -2194,26 +2223,32 @@ The following failures were identified and fix attempts were made in earlier ite
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
-**QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
+**QA screenshot evidence capture (PASS exit only).** qa-engineer's return text carries only a small pointer object (`result`, `criteria[]`, `blocking_count`, `blocking_issues[]`, `server_status`, `auth`, `screenshot_evidence_json_path`, `report_path`, `notes`) - it does not embed the screenshot evidence inline. On clean PASS exit, read the `screenshot_evidence_json_path` field from that pointer object and load the JSON file at that path. **Binding.** Assign the pointer object's `screenshot_evidence_json_path` field value into the `SCREENSHOT_JSON_PATH` shell variable before running the block below - never inline the returned path directly into the `if`/`cat` commands, since a returned path containing `$(...)` or backticks would otherwise be evaluated by the shell:
 
-```
-Look for a fenced block whose info string is exactly `qa-screenshots-json`, regardless of whether
-the fence character is backticks (```) or tildes (~~~). Either of the following forms is valid:
-
-  ```qa-screenshots-json
-  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
-  ```
-
-  ~~~qa-screenshots-json
-  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
-  ~~~
-
-Match by the info string `qa-screenshots-json`; do not require a specific fence character.
+```bash
+# $SCREENSHOT_JSON_PATH must be ASSIGNED from the pointer object's
+# screenshot_evidence_json_path field (e.g. SCREENSHOT_JSON_PATH="<value>"), never
+# inlined directly - `${SCREENSHOT_JSON_PATH:-}` guards against `set -u` aborting when
+# the field was absent from the pointer object.
+if [ -n "${SCREENSHOT_JSON_PATH:-}" ] && [ -f "$SCREENSHOT_JSON_PATH" ]; then
+  SCREENSHOTS_RAW=$(cat "$SCREENSHOT_JSON_PATH")
+else
+  SCREENSHOTS_RAW='[]'
+fi
 ```
 
-Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` or any other state file.
+Parse `SCREENSHOTS_RAW` into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects - method-specific runs carry additional keys per qa-engineer.md's per-method JSON extensions, ignored here). Retain only entries where `result == "PASS"` on overall PASS. If `screenshot_evidence_json_path` is absent from the pointer object, or the file at that path is missing, or its content is malformed/fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error - this preserves the prior inline-parse's `[]`-on-absent-or-malformed fallback behavior, now applied to a missing/malformed file instead of a missing/malformed inline block. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `$AE_PROJECT_DIR/.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Report/screenshot-JSON cleanup (every terminal QA outcome, not PASS-only).** qa-engineer writes its report and screenshot-evidence JSON to `/tmp/qa-reports/` (per `$AE_REPO_DIR/content/agents/qa-engineer.md` §Report structure), which is never cleaned up by qa-engineer itself - those files must outlive its worktree so the conductor and the QA regressions curator can read them. Once this iteration's `screenshot_evidence_json_path` has been consumed above (whatever the outcome), and once `report_path` has been consumed (either now, on a PASS/terminal exit with no pending regressions-curator read, or after the QA regressions curator step below on a FAIL that fires it), delete both files. `QA_REPORT_PATH` here is the pointer object's `report_path` field, assigned the same way `SCREENSHOT_JSON_PATH` is above - never inlined:
+
+```bash
+rm -f "${SCREENSHOT_JSON_PATH:-}" 2>/dev/null || true
+rm -f "${QA_REPORT_PATH:-}" 2>/dev/null || true
+```
+
+Guard with `|| true` so this never blocks the loop. Do not delete `QA_REPORT_PATH` before the QA regressions curator step has had a chance to read it on a FAIL iteration - run this cleanup after that step (or immediately, on iterations/outcomes where the curator does not fire).
+
+**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `$AE_PROJECT_DIR/.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -2224,7 +2259,7 @@ Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, c
 At Phase 6b clean exit, if any iteration of this Phase 6b loop involved a QA FAIL (i.e., `qa_failures_log` was non-empty at any point before the final PASS), spawn a qa-regressions-curator subagent. **Note:** `qa-regressions-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added. Mirrors the Phase 6 findings curator pattern (see "Findings curator (loop exit)" above).
 
 **Brief:**
-- Input: the qa-engineer's last FAIL report containing the `## Regression draft (for $AE_PROJECT_DIR/.agentic/qa-regressions.md)` block (verbatim), any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`$AE_PROJECT_DIR/.agentic/qa-regressions.md`).
+- Input: the `## Regression draft (for $AE_PROJECT_DIR/.agentic/qa-regressions.md)` block (verbatim) from the last FAIL iteration's qa-engineer report - it lives in the written report file at `report_path` (the pointer object's `report_path` field), not the return text itself; read the file at that path before the "Report/screenshot-JSON cleanup" step above deletes it. Also include any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`$AE_PROJECT_DIR/.agentic/qa-regressions.md`).
 - The curator computes the dedupe key `(surface, claim)` from each draft entry: lowercase the `Surface` and `What broke` values, collapse whitespace runs to a single space, strip leading/trailing whitespace, concatenate with a `|` separator.
 - Dedupe rule: if a matching `(surface, claim)` key already exists in `$AE_PROJECT_DIR/.agentic/qa-regressions.md`, skip the write for that entry.
 - The curator is the sole writer of `$AE_PROJECT_DIR/.agentic/qa-regressions.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
@@ -2266,7 +2301,7 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 **When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
 1. Before spawning the Phase 7 engineer: write `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 "Trivial single-engineer path"); use that section's own round-N prose-conveyed form instead.
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
@@ -2287,7 +2322,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
    - The failing context (branch diff, relevant files, prior cycle summaries if any)
 3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).
-5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
+5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the "Trivial-path exclusion" note above.)
 6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
 8. Verify the fix engineer's `quality_gate_results`.
@@ -2318,11 +2353,11 @@ Stage specific files - never `git add -A` or `git add .`:
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
 git -C $REPO add [specific files]
 
-# Resolve developer identity for trailer (soft-fail throughout; agentic-identity may not be installed).
+# Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
+DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
 # Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
-if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
 
 # Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
@@ -2376,17 +2411,31 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   fi
 
   if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
-    git -C "$PR_CHECKOUT" add "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
-    # Only commit if the index has a diff (avoids empty-commit on no new sessions).
-    if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
-      if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-        echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
-        git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
-      else
-        NL=$'
+    # Point-of-use defeated-negation check (exact path, no probe-guessing -
+    # see $AE_REPO_DIR/bin/ds-migrate's cmd_verify_commit_path). Without this, `git add`
+    # on a defeated-negation path silently no-ops and the following
+    # `diff --cached --quiet` skips the commit with NO visible signal at
+    # all - this is the exact residual _compute_negations_defeated's
+    # probe-based sweep can miss for the 2 directory-form negations, closed
+    # here because the exact path is already known. Never redirect this
+    # check's own stdout/stderr to /dev/null.
+    TELEM_VERIFY_OUT=$(ds-migrate verify-commit-path "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl" --project-root "$PR_CHECKOUT" 2>&1)
+    TELEM_VERIFY_RC=$?
+    if [ "$TELEM_VERIFY_RC" -eq 1 ]; then
+      echo "ERROR: [phase-8-telemetry] $AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl has a negation in $AE_PROJECT_DIR/.gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - telemetry commit skipped this run. Fix $AE_PROJECT_DIR/.gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $TELEM_VERIFY_OUT"
+    else
+      git -C "$PR_CHECKOUT" add "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+      # Only commit if the index has a diff (avoids empty-commit on no new sessions).
+      if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
+        if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
+          echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
+          git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+        else
+          NL=$'
 '
-        TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-        git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+          TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
+          git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+        fi
       fi
     fi
     # Push only on single-engineer paths (fan-out push handled in its own block).
@@ -2404,23 +2453,58 @@ git -C $REPO push -u origin [BRANCH_NAME]
 # Resolve the worktree from the branch name so renames do not break cleanup.
 git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
 if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
-  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
   if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
-      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
-      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      # Single attempt, no force. A refusal (locked by the harness, or any
+      # other reason) is the CORRECT outcome here, never overridden - per
+      # $AE_REPO_DIR/content/references/worktree-lifecycle.md §Guardrail, `git worktree
+      # unlock` may be used ONLY on a worktree whose directory is already
+      # gone (this worktree's directory demonstrably still exists, since we
+      # got this far), and a double-force `remove -f -f` overrides the
+      # harness's own lock-while-running protection, which this methodology
+      # must never do. A round-2 Skeptic Critical caught an earlier version
+      # of this block doing exactly that on an "agent may have just
+      # finished" assumption with no check backing it - removed entirely.
+      REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
+      REMOVE_RC=$?
+      if [ "$REMOVE_RC" -eq 0 ]; then
+        git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+        echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      else
+        # Never discard stderr on a refusal - surface it AND append a
+        # persisted skip record so the orphaned (or still-locked) worktree
+        # is visible in a later session (previously this failure was
+        # silently swallowed by `2>/dev/null || true`, which is exactly how
+        # isolation worktrees from failed cleanups accumulated invisibly).
+        # A locked-worktree refusal is expected and safe here - the
+        # session-start prune script and $AE_REPO_DIR/bin/ds-reap-worktrees remain the
+        # backstop that reclaims it once the lock is genuinely released.
+        echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
+        mkdir -p "$REPO/.agentic" 2>/dev/null || true
+        SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        python3 -c "
+import json, sys
+rec = {'ts': sys.argv[1], 'branch': sys.argv[2], 'path': sys.argv[3], 'stderr': sys.argv[4]}
+with open(sys.argv[5], 'a') as f:
+    f.write(json.dumps(rec) + chr(10))
+" "$SKIP_TS" "$BRANCH_NAME" "$WORKTREE_PATH" "$REMOVE_STDERR" "$REPO/.agentic/worktree-cleanup-skips.jsonl" 2>/dev/null || true
+      fi
     else
       echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
     fi
   fi
 fi
+# Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
+# a remove failure is reported (stderr + the ledger above), never fatal.
 # --- End isolation worktree cleanup ---
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
 **Telemetry commit - Codex runtime boundary.** Commit only existing `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` entries produced by a supported writer. The current Codex Stop hook does not create those entries; it writes only `~/.codex/projects/[hash]/context.md`. Project-local telemetry migration is deferred to `context-writer-migration`.
+
+**Point-of-use defeated-negation check.** Before staging, the block runs `ds-migrate verify-commit-path $AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl --project-root $PR_CHECKOUT`. This is the exact-path counterpart to `$AE_REPO_DIR/bin/ds-migrate check`/`apply`'s manifest-wide, probe-based negation-defeat detection: `_compute_negations_defeated` must synthesize candidate probe paths for the 2 directory-form negations (`!$AE_PROJECT_DIR/.agentic/session-log/` and its `/**` twin) when no real file exists yet, and a defeater keyed to an unguessed name returns "ok" undetected - see that function's docstring for the full residual. At this exact commit site the target path is already known, so no guessing is needed. Exit 1 (a negation targets this path but git still reports it ignored) prints a visible `ERROR:` line and skips the commit this run - loud, unlike the silent `git add` no-op this replaces. Exit 0 covers both a genuinely reachable path and a path this project's `$AE_PROJECT_DIR/.gitignore` never attempted to reach at all (e.g. DinoStack's own repo, which categorically excludes `$AE_PROJECT_DIR/.agentic/*` by decision with zero negations) - neither is a defect, and the existing `git add` / `diff --cached --quiet` handling below is unchanged for both. Exit 2 (git missing, not a worktree, or an untrusted check result) is treated the same as exit 0 - a tooling-unavailability soft-fail must never itself block a commit that would otherwise have succeeded.
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
@@ -2612,7 +2696,7 @@ Closes [[TICKET_PREFIX]-NNN]([JIRA_BASE_URL]/browse/[TICKET_PREFIX]-NNN)
 
 #### If TRACKER is `none`
 
-Omit the tracker reference block entirely. The PR body will have only Summary and Test plan, and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
+Omit the tracker reference block entirely. The PR body will have only Summary, Test plan, and the Developer/Model attribution lines (each appended only when its value is known), and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
 
 ---
 
@@ -2626,8 +2710,26 @@ Run:
 # Resolve identity for PR Developer: field (may already be set from Phase 8).
 # Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
-if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
+if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+
+# Engineer model for the PR Model: attribution line (DS-166). Source-of-truth is
+# $AE_PROJECT_DIR/.agentic/tasks.jsonl, NOT a conductor-held variable: author_model is the durable record
+# appended on the Phase 5 ownership claim, recorded on BOTH claim sites - the sequential
+# single-engineer claim (:1674, which writes a claim record to tasks.jsonl whenever the plan
+# is multi-unit - single-unit plans never create the file) and the fan-out per-unit claim
+# (:1702, which appends to tasks.jsonl) - each also carrying ticket_id so this read can scope
+# by ticket, so the read survives context loss and a resumed session (mirrors how DEVELOPER
+# re-resolves from ds-identity at this point). Dedupe distinct non-null values so a multi-unit
+# PR lists every model that contributed; the line is omitted (like Developer) when task state
+# is absent, author_model is null (model unknown / routing off), or ticket_id is empty
+# (null-ticket projects). The pipeline records no per-task harness slug - author_model is the
+# only model identifier - so the attribution line is Model: carrying the model id(s).
+ENGINEER_MODEL=$(jq -sr --arg t "$TICKET_ID" '
+  [.[] | select(.ticket_id == $t and .assigned_agent == "engineer"
+    and .author_model != null and (.status == "in_progress" or .status == "done"))
+    | .author_model]
+  | unique | join(", ")' $AE_PROJECT_DIR/.agentic/tasks.jsonl 2>/dev/null || true)
 
 # UNIT_IS_BEHAVIOR_VISIBLE: true only when QA ran+passed, evidence URLs exist, AND risk class is
 # not security/auth/crypto/payments/Elevated-correctness (derived in-context from Phase 2/3
@@ -2675,6 +2777,7 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 - [ ] [step 2]
 PRBODY
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "\nModel: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
@@ -2699,8 +2802,9 @@ else
 - [ ] [step 1]
 - [ ] [step 2]
 PRBODY
-  # Append Developer: line when identity is confirmed (survives --squash via PR body).
+  # Append Developer:/Model: attribution lines when identity/model are known (survives --squash via PR body).
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "\nModel: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
@@ -2817,7 +2921,7 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
 fi
 ```
 
-`$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl` is append-only and gitignored under the existing `$AE_PROJECT_DIR/.agentic/` umbrella (machine-local; no `$AE_PROJECT_DIR/.gitignore` change needed). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
+`$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl` is append-only and matches manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
 **QA Evidence section (append to PR body after `gh pr create` - Case B only).**
 
@@ -2957,7 +3061,7 @@ Soft-fail: if the call errors, log and continue. The PR remaining in draft state
    if [ -f .github/CODEOWNERS ] || [ -f docs/CODEOWNERS ] || [ -f CODEOWNERS ]; then
      echo "CODEOWNERS detected - GitHub will auto-route review requests."
    ```
-   (Note: this checks repo root and `.github/`/`docs/` subdirectories - the standard GitHub CODEOWNERS locations. Subdirectory CODEOWNERS in monorepo tracks - e.g. `helios/.github/CODEOWNERS` - are out of scope for v1; root-level CODEOWNERS is sufficient for the typical project.)
+   (Note: this checks repo root and `.github/`/`docs/` subdirectories - the standard GitHub CODEOWNERS locations. Subdirectory CODEOWNERS in monorepo tracks - e.g. `app/.github/CODEOWNERS` - are out of scope for v1; root-level CODEOWNERS is sufficient for the typical project.)
 
 2. **AGENTS.md `## PR Workflow` `Reviewers:` fallback** - if no CODEOWNERS file found AND `PR_WORKFLOW_REVIEWERS` (resolved in Setup) is non-empty:
    ```bash
@@ -2995,12 +3099,12 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
 > - `forward_only_guard`: `true`
 > - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }`
-> - `pipeline_order`: the ordered list of pipeline tokens resolved once in Setup (`TRACKER_PIPELINE_ORDER`); a declared order may omit `DEV_COMPLETE`, in which case it is appended at the trailing position, so the effective list is always the 4 tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE` - see `## Tracker Writeback Helper` step 4.d.iv
-> - `dev_complete_declared`: boolean, resolved once in Setup as `TRACKER_DEV_COMPLETE_DECLARED`; `DEV_COMPLETE` participates in the pipeline sub-rank only when this is `true`, and absent or unparseable is treated as `false` - see `## Tracker Writeback Helper` step 4.d.iv
+> - `pipeline_order`: the ordered list of pipeline tokens resolved once in Setup (`TRACKER_PIPELINE_ORDER`); a declared order may omit `DEV_COMPLETE`, in which case it is appended at the trailing position, so the effective list is always the 4 tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE` - see `$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper` step 4.d.iv
+> - `dev_complete_declared`: boolean, resolved once in Setup as `TRACKER_DEV_COMPLETE_DECLARED`; `DEV_COMPLETE` participates in the pipeline sub-rank only when this is `true`, and absent or unparseable is treated as `false` - see `$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper` step 4.d.iv
 > - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
 > - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
 >
-> For the full brief shape governing this subagent (state pre-read, forward-only guard semantics, skip conditions, soft-fail), see the `## Tracker Writeback Helper` block above.
+> For the full brief shape governing this subagent (state pre-read, forward-only guard semantics, skip conditions, soft-fail), see `$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper`.
 >
 > **Behavior:**
 > - **Linear:** Apply forward-only guard (pre-read current state, skip if already at or past `target_state` rank). Call `mcp__linear__save_issue` with `state: $TRACKER_STATE_QA` and `assigneeId` only when configured. Then call `mcp__linear__save_comment` with the comment body below.
@@ -3019,7 +3123,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
 >
-> **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
+> **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
 
 **Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `$AE_PROJECT_DIR/.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
 
@@ -3075,14 +3179,14 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition (bounded wait):** before spawning, acquire `$AE_PROJECT_DIR/.agentic/wrap/lock` via `agentic-wrap-acquire-lock` - never a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this design depends on. The lock is shared with `$wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `$AE_PROJECT_DIR/.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `$AE_PROJECT_DIR/.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `$AE_REPO_DIR/content/references/conductor-operating-rules.md` under "`$AE_PROJECT_DIR/.agentic/context.md` writer contract".)
+**Lock acquisition (bounded wait):** before spawning, acquire `$AE_PROJECT_DIR/.agentic/wrap/lock` via `ds-wrap-acquire-lock` - never a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this design depends on. The lock is shared with `$wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `$AE_PROJECT_DIR/.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `$AE_PROJECT_DIR/.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `$AE_REPO_DIR/content/references/conductor-operating-rules.md` under "`$AE_PROJECT_DIR/.agentic/context.md` writer contract".)
 
-1. **First attempt (foreground, no wait):** `agentic-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$AE_SESSION_ID"`. Branch on exit code:
+1. **First attempt (foreground, no wait):** `ds-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$AE_SESSION_ID"`. Branch on exit code:
    - **0** - acquired. Go to "If the lock is acquired" below.
    - **5** - busy (lock held by another session, e.g. `$wrap` running concurrently). Go to step 2.
    - **1** - fatal (lib load failure or an invalid `--role`). Surface the WARNING line verbatim, then skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
-   - **any other exit code, including PATH-not-found** - if the command is not found on PATH at all, do NOT fall back to a manual `mkdir` (see rationale above); instead skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note naming the missing install step: `"Phase 11b skipped: agentic-wrap-acquire-lock not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH."` For any other unrecognized code, surface it verbatim and skip the same way. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
-2. **On busy, re-invoke bounded (background):** `agentic-wrap-acquire-lock "$REPO" --role=agent --timeout-ms=45000 --session-id="$AE_SESSION_ID"` with `the asynchronous Codex spawn contract above`. **The conductor holds at this step: it MUST NOT advance to Phase 11d, Phase 12, or any step that clears `findings_log` while this background attempt is outstanding.** `findings_log` is read from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` by the conductor at spawn time, and Phase 12 is its only clearer (see the Phase 11b trigger note above) - advancing past this step before the background attempt resolves would let Phase 12 clear `findings_log` out from under a `wrap-ticket` spawn that is still pending, which is the exact data-loss failure mode this ticket exists to prevent. 45000ms (45s) is a **chosen bound, not derived from any shared phase-level budget**: `wrap-ticket`'s own 60s spawn timeout (see `**Spawn:**` above) is a SEPARATE, sequential budget for the spawn itself, so a worst-case contended run now takes up to ~105s total (45s wait + 60s spawn) rather than the ~60s of an uncontended run. 45s is chosen to be comfortably shorter than `wrap-ticket`'s own spawn timeout and dramatically shorter than `$wrap`'s own 20-minute default wait (`$AE_REPO_DIR/content/commands/ds-wrap.md` Pre-flight lock acquisition step 3) - long enough that ordinary `$wrap` write-phase contention resolves within the bound, short enough that Phase 11b (already inline in a long ticket loop) does not stall indefinitely. On the completion notification, branch on exit code:
+   - **any other exit code, including PATH-not-found** - if the command is not found on PATH at all, do NOT fall back to a manual `mkdir` (see rationale above); instead skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note naming the missing install step: `"Phase 11b skipped: ds-wrap-acquire-lock not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH."` For any other unrecognized code, surface it verbatim and skip the same way. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+2. **On busy, re-invoke bounded (background):** `ds-wrap-acquire-lock "$REPO" --role=agent --timeout-ms=45000 --session-id="$AE_SESSION_ID"` with `the asynchronous Codex spawn contract above`. **The conductor holds at this step: it MUST NOT advance to Phase 11d, Phase 12, or any step that clears `findings_log` while this background attempt is outstanding.** `findings_log` is read from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` by the conductor at spawn time, and Phase 12 is its only clearer (see the Phase 11b trigger note above) - advancing past this step before the background attempt resolves would let Phase 12 clear `findings_log` out from under a `wrap-ticket` spawn that is still pending, which is the exact data-loss failure mode this ticket exists to prevent. 45000ms (45s) is a **chosen bound, not derived from any shared phase-level budget**: `wrap-ticket`'s own 60s spawn timeout (see `**Spawn:**` above) is a SEPARATE, sequential budget for the spawn itself, so a worst-case contended run now takes up to ~105s total (45s wait + 60s spawn) rather than the ~60s of an uncontended run. 45s is chosen to be comfortably shorter than `wrap-ticket`'s own spawn timeout and dramatically shorter than `$wrap`'s own 20-minute default wait (`$AE_REPO_DIR/content/commands/ds-wrap.md` Pre-flight lock acquisition step 3) - long enough that ordinary `$wrap` write-phase contention resolves within the bound, short enough that Phase 11b (already inline in a long ticket loop) does not stall indefinitely. On the completion notification, branch on exit code:
    - **0** - acquired. Go to "If the lock is acquired" below.
    - **2** - timeout (45s elapsed, lock still held). Skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note: `"Phase 11b skipped: wrap-lock-contention (lock still held after 45s bounded wait)."`, printing the helper's final `timeout ...` line verbatim. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
    - **1 / any other exit code** - surface the helper's printed line verbatim (WARNING line on exit 1) and skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
@@ -3110,7 +3214,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `agentic-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `agentic-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
+Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `ds-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `ds-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 
 **Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
 
@@ -3201,6 +3305,298 @@ fi
 
 ---
 
+## Phase 11e: Knowledge commit onto the PR branch (soft-fail)
+
+**Purpose.** A ticket session that produced durable knowledge - root `MEMORY.md`, `decisions.md`, `$AE_PROJECT_DIR/.agentic/learnings.md` - currently leaves it in the operator's local checkout only, where it never rides the PR. The isolation worktree that carried this ticket's code is removed at Phase 8, well before Phase 9 opens the PR, and `wrap-ticket` does not write those files until Phase 11b - so the write can never happen "inside the worktree." Phase 11e moves the **commit** instead of the write: it builds a commit from a temporary index plus `git commit-tree`, then pushes the resulting SHA straight to `refs/heads/$BRANCH_NAME`. No checkout, no worktree, and HEAD is never touched.
+
+**Trigger.** Runs on every ticket where Phase 9 actually opened a PR. Skip when Phase 9 was skipped for any reason, including the open-goal `dry_run` path (no PR branch exists to commit onto). Skip when `knowledge_commit_on_pr` is `false` in `$AE_PROJECT_DIR/.agentic/config.json` (boolean, default `true`).
+
+**This phase does NOT inherit Phase 11b's Trivial skip.** Phase 11b skips Trivial tickets, but `learning-extractor` at Phase 6 and the mid-session `learnings-agent` may both have written `$AE_PROJECT_DIR/.agentic/learnings.md` on a Trivial ticket. Gating Phase 11e on risk tier would silently drop exactly that content - the case where the knowledge exists and nothing else will ship it.
+
+**Reads from disk, never from an agent return value.** The candidate files are read off the filesystem at the moment this phase runs. This is deliberate: the deleted predecessor of this phase read only `wrap-ticket`'s return JSON, so every `learnings-agent` write was invisible to it and it produced zero commits over its entire lifetime.
+
+**`auto_merge_on_ci_green` is re-read from config here, not inherited.** Phase 11e runs as a separate Bash invocation from the preflight that set `$AUTO_MERGE_ON_CI_GREEN`; no shell state crosses that boundary, so the value is re-derived from `$AE_PROJECT_DIR/.agentic/config.json`.
+
+**Checkout-free and worktree-free.** Phase 8's telemetry commit needs a HEAD-branch guard because it commits inside a checkout that could be on the wrong branch. Phase 11e has no analogue and needs none: it never checks anything out and never moves HEAD, so there is no branch state to guard.
+
+**The real index is never touched - including by `update-index`.** Every index operation in the block below targets `$KC_IDX`, a temporary index file under the git dir. `git update-index --refresh` rewrites whichever index it is pointed at, so refreshing the real `$REPO/.git/index` would trade the conductor-checkout-untouched guarantee for the correctness guarantee below. Refreshing the temp index gives both.
+
+**Push safety.** The push is an ordinary fast-forward push to the branch ref - not a force push. If a concurrent session advanced the branch between the `read-tree` and the push, the push is **rejected**, not applied over the top; the rejection is reported and the knowledge is simply not shipped on this PR.
+
+A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `origin/$BRANCH_NAME` - Phase 8 committed telemetry on that branch inside the checkout, and Phase 11e never moves the local ref. This is harmless and needs no reconciliation: a later push from that stale local branch is rejected non-fast-forward rather than silently overwriting the knowledge commit, and the branch is deleted at merge.
+
+**DCO.** `git commit-tree` takes no `-s`, so the `Signed-off-by:` trailer is written literally into the commit message. This is the one sanctioned exception to the repo rule "build commits with porcelain `git commit -s`, never `git commit-tree`" - the exception exists because Phase 11e must commit without a checkout, and it inherits that plumbing command's pre-commit-hook bypass along with it.
+
+**Portability.** The block is written for both bash and zsh. zsh does not word-split unquoted expansions, so no list is ever built by splitting a variable; `awk` receives `$BRANCH_NAME` via `-v` rather than `ENVIRON[...]` (the variable is conductor-substituted, not exported, so `ENVIRON` resolves empty under both shells); and no variable is named `path` or `status`, both of which collide with zsh specials.
+
+**Absolute soft-fail.** Nothing in Phase 11e can block Phase 12 or fail the ticket. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
+
+**Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `$AE_PROJECT_DIR/.agentic/learnings.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `$AE_PROJECT_DIR/.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `$AE_PROJECT_DIR/.agentic/learnings.md` is a first-class candidate here.
+
+**Per-file gating.** Each check skips THAT FILE ONLY and never aborts the sweep:
+- File absent from disk -> skip silently.
+- `ds-migrate verify-commit-path <f> --project-root $REPO` exits 1 -> a negation in the live `$AE_PROJECT_DIR/.gitignore` appears to target `<f>`, but git still reports it ignored (a DEFEATED negation - the point-of-use, exact-path counterpart to `$AE_REPO_DIR/bin/ds-migrate check`/`apply`'s manifest-wide, probe-based sweep, which must synthesize candidate probe paths for the 2 directory-form negations and can miss an unguessed spelling; see `_compute_negations_defeated`'s docstring for that residual). Print a VISIBLE `ERROR:` diagnostic naming `<f>` and skip - this is a loud failure, distinct from the ordinary gitignore skip below. **Never redirect this to `/dev/null`.**
+- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself all three candidates are gitignored with no negation attempted at all, which makes this bullet (not the DEFEATED-negation bullet above, which only fires when a negation was attempted and failed) a deliberate and **audible** no-op in this repo; consumer projects track all three and get the commit.
+- `git cat-file -e origin/$BRANCH_NAME:<f>` fails (the path is absent from the tip) -> the file **survives gating**; it is new content. This probe must run BEFORE the diff, because a path absent from the tip is equally absent from the temp index and `diff-index` would report no difference for it.
+- Path present at the tip -> refresh the temp index for that path, then `git diff-index --quiet`. Identical -> skip. Different -> stage.
+
+**The index refresh is mandatory and load-bearing.** `git diff-index --quiet` trusts stat data over content for entries outside git's racily-clean window, so a byte-identical file that was rewritten with a newer mtime is misclassified as changed (measured at roughly 30% of runs before the condition was forced). Refreshing the temp index for that path first is what makes the comparison content-accurate.
+
+**Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
+
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status, and now includes both the ordinary gitignore skip and the DEFEATED-negation skip (the loud one) - the field does not distinguish which of the two fired for a given file; the `ERROR:`-vs-plain-diagnostic distinction in the printed output is the only place that distinction is visible. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+
+### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
+
+**Why here.** Subagents record learnings in flight into the per-session shard store via `$AE_REPO_DIR/bin/ds-learning-shard append` (see `$AE_REPO_DIR/content/references/learnings-capture-instruction.md`). Nothing else drains that store on the ticket path. Rolling up **before** the candidate-file sweep below is the whole point: entries folded into `$AE_PROJECT_DIR/.agentic/learnings.md` now are read off disk by the same sweep and ride the same commit onto the PR branch. Rolling up after it would ship nothing until some later session.
+
+**The CLI performs zero classification.** `rollup` emits raw entries as a JSON array on stdout and exits 0 on every path, soft-fails included. The conductor classifies each emitted entry through the existing guardrail-first table in `$AE_REPO_DIR/content/references/capture-classification.md` - the same gate every mandatory trigger already uses - and forwards only the `Capture: MUST` items to `learnings-agent`, emitting the `Capture: MUST/SKIP` declaration for each exactly as at any other trigger. There is no second classification path; `SKIP` items are dropped, not written.
+
+**Session key.** `--session-key` is optional. Pass `$SESSION_KEY` when the conductor has one (the value it supplied in this ticket's spawn briefs); when it is unset or empty, omit the flag and roll up every shard for this repo.
+
+**Absolute soft-fail.** A rollup failure, an unparseable array, or an absent `ds-learning-shard` binary is a warning and nothing more: the sweep, the commit, the push, the PR, and Phase 12 all proceed unchanged. `|| true` is mandatory on the invocation; no `exit` is permitted here either.
+
+```bash
+# @harness:phase11e-shard-rollup
+# Drain this session's in-flight learning shards BEFORE the candidate-file sweep
+# below, so anything folded into $AE_PROJECT_DIR/.agentic/learnings.md rides the same commit.
+# Soft-fail: zero `exit` statements; a failure here changes nothing downstream.
+if command -v ds-learning-shard >/dev/null 2>&1; then
+  if [ -n "${SESSION_KEY:-}" ]; then
+    KC_ROLLUP=$(ds-learning-shard rollup --repo "$REPO" --session-key "$SESSION_KEY" || true)
+  else
+    KC_ROLLUP=$(ds-learning-shard rollup --repo "$REPO" || true)
+  fi
+  echo "[phase: knowledge-commit | step=shard-rollup]"
+  echo "$KC_ROLLUP"
+else
+  echo "[phase: knowledge-commit | step=shard-rollup | status=unavailable] ds-learning-shard not on PATH - skipping rollup."
+fi
+```
+
+The conductor then classifies each entry in that array per `$AE_REPO_DIR/content/references/capture-classification.md` and forwards the `Capture: MUST` ones to `learnings-agent` before running the sweep below. If the array is empty, there is nothing to classify and the sweep runs unchanged.
+
+```bash
+# @harness:phase11e-knowledge-commit
+# Phase 11e: commit this session's knowledge files onto the PR branch.
+# Checkout-free and worktree-free: builds the commit with a temporary index plus
+# commit-tree and pushes the SHA straight to the branch ref, so HEAD is never
+# touched and the Phase-8-removed isolation worktree is not needed.
+#
+# PORTABILITY (bash + zsh): zsh does not word-split unquoted expansions. Never
+# write `git add -- $KC_SURVIVORS`; never build a list with `echo $VAR | tr`;
+# never use awk ENVIRON[...] (BRANCH_NAME is substituted, not exported, so
+# ENVIRON resolves empty under BOTH shells) - pass it with -v. Never name a
+# variable `path` or `status` (zsh collisions). ALWAYS brace an expansion that
+# is followed by a literal `:` - zsh applies history-style modifiers to an
+# UNBRACED `$VAR:...` even inside double quotes, so "$KC_SHA:refs/heads/..."
+# silently becomes the `:r` (remove-extension) form of the SHA followed by
+# "efs/heads/...", and the push fails with a bogus "src refspec ... does not
+# match any". Measured, not theoretical.
+#
+# DIAGNOSTIC / FAIL-CLOSED: no `2>/dev/null` on check-ignore, read-tree,
+# update-index, add, push, or diff-index. Any guard failure or unparseable
+# guard result counts as RISK PRESENT, never as risk absent.
+#
+# INDEX: every index operation targets $KC_IDX. The real $REPO/.git/index is
+# never read for staging and never written - including by update-index.
+#
+# Soft-fail throughout - zero `exit` statements by contract.
+KC_STATUS="no-changes"
+KC_LIST=""          # comma-joined staged paths, for the commit subject
+KC_JSON_STAGED=""   # files_staged (staging time)
+KC_JSON_FILES=""    # files_committed (push success ONLY)
+KC_JSON_IGN=""      # files_skipped_ignored
+KC_SHA=""
+KC_DELETED=0
+KC_REVERT_RISK="no"
+KC_N=0
+
+KC_ENABLED=$(python3 -c "
+import json
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  print('true' if cfg.get('knowledge_commit_on_pr', True) else 'false')
+except Exception: print('true')
+" 2>/dev/null || echo 'true')
+
+# Re-read here, NOT inherited: Phase 11e is a separate Bash invocation.
+KC_AUTOMERGE=$(python3 -c "
+import json
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  print('true' if cfg.get('auto_merge_on_ci_green', False) else 'false')
+except Exception: print('false')
+" 2>/dev/null || echo 'false')
+
+if [ "$KC_ENABLED" != "true" ]; then
+  KC_STATUS="disabled"
+  echo "[phase: knowledge-commit | status=disabled | knowledge_commit_on_pr=false]"
+else
+  # Fetch failure and ref-absence are SEPARATE conditions: a transient network
+  # failure must not be reported as "branch not found" when the ref exists
+  # locally and the push would have worked.
+  KC_FETCH_ERR=$(git -C "$REPO" fetch origin "$BRANCH_NAME" 2>&1 >/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "WARNING: [phase: knowledge-commit] git fetch origin $BRANCH_NAME failed: $KC_FETCH_ERR - continuing against the local remote-tracking ref, which may be stale."
+  fi
+
+  if ! git -C "$REPO" rev-parse --verify -q "origin/$BRANCH_NAME" >/dev/null 2>&1; then
+    # DISTINCT from "no-changes": the WARNING below goes to stdout, which is not
+    # durable. Left at the "no-changes" initializer, events.jsonl could not tell
+    # "there was no PR branch to commit onto" from "nothing changed" - and that
+    # exact ambiguity is what let this phase's deleted predecessor ship zero
+    # commits for its entire lifetime without anyone noticing.
+    KC_STATUS="no-branch"
+    echo "WARNING: [phase: knowledge-commit] origin/$BRANCH_NAME does not resolve - no PR branch to commit onto; $wrap Part G remains the fallback."
+  else
+    KC_GITDIR=$(git -C "$REPO" rev-parse --absolute-git-dir)
+    KC_IDX="$KC_GITDIR/knowledge-commit-index-$$"
+    KC_READ_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" read-tree "origin/$BRANCH_NAME" 2>&1 >/dev/null)
+    if [ $? -ne 0 ]; then
+      echo "WARNING: [phase: knowledge-commit] read-tree origin/$BRANCH_NAME failed: $KC_READ_ERR"
+      KC_STATUS="commit-failed"
+    else
+      # Single LITERAL-list loop: gate and stage in one pass (zsh-safe).
+      for KC_F in MEMORY.md decisions.md $AE_PROJECT_DIR/.agentic/learnings.md; do
+        if [ -f "$REPO/$KC_F" ]; then
+          # Point-of-use defeated-negation check, BEFORE the ordinary
+          # check-ignore gate below. Exit 1 means a negation in the live
+          # $AE_PROJECT_DIR/.gitignore appears to target $KC_F but git still reports it
+          # ignored - a DEFEATED negation, distinct from a legitimate
+          # categorical exclusion with no negation attempted at all (e.g.
+          # DinoStack's own repo, which the ordinary gate below already
+          # handles as an intentional, audible skip). See
+          # $AE_REPO_DIR/bin/ds-migrate's cmd_verify_commit_path docstring. Never
+          # redirect this check's own stdout/stderr to /dev/null.
+          KC_DEFEAT_OUT=$(ds-migrate verify-commit-path "$KC_F" --project-root "$REPO" 2>&1)
+          KC_DEFEAT_RC=$?
+          if [ "$KC_DEFEAT_RC" -eq 1 ]; then
+            echo "ERROR: [phase: knowledge-commit] $KC_F has a negation in $AE_PROJECT_DIR/.gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - not committed. Fix $AE_PROJECT_DIR/.gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $KC_DEFEAT_OUT"
+            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+          elif git -C "$REPO" check-ignore -q -- "$KC_F"; then
+            KC_RULE=$(git -C "$REPO" check-ignore -v -- "$KC_F")
+            echo "[phase: knowledge-commit] $KC_F is gitignored (rule: $KC_RULE) - not committed."
+            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+          else
+            KC_SKIP_THIS="no"
+            if git -C "$REPO" cat-file -e "origin/${BRANCH_NAME}:${KC_F}" 2>/dev/null; then
+              # Refresh the TEMP index for this path before comparing. Without
+              # this, diff-index trusts stat data over content and a
+              # byte-identical file with a newer mtime is misclassified as
+              # changed. A non-zero exit here means "needs update" and is
+              # expected; stderr is left visible on purpose.
+              GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index -q --refresh -- "$KC_F" >/dev/null || true
+              if GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --quiet "origin/$BRANCH_NAME" -- "$KC_F"; then
+                KC_SKIP_THIS="yes"
+              fi
+            fi
+            if [ "$KC_SKIP_THIS" = "no" ]; then
+              KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_F" 2>&1 >/dev/null)
+              if [ $? -ne 0 ]; then
+                echo "WARNING: [phase: knowledge-commit] git add $KC_F failed: $KC_ADD_ERR - this file is not included."
+              else
+                KC_N=$((KC_N + 1))
+                if [ -z "$KC_LIST" ]; then KC_LIST="$KC_F"; else KC_LIST="$KC_LIST,$KC_F"; fi
+                if [ -z "$KC_JSON_STAGED" ]; then KC_JSON_STAGED="\"$KC_F\""; else KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_F\""; fi
+              fi
+            fi
+          fi
+        fi
+      done
+
+      if [ "$KC_N" -eq 0 ]; then
+        echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+      else
+        # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
+        #     a file (reused for the per-file warning), stderr to a variable.
+        #     FAILS CLOSED. ---
+        KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
+        if [ $? -ne 0 ]; then
+          echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."
+          KC_REVERT_RISK="yes"
+          KC_DELETED=-1
+        else
+          # awk emits 0 (not empty) for an empty input file under bash, zsh, and
+          # sh, so the '' arm below is reachable only if awk itself fails to run
+          # or the numstat file is unreadable. Keep it for exactly that case.
+          KC_DELETED=$(awk '{s += $2} END {print s+0}' "$KC_IDX.numstat")
+          case "$KC_DELETED" in
+            ''|*[!0-9]*)
+              echo "WARNING: [phase: knowledge-commit] deleted-line count is empty or non-numeric ('$KC_DELETED') - awk did not run or its output is unusable; treating as REVERT RISK PRESENT (fail-closed)."
+              KC_REVERT_RISK="yes"
+              KC_DELETED=-1
+              ;;
+            0) : ;;
+            *)
+              KC_REVERT_RISK="yes"
+              awk -v kc_branch="$BRANCH_NAME" '$2 > 0 {printf "WARNING: [phase: knowledge-commit] %s has %s deleted line(s) vs origin/%s - this commit may revert content another session already merged. Review the PR diff before merging.\n", $3, $2, kc_branch}' "$KC_IDX.numstat"
+              ;;
+          esac
+        fi
+
+        KC_NAME=$(git -C "$REPO" config user.name 2>/dev/null || true)
+        KC_EMAIL=$(git -C "$REPO" config user.email 2>/dev/null || true)
+
+        if [ "$KC_REVERT_RISK" = "yes" ] && [ "$KC_AUTOMERGE" = "true" ]; then
+          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and this commit carries revert risk (deleted_lines=$KC_DELETED) - skipping. No human would read the PR diff before merge. Run $wrap so Part G ships this content on a reviewable branch."
+          KC_STATUS="revert-risk-skipped"
+        elif [ -z "$KC_NAME" ] || [ -z "$KC_EMAIL" ]; then
+          echo "WARNING: [phase: knowledge-commit] git user.name/user.email not configured - skipping knowledge commit to avoid a malformed DCO trailer."
+          KC_STATUS="failed"
+        else
+          KC_TREE=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" write-tree 2>/dev/null || true)
+          KC_BASE_TREE=$(git -C "$REPO" rev-parse "origin/$BRANCH_NAME^{tree}" 2>/dev/null || true)
+          if [ -z "$KC_TREE" ]; then
+            echo "WARNING: [phase: knowledge-commit] write-tree failed - skipping knowledge commit."
+            KC_STATUS="commit-failed"
+          elif [ "$KC_TREE" = "$KC_BASE_TREE" ]; then
+            echo "[phase: knowledge-commit | status=no-changes | tree-identical]"
+          else
+            KC_MSG=$(printf 'chore(knowledge): capture %s from ticket session\n\nSigned-off-by: %s <%s>' "$KC_LIST" "$KC_NAME" "$KC_EMAIL")
+            KC_SHA=$(git -C "$REPO" commit-tree "$KC_TREE" -p "origin/$BRANCH_NAME" -m "$KC_MSG" 2>/dev/null || true)
+            if [ -z "$KC_SHA" ]; then
+              echo "WARNING: [phase: knowledge-commit] commit-tree failed - skipping knowledge commit."
+              KC_STATUS="commit-failed"
+            else
+              KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null)
+              if [ $? -eq 0 ]; then
+                KC_STATUS="committed"
+                # files_committed is populated HERE and ONLY here.
+                KC_JSON_FILES="$KC_JSON_STAGED"
+                mkdir -p "$REPO/.agentic" 2>/dev/null || true
+                printf '{"branch":"%s","commit":"%s","files":[%s],"deleted_lines":%s,"ts":"%s"}\n' \
+                  "$BRANCH_NAME" "$KC_SHA" "$KC_JSON_FILES" "$KC_DELETED" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  > "$REPO/.agentic/knowledge-commit-state.json.tmp" 2>/dev/null &&
+                  mv "$REPO/.agentic/knowledge-commit-state.json.tmp" "$REPO/.agentic/knowledge-commit-state.json" 2>/dev/null || true
+                echo "[phase: knowledge-commit | status=committed | branch=$BRANCH_NAME | commit=$KC_SHA | files=$KC_LIST]"
+                echo "NOTE: [phase: knowledge-commit] CI is re-running against this new tip. Phase 10a cannot re-fire, so a red result on this commit needs manual attention."
+              else
+                echo "WARNING: [phase: knowledge-commit] push to $BRANCH_NAME rejected: $KC_PUSH_ERR - knowledge not shipped on this PR; $wrap Part G remains the fallback."
+                KC_STATUS="push-failed"
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+    rm -f "$KC_IDX" "$KC_IDX.numstat" 2>/dev/null || true
+  fi
+fi
+
+ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\":\"$KC_STATUS\",\"files_staged\":[$KC_JSON_STAGED],\"files_committed\":[$KC_JSON_FILES],\"files_skipped_ignored\":[$KC_JSON_IGN],\"branch\":\"$BRANCH_NAME\",\"commit\":\"$KC_SHA\",\"deleted_lines\":$KC_DELETED}" 2>/dev/null || true
+```
+
+`GIT_INDEX_FILE="$KC_IDX" git ...` is a **per-command assignment, not an export**, in both bash and zsh - the value is scoped to that one invocation and cannot reach `$REPO/.git/index`. Do not convert it to an `export ... ; unset ...` pair, and do not remove it from the `update-index` call.
+
+**CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.
+
+**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most three markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
+
+**Per-unit attribution is out of reach and is not attempted.** Fan-out unit branches are merged and `git branch -d`'d at the Phase 5/6 boundary, before Phase 6 fires; `findings_log` entries carry no unit tag; and neither `wrap-ticket` nor `learning-extractor` accepts a unit identifier. What Phase 11e delivers is therefore per-**ticket** attribution. The minimal change that would make per-unit attribution possible - propagate the orchestration planner's per-unit slug into each per-unit Skeptic `findings_log` entry as a `unit` field, and add a `unit` key to `learning-extractor`'s LRN schema - is recorded here as a separate ticket's scope, not built as part of this phase.
+
+---
+
 ## Phase 12: Loop state cleanup
 
 After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `$implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
@@ -3218,18 +3614,47 @@ rm -f $AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 **Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `$AE_PROJECT_DIR/.agentic/config.json`):
 
 ```bash
+# @harness:phase12-auto-merge
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
   IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
   MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
   REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
 
+  # Re-derived HERE, never inherited: Phase 11e ran in a SEPARATE Bash
+  # invocation and no shell state crosses that boundary. On any gh failure this
+  # yields false and the block behaves exactly as it did before Phase 11e existed.
+  KC_TIP=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json commits -q '.commits[-1].messageHeadline' 2>/dev/null || true)
+  case "$KC_TIP" in
+    "chore(knowledge):"*) KC_KNOWLEDGE_PUSHED=true ;;
+    *)                    KC_KNOWLEDGE_PUSHED=false ;;
+  esac
+
   if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+    if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
+      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+        echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
+        # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
+        # dev-complete transition is pushed by the session-start pending-merge
+        # sweep within one session boot of the actual merge - the same mechanism
+        # the default auto_merge_on_ci_green=false path relies on.
+      elif [ "$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+        echo "[phase: auto-merged | pr=$PR_NUMBER]"
+        # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
+        # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
+        # Fire-and-forget. Fires ONLY when the PR is confirmed MERGED (this branch).
+        # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
+      else
+        echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
+      fi
+    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
       echo "[phase: auto-merged | pr=$PR_NUMBER]"
       # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
       # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-      # Fire-and-forget. Fires ONLY when merge succeeded (this branch).
+      # Fire-and-forget. Fires ONLY when merge succeeded (this branch). No
+      # `gh pr view --json state` precondition is added here: on this path an
+      # exit-0 merge already means MERGED, and an extra gh call would add a
+      # silent-drop mode on transient failure.
       # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
     else
       echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
@@ -3239,17 +3664,25 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see $AE_REPO_DIR/content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates and no automatic dev-complete transition - run \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` after merge in that configuration. \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` also remains available to force the transition immediately."
+  echo "Note: If auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see $AE_REPO_DIR/content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates and no automatic dev-complete transition - run \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` after merge in that configuration. \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
-**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DEV_COMPLETE`, `forward_only_guard: true`. Fire-and-forget.
+**Knowledge-commit branch (the `--auto` path).** When Phase 11e pushed a `chore(knowledge):` commit onto the PR tip, CI is re-running, so an immediate `gh pr merge` would fail on pending checks. That case instead queues GitHub's own auto-merge with `--auto`. Three consequences worth stating plainly:
+
+- **`--auto` exiting 0 means QUEUED, not MERGED**, so W7 must not fire on that branch. The dev-complete transition is pushed instead by the session-start pending-merge sweep, within one session boot of the actual merge - the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
+- **W7's ordinary path is deliberately unchanged.** No `gh pr view --json state` precondition was added to the non-knowledge-commit merge branch: on that path an exit-0 `gh pr merge` already means MERGED, and an extra `gh` call would introduce a silent-drop mode whenever that call fails transiently.
+- **`--auto` requires "Allow auto-merge" to be enabled on the repository.** Where it is not, the `--auto` call fails, the fallback `gh pr view --json state` check runs, and - if the PR is not already merged - the run reports `auto-merge-deferred` and leaves the PR for a human.
+
+A total `gh pr view` failure leaves `PR_STATE` empty, which fails the `IS_DRAFT` gate and prints `auto-merge-skipped` without ever invoking `gh pr merge`. That is pre-existing behavior, unchanged by Phase 11e.
+
+**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check), or - on the knowledge-commit branch - only if the fallback `gh pr view` confirms the PR is already `MERGED`. If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DEV_COMPLETE`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `$AE_REPO_DIR/content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition - run `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` after merge in that configuration. `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` also remains available to force the transition immediately.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `$AE_REPO_DIR/content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition - run `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` after merge in that configuration. `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` also remains available to force the transition immediately.
 
-**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
 **Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `$AE_REPO_DIR/content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
 
@@ -3261,10 +3694,10 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 # $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
 # resolved in Setup) - never empty here in a correctly-running session, and the
 # tool independently validates non-empty args regardless (exit 3 on empty).
-if [ -x "$REPO_DIR/bin/agentic-base-sync" ]; then
-  "$REPO_DIR/bin/agentic-base-sync" "$REPO" "$BASE_BRANCH"
+if [ -x "$REPO_DIR/bin/ds-base-sync" ]; then
+  "$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"
 else
-  echo "WARNING: agentic-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
+  echo "WARNING: ds-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
 fi
 ```
 
@@ -3274,56 +3707,13 @@ fi
 
 **Trigger:** `$AE_PROJECT_DIR/.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
-After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
+Full reference (goal-met short-circuit, the four handoff triggers, the mode-specific on-trigger `batch-state.json` writes for batch/single-ticket-capped vs. open-goal, and the no-trigger continue/advance paths): `$AE_REPO_DIR/content/references/handoff-evaluation.md`. After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket. Read that reference before evaluating this phase or modifying its trigger set or write contract.
 
-**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
+**Resume banners (canonical here; printed by the on-trigger write paths in the reference above).**
+- Batch and single-ticket-capped: `Resume: $implement-ticket from this directory`
+- Open-goal: `Resume: $implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`
 
-**Triggers (exactly FOUR; any one fires; not evaluated when the goal-met short-circuit above already fired):**
-
-1. **Stale-pace pattern.** The last 2 completed tickets each took more than 2× the median wallclock of completed tickets in this batch. Requires ≥5 completed tickets to be meaningful (below this threshold, sample size is too small to be a reliable signal). `pause_reason: "stale_pace"`. **In open-goal mode:** applies UNMODIFIED - `tickets[]` accumulates one synthetic entry per completed iteration, so the ≥5-completed threshold is satisfied by the same array. For `max_iterations < 5` (e.g. a dry-run test with `max_iterations=3`), trigger 1 is structurally inert (never reaches 5) - expected/correct (a loop capped below 5 is too short for a meaningful pace signal, matching the threshold's own rationale). **In single-ticket-capped mode:** structurally inert (one entry, no pace signal past a single completion).
-2. **Operator literal "pause the batch".** Case-insensitive substring match against the most recent operator message. `pause_reason: "operator_pause"`. **In open-goal mode:** applies UNMODIFIED - substring match is orthogonal to mode. **In single-ticket-capped mode:** mode-orthogonal and DOES apply - the operator can still pause a single capped run.
-
-   **Invariant (binding).** The conductor MUST NOT write `pause_reason: "operator_pause"` to `batch-state.json` unless the operator's most recent message contains the literal substring `pause the batch` (case-insensitive). Conductor self-doubt about remaining wallclock, context pressure, perceived pace, or "feeling like the operator might want a break" is NOT a valid `operator_pause` trigger. The correct conductor behavior in those subjective cases is to spawn the next ticket and let `wallclock_cap` (trigger 3) fire mechanically if the cap is actually hit. A conductor that paraphrases the operator, infers intent from "I'm tired" / "let's stop soon" / "we're running long", or pauses preemptively to avoid a future cap hit is violating this invariant - the operator's literal words are the authoritative trigger. If an operator phrases a pause request differently (e.g. "stop after this one"), the correct response is to surface a one-line confirmation (`Proceeding to pause the batch after the current ticket - confirm with 'pause the batch' or override with 'continue'.`) and continue executing until the literal substring arrives.
-3. **Wallclock cap.** `now - wallclock_started_at >= wallclock_cap_min` (default 90 min unless `AGENTIC_BATCH_MAX_WALLCLOCK_MIN` env override). `wallclock_started_at` is preserved across resume, so the cap is per-batch lifetime, not per-session. `pause_reason: "wallclock_cap"`. **Single-ticket-capped mode:** trigger 3 is the reason this mode exists - same wallclock-blocked-write action as before.
-4. **Open-goal iteration cap** (`mode=="open_goal"` only; inert for `batch`/`single_ticket_capped`). `batch-state.json.open_goal.iteration >= batch-state.json.open_goal.max_iterations`. `pause_reason: "open_goal_iteration_cap"`.
-
-**Single-ticket-capped mode summary:** triggers 1 and 4 are structurally inert (no pace signal past a single entry; no iteration concept). Trigger 2 (operator literal "pause the batch") is mode-orthogonal and DOES apply - the operator can still pause a single capped run. Trigger 3 (wallclock cap) is the reason this mode exists.
-
-(Context-pressure auto-detection is explicitly NOT a trigger; the conductor cannot read its own context %. Operators use trigger 2 if context pressure is observed.)
-
-**On trigger - batch and single-ticket-capped modes (`mode != "open_goal"`):** apply Contract A + Contract B and write `batch-state.json` with:
-- `status: "paused"`
-- `paused_at: now`
-- `pause_reason: <trigger>`
-- `last_summary` populated for the ticket just completed
-- `replan_log[]` preserved (Contract B)
-
-Print the structured remaining-tickets summary:
-
-```
-BATCH PAUSED — pause_reason: <trigger>
-Completed: <k>/<N> tickets
-  ✓ <ticket_id> (PR #<pr_number>)
-  ...
-Remaining: <N-k> tickets
-  · <ticket_id> (depends_on: <list>, status: <status>)
-  ...
-Resume: $implement-ticket from this directory
-```
-
-**Single-ticket-capped mode, trigger 3 only** (triggers 1/4 structurally inert): reuse the "Batch-mode escalation routing" blocked-write, print `SINGLE-TICKET WALLCLOCK CAP REACHED - pause_reason: wallclock_cap`, `status: "paused"`, exit cleanly.
-
-Note: N is the executable-cursor count (lane-assigned tickets only). Deferred and in-progress-excluded tickets were surfaced in Phase 0a step 2 and are not included in N.
-
-Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch-paused | reason=<trigger>]`.
-
-**On trigger - open-goal mode (`mode=="open_goal"`), ANY of the four triggers:** in addition to the existing `batch-state.json{status:"paused", paused_at, pause_reason:<trigger>, last_summary}` write (Contract A+B, unchanged, applies to all 4 as above), ALSO write `open_goal.termination_reason`: trigger 1 → `"paused_stale_pace"`, trigger 2 → `"paused_operator_request"`, trigger 3 → `"cap_reached_wallclock"`, trigger 4 → `"cap_reached_iterations"`. Print header (all 4 triggers): `OPEN-GOAL LOOP PAUSED - pause_reason: <trigger>` (replacing `BATCH PAUSED`); resume line: `Resume: $implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`. Single mode-conditional branch covering all four triggers.
-
-**On no trigger, batch and single-ticket-capped modes:** continue to the next ticket in the batch.
-
-**On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
-
-> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the SessionEnd hook (`$AE_REPO_DIR/hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it).
+**Interrupt vs. pause path note (canonical here).** `paused_at`/`pause_reason` are written by Phase 12a on graceful handoff; `interrupted_at`/`interrupt_reason` are written by the SessionEnd hook (`$AE_REPO_DIR/hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it). On the goal-met short-circuit's clean COMPLETE exit, `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` is set to `status: "complete"` alongside `batch-state.json` (Contract A).
 
 ---
 
@@ -3358,7 +3748,7 @@ Derive the list from the session's completed `tickets[]` entries in `$AE_PROJECT
 
 This phase's own trigger condition (see above) guarantees every ticket in `$AE_PROJECT_DIR/.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
 
-Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `$AE_PROJECT_DIR/.agentic/triage-*.md` is not a valid fallback path: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` explicitly writes no `$AE_PROJECT_DIR/.agentic/` state (`$AE_REPO_DIR/content/commands/ds-ticket-triage.md`'s header and Phase 0 both state "No `$AE_PROJECT_DIR/.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `$implement-ticket <ticket_ids>` code fence (see `$AE_REPO_DIR/content/commands/ds-ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `$AE_PROJECT_DIR/.agentic/triage-*.md` is not a valid fallback path: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` explicitly writes no `$AE_PROJECT_DIR/.agentic/` state (`$AE_REPO_DIR/content/commands/ds-ticket-triage.md`'s header and Phase 0 both state "No `$AE_PROJECT_DIR/.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `$implement-ticket <ticket_ids>` code fence (see `$AE_REPO_DIR/content/commands/ds-ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
 
 ```
 Next:  $implement-ticket <lane_tickets>
@@ -3369,7 +3759,7 @@ Next:  $implement-ticket <lane_tickets>
 If no triage artifact exists, print:
 
 ```
-Next:  manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`   # no outstanding work detected; re-triage to pick next batch
+Next:  manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`   # no outstanding work detected; re-triage to pick next batch
        (from: <absolute_path_to_repo>)
 ```
 

@@ -38,9 +38,9 @@ ignore = [
 scripts_are_modules = true
 ignore_missing_imports = true
 # Rules disabled to pass on current codebase without source changes:
-#   arg-type    - bin/agentic-cost L779: Any|None passed to str param
-#   no-redef    - bin/agentic-memory L186/202/216: loop variable redefined across branches
-#   assignment  - bin/agentic-memory L338: list type mismatch in conditional branch
+#   arg-type    - bin/ds-cost L779: Any|None passed to str param
+#   no-redef    - bin/ds-memory L186/202/216: loop variable redefined across branches
+#   assignment  - bin/ds-memory L338: list type mismatch in conditional branch
 # These are real issues; fix them in a follow-up source cleanup pass.
 disable_error_code = ["arg-type", "no-redef", "assignment"]
 exclude = [

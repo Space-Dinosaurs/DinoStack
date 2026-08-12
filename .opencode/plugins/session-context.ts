@@ -171,7 +171,7 @@ const ACTIVITY_REGION_SIGNATURES = [
  */
 const DERIVED_NOTICE_SIGNATURES = [
   'CAPTURE-GAP:',
-  '[agentic-engineering] No developer identity set.',
+  '[dinostack] No developer identity set.',
   'WRAP-LOCK-STUCK:',
   '[scaffolding-sync] WARNING:',
 ];
@@ -999,7 +999,7 @@ ${toolsLine}
       if (type === "session.created") {
         // session.created fires once at session start. If skill_auto_load is
         // enabled in ~/.config/opencode/agentic-engineering.json, emit a
-        // skill-load instruction so the model reads the agentic-engineering
+        // skill-load instruction so the model reads the dinostack
         // protocol before handling any software development request.
         await log("info", "session.created event handler entered");
         try {
@@ -1017,7 +1017,7 @@ ${toolsLine}
               skillAutoLoad = config?.skill_auto_load === true;
             }
           } catch (configErr: any) {
-            await log("warn", "Failed to read agentic-engineering config", {
+            await log("warn", "Failed to read dinostack config", {
               configPath,
               error: configErr.message,
             });
@@ -1035,8 +1035,8 @@ ${toolsLine}
                     {
                       type: "text",
                       text: [
-                        "SKILL CHECK [agentic-engineering]: skill_auto_load=true.",
-                        "Before responding to any software development request, read the agentic-engineering SKILL.md.",
+                        "SKILL CHECK [dinostack]: skill_auto_load=true.",
+                        "Before responding to any software development request, read the dinostack SKILL.md.",
                         "Do not implement directly - follow the delegation and risk classification protocol in that file.",
                       ].join("\n"),
                     },

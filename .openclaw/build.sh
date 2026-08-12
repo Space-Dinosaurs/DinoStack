@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: Builds the OpenClaw adapter skill tree deterministically from
-#          content/ sources. Generates the entry skill (agentic-engineering),
+#          content/ sources. Generates the entry skill (dinostack),
 #          one skill dir per command, and one skill dir per agent (prefixed
 #          agent-<name> on both dir and frontmatter name to avoid identity
 #          collisions). Produces byte-identical output across runs.
@@ -22,7 +22,7 @@
 # Side-effects: removes stale command-skill directories under .openclaw/skills/
 #               whose name no longer matches any content/commands/*.md source
 #               (e.g. after a command rename or deletion upstream). Two
-#               skip-guards protect the entry skill (agentic-engineering) and
+#               skip-guards protect the entry skill (dinostack) and
 #               every agent-<name> skill dir from this pruning pass.
 #
 # Performance: Standard. Regenerates all SKILL.md files on each run.
@@ -32,17 +32,17 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 SKILLS_DIR="$REPO_DIR/.openclaw/skills"
-SKILL_DST="$SKILLS_DIR/agentic-engineering"
+SKILL_DST="$SKILLS_DIR/dinostack"
 
 mkdir -p "$SKILL_DST"
 
 # ---------------------------------------------------------------------------
-# Entry skill: agentic-engineering
+# Entry skill: dinostack
 # ---------------------------------------------------------------------------
 
 cat > "$SKILL_DST/SKILL.md" <<'SKILLEOF'
 ---
-name: agentic-engineering
+name: dinostack
 description: >
   Apply when the user mentions any software development work: implementing features, fixing bugs,
   reviewing or refactoring code, debugging, testing, deploying, working with agents or subagents,
@@ -97,14 +97,14 @@ files on every session and the reference docs on the triggers described in agent
   LOC, or implements a side-effecting operation.
 SKILLEOF
 
-echo "  + agentic-engineering/SKILL.md"
+echo "  + dinostack/SKILL.md"
 
 # ---------------------------------------------------------------------------
 # Methodology: assemble content/sections/*.md into METHODOLOGY.md
 # ---------------------------------------------------------------------------
 
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
-echo "  + agentic-engineering/METHODOLOGY.md"
+echo "  + dinostack/METHODOLOGY.md"
 
 # ---------------------------------------------------------------------------
 # Symlinks: references, rules, templates (relative, idempotent)
@@ -116,16 +116,16 @@ for target in references rules templates; do
   if [[ -L "$link" ]]; then
     current="$(readlink "$link")"
     if [[ "$current" == "$expected" ]]; then
-      echo "  = agentic-engineering/$target (already linked)"
+      echo "  = dinostack/$target (already linked)"
     else
       ln -sfn "$expected" "$link"
-      echo "  ~ agentic-engineering/$target (re-linked)"
+      echo "  ~ dinostack/$target (re-linked)"
     fi
   elif [[ -e "$link" ]]; then
-    echo "  ! agentic-engineering/$target (real file exists - skipping)"
+    echo "  ! dinostack/$target (real file exists - skipping)"
   else
     ln -sfn "$expected" "$link"
-    echo "  + agentic-engineering/$target"
+    echo "  + dinostack/$target"
   fi
 done
 
@@ -142,14 +142,14 @@ if [[ -e "$SCAFFOLDING_DST" ]]; then
   dst_ino="$(python3 -c "import os; print(os.stat('$SCAFFOLDING_DST').st_ino)" 2>/dev/null || echo "")"
   if [[ -n "$src_ino" && "$src_ino" == "$dst_ino" ]]; then
     need_copy=false
-    echo "  = agentic-engineering/project-scaffolding.yml (already linked)"
+    echo "  = dinostack/project-scaffolding.yml (already linked)"
   fi
 fi
 
 if [[ "$need_copy" == "true" ]]; then
   rm -f "$SCAFFOLDING_DST"
   ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
-  echo "  + agentic-engineering/project-scaffolding.yml"
+  echo "  + dinostack/project-scaffolding.yml"
 fi
 
 # ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ done < <(LC_ALL=C find "$CONTENT/commands" -maxdepth 1 -name '*.md' | LC_ALL=C s
 for existing_dir in "$SKILLS_DIR"/*/; do
   [ -d "$existing_dir" ] || continue
   existing_name="$(basename "$existing_dir")"
-  [[ "$existing_name" == "agentic-engineering" ]] && continue
+  [[ "$existing_name" == "dinostack" ]] && continue
   [[ "$existing_name" == agent-* ]] && continue
   found=0
   for gen in "${generated_command_skills[@]}"; do

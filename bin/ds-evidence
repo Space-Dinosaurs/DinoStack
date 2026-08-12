@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+r"""
+Purpose: Evidence spill/sketch/rehydrate CLI for the dinostack
+         methodology. Ingest raw tool output (bash, rg, curl, ...) into
+         versioned node files under <git-root>/.agentic/evidence/n<seq>.md,
+         sketch the node set, and rehydrate individual nodes byte-exact.
+
+Public API:
+  ds-evidence spill [FILE] [--label TEXT] [--tool TEXT]
+                         [--status TEXT] [--evidence-dir PATH]
+  ds-evidence sketch [--evidence-dir PATH]
+  ds-evidence get <node-id> [--evidence-dir PATH]
+  ds-evidence prune (--all | --older-than HOURS) [--evidence-dir PATH]
+  ds-evidence --help / --version
+
+Evidence root resolution: nearest ancestor of CWD containing a .git DIRECTORY
+  (normal repo) or a .git FILE whose first line begins "gitdir:" (isolation
+  worktree); root = <that>/.agentic/evidence/. Falls back to CWD when neither
+  is found. --evidence-dir PATH overrides.
+
+Node file format (binding):
+  line 1: <!-- ae-node: n<seq> | label: ... | tool: ... | chars: N | ts: ... | status: ... -->
+  line 2: --- raw ---
+  lines 3..EOF: raw output, copied verbatim, never truncated
+  Node id = n<seq>, where seq = max existing seq + 1 (scanned from the
+  n(\d+).md filenames - the node files are the single source of truth, no
+  sidecar index).
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, os, re, sys,
+               pathlib). No external dependencies. Self-contained; imports no
+               sibling module (avoids the DS-66 PATH-symlink class).
+
+Downstream consumers: bin/ds-resolve-worktree (stated pre-cleanup reader
+                      of node files); DS-141 Unit 2 reference doc (embeds the
+                      sketch-line format byte-for-byte); conductors running
+                      inline evidence capture.
+
+Failure modes: spill on missing FILE or empty stdin -> error to stderr, exit
+               2; get on invalid/missing node id -> error to stderr, exit 2;
+               sketch/prune on a missing or empty dir -> zero-result output,
+               exit 0; prune --older-than skips nodes whose ts is unparseable.
+               spill writes atomically (tmp + os.replace) so a torn write never
+               exposes a half-file. get decodes raw bytes as UTF-8 for display
+               (errors="replace"); the node file always stores raw bytes
+               verbatim. All commands return 0 on success.
+
+Performance: O(number of node files) for sketch/prune/seq-scan; each node file
+             is read only once per command.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+VERSION = "0.1.0"
+
+RAW_SEPARATOR = "--- raw ---"
+_NODE_RE = re.compile(r"^n(\d+)\.md$")
+_META_RE = re.compile(
+    r"^<!-- ae-node: n(?P<seq>\d+) \| label: (?P<label>[^|]*) \| "
+    r"tool: (?P<tool>[^|]*) \| chars: (?P<chars>\d+) \| "
+    r"ts: (?P<ts>[^|]*) \| status: (?P<status>[^|]*) -->$"
+)
+SKETCH_WARN_THRESHOLD = 40
+
+
+def _sanitize_field(value: str) -> str:
+    """Keep metadata fields from breaking the single-line header format."""
+    return value.replace("|", "-").replace("\n", " ").replace("\r", " ")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _find_git_root(start: Path) -> Path | None:
+    """Nearest ancestor of start holding a .git dir or a gitdir: file."""
+    for candidate in (start, *start.parents):
+        git_path = candidate / ".git"
+        if git_path.is_dir():
+            return candidate
+        if git_path.is_file():
+            try:
+                first_line = git_path.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()[0]
+            except (OSError, IndexError):
+                first_line = ""
+            if first_line.strip().startswith("gitdir:"):
+                return candidate
+    return None
+
+
+def _resolve_evidence_root(evidence_dir: str | None) -> Path:
+    if evidence_dir:
+        return Path(evidence_dir)
+    root = _find_git_root(Path.cwd())
+    if root is None:
+        root = Path.cwd()
+    return root / ".agentic" / "evidence"
+
+
+def _node_files(root: Path) -> list[Path]:
+    """All n<seq>.md files under root, ordered by numeric seq."""
+    if not root.is_dir():
+        return []
+    files = []
+    for entry in root.iterdir():
+        m = _NODE_RE.match(entry.name)
+        if m:
+            files.append(entry)
+    files.sort(key=lambda p: int(_NODE_RE.match(p.name).group(1)))
+    return files
+
+
+def _next_seq(root: Path) -> int:
+    files = _node_files(root)
+    if not files:
+        return 1
+    return int(_NODE_RE.match(files[-1].name).group(1)) + 1
+
+
+def _first_line(path: Path) -> str:
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
+            return fh.readline().rstrip("\n")
+    except OSError:
+        return ""
+
+
+def _parse_header(line: str) -> dict | None:
+    m = _META_RE.match(line)
+    if not m:
+        return None
+    return {
+        "seq": int(m.group("seq")),
+        "label": m.group("label"),
+        "tool": m.group("tool"),
+        "chars": m.group("chars"),
+        "ts": m.group("ts"),
+        "status": m.group("status"),
+    }
+
+
+def _sketch_line(
+    seq: int, label: str, tool: str, chars: str, ts: str, status: str
+) -> str:
+    return (
+        f"- n{seq} | label: {label} | tool: {tool} | "
+        f"chars: {chars} | ts: {ts} | status: {status}"
+    )
+
+
+def _load_nodes(root: Path) -> list[dict]:
+    nodes = []
+    for path in _node_files(root):
+        seq = int(_NODE_RE.match(path.name).group(1))
+        meta = _parse_header(_first_line(path))
+        if meta is None:
+            nodes.append(
+                {
+                    "seq": seq,
+                    "label": "unlabeled",
+                    "tool": "unknown",
+                    "chars": "0",
+                    "ts": "unknown",
+                    "status": "unknown",
+                }
+            )
+        else:
+            nodes.append(meta)
+    nodes.sort(key=lambda n: n["seq"])
+    return nodes
+
+
+def _extract_raw(data: bytes) -> bytes:
+    """Positional parse: bytes after the second newline (line 2 = separator).
+
+    Uses newline positions only - never string-searches for the separator, so
+    a literal `--- raw ---` inside the raw body cannot collide.
+    """
+    first = data.find(b"\n")
+    if first == -1:
+        return b""
+    second = data.find(b"\n", first + 1)
+    if second == -1:
+        return b""
+    return data[second + 1 :]
+
+
+def _parse_ts(ts: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+
+
+def cmd_spill(args: argparse.Namespace) -> int:
+    evidence_root = _resolve_evidence_root(args.evidence_dir)
+    if args.file:
+        src = Path(args.file)
+        if not src.is_file():
+            print(f"Error: file not found: {args.file}", file=sys.stderr)
+            return 2
+        data = src.read_bytes()
+    else:
+        data = sys.stdin.buffer.read()
+    if not data:
+        print("Error: nothing to spill (empty input)", file=sys.stderr)
+        return 2
+
+    evidence_root.mkdir(parents=True, exist_ok=True)
+    seq = _next_seq(evidence_root)
+    label = _sanitize_field(args.label)
+    tool = _sanitize_field(args.tool)
+    status = _sanitize_field(args.status)
+    ts = _now_iso()
+    chars = len(data)
+    header = (
+        f"<!-- ae-node: n{seq} | label: {label} | tool: {tool} | "
+        f"chars: {chars} | ts: {ts} | status: {status} -->"
+    )
+    node_bytes = (
+        header.encode("utf-8")
+        + b"\n"
+        + RAW_SEPARATOR.encode("utf-8")
+        + b"\n"
+        + data
+    )
+    tmp_path = evidence_root / f"n{seq}.md.tmp"
+    final_path = evidence_root / f"n{seq}.md"
+    try:
+        tmp_path.write_bytes(node_bytes)
+        os.replace(tmp_path, final_path)
+    except OSError:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    print(_sketch_line(seq, label, tool, str(chars), ts, status))
+    return 0
+
+
+def cmd_sketch(args: argparse.Namespace) -> int:
+    evidence_root = _resolve_evidence_root(args.evidence_dir)
+    nodes = _load_nodes(evidence_root)
+    total_chars = sum(int(n["chars"]) for n in nodes)
+    print(f"## Evidence sketch ({len(nodes)} nodes, ~{total_chars} chars spilled)")
+    if len(nodes) > SKETCH_WARN_THRESHOLD:
+        print(
+            f"Warning: {len(nodes)} nodes in evidence sketch; consider pruning "
+            f"with 'ds-evidence prune --older-than <hours>'",
+            file=sys.stderr,
+        )
+    for node in nodes:
+        print(
+            _sketch_line(
+                node["seq"],
+                node["label"],
+                node["tool"],
+                node["chars"],
+                node["ts"],
+                node["status"],
+            )
+        )
+    return 0
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    evidence_root = _resolve_evidence_root(args.evidence_dir)
+    node_id = args.node_id
+    if not re.match(r"^n\d+$", node_id):
+        print(f"Error: invalid node id: {node_id}", file=sys.stderr)
+        return 2
+    node_path = evidence_root / f"{node_id}.md"
+    if not node_path.is_file():
+        print(f"Error: node not found: {node_id}", file=sys.stderr)
+        return 2
+    raw = _extract_raw(node_path.read_bytes())
+    sys.stdout.write(raw.decode("utf-8", errors="replace"))
+    return 0
+
+
+def cmd_prune(args: argparse.Namespace) -> int:
+    evidence_root = _resolve_evidence_root(args.evidence_dir)
+    if not evidence_root.is_dir():
+        print("removed 0 node(s)")
+        return 0
+
+    files = _node_files(evidence_root)
+    if args.all:
+        for path in files:
+            path.unlink(missing_ok=True)
+        print(f"removed {len(files)} node(s)")
+        return 0
+
+    if args.older_than is None:
+        print("Error: prune requires --all or --older-than HOURS", file=sys.stderr)
+        return 2
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=args.older_than)
+    removed = 0
+    for path in files:
+        meta = _parse_header(_first_line(path))
+        if meta is None:
+            continue
+        ts = _parse_ts(meta["ts"])
+        if ts is not None and ts < cutoff:
+            path.unlink(missing_ok=True)
+            removed += 1
+    print(f"removed {removed} node(s)")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-evidence",
+        description=(
+            "Evidence spill/sketch/rehydrate CLI for the dinostack "
+            "methodology."
+        ),
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"ds-evidence {VERSION}"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    spill = subparsers.add_parser(
+        "spill", help="Ingest FILE (or stdin) as a new evidence node"
+    )
+    spill.add_argument("file", nargs="?", help="Input file to spill (defaults to stdin)")
+    spill.add_argument("--label", default="unlabeled", help="Short label for the node")
+    spill.add_argument("--tool", default="unknown", help="Tool that produced the output")
+    spill.add_argument("--status", default="ok", help="Status tag for the node")
+    spill.add_argument("--evidence-dir", help="Override the evidence root directory")
+
+    sketch = subparsers.add_parser("sketch", help="List evidence nodes as a sketch")
+    sketch.add_argument("--evidence-dir", help="Override the evidence root directory")
+
+    get = subparsers.add_parser("get", help="Print the raw content of a node")
+    get.add_argument("node_id", help="Node id (e.g. n3)")
+    get.add_argument("--evidence-dir", help="Override the evidence root directory")
+
+    prune = subparsers.add_parser("prune", help="Remove evidence nodes")
+    prune_group = prune.add_mutually_exclusive_group(required=True)
+    prune_group.add_argument("--all", action="store_true", help="Remove every node")
+    prune_group.add_argument(
+        "--older-than", type=float, help="Remove nodes older than HOURS hours"
+    )
+    prune.add_argument("--evidence-dir", help="Override the evidence root directory")
+
+    args = parser.parse_args(argv[1:])
+    if args.command == "spill":
+        return cmd_spill(args)
+    if args.command == "sketch":
+        return cmd_sketch(args)
+    if args.command == "get":
+        return cmd_get(args)
+    if args.command == "prune":
+        return cmd_prune(args)
+    parser.print_help()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

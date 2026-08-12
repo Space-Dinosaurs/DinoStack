@@ -16,6 +16,17 @@
  *   9. creates-agentic-dir:       .agentic/ does not exist -> mkdir + events.jsonl created
  *  10. no-cwd-exits-cleanly:      payload missing cwd -> exit 0, no events.jsonl
  *  11. session-uuid-in-data:      session_id from payload -> data.session_uuid set
+ *  12. spawn-id-always-present:   data.spawn_id is a non-empty string on every emit
+ *  13. spawn-id-unique-per-call:  two separate hook invocations get different spawn_ids
+ *  14. tool-use-id-populated:     payload.tool_use_id -> data.tool_use_id (DS-160 fix;
+ *                                  this is the regression test for the "always null"
+ *                                  established-fact bug)
+ *  15. tool-use-id-absent-null:   no payload.tool_use_id -> data.tool_use_id is null
+ *                                  (not crash, not undefined-as-string)
+ *  16. parent-agent-id-nested:    payload.agent_id present -> data.parent_agent_id set
+ *                                  (marks a nested spawn per the orchestrator-singularity
+ *                                  agent_id convention)
+ *  17. parent-agent-id-top-level: no payload.agent_id -> data.parent_agent_id null
  *
  * Run with: node hooks/tests/test-spawn-emit.js
  */
@@ -257,6 +268,118 @@ console.log('\nTest 11: session-uuid-in-data');
   if (events.length >= 1) {
     assert((events[0].data || {}).session_uuid === 'sess-011',
       `data.session_uuid === "sess-011" (got: ${(events[0].data || {}).session_uuid})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: spawn-id-always-present
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: spawn-id-always-present');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  const { status } = runHook(taskPayload(cwd, 'sess-012'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  assert(events.length >= 1, 'event emitted');
+  if (events.length >= 1) {
+    const spawnId = (events[0].data || {}).spawn_id;
+    assert(typeof spawnId === 'string' && spawnId.length > 0,
+      `data.spawn_id is a non-empty string (got: ${JSON.stringify(spawnId)})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: spawn-id-unique-per-call
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: spawn-id-unique-per-call');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  runHook(taskPayload(cwd, 'sess-013a'), cwd);
+  runHook(taskPayload(cwd, 'sess-013b'), cwd);
+  const events = readEvents(cwd);
+  assert(events.length === 2, 'two events appended');
+  if (events.length === 2) {
+    const id1 = (events[0].data || {}).spawn_id;
+    const id2 = (events[1].data || {}).spawn_id;
+    assert(id1 !== id2, `spawn_id differs across calls (got: ${id1} vs ${id2})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: tool-use-id-populated (DS-160 regression test - was always null)
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: tool-use-id-populated');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  const payload = taskPayload(cwd, 'sess-014', { tool_use_id: 'toolu_ABC123' });
+  const { status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  assert(events.length >= 1, 'event emitted');
+  if (events.length >= 1) {
+    assert((events[0].data || {}).tool_use_id === 'toolu_ABC123',
+      `data.tool_use_id === "toolu_ABC123" (got: ${(events[0].data || {}).tool_use_id})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: tool-use-id-absent-null
+// ---------------------------------------------------------------------------
+console.log('\nTest 15: tool-use-id-absent-null');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  const { status } = runHook(taskPayload(cwd, 'sess-015'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  assert(events.length >= 1, 'event emitted');
+  if (events.length >= 1) {
+    assert((events[0].data || {}).tool_use_id === null,
+      `data.tool_use_id === null when absent from payload (got: ${JSON.stringify((events[0].data || {}).tool_use_id)})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: parent-agent-id-nested
+// ---------------------------------------------------------------------------
+console.log('\nTest 16: parent-agent-id-nested');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  const payload = taskPayload(cwd, 'sess-016', { agent_id: 'agent_XYZ789' });
+  const { status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  assert(events.length >= 1, 'event emitted');
+  if (events.length >= 1) {
+    assert((events[0].data || {}).parent_agent_id === 'agent_XYZ789',
+      `data.parent_agent_id === "agent_XYZ789" (got: ${(events[0].data || {}).parent_agent_id})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 17: parent-agent-id-top-level
+// ---------------------------------------------------------------------------
+console.log('\nTest 17: parent-agent-id-top-level');
+{
+  const cwd = makeTmpProject();
+  fs.mkdirSync(path.join(cwd, '.agentic'), { recursive: true });
+  const { status } = runHook(taskPayload(cwd, 'sess-017'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  assert(events.length >= 1, 'event emitted');
+  if (events.length >= 1) {
+    assert((events[0].data || {}).parent_agent_id === null,
+      `data.parent_agent_id === null for a normal top-level spawn (got: ${JSON.stringify((events[0].data || {}).parent_agent_id)})`);
   }
   cleanup(cwd);
 }

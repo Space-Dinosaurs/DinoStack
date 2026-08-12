@@ -5,11 +5,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_DIR
 
 echo ""
-echo "agentic-engineering Hermes adapter uninstaller"
+echo "dinostack Hermes adapter uninstaller"
 echo "=============================================="
 echo ""
 
-SKILL_DST="$HOME/.hermes/skills/agentic-engineering"
+SKILL_DST="$HOME/.hermes/skills/dinostack"
 AE_CONFIG_PATH="$HOME/.hermes/agentic-engineering.json"
 
 # Remove skill symlink

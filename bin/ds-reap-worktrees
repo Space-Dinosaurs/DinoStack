@@ -1,0 +1,1442 @@
+#!/usr/bin/env python3
+"""
+Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
+         predicate (DS-worktree-reaper). The command file's Steps 2-4 have
+         always been prose an operator must read and execute by hand;
+         nothing in the codebase ever invoked it automatically, which is
+         the single largest confirmed cause of worktree accumulation (33
+         non-root worktrees measured in this repo alone, oldest from
+         2026-07-09; see the ticket brief for the full diagnosis). This
+         tool makes that predicate a real, machine-invocable command so it
+         can be wired into `bin/ds-base-sync` (advisory --count-only) and a
+         SessionStart nudge (--count-only), in addition to remaining
+         operator-invocable.
+
+         Round-2 Skeptic (1 Critical, 6 Major) rewrite. The v1 removal
+         predicate was a bespoke, second copy of evidence semantics that
+         shadowed the shared normative model and was strictly MORE
+         permissive than it (branch-gone-from-origin and PR-CLOSED were
+         both treated as sufficient alone). This version deletes that
+         second copy entirely and delegates the LOCKED/DIRTY/branch-
+         evidence decision to `bin/tests/worktree_model.py`'s
+         `disposition_for` - the same function `content/commands/
+         ds-cleanup-worktrees.md` Steps 3/4 already cite as normative for
+         live worktree removal - so this tool can no longer diverge from
+         it. See "Removal predicate" below for the full gate order,
+         including three additional safety floors `disposition_for` does
+         not know about (self-worktree, age, and gitignored-content).
+
+Classification reuses `bin/tests/worktree_model.py`'s `classify_entry`
+(path-prefix classification: `.claude/worktrees/` = ISOLATION,
+`.agentic/worktrees/` = CONDUCTOR_CREATED, anything else = UNMANAGED) - the
+single normative definition, never restated here. `evals/.worktrees/*`
+(pinned per repo decision #203) already classifies UNMANAGED under that
+model and is never touched by this tool regardless.
+
+Removal predicate (worktree REMOVAL only - `git worktree remove`, never
+`git branch -D`; a worktree's branch and its commits survive removal).
+Gate order, first match wins, ALL must clear for REMOVE:
+  1. UNMANAGED / MAIN -> never touched (classification-level exclusion,
+     before any of the gates below run at all).
+  2. Directory-missing admin entry -> SKIP_MISSING / SKIP_MISSING_LOCKED
+     (handled by `git worktree prune` at the end of the run, per the
+     existing session-start-prune unlock-then-prune pattern - see the
+     Locked handling note below for the one case where an unlock fires).
+  3. SELF (new, round-2 Major 2a) -> a worktree whose directory the
+     CURRENT PROCESS is running inside (compared via `Path.cwd()`) is
+     NEVER removed, unconditionally, before any other check. This is a
+     hard floor, not a heuristic: a v1 dry run against the live 38-
+     worktree checkout flagged this tool's OWN worktree as REMOVE.
+  4. AGE FLOOR (new, round-2 Major 2b) -> a worktree whose directory
+     mtime is within `--min-age-hours` (default 24) is never removed,
+     regardless of dirty/lock/branch state. This protects a resumable-idle
+     worktree - the harness releases its lock once an agent finishes a
+     TURN, not once the session is truly done; an unlocked, clean worktree
+     can still belong to work the operator will resume. See the Locked
+     handling note below for why this floor exists independently of
+     `SKIP_LOCKED`, not instead of it.
+  5. LOCKED (directory present) -> `disposition_for`'s own gate;
+     `SKIP_LOCKED`, unconditionally, never unlocked or force-removed here.
+  6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
+     computed together with the ignored-content check below in one call).
+  7. PROTECTED CONTENT (round-2 Major 3, round-3 OPERATOR DECISION on
+     polarity, round-4 correction inside `.agentic/`) -> gitignored
+     content is a PROTECTED DENYLIST by default, not a fail-safe
+     allowlist: a path blocks removal ONLY when it matches
+     `_PROTECTED_CONTENT_DIR_PREFIXES`/`_PROTECTED_CONTENT_BASENAME_PATTERNS`
+     below (`docs/planning/**`, `.env*`, `*.local`) -
+     `SKIP_PROTECTED_CONTENT`, reporting the offending paths. Everything
+     else ignored, INCLUDING generated adapter output (`.kimi/`, `.codex/`,
+     `.claude/skills/`) and the round-2 ephemeral set (`node_modules/`,
+     `dist/`, etc.), is disposable and does NOT block - EXCEPT
+     `.agentic/**`, which flips to the OPPOSITE polarity (see
+     `_is_agentic_disposable`'s docstring): protected by default inside
+     `.agentic/`, disposable ONLY for a small named set of routine
+     telemetry/generated-subdir/cache paths. Round 2 shipped the round-3
+     polarity's opposite (a fail-safe allowlist everywhere) and measured
+     `removed=0`; round 3 then blanket-protected `.agentic/**` and
+     ALSO measured `removed=0`, because this repo dogfoods its own
+     methodology and every worktree that has ever hosted an agent
+     accumulates routine `.agentic/events.jsonl` telemetry. Round 4 is the
+     correction: `.agentic/**` was only ever meant to protect AUTHORED
+     work (plans, notes, decisions), not routine session telemetry. The
+     round-2/round-3 allowlist behavior (for everything, including
+     `.agentic/`) remains reachable via `--strict-ignored`, UNCHANGED by
+     round 4. `.agentic/plan.md` (or any other still-protected `.agentic/`
+     path) is the highest-value entry, proven empirically: a worktree
+     holding only that file reports a CLEAN `git status --porcelain` (no
+     `--ignored` flag) and a non-force `git worktree remove` destroys it
+     silently. Before any REMOVE actually runs, `.agentic/events.jsonl`
+     (if present) is salvaged into the primary repo's
+     `.agentic/reaped-telemetry/` first - see "Telemetry salvage" below;
+     telemetry is disposable for the purpose of BLOCKING removal, but it
+     is not worthless, and a failed salvage blocks removal too.
+  8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
+     then a bare MERGED PR, then push status - `strict_pr_state=False`,
+     the same lenient grade the shared model already reserves for
+     worktree removal, since removal does not destroy commits). A
+     never-pushed branch with unique commits, or a CLOSED PR, both resolve
+     `SKIP_*` (never `ELIGIBLE`) under this model - NOT sufficient alone,
+     unlike v1's bespoke predicate.
+  9. PR-QUERY-FAILURE OVERRIDE (round-N Major fix) -> a `gh` PR-state query
+     that could not be answered at all (nonzero exit, unparseable JSON, or
+     a timeout - see `_pr_state`'s docstring) is a DISTINCT fact from "no
+     PR exists" and must never be collapsed into it. When such a failure
+     occurred AND the resulting disposition is exactly `SKIP_NOT_PUSHED` or
+     `SKIP_AMBIGUOUS_NO_PR` - the two dispositions `--archive-unproven`'s
+     whitelist below would otherwise treat as fully resolved - the entry is
+     reclassified to its own `SKIP_PR_QUERY_ERROR` outcome, never
+     `SKIP_UNPROVEN`, so it is excluded from that whitelist by
+     construction, not merely by an unlisted `reason` value. Mirrors the
+     `SKIP_LS_REMOTE_ERROR` precedent for the ls-remote leg.
+`ELIGIBLE` from `disposition_for`, with no protected-content offenders and
+no unresolved PR-query failure, is the only path to `REMOVE`. Every other
+outcome is reported, never a force-delete on an inconclusive read.
+
+Telemetry salvage (round-4 requirement, non-`--dry-run` only; round-6
+correction: applies identically on BOTH removal paths): immediately
+before `git worktree remove` runs for an entry - whether via the plain
+REMOVE loop or via `--archive-unproven`'s archive-then-remove loop -
+`<path>/.agentic/events.jsonl` (if present and non-empty) is copied into
+`<repo>/.agentic/reaped-telemetry/<branch>-<timestamp>.jsonl` and the copy
+is VERIFIED to have actually landed non-empty - `ds-cost`/retro read this
+data, so it must survive the worktree's own deletion even though it does
+not block removal on its own. Both loops call the SAME `_salvage_and_remove`
+function for this sequence, so they cannot diverge on this guarantee again
+(round-5 shipped the archive loop calling `git worktree remove` directly,
+bypassing salvage entirely - fixed in round 6). ANY salvage failure
+(unreadable source, uncreatable destination directory, copy error, or
+failed post-copy verification) blocks the remove entirely for that entry -
+a failed salvage must never become a silent deletion of the data it was
+trying to preserve. On the plain REMOVE loop this reclassifies the entry to
+`SKIP_PROTECTED_CONTENT`; on the archive loop the entry stays
+`SKIP_UNPROVEN` (its already-created, already-verified bundle is left in
+place - a failed salvage does not undo a successful archive, it only
+withholds the removal). `--dry-run` skips salvage entirely (nothing is
+copied) but still reports how many files WOULD be salvaged.
+`.agentic/reaped-telemetry/` needs no new `.gitignore` carve-out: the
+repo's existing `/.agentic/*`-style umbrella already covers any new
+top-level entry under `.agentic/`.
+
+Archiving unproven branches (round-5 requirement, `--archive-unproven`,
+OPT-IN, NEVER the default; round-6 correction to the eligible set and to
+degraded-mode handling): round 4's `SKIP_UNPROVEN` verdict on a
+never-pushed branch with real commits is correct and this tool does not
+weaken it - nothing about the predicate above changes. The gap is that
+nothing ever RESOLVES that class on its own, which is why worktrees
+accumulate indefinitely even after every other gate is passing. This repo
+already solved the identical problem for BRANCHES (`bin/ds-branch-prune`
+archived 75 unprovable branches into one verified bundle before deleting
+them, DS-153/`.agentic/branch-archive/`) - `--archive-unproven` extends
+that exact pattern to WORKTREES, but only to a narrow, EXPLICIT whitelist
+within `SKIP_UNPROVEN`, not the whole bucket. Round 5 shipped a filter on
+the `SKIP_UNPROVEN` outcome bucket alone, which silently swept in
+`SKIP_PR_OPEN` (a hard safety override - an OPEN PR is not "unresolved
+branch content", it is affirmative evidence the branch is still live work)
+and `SKIP_LS_REMOTE_ERROR` (a transient network failure, not proof of
+anything) - the "branch content itself is the ONLY unresolved question"
+claim this paragraph used to make was therefore false as written. Round 6
+fixes this: `--archive-unproven` archives ONLY entries whose underlying
+disposition (preserved in the entry's own `reason` field, and visible via
+`--explain`) is exactly `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR` -
+`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`, an explicit named whitelist so a new
+disposition added to `worktree_model.py` later is excluded by default,
+never swept in automatically. `SKIP_PR_OPEN` and `SKIP_LS_REMOTE_ERROR`
+(and any other `SKIP_UNPROVEN`-bucketed disposition not on the whitelist)
+are NEVER archived, unconditionally, even with the flag set. Separately,
+`--no-gh` (or `gh` simply being unavailable/unauthenticated) degrades
+EVERY entry's PR-state leg to inconclusive, which would otherwise make
+`SKIP_PR_OPEN` entries indistinguishable from genuinely-unprovable ones -
+`--archive-unproven` therefore REFUSES to run at all (prints an error to
+stderr and exits 1, doing no work) whenever gh evidence is unavailable or
+degraded; it never silently downgrades to a more permissive archive pass.
+That process-level refusal covers total `gh` unavailability (missing,
+unauthenticated, `--no-gh`), but NOT a transient PER-ENTRY query failure -
+`gh auth status` can succeed while a single `gh pr list` call for one
+specific branch still errors (rate limit, network blip). Round-N Major fix:
+such a failure is a distinct fact from "no PR exists" (see `_pr_state`'s
+docstring) and, when it would otherwise leave an entry resolved to exactly
+`SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR`, `evaluate_entry` reclassifies
+it to its own `SKIP_PR_QUERY_ERROR` outcome (Removal predicate gate 9,
+above) - a bucket that is never `SKIP_UNPROVEN` at all, so it is excluded
+from `_ARCHIVABLE_UNPROVEN_DISPOSITIONS` by construction, not merely by an
+unlisted `reason` value. Without this, a worktree behind a genuinely OPEN
+PR whose query happened to fail on this run would be indistinguishable from
+a genuinely-unprovable branch and could be silently archived and removed.
+For every entry that clears the whitelist (already clean, unlocked, past
+the age floor, not self, not protected-content, past the gh-evidence
+refusal check - i.e. the ONLY thing blocking it is exactly one of the two
+whitelisted unprovable-branch-evidence dispositions): (1) `git bundle
+create <repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle
+<branch>` captures the FULL branch, not just its tip; (2) the bundle is
+VERIFIED with `git bundle verify` BEFORE any removal - a create failure, a
+missing/empty bundle, or a failed verification leaves the entry
+`SKIP_UNPROVEN`, reported, worktree untouched (same discipline as the
+telemetry-salvage guard above: a failed archive must never become a
+silent deletion of the only copy of unproven work); (3) telemetry is then
+salvaged (see "Telemetry salvage" below - this loop runs the identical
+`_salvage_and_remove` sequence the plain REMOVE loop runs, never a second
+copy of it) and, only once salvage clears, the worktree is removed,
+reclassified to `ARCHIVED_AND_REMOVED` (its own reported bucket,
+`archived-and-removed=N`, keeping the bucket-sum-equals-entries invariant
+intact) and the exact restore command (`git fetch <bundle>
+"refs/heads/<branch>:refs/heads/<branch>"` - braced, per this repo's own
+documented zsh-mangling gotcha) is printed. A salvage failure at step (3)
+leaves the bundle from step (1)/(2) in place (already verified, already
+safe) but does NOT remove the worktree - the entry stays `SKIP_UNPROVEN`,
+reported. This tool NEVER deletes the branch itself, only the worktree -
+reclaiming the archived branch's own local ref remains
+`bin/ds-branch-prune`'s job, same as it already is for every other path in
+this tool. `--dry-run` creates no bundle but reports the would-be count
+(computed against the SAME whitelist). `.agentic/worktree-archive/` needs
+no new `.gitignore` carve-out (same umbrella as
+`.agentic/reaped-telemetry/`) and grows unbounded - pruning it is the
+operator's own responsibility, exactly like `.agentic/branch-archive/`.
+
+Public API (CLI):
+  ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
+                    [--explain] [--count-only] [--min-age-hours <float>]
+                    [--strict-ignored] [--archive-unproven]
+
+  --repo <path>          Repository to operate on. Default: cwd.
+  --base <ref>           Base ref to prove ancestor-of-base evidence
+                          against. Default: "origin/main".
+  --dry-run              Compute and report; remove nothing.
+  --no-gh                Force degraded mode: skip BOTH the PR-state leg
+                          AND `git ls-remote` (round-2 Major 4 - v1's
+                          --no-gh disabled only `gh`, so a "--no-gh" run
+                          still made one network round-trip per entry via
+                          `ls-remote`; measured 14.94s / ~31 entries on the
+                          live checkout). Genuinely offline: zero network
+                          calls of any kind. Degrades those legs to
+                          inconclusive - can only remove FEWER worktrees
+                          than a full run, never more.
+  --explain               Print one line per worktree entry with its
+                          outcome (default: aggregate counts only).
+  --count-only            Print ONLY `entries=N` (round-2 Major 4) - zero
+                          network calls AND zero per-entry `git` calls
+                          beyond the single `git worktree list --porcelain`
+                          already required to enumerate. This is the mode
+                          `bin/ds-base-sync`'s advisory note and
+                          `hooks/session-start-wrap.sh`'s SessionStart
+                          nudge both use - neither needs anything beyond a
+                          count. Measured 55ms via `time python3
+                          bin/ds-reap-worktrees --repo <repo> --count-only`
+                          against this repo's live 37-worktree checkout on
+                          2026-08-11 (replaces the FIRST-round `--dry-run
+                          --no-gh` figure of 14.94s against 31 entries on
+                          the same checkout, which still made one `git
+                          ls-remote` network round-trip per entry - see
+                          bin/ds-base-sync and hooks/session-start-wrap.sh's
+                          own manifests for that pre-fix figure).
+  --min-age-hours <float> Age floor in hours (see gate 4 above). Default
+                          24.
+  --strict-ignored        Round-3 escape hatch back to the round-2 default:
+                          gate 7 (PROTECTED CONTENT) becomes a fail-safe
+                          ALLOWLIST again - block unless every ignored path
+                          is covered by `_IGNORED_ALLOWLIST_*` (see gate 7
+                          above and `_PROTECTED_CONTENT_DIR_PREFIXES`'s own
+                          comment for the operator-decision rationale this
+                          flag exists to preserve). Applies UNIFORMLY,
+                          including inside `.agentic/` - round 4's
+                          inverted-polarity disposable set
+                          (`_AGENTIC_DISPOSABLE_*`) is a `--strict-ignored`
+                          bypass mechanism this flag does not use at all;
+                          under `--strict-ignored` `.agentic/events.jsonl`
+                          blocks removal exactly like round 2, unchanged.
+  --archive-unproven      OPT-IN, NEVER the default (see "Archiving
+                          unproven branches" above for the full mechanism
+                          and rationale). For every entry whose underlying
+                          disposition is exactly `SKIP_NOT_PUSHED` or
+                          `SKIP_AMBIGUOUS_NO_PR` (the explicit whitelist -
+                          NEVER `SKIP_PR_OPEN`, NEVER
+                          `SKIP_LS_REMOTE_ERROR`, and never any other
+                          `SKIP_UNPROVEN`-bucketed disposition, even
+                          though `--explain` reports all of them under the
+                          same `SKIP_UNPROVEN` outcome) - archives the full
+                          branch into a verified `git bundle` under
+                          `.agentic/worktree-archive/`, salvages telemetry,
+                          then removes the worktree. Removes WORKTREES
+                          ONLY, never branches (`bin/ds-branch-prune`
+                          remains responsible for branch deletion). A
+                          failed bundle create/verify, or a failed
+                          telemetry salvage, never removes anything - the
+                          entry stays `SKIP_UNPROVEN`. REFUSES to run
+                          (prints an error, exits 1, does no work) when gh
+                          evidence is unavailable or degraded
+                          (`--no-gh`, or `gh` missing/unauthenticated/
+                          erroring) - archiving without PR evidence could
+                          not reliably distinguish a genuinely-unprovable
+                          branch from one behind an open PR. A PER-ENTRY
+                          `gh pr list` query failure (auth fine, this one
+                          call errored/timed out/rate-limited) is also
+                          never archived: such an entry is reclassified to
+                          `SKIP_PR_QUERY_ERROR` before this whitelist check
+                          ever runs (Removal predicate gate 9), so it is
+                          never `SKIP_UNPROVEN` in the first place.
+
+Locked handling: per `content/references/worktree-lifecycle.md`
+§Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
+directory is already gone (an admin-only entry - its agent cannot still be
+running when there is no directory left to run in). This tool honors that
+guardrail exactly: a locked entry whose directory still exists is ALWAYS
+reported (`SKIP_LOCKED`), NEVER unlocked or force-removed, regardless of
+any other check - the harness's lock is cross-session protection this tool
+must never override (AGENTS.md: "The live Claude Code harness auto-locks
+every `isolation:"worktree"` worktree at creation"). A locked entry whose
+directory is already gone is handled by the admin-prune pass (`git
+worktree prune`) at the end of every non-dry-run - `git worktree unlock`
+fires first only for that directory-missing case, mirroring the session-
+start prune script's own unlock-then-prune pattern. Absence of a lock does
+NOT prove a worktree is abandoned - the harness releases the lock once an
+agent finishes a TURN, and a session can be resumed into an unlocked,
+clean worktree later (this is exactly what a round-2 review correction
+established: a v1 dry run flagged this very tool's own live worktree as
+REMOVE, which SKIP_LOCKED alone would not have caught since it was
+unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
+BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
+independent, additive protections.
+
+Upstream deps: Python 3 stdlib only (argparse, fnmatch, shutil, subprocess,
+               sys, time, pathlib, collections). `git` (CLI) and, unless
+               --no-gh, `gh` (CLI, for the PR-state leg - degrades
+               gracefully when absent or unauthenticated).
+               bin/tests/worktree_model.py (WorktreeClass, classify_entry,
+               parse_porcelain, Disposition, DispositionFacts,
+               disposition_for - imported by path exactly like
+               bin/ds-branch-prune does, so a PATH-symlink invocation
+               still finds it; disposition_for is the SOLE authority for
+               the LOCKED/DIRTY/branch-evidence decision - see the module
+               docstring's Removal predicate section for why no second
+               copy of that logic exists here after round-2).
+
+Downstream consumers: content/commands/ds-cleanup-worktrees.md (this tool
+                      is the executable form of that command's Steps 2-4
+                      predicate; the command file remains the
+                      operator-readable prose entry point);
+                      bin/ds-base-sync (advisory --count-only report
+                      appended to its tail, non-blocking, never mutates -
+                      the one guaranteed post-merge trigger point);
+                      hooks/session-start-wrap.sh (a non-blocking advisory
+                      --count-only nudge line when the non-root worktree
+                      count exceeds a small threshold, pointing at
+                      `/ds-cleanup-worktrees`; report-only, never removes
+                      anything from that call site).
+                      CI: bin/tests/test_reap_worktrees.py (pytest,
+                      auto-collected by `python3 -m pytest bin/tests/`).
+
+Failure modes: exits 0 on success INCLUDING partial degradation (gh
+               unavailable/unauthenticated/erroring/--no-gh/network
+               timeout; individual `git worktree remove` failures are
+               reported to stderr and the run continues). Exits 1 ONLY on
+               an internal/usage error: --repo is not a directory or not a
+               git repository, or an unhandled exception while
+               enumerating worktrees. Never removes a dirty, self, too-
+               young, locked, or ignored-content-bearing worktree under
+               any circumstance. Never removes `evals/.worktrees/*` -
+               those classify UNMANAGED under `classify_entry` and are
+               always reported, never touched, same as any other
+               UNMANAGED entry. Every network-touching subprocess call
+               (`git ls-remote`, `gh auth status`, `gh pr view`) is
+               wrapped with a timeout (`_NETWORK_TIMEOUT_SECONDS`); a
+               timeout degrades that leg to inconclusive exactly like a
+               `gh` error does, never a false ELIGIBLE.
+
+Performance: `--count-only` - one `git worktree list --porcelain` call,
+             nothing else (see the --count-only flag description above for
+             the re-measured figure). Full mode - the above plus, per
+             managed worktree entry: `git status --porcelain
+             --ignored=matching`, `git merge-base --is-ancestor`, and
+             (unless --no-gh) `git ls-remote` + one `gh pr view`, plus a
+             final `git worktree prune`. Not designed for repositories
+             with very large worktree counts; v1's full-mode `--no-gh`
+             run measured 14.94s across ~31 entries on the live 38-
+             worktree checkout (the network round-trip `--no-gh` failed to
+             suppress) - fixed in this round, but full mode still performs
+             real subprocess work per entry and is not the mode either
+             automatic call site uses.
+"""
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import json
+import re
+import shutil
+import subprocess
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+# --------------------------------------------------------------------------
+# Shared helpers: worktree_model.py (bin/tests/), imported by resolved path
+# so a bare PATH-symlink invocation (~/.local/bin/ds-reap-worktrees ->
+# repo bin/ds-reap-worktrees) still finds it - .resolve() follows the
+# symlink back to the real bin/ directory, matching the pattern established
+# in bin/ds-branch-prune and bin/ds-feedback.
+# --------------------------------------------------------------------------
+_BIN_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_BIN_DIR / "tests"))
+
+from worktree_model import (  # noqa: E402
+    Disposition,
+    DispositionFacts,
+    WorktreeClass,
+    classify_entry,
+    disposition_for,
+    parse_porcelain,
+)
+
+#: Every network-touching subprocess call in this file is bounded by this
+#: timeout (round-2 Major 4) - `git ls-remote`, `gh auth status`, and
+#: `gh pr view` all cross the network. A timeout degrades that evidence
+#: leg to inconclusive, identically to a `gh` error - it can only ever
+#: cause FEWER removals, never a false ELIGIBLE.
+_NETWORK_TIMEOUT_SECONDS = 8
+
+#: Round-3 OPERATOR DECISION: the gitignored-content policy is a PROTECTED
+#: DENYLIST by default, not a fail-safe allowlist. `git status --porcelain`
+#: (no `--ignored` flag) never surfaces gitignored content, and a non-force
+#: `git worktree remove` deletes it unconditionally regardless - proven
+#: empirically in a scratch repo where a worktree holding only a gitignored
+#: `.agentic/plan.md` reported a CLEAN `git status --porcelain` and was
+#: silently destroyed. Round 2 shipped the opposite polarity (a fail-safe
+#: ALLOWLIST - block unless the ignored path is a known-ephemeral
+#: build/dependency artifact) and measured `removed=0` against the live
+#: checkout: nearly every worktree here carries generated adapter output
+#: (`.kimi/skills/*/`, etc.) that isn't a build artifact by name but also
+#: isn't irreplaceable, so the allowlist blocked everything and the tool
+#: reaped nothing - the ORIGINAL complaint this ticket exists to fix. The
+#: operator explicitly traded a small unanticipated-authored-file risk
+#: (an ignored file outside this protected set that turns out to matter,
+#: which this denylist will not catch) for a tool that actually reaps by
+#: default. The old fail-safe allowlist remains available via
+#: `--strict-ignored` for an operator who wants the more conservative
+#: (and, per round 2's own measurement, far less useful) behavior instead.
+#: Single named constant, per the operator decision - do not scatter these
+#: patterns elsewhere. `docs/planning/**` (gitignored plans) and
+#: `.env*`/`*.local` (secrets/local config) are simple always-protected
+#: prefixes/patterns. `.agentic/**` is handled separately, below, by
+#: `_is_agentic_disposable` - round 4 inverted the polarity INSIDE
+#: `.agentic/` specifically (see that function's docstring).
+_PROTECTED_CONTENT_DIR_PREFIXES = ("docs/planning",)
+_PROTECTED_CONTENT_BASENAME_PATTERNS = (
+    ".env*",  # secrets
+    "*.local",  # local config
+)
+
+#: Round-4 OPERATOR DECISION (correcting round 3): `.agentic/**` was meant
+#: to protect AUTHORED work (plans, notes, decisions), not routine
+#: telemetry - round 3's blanket `.agentic/**` protection swept in
+#: `.agentic/events.jsonl` and friends, and because this repo dogfoods its
+#: own methodology every worktree that has ever hosted an agent
+#: accumulates that telemetry, making protection effectively universal
+#: and measuring `removed=0` again. The rule INSIDE `.agentic/` is now
+#: INVERTED relative to everywhere else: everything under `.agentic/` is
+#: PROTECTED by default (fail-safe - an unanticipated new file blocks,
+#: never silently vanishes) EXCEPT this named disposable set. Do not
+#: scatter these patterns elsewhere either - see `_is_agentic_disposable`.
+_AGENTIC_DISPOSABLE_DIR_NAMES = (
+    "wrap",
+    "codex-prompt-generation",
+    "hud",
+    "cache",  # ordinary cache dirs
+    "__pycache__",  # ordinary cache dirs
+    ".cache",  # ordinary cache dirs
+)
+_AGENTIC_DISPOSABLE_BASENAME_PATTERNS = (
+    "*.jsonl",  # events.jsonl and any other telemetry log
+    "tracker-states.json",
+    ".skill-candidate-tally.json",
+    "worktree-cleanup-skips.jsonl",  # also covered by *.jsonl above; named explicitly per the operator's own list
+)
+
+#: Ephemeral/regenerable allowlist - the round-2 default, kept reachable
+#: via `--strict-ignored` (round-3). Under `--strict-ignored`, an ignored
+#: path blocks removal UNLESS it is covered here; everything else ignored
+#: (including generated adapter output like `.kimi/`, `.codex/`,
+#: `.claude/skills/`) is treated as potentially irreplaceable and blocks.
+_IGNORED_ALLOWLIST_DIR_NAMES = (
+    "node_modules",
+    "dist",
+    "build",
+    ".venv",
+    "__pycache__",
+    ".next",
+    "target",
+    "coverage",
+)
+_IGNORED_ALLOWLIST_PATTERNS = (".DS_Store", "*.log")
+
+#: Round-6 correction (Skeptic Major 2): the EXPLICIT whitelist of
+#: `Disposition` values `--archive-unproven` is permitted to archive. Named
+#: and closed by construction - a disposition NOT on this set is excluded
+#: by default, including any added to `worktree_model.py` later. Round 5's
+#: bug was filtering on the `SKIP_UNPROVEN` outcome bucket alone (see
+#: `evaluate_entry`), which silently swept in `SKIP_PR_OPEN` (a hard safety
+#: override - an OPEN PR is affirmative evidence of live work, never
+#: "unresolved branch content") and `SKIP_LS_REMOTE_ERROR` (a transient
+#: network failure, not proof of anything). Only these two dispositions
+#: mean "the branch content itself is the ONLY unresolved question":
+#: `SKIP_NOT_PUSHED` (branch never reached origin at all) and
+#: `SKIP_AMBIGUOUS_NO_PR` (every evidence source was inconclusive - no PR,
+#: no merge evidence, no subsumption proof) - PROVIDED the PR-state query
+#: that helped produce that disposition actually succeeded (see
+#: `evaluate_entry`'s gate 9 / `SKIP_PR_QUERY_ERROR`: a per-entry `gh pr
+#: list` failure reclassifies the entry to a bucket that is never
+#: `SKIP_UNPROVEN` at all, so this whitelist never even sees it). See the
+#: module docstring's "Archiving unproven branches" section for the full
+#: rationale, including why `--archive-unproven` additionally refuses to
+#: run in degraded gh mode rather than relying on this whitelist alone.
+_ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
+    {
+        Disposition.SKIP_NOT_PUSHED.value,
+        Disposition.SKIP_AMBIGUOUS_NO_PR.value,
+    }
+)
+
+
+# --------------------------------------------------------------------------
+# git/gh plumbing
+# --------------------------------------------------------------------------
+
+
+def _run(
+    args: List[str], cwd: Optional[str] = None, timeout: Optional[float] = None
+) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Synthetic failure result - callers treat any nonzero returncode as
+        # "could not determine", never as proof of anything. rc=124 mirrors
+        # the shell convention for a timed-out command.
+        return subprocess.CompletedProcess(args, returncode=124, stdout="", stderr=f"timeout after {timeout}s")
+
+
+def _resolve_repo(path: str) -> str:
+    p = Path(path).expanduser()
+    if not p.is_dir():
+        raise ValueError(f"not a directory: {path}")
+    proc = _run(["git", "-C", str(p), "rev-parse", "--show-toplevel"])
+    if proc.returncode != 0:
+        raise ValueError(f"not a git repository: {path}")
+    return proc.stdout.strip()
+
+
+def _worktree_list(repo: str) -> str:
+    proc = _run(["git", "-C", repo, "worktree", "list", "--porcelain"])
+    if proc.returncode != 0:
+        raise RuntimeError(f"git worktree list failed: {proc.stderr.strip()}")
+    return proc.stdout
+
+
+def _is_allowlisted_ignored_path(rel_path: str) -> bool:
+    """`--strict-ignored` mode (round-3): True when `rel_path` is covered
+    by the ephemeral/regenerable allowlist - i.e. safe to ignore."""
+    parts = rel_path.strip("/").split("/")
+    if any(part in _IGNORED_ALLOWLIST_DIR_NAMES for part in parts):
+        return True
+    basename = parts[-1] if parts else rel_path
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
+
+
+def _is_agentic_disposable(sub_parts: List[str]) -> bool:
+    """Round 4: `sub_parts` is a path INSIDE `.agentic/`, given as its
+    segments AFTER the leading `.agentic` segment (e.g. `.agentic/wrap/lock`
+    -> `["wrap", "lock"]`). Returns True only when it is on the named
+    disposable set (`_AGENTIC_DISPOSABLE_DIR_NAMES` /
+    `_AGENTIC_DISPOSABLE_BASENAME_PATTERNS`) - the INVERTED default for
+    everywhere else in `_is_protected_ignored_path`: inside `.agentic/`,
+    NOT being disposable means PROTECTED (fail-safe - an unanticipated new
+    file under `.agentic/` blocks removal, it does not silently vanish).
+    A bare/collapsed `.agentic/` entry (whole directory ignored as one
+    unit, `sub_parts == []`) is never disposable - it could contain a
+    protected file mixed in and there is no way to tell from a collapsed
+    entry alone, so it fails closed as protected.
+    """
+    if not sub_parts:
+        return False
+    if sub_parts[0] in _AGENTIC_DISPOSABLE_DIR_NAMES:
+        return True
+    basename = sub_parts[-1]
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _AGENTIC_DISPOSABLE_BASENAME_PATTERNS)
+
+
+def _is_protected_ignored_path(rel_path: str) -> bool:
+    """Default mode (round-3 operator decision, round-4 correction inside
+    `.agentic/`): True when `rel_path` blocks removal, False when it is
+    disposable.
+
+    `.agentic/**` is handled FIRST and separately, with INVERTED polarity
+    from the rest of this function (see `_is_agentic_disposable`'s
+    docstring): protected by default, disposable only for the named set.
+    Everywhere else (`docs/planning/**`, `.env*`, `*.local`), the round-3
+    polarity is unchanged: protected ONLY when it matches one of those
+    patterns; everything else is disposable.
+
+    A directory-form ignore entry (e.g. `git status --ignored=matching`
+    reporting a collapsed `docs/planning/` when the whole directory is
+    ignored, rather than descending into it) is matched as a PREFIX via
+    the leading path segments, not only as an exact filename.
+    """
+    normalized = rel_path.strip("/")
+    parts = normalized.split("/")
+
+    if parts[0] == ".agentic":
+        return not _is_agentic_disposable(parts[1:])
+
+    for prefix in _PROTECTED_CONTENT_DIR_PREFIXES:
+        prefix_parts = prefix.split("/")
+        if parts[: len(prefix_parts)] == prefix_parts:
+            return True
+    basename = parts[-1] if parts else normalized
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _PROTECTED_CONTENT_BASENAME_PATTERNS)
+
+
+def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[str, List[str]]:
+    """Single combined `git status --porcelain --ignored=matching` call.
+    Returns (dirty_status, offending_ignored_paths). dirty_status is
+    "clean" | "dirty" - a git error fails CLOSED as "dirty" (never a
+    silent "clean" on an indeterminate read). `offending_ignored_paths` is
+    the list of ignored relative paths that BLOCK removal under the active
+    mode: everything NOT on the ephemeral allowlist when `strict_ignored`
+    is True (round-2 behavior), or everything matching the protected
+    denylist when `strict_ignored` is False (round-3 default - see
+    `_is_protected_ignored_path`'s docstring and the operator-decision
+    comment on `_PROTECTED_CONTENT_DIR_PREFIXES` above).
+    """
+    proc = _run(["git", "-C", worktree_path, "status", "--porcelain", "--ignored=matching"])
+    if proc.returncode != 0:
+        return "dirty", []
+    offenders: List[str] = []
+    has_dirty_line = False
+    for line in proc.stdout.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("!! "):
+            rel = line[3:]
+            blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel)
+            if blocked:
+                offenders.append(rel)
+        else:
+            has_dirty_line = True
+    return ("dirty" if has_dirty_line else "clean"), offenders
+
+
+def _ls_remote_status(repo: str, branch: str) -> str:
+    """Returns "pushed" | "not_pushed" | "error"."""
+    proc = _run(
+        ["git", "-C", repo, "ls-remote", "--exit-code", "--heads", "origin", branch],
+        timeout=_NETWORK_TIMEOUT_SECONDS,
+    )
+    if proc.returncode == 0:
+        return "pushed"
+    if proc.returncode == 2:
+        return "not_pushed"
+    return "error"
+
+
+def _is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
+    proc = _run(["git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant])
+    return proc.returncode == 0
+
+
+def _gh_available(repo: str, no_gh: bool) -> bool:
+    if no_gh or shutil.which("gh") is None:
+        return False
+    proc = _run(["gh", "auth", "status"], cwd=repo, timeout=_NETWORK_TIMEOUT_SECONDS)
+    return proc.returncode == 0
+
+
+def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
+    """Returns `(state, query_errored)`.
+
+    `state` is one of `"OPEN"` | `"MERGED"` | `"CLOSED"` | `"NONE"` |
+    `"not_checked"` - the same vocabulary `DispositionFacts.pr_state`
+    already documents. `query_errored` is True ONLY when the query itself
+    could not be answered (nonzero exit, unparseable/unexpected JSON, or a
+    network timeout) - this is a DISTINCT fact from `state == "NONE"` (a
+    genuine, successfully-confirmed absence of any PR for this branch) and
+    callers MUST NEVER collapse the two, or a transient `gh` failure
+    (rate limit, auth hiccup, network blip) on a branch that actually has
+    an OPEN PR becomes indistinguishable from a branch that was never
+    opened at all - the exact ambiguity that let `--archive-unproven`
+    silently archive-and-remove a worktree behind a live PR (see the
+    module docstring's "Archiving unproven branches" section).
+
+    Runs the LITERAL argv `gh pr list --head <branch> --state all --json
+    number,state` (no `--limit`) rather than `gh pr view <branch>` - `gh pr
+    view` exits nonzero IDENTICALLY for "no PR exists for this branch" and
+    for a genuine query failure, which is exactly the ambiguity this
+    function exists to resolve. `gh pr list` exits 0 and returns `[]` on a
+    genuine no-PR branch, so any nonzero exit or unparseable/malformed JSON
+    here is unambiguous evidence of a QUERY failure, never proof of
+    absence. `--state all` is required - the command's own default is
+    open-only, which would silently misreport a MERGED/CLOSED PR as "no
+    PR" - but `--state all` alone does NOT prevent misreporting a
+    multi-PR head branch: a branch can carry more than one PR over its
+    lifetime (e.g. closed-then-reopened-as-new, or a merged PR followed by
+    a fresh one), and `gh pr list` orders results CREATED_AT DESC with no
+    OPEN-first preference. A round-N Major fix removed a `--limit 1` that
+    truncated to the single newest row and picked it by construction,
+    which silently masked a live OPEN PR behind a more recent CLOSED or
+    MERGED one - verified live against this repo (`gh pr list --state all
+    --limit 5 --json number,state,createdAt` returned strict newest-first
+    order spanning OPEN/MERGED/CLOSED). The fix below fetches every row
+    (no `--limit`) and explicitly prefers OPEN over recency - see the
+    selection logic itself.
+    """
+    proc = _run(
+        ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"],
+        cwd=repo,
+        timeout=_NETWORK_TIMEOUT_SECONDS,
+    )
+    if proc.returncode != 0:
+        return "not_checked", True
+    try:
+        rows = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return "not_checked", True
+    if not isinstance(rows, list):
+        return "not_checked", True
+    if not rows:
+        return "NONE", False
+    # Select by SAFETY, not recency: if ANY row is OPEN, that is the
+    # disposition-relevant fact regardless of how many other PRs (older or
+    # newer) also exist for this head branch - an OPEN PR is a hard safety
+    # override (see Disposition.SKIP_PR_OPEN) and must never be masked by a
+    # more recent CLOSED/MERGED row. Only fall back to the first row
+    # (`gh pr list`'s own CREATED_AT DESC order) when no row is OPEN - do
+    # NOT silently restore recency-only selection here on a later refactor.
+    states: List[str] = []
+    for row in rows:
+        state = row.get("state") if isinstance(row, dict) else None
+        if not state or not isinstance(state, str):
+            return "not_checked", True
+        states.append(state.upper())
+    if "OPEN" in states:
+        return "OPEN", False
+    return states[0], False
+
+
+def _is_self_worktree(entry_path: str) -> bool:
+    """True when the CURRENT PROCESS is running from inside `entry_path`
+    (round-2 Major 2a) - compared via `Path.cwd()`, resolved, against the
+    entry's own resolved path. A v1 dry run flagged this tool's own live
+    worktree as REMOVE; this is the absolute floor that makes that
+    structurally impossible, independent of lock state.
+    """
+    try:
+        cwd = Path.cwd().resolve()
+        wt = Path(entry_path).resolve()
+    except OSError:
+        return False
+    return cwd == wt or wt in cwd.parents
+
+
+def _worktree_age_hours(entry_path: str) -> Optional[float]:
+    """Hours since `entry_path`'s own mtime, or None if it cannot be
+    stat'd (treated as "too young" by the caller - fail closed, never
+    remove on an indeterminate age).
+    """
+    try:
+        mtime = Path(entry_path).stat().st_mtime
+    except OSError:
+        return None
+    return (time.time() - mtime) / 3600.0
+
+
+_BRANCH_SAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _worktree_has_salvageable_telemetry(worktree_path: str) -> bool:
+    """True when `<worktree_path>/.agentic/events.jsonl` exists and is
+    non-empty - i.e. there is something for `_salvage_telemetry` to
+    actually salvage. Used both by the real salvage path and by the
+    --dry-run "would salvage" count, so the two can never disagree about
+    what counts as salvageable.
+    """
+    src = Path(worktree_path) / ".agentic" / "events.jsonl"
+    try:
+        return src.is_file() and src.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _salvage_telemetry(repo: str, worktree_path: str, branch: Optional[str]) -> Tuple[bool, str]:
+    """Round-4 requirement: copies `<worktree_path>/.agentic/events.jsonl`
+    into `<repo>/.agentic/reaped-telemetry/<branch>-<timestamp>.jsonl`
+    BEFORE the worktree is removed - telemetry is disposable for the
+    purpose of BLOCKING removal, but it is not worthless (ds-cost /
+    retro read it), so it must survive the worktree's own deletion.
+
+    Returns (ok, detail). `ok=True` covers two cases: (a) there was
+    nothing to salvage (no `events.jsonl`, or it is empty) - a no-op,
+    correctly not blocking removal; (b) the copy succeeded AND was
+    verified to have actually landed non-empty at the destination.
+    `ok=False` on ANY other failure (source unreadable, destination
+    directory uncreatable, copy error, or post-copy verification
+    failing) - the caller MUST NOT remove the worktree when `ok=False`;
+    a failed salvage must never become a silent deletion of the telemetry
+    it was trying to preserve.
+
+    `.agentic/reaped-telemetry/` needs no new `.gitignore` carve-out: the
+    existing `/.agentic/*` umbrella (content/.gitignore's own root-level
+    entry, unchanged by this ticket) already covers any new top-level
+    entry under `.agentic/`, including this one.
+    """
+    if not _worktree_has_salvageable_telemetry(worktree_path):
+        return True, "nothing to salvage"
+
+    src = Path(worktree_path) / ".agentic" / "events.jsonl"
+    dest_dir = Path(repo) / ".agentic" / "reaped-telemetry"
+    branch_safe = _BRANCH_SAFE_CHARS_RE.sub("_", branch) if branch else "unknown-branch"
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    dest = dest_dir / f"{branch_safe}-{timestamp}.jsonl"
+
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dest))
+    except OSError as exc:
+        return False, f"copy to {dest} failed: {exc}"
+
+    # Verify the copy actually landed and is non-empty - never trust a
+    # copy call's own success return alone (e.g. a race, a filesystem
+    # quirk, or a partial write could still leave nothing usable behind).
+    try:
+        if not dest.is_file() or dest.stat().st_size == 0:
+            return False, f"copy to {dest} did not verify (missing or empty)"
+    except OSError as exc:
+        return False, f"verification of {dest} failed: {exc}"
+
+    return True, f"salvaged to {dest}"
+
+
+def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) -> Dict:
+    """Round-6 requirement (Skeptic Major 1): the SINGLE salvage-then-remove
+    sequence both the plain REMOVE loop and the `--archive-unproven`
+    archive loop call - round 5 shipped the archive loop calling
+    `git worktree remove` directly, bypassing `_salvage_telemetry`
+    entirely, so an unproven worktree holding real telemetry was silently
+    destroyed with `salvaged=0`. Factoring this into one function makes
+    that divergence structurally impossible: neither loop may call
+    `git worktree remove` on a REMOVE/ARCHIVED_AND_REMOVED-bound entry
+    except through here.
+
+    Returns a dict with keys:
+      `salvage_failed` - True when `_salvage_telemetry` returned `ok=False`.
+                          `removed` and `salvaged` are both False/irrelevant
+                          when this is True - `git worktree remove` is
+                          NEVER invoked when salvage fails (same guard
+                          `_salvage_telemetry`'s own docstring requires).
+      `salvaged`        - True when telemetry was actually copied (not
+                          merely "nothing to salvage").
+      `removed`         - True when `git worktree remove` succeeded.
+      `detail`          - the salvage failure detail (when `salvage_failed`)
+                          or the `git worktree remove` stderr (when
+                          `not removed`), else "".
+    """
+    salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
+    if not salvage_ok:
+        return {"salvage_failed": True, "salvaged": False, "removed": False, "detail": salvage_detail}
+
+    salvaged = salvage_detail.startswith("salvaged to ")
+    proc = _run(["git", "-C", repo, "worktree", "remove", worktree_path])
+    if proc.returncode == 0:
+        return {"salvage_failed": False, "salvaged": salvaged, "removed": True, "detail": ""}
+    return {"salvage_failed": False, "salvaged": salvaged, "removed": False, "detail": proc.stderr.strip()}
+
+
+def _restore_command(bundle_path: str, branch: str) -> str:
+    """The exact restore command for a bundle archived by
+    `_archive_branch_bundle` below. Per this repo's own documented
+    gotcha (AGENTS.md: "Brace any shell expansion followed by a literal
+    `:` in a refspec"), the branch variable is braced in the refspec -
+    an unbraced `$VAR:` is mangled by zsh.
+    """
+    return f'git fetch {bundle_path} "refs/heads/{branch}:refs/heads/{branch}"'
+
+
+def _archive_branch_bundle(repo: str, branch: str) -> Tuple[bool, str, Optional[str]]:
+    """Round-5 requirement: archives the FULL branch `branch` (not just
+    its tip) into `<repo>/.agentic/worktree-archive/<branch>-<timestamp>.
+    bundle` via `git bundle create`, then VERIFIES the bundle with
+    `git bundle verify` BEFORE the caller may remove anything - same
+    discipline as `_salvage_telemetry`'s own guard: this tool proves
+    subsumption is unprovable (`SKIP_UNPROVEN`) for these branches, so
+    the archive is the ONLY remaining copy of unpushed work once the
+    worktree is gone. This tool archives and removes WORKTREES only - it
+    never deletes the branch itself (`git branch -D` is deliberately not
+    called here); reclaiming the archived branch's own local ref remains
+    `bin/ds-branch-prune`'s job (DS-153), same as it already is for every
+    other worktree-removal path in this tool.
+
+    Returns (ok, detail, bundle_path). `ok=False` on ANY failure (archive
+    directory uncreatable, `git bundle create` error, a missing/empty
+    bundle file after create, or `git bundle verify` failing) - the
+    caller MUST NOT remove the worktree when `ok=False`; a failed archive
+    must never become a silent deletion of the only copy of unproven
+    work. `bundle_path` is None whenever `ok=False`.
+
+    `.agentic/worktree-archive/` needs no new `.gitignore` carve-out for
+    the same reason `.agentic/reaped-telemetry/` does not (see
+    `_salvage_telemetry`'s docstring): the existing `/.agentic/*`
+    umbrella already covers any new top-level entry under `.agentic/`.
+    This directory grows unbounded - pruning it is the operator's own
+    responsibility, exactly like `.agentic/branch-archive/`
+    (`bin/ds-branch-prune`'s own precedent for this exact pattern).
+    """
+    archive_dir = Path(repo) / ".agentic" / "worktree-archive"
+    branch_safe = _BRANCH_SAFE_CHARS_RE.sub("_", branch)
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    bundle_path = archive_dir / f"{branch_safe}-{timestamp}.bundle"
+
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"could not create archive directory {archive_dir}: {exc}", None
+
+    proc = _run(["git", "-C", repo, "bundle", "create", str(bundle_path), branch])
+    if proc.returncode != 0:
+        return False, f"git bundle create failed: {proc.stderr.strip()}", None
+
+    try:
+        if not bundle_path.is_file() or bundle_path.stat().st_size == 0:
+            return False, f"bundle {bundle_path} missing or empty after create", None
+    except OSError as exc:
+        return False, f"could not stat {bundle_path}: {exc}", None
+
+    verify_proc = _run(["git", "-C", repo, "bundle", "verify", str(bundle_path)])
+    if verify_proc.returncode != 0:
+        return False, f"git bundle verify failed: {verify_proc.stderr.strip()}", None
+
+    return True, "archived and verified", str(bundle_path)
+
+
+# --------------------------------------------------------------------------
+# Per-entry evidence + evaluation (round-2: delegates the LOCKED/DIRTY/
+# branch-evidence decision entirely to worktree_model.disposition_for -
+# see the module docstring's Removal predicate section)
+# --------------------------------------------------------------------------
+
+
+def _build_facts(
+    repo: str,
+    entry,
+    dirty_status: str,
+    base_ref: str,
+    gh_ok: bool,
+    allow_network: bool,
+) -> Tuple[DispositionFacts, bool]:
+    """Returns `(facts, pr_query_errored)`. `pr_query_errored` is True only
+    when `_pr_state` could not answer the PR-state query at all - see that
+    function's own docstring for why this must never be folded into
+    `facts.pr_state == "NONE"` (the shared `worktree_model.py` vocabulary
+    has no slot for "the query itself failed", so that distinction is
+    carried as a separate fact here and resolved by the caller, never
+    inside `disposition_for`).
+    """
+    merge_evidence = "not_checked"
+    ls_remote_status = "not_checked"
+    pr_state = "not_checked"
+    pr_query_errored = False
+
+    if entry.branch is not None:
+        merge_evidence = "merged" if _is_ancestor(repo, entry.branch, base_ref) else "unmerged"
+        if allow_network:
+            ls_remote_status = _ls_remote_status(repo, entry.branch)
+        if gh_ok:
+            pr_state, pr_query_errored = _pr_state(repo, entry.branch)
+
+    facts = DispositionFacts(
+        dirty_status=dirty_status,
+        head_reachable="not_checked",
+        ls_remote_status=ls_remote_status,
+        merge_evidence=merge_evidence,
+        content_subsumption="not_checked",
+        pr_state=pr_state,
+    )
+    return facts, pr_query_errored
+
+
+def _display_reason(facts: DispositionFacts) -> str:
+    """Informational only - does not affect the decision, which is fully
+    delegated to `disposition_for`. Mirrors that function's own evidence
+    precedence for a human-readable --explain label.
+    """
+    if facts.merge_evidence == "merged":
+        return "ancestor-of-base"
+    if facts.pr_state == "MERGED":
+        return "pr-merged"
+    return "eligible"
+
+
+def evaluate_entry(
+    repo: str,
+    entry,
+    wt_class: WorktreeClass,
+    base_ref: str,
+    gh_ok: bool,
+    allow_network: bool,
+    min_age_hours: float,
+    strict_ignored: bool,
+) -> Dict:
+    """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
+    SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
+    SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT, SKIP_PR_QUERY_ERROR,
+    SKIP_UNPROVEN, REMOVE.
+    """
+    base = {"path": entry.path, "branch": entry.branch, "class": wt_class.value}
+
+    if wt_class is WorktreeClass.UNMANAGED:
+        return {**base, "outcome": "SKIP_UNMANAGED"}
+
+    exists = Path(entry.path).is_dir()
+    if not exists:
+        # Admin-only entry (directory already gone). Unlock if locked (the
+        # ONLY case the guardrail permits unlocking - its agent cannot
+        # still be running when the directory is gone) so `git worktree
+        # prune` at the end can actually reclaim it.
+        if entry.locked:
+            return {**base, "outcome": "SKIP_MISSING_LOCKED"}
+        return {**base, "outcome": "SKIP_MISSING"}
+
+    if _is_self_worktree(entry.path):
+        return {**base, "outcome": "SKIP_SELF"}
+
+    age_hours = _worktree_age_hours(entry.path)
+    if age_hours is None or age_hours < min_age_hours:
+        return {**base, "outcome": "SKIP_TOO_YOUNG"}
+
+    dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored)
+    facts, pr_query_errored = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
+    disposition = disposition_for(entry, wt_class, facts)
+
+    if disposition is Disposition.SKIP_LOCKED:
+        # Guardrail: never unlock or force-remove a worktree whose
+        # directory still exists - its agent may still be running (and
+        # absence of a lock elsewhere does not imply this one is stale -
+        # see the module docstring's Locked handling note).
+        return {**base, "outcome": "SKIP_LOCKED"}
+    if disposition is Disposition.SKIP_DIRTY:
+        return {**base, "outcome": "SKIP_DIRTY"}
+    if ignored_offenders:
+        return {**base, "outcome": "SKIP_PROTECTED_CONTENT", "offenders": ignored_offenders[:5]}
+    # MAJOR fix: a transient `gh` PR-query FAILURE is a distinct fact from
+    # "no PR exists" (see `_pr_state`'s docstring). `disposition_for` has no
+    # way to see `pr_query_errored` - it only sees `facts.pr_state`, which
+    # this tool sets to "not_checked" on a query failure, identical to what
+    # it would be with `gh` fully unavailable. That is fine EXCEPT when the
+    # resulting disposition is one this tool's own `--archive-unproven`
+    # whitelist (`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`) would later treat as
+    # "the branch content itself is the ONLY unresolved question" -
+    # `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR`. A query failure on
+    # EITHER of those means the branch evidence is not actually fully
+    # resolved (there may be a live OPEN PR the query simply could not see),
+    # so this reclassifies to its OWN outcome bucket - never `SKIP_UNPROVEN`
+    # - which is therefore excluded from the archive whitelist by
+    # construction, not merely by an unlisted `reason` value. Mirrors the
+    # `SKIP_LS_REMOTE_ERROR` precedent: a query failure is never silently
+    # treated as proof of anything.
+    if pr_query_errored and disposition in (Disposition.SKIP_NOT_PUSHED, Disposition.SKIP_AMBIGUOUS_NO_PR):
+        return {
+            **base,
+            "outcome": "SKIP_PR_QUERY_ERROR",
+            "reason": f"gh pr query failed (would-be {disposition.value})",
+        }
+    if disposition is Disposition.ELIGIBLE:
+        return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
+    return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="ds-reap-worktrees",
+        description="Executable implementation of the /ds-cleanup-worktrees removal predicate.",
+    )
+    p.add_argument("--repo", default=".")
+    p.add_argument("--base", default="origin/main")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--no-gh", action="store_true")
+    p.add_argument("--explain", action="store_true")
+    p.add_argument("--count-only", action="store_true")
+    p.add_argument("--min-age-hours", type=float, default=24.0)
+    p.add_argument("--strict-ignored", action="store_true")
+    p.add_argument("--archive-unproven", action="store_true")
+    return p.parse_args(argv)
+
+
+#: Every outcome `evaluate_entry`/the MAIN-entry/UNMANAGED-entry branches in
+#: `main()` can produce - used to assert the bucket-sum-equals-entries
+#: invariant (round-2 Minor a) and to build the summary line's field set.
+_ALL_OUTCOMES = (
+    "SKIP_MAIN",
+    "SKIP_UNMANAGED",
+    "SKIP_MISSING",
+    "SKIP_MISSING_LOCKED",
+    "SKIP_SELF",
+    "SKIP_TOO_YOUNG",
+    "SKIP_LOCKED",
+    "SKIP_DIRTY",
+    "SKIP_PROTECTED_CONTENT",
+    "SKIP_PR_QUERY_ERROR",
+    "SKIP_UNPROVEN",
+    "SKIP_REMOVE_FAILED",
+    "ARCHIVED_AND_REMOVED",
+    "REMOVE",
+)
+
+
+def _field_name(outcome: str) -> str:
+    """`SKIP_TOO_YOUNG` -> `skipped-too-young` for the summary line."""
+    return outcome.lower().replace("skip_", "skipped-").replace("_", "-")
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    try:
+        repo = _resolve_repo(args.repo)
+    except ValueError as exc:
+        print(f"ds-reap-worktrees: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        porcelain = _worktree_list(repo)
+        entries = parse_porcelain(porcelain)
+    except (RuntimeError, ValueError) as exc:
+        print(f"ds-reap-worktrees: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - internal error, report and exit 1
+        print(f"ds-reap-worktrees: internal error: {exc}", file=sys.stderr)
+        return 1
+
+    # --count-only (round-2 Major 4): zero network calls, zero per-entry
+    # git calls - the SINGLE `git worktree list --porcelain` call above is
+    # the entire cost. Both automatic call sites (ds-base-sync, the
+    # SessionStart nudge) use this mode exclusively.
+    if args.count_only:
+        print(f"ds-reap-worktrees: mode=count-only entries={len(entries)}")
+        return 0
+
+    # Round-6 (Skeptic Major 2): `--archive-unproven` REFUSES to run at all
+    # in degraded gh mode - a real `gh_ok`/`degraded` computed here, ahead
+    # of the (rare) empty-entries branch below, so the refusal check and
+    # every other consumer of `degraded` share the SAME evidence, never a
+    # second independent `_gh_available` call that could disagree with it.
+    # `--count-only` above already returned before this point, so this
+    # computation still costs zero network calls in that mode.
+    gh_ok = _gh_available(repo, args.no_gh)
+    allow_network = not args.no_gh
+    degraded = not gh_ok
+
+    if args.archive_unproven and degraded:
+        print(
+            "ds-reap-worktrees: --archive-unproven requires PR evidence (gh) and refuses to "
+            "run in degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - "
+            "archiving without PR evidence cannot reliably distinguish a genuinely-unprovable "
+            "branch from one behind an open PR. Re-run with `gh` authenticated and without "
+            "--no-gh, or omit --archive-unproven.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not entries:
+        # Practically unreachable against a real git repo (`git worktree
+        # list --porcelain` always emits at least the main worktree), but
+        # the mode string is still composed from the SAME dry-run/degraded
+        # axes as the populated-entries path below, not hardcoded "live".
+        empty_mode_parts = []
+        if degraded:
+            empty_mode_parts.append("degraded (gh unavailable)")
+        if args.dry_run:
+            empty_mode_parts.append("dry-run")
+        empty_mode = ", ".join(empty_mode_parts) if empty_mode_parts else "live"
+        empty_fields = " ".join(f"{_field_name(o)}=0" for o in _ALL_OUTCOMES if o != "REMOVE")
+        print(
+            f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 "
+            f"{empty_fields} pruned-admin=0 salvaged=0"
+        )
+        return 0
+
+    results = []
+    for idx, entry in enumerate(entries):
+        is_main = idx == 0
+        wt_class = classify_entry(entry, host=repo, repo_root=repo, is_main=is_main)
+        if is_main:
+            results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
+            continue
+        results.append(
+            evaluate_entry(
+                repo, entry, wt_class, args.base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+            )
+        )
+
+    # Bucket-membership invariant (round-2 Minor a, round-6 correction):
+    # every result must land in exactly one of _ALL_OUTCOMES - fail loudly
+    # (internal error) rather than silently under/over-counting the summary
+    # line. The old `sum(outcome_counts.values()) == len(results)` assert
+    # below this comment was TAUTOLOGICAL - `Counter(r["outcome"] for r in
+    # results)` sums to `len(results)` by construction regardless of what
+    # the outcome strings actually are, so it could never fail; the
+    # `unknown_outcomes` check above it is the only real guard here and is
+    # kept alone.
+    outcome_counts = Counter(r["outcome"] for r in results)
+    unknown_outcomes = set(outcome_counts) - set(_ALL_OUTCOMES)
+    if unknown_outcomes:
+        print(f"ds-reap-worktrees: internal error: unrecognized outcome(s) {sorted(unknown_outcomes)}", file=sys.stderr)
+        return 1
+
+    remove_results = [r for r in results if r["outcome"] == "REMOVE"]
+
+    removed = 0
+    salvaged = 0
+    salvage_would = 0
+    if not args.dry_run:
+        for r in remove_results:
+            path = r["path"]
+            # Round-4 requirement, round-6 refactor (Skeptic Major 1): the
+            # salvage-then-remove sequence now lives in ONE function,
+            # `_salvage_and_remove`, shared with the --archive-unproven
+            # loop below - see that function's docstring for why (round 5
+            # shipped the archive loop bypassing salvage entirely by
+            # calling `git worktree remove` directly).
+            outcome = _salvage_and_remove(repo, path, r.get("branch"))
+            if outcome["salvage_failed"]:
+                print(
+                    f"WARNING: telemetry salvage failed for {path} (branch={r.get('branch')}): "
+                    f"{outcome['detail']} - worktree NOT removed",
+                    file=sys.stderr,
+                )
+                r["outcome"] = "SKIP_PROTECTED_CONTENT"
+                r["offenders"] = [f"salvage-failed: {outcome['detail']}"]
+                continue
+            if outcome["salvaged"]:
+                salvaged += 1
+            if outcome["removed"]:
+                removed += 1
+                print(f"REMOVED {path} (branch={r['branch']}, reason={r['reason']})")
+            else:
+                # Round-6 Minor b: a failed `git worktree remove` used to
+                # leave this entry's outcome as "REMOVE" - a bucket that is
+                # deliberately EXCLUDED from the printed field_str (see
+                # `_ALL_OUTCOMES`/field_str below), so a real removal
+                # failure was invisible in the summary line and only
+                # visible via the stderr WARNING. Reclassify to the
+                # dedicated, VISIBLE `SKIP_REMOVE_FAILED` bucket instead.
+                print(
+                    f"WARNING: failed to remove {path} (git worktree remove failed): "
+                    f"{outcome['detail']}",
+                    file=sys.stderr,
+                )
+                r["outcome"] = "SKIP_REMOVE_FAILED"
+        # A salvage or remove failure above may have reclassified a REMOVE
+        # entry to SKIP_PROTECTED_CONTENT or SKIP_REMOVE_FAILED after
+        # `outcome_counts` was first computed - recompute so the summary
+        # line reflects the FINAL state, never a stale pre-loop snapshot.
+        # Every value this loop can assign is already a member of
+        # _ALL_OUTCOMES, so no further unknown-outcome check is needed.
+        outcome_counts = Counter(r["outcome"] for r in results)
+    else:
+        removed = len(remove_results)
+        # --dry-run: skip salvage cleanly, but still report how many files
+        # WOULD be salvaged if this were a live run (round-4 requirement).
+        salvage_would = sum(1 for r in remove_results if _worktree_has_salvageable_telemetry(r["path"]))
+
+    # --archive-unproven (round-5, OPT-IN, never the default; round-6
+    # correction - Skeptic Major 2): for every entry that is still
+    # SKIP_UNPROVEN AND whose underlying disposition (preserved in `reason`
+    # by evaluate_entry) is on the EXPLICIT `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`
+    # whitelist - never the whole SKIP_UNPROVEN bucket, which also holds
+    # `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a
+    # transient failure), neither of which this flag may ever archive - by
+    # evaluate_entry's own gate order, a whitelisted entry already passed
+    # self/age/dirty/locked/protected-content and only failed the
+    # branch-evidence gate: archive the FULL branch into a verified git
+    # bundle, THEN salvage telemetry, and only THEN remove the worktree
+    # (via the SAME `_salvage_and_remove` the plain REMOVE loop above uses -
+    # round 5 called `git worktree remove` directly here, bypassing salvage
+    # entirely). A bundle-create/verify failure, or a telemetry-salvage
+    # failure, never removes anything; the entry stays SKIP_UNPROVEN,
+    # reported (a salvage failure after a successful archive leaves the
+    # already-verified bundle in place - it is not undone).
+    archived_and_removed = 0
+    archive_would = 0
+    if args.archive_unproven:
+        unproven_results = [
+            r
+            for r in results
+            if r["outcome"] == "SKIP_UNPROVEN" and r.get("reason") in _ARCHIVABLE_UNPROVEN_DISPOSITIONS
+        ]
+        if not args.dry_run:
+            for r in unproven_results:
+                path = r["path"]
+                branch = r.get("branch")
+                if not branch:
+                    # No branch to bundle (detached HEAD) - nothing this
+                    # leg can do; stays SKIP_UNPROVEN, already reported.
+                    continue
+                archive_ok, archive_detail, bundle_path = _archive_branch_bundle(repo, branch)
+                if not archive_ok:
+                    print(
+                        f"WARNING: archive failed for {path} (branch={branch}): "
+                        f"{archive_detail} - worktree NOT removed",
+                        file=sys.stderr,
+                    )
+                    continue
+                outcome = _salvage_and_remove(repo, path, branch)
+                if outcome["salvage_failed"]:
+                    print(
+                        f"WARNING: telemetry salvage failed for {path} (branch={branch}) after "
+                        f"successful archive (bundle={bundle_path}): {outcome['detail']} - "
+                        "worktree NOT removed",
+                        file=sys.stderr,
+                    )
+                    continue
+                if outcome["salvaged"]:
+                    salvaged += 1
+                if outcome["removed"]:
+                    archived_and_removed += 1
+                    r["outcome"] = "ARCHIVED_AND_REMOVED"
+                    r["reason"] = f"archived to {bundle_path}"
+                    print(
+                        f"ARCHIVED+REMOVED {path} (branch={branch}) - restore with: "
+                        f"{_restore_command(bundle_path, branch)}"
+                    )
+                else:
+                    print(
+                        f"WARNING: failed to remove {path} after successful archive "
+                        f"(branch={branch}, bundle={bundle_path}): {outcome['detail']}",
+                        file=sys.stderr,
+                    )
+                    r["outcome"] = "SKIP_REMOVE_FAILED"
+            # Recompute for the same reason the salvage loop above does -
+            # an archive success may have reclassified a SKIP_UNPROVEN
+            # entry to ARCHIVED_AND_REMOVED or SKIP_REMOVE_FAILED, both
+            # already members of _ALL_OUTCOMES.
+            outcome_counts = Counter(r["outcome"] for r in results)
+        else:
+            # --dry-run: create nothing, report the would-be count only.
+            archive_would = sum(1 for r in unproven_results if r.get("branch"))
+            # Minor fix: `salvage_would` above was computed ONLY over
+            # `remove_results` (the plain REMOVE bucket), before this
+            # archive-unproven block even runs - so telemetry sitting in an
+            # archive-eligible entry was never counted, contradicting the
+            # "both paths run the same salvage-then-remove sequence"
+            # docstring parity claim. Add the archive candidates' own
+            # salvageable count so a `--dry-run --archive-unproven` NOTE is
+            # not systematically undercounted.
+            salvage_would += sum(1 for r in unproven_results if _worktree_has_salvageable_telemetry(r["path"]))
+
+    # Unlock any directory-missing locked entries so the admin-prune pass
+    # below can reclaim them (the sole permitted unlock case - see the
+    # Locked handling note in the module docstring). Real action, real
+    # unlock, so this stays dry-run-gated like the removal loop above.
+    missing_locked = [r for r in results if r["outcome"] == "SKIP_MISSING_LOCKED"]
+    if not args.dry_run:
+        for r in missing_locked:
+            _run(["git", "-C", repo, "worktree", "unlock", r["path"]])
+
+    # `pruned-admin` reports an ACTION TAKEN, not a candidate count (round-2
+    # Minor c - v1 reported a nonzero value under --dry-run even though
+    # `git worktree prune` was never invoked). It is 0 under --dry-run,
+    # unconditionally; the candidate set remains fully visible via
+    # SKIP_MISSING/SKIP_MISSING_LOCKED in the bucket counts and --explain.
+    pruned_admin = 0
+    if not args.dry_run:
+        pruned_admin = sum(1 for r in results if r["outcome"] in ("SKIP_MISSING", "SKIP_MISSING_LOCKED"))
+        _run(["git", "-C", repo, "worktree", "prune"])
+
+    mode_parts = []
+    if degraded:
+        mode_parts.append("degraded (gh unavailable)")
+    if args.dry_run:
+        mode_parts.append("dry-run")
+    mode = ", ".join(mode_parts) if mode_parts else "live"
+
+    field_str = " ".join(
+        f"{_field_name(outcome)}={outcome_counts.get(outcome, 0)}" for outcome in _ALL_OUTCOMES if outcome != "REMOVE"
+    )
+    # `salvaged` (round-4): actual telemetry-salvage count, 0 under
+    # --dry-run unconditionally - matches the `pruned-admin` "action
+    # taken, not a candidate count" convention above.
+    print(
+        f"ds-reap-worktrees: base={args.base} mode={mode} entries={len(results)} "
+        f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}"
+    )
+
+    if degraded:
+        print(
+            "NOTE: degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - the "
+            "PR-state leg is unavailable" + (" and git ls-remote was suppressed (--no-gh)" if args.no_gh else "")
+            + "; this can only remove FEWER worktrees than a full run, never more."
+        )
+
+    # Minor fix: visibility parity with the degraded-mode NOTE above -
+    # gh_ok being True (process-level auth fine) does not mean every
+    # PER-ENTRY `gh pr list` call succeeded; without this, a nonzero
+    # `skipped-pr-query-error` count was visible only in the bucket field
+    # and `--explain`, while `mode` still read plain "live" with no
+    # explanation printed.
+    pr_query_error_count = outcome_counts.get("SKIP_PR_QUERY_ERROR", 0)
+    if pr_query_error_count:
+        print(
+            f"NOTE: {pr_query_error_count} worktree(s) had a `gh pr list` query failure "
+            "(rate limit/auth hiccup/network blip on that one call, even though gh itself is "
+            "available) - never treated as proof of no PR; preserved and reported as "
+            "SKIP_PR_QUERY_ERROR, never archived or removed."
+        )
+
+    if args.dry_run and salvage_would:
+        print(
+            f"NOTE: {salvage_would} .agentic/events.jsonl file(s) would be salvaged to "
+            ".agentic/reaped-telemetry/ before removal if this were a live run."
+        )
+
+    if args.archive_unproven and args.dry_run and archive_would:
+        print(
+            f"NOTE: {archive_would} unproven branch(es) would be archived to "
+            ".agentic/worktree-archive/ (as a verified git bundle) and their worktrees "
+            "removed if this were a live run with --archive-unproven."
+        )
+
+    if args.explain:
+        print("-- per-entry --")
+        for r in results:
+            reason = f" ({r['reason']})" if "reason" in r else ""
+            offenders = f" offenders={r['offenders']}" if "offenders" in r else ""
+            print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}{offenders}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

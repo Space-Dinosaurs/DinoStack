@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Purpose: Installs the OpenClaw adapter for the agentic-engineering
+# Purpose: Installs the OpenClaw adapter for the dinostack
 #          methodology. Runs build.sh, writes activation config to
 #          ~/.openclaw/agentic-engineering.json, creates per-skill-dir
 #          symlinks under ~/.openclaw/skills/, injects the managed Skill
@@ -145,9 +145,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -228,6 +228,24 @@ for skill_src_dir in "$SKILLS_SRC"/*/; do
 done
 
 # ---------------------------------------------------------------------------
+# Remove stale pre-rename core skill symlink (agentic-engineering -> dinostack)
+#
+# The core skill directory/name was renamed from "agentic-engineering" to
+# "dinostack". Same ownership discipline as the stale-command prunes below:
+# only removed when the symlink target resolves inside this methodology
+# checkout's .openclaw/skills/ tree.
+# ---------------------------------------------------------------------------
+
+_ae_stale_core_skill_dst="$SKILLS_DST/agentic-engineering"
+if [[ -L "$_ae_stale_core_skill_dst" ]]; then
+  _ae_current_target="$(readlink "$_ae_stale_core_skill_dst")"
+  if [[ "$_ae_current_target" == "$REPO_DIR/.openclaw/skills/"* ]]; then
+    rm "$_ae_stale_core_skill_dst"
+    echo "  - removed agentic-engineering (stale pre-rename core skill symlink)"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Remove stale pre-DS-26 command skill symlinks
 #
 # DS-26 renamed all 25 methodology commands to a ds- prefix. This is a
@@ -304,7 +322,7 @@ Before starting any task, check if a domain skill should be loaded:
 
 | Signal | Skill |
 |---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `agentic-engineering` |
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
 <!-- END managed-by-agentic-engineering -->"""
@@ -398,7 +416,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 # ---------------------------------------------------------------------------
@@ -417,4 +435,3 @@ echo "Configuration:"
 echo "  Activation config: $AE_CONFIG_PATH"
 echo "  Global AGENTS.md:  ~/.openclaw/AGENTS.md"
 echo ""
-

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Adapter-neutral core for the "newer version available" SessionStart
-#          notice. Resolves the agentic-engineering clone dir, reads a small
+#          notice. Resolves the dinostack clone dir, reads a small
 #          cache of how far the local clone is behind upstream, and prints a
 #          single generic update notice to stdout when behind. Kicks off a
 #          detached, TTL-throttled background refresh that runs `git fetch` and
@@ -10,8 +10,10 @@
 #              otherwise prints nothing. Always exits 0.)
 # Upstream deps: ~/.agentic/agentic-engineering-config.json (optional; repo_dir),
 #                ~/.agentic/version-check-cache.json (optional cache),
-#                scripts/lib/repo-dir.sh (resolve_repo_dir; optional - inline
-#                  fallback applies if the lib is absent),
+#                hooks/lib/repo-dir-fallback.sh (resolve_ae_repo_dir_with_fallback -
+#                  tries scripts/lib/repo-dir.sh's resolve_repo_dir first, falls
+#                  back inline when that lib is absent, e.g. the deployed
+#                  hooks-snapshot layout),
 #                git, python3 (cache parse + atomic JSON write). All optional;
 #                any missing piece is handled fail-open.
 # Downstream consumers: hooks/session-start-version-check.sh (Claude Code wrapper),
@@ -22,8 +24,9 @@
 #                stdin/stdout/stderr so the parent returns immediately; a failed
 #                fetch leaves the prior cache untouched. Cache writes are atomic
 #                (tmp file + mv) so a torn read just fails open on the next run.
-#                If scripts/lib/repo-dir.sh is missing, the inline resolver is
-#                used so SessionStart never breaks.
+#                Repo-dir resolution never breaks SessionStart even when both
+#                scripts/lib/repo-dir.sh and the config file are absent - see
+#                hooks/lib/repo-dir-fallback.sh's own failure-mode contract.
 # Performance: read path is a single file read + one python3 parse (sub-10ms,
 #              no network). The network (git fetch) only ever runs in a detached
 #              background process, so the caller never waits on it.
@@ -36,43 +39,17 @@ set -euo pipefail
 # is acceptable for a passive update nudge.
 VERSION_CHECK_TTL_SECONDS=21600
 
-AE_CONFIG="$HOME/.agentic/agentic-engineering-config.json"
 CACHE_FILE="$HOME/.agentic/version-check-cache.json"
 
 # --- Resolve the clone dir via the shared lib (with inline fallback) ---
 # Compute this file's own directory so the source path is correct whether
 # version-check-core.sh is invoked directly or sourced from another script.
 _VCC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_REPO_DIR_LIB="$_VCC_DIR/../../scripts/lib/repo-dir.sh"
 
-ae_repo_dir=""
-if [[ -f "$_REPO_DIR_LIB" ]]; then
-  # Source the shared lib (defines functions only, no top-level side effects;
-  # safe under set -euo pipefail). resolve_repo_dir --quiet sets AE_REPO_DIR
-  # and returns 0 on a valid git repo, 1 otherwise. The || true makes it
-  # fail-open so set -e does not abort when the fallback path is not a git repo.
-  # shellcheck source=../../scripts/lib/repo-dir.sh
-  source "$_REPO_DIR_LIB"
-  resolve_repo_dir --quiet || true
-  ae_repo_dir="$AE_REPO_DIR"
-else
-  # Inline fallback: used only when scripts/lib/repo-dir.sh is absent (e.g.
-  # partial install or older checkout). Behavior is identical to the original
-  # inline resolver so SessionStart is never broken by a missing lib file.
-  if [[ -f "$AE_CONFIG" ]]; then
-    ae_repo_dir="$(python3 -c "
-import json, sys
-try:
-    with open(sys.argv[1]) as f:
-        print(json.load(f).get('repo_dir', ''))
-except Exception:
-    print('')
-" "$AE_CONFIG" 2>/dev/null || echo "")"
-  fi
-  if [[ -z "$ae_repo_dir" ]] || ! git -C "$ae_repo_dir" rev-parse --git-dir >/dev/null 2>&1; then
-    ae_repo_dir="$HOME/DinoStack"
-  fi
-fi
+# shellcheck source=./repo-dir-fallback.sh
+source "$_VCC_DIR/repo-dir-fallback.sh"
+resolve_ae_repo_dir_with_fallback
+ae_repo_dir="$AE_REPO_DIR"
 
 # --- Maybe kick off a detached refresh (TTL-throttled) ---
 # Reads the cache timestamp; if absent or older than the TTL, launches a fully
@@ -142,7 +119,7 @@ mkdir -p "$HOME/.agentic" >/dev/null 2>&1 || true
 maybe_refresh
 
 if [[ "$behind_count" =~ ^[0-9]+$ ]] && [[ "$behind_count" -gt 0 ]]; then
-  echo "⚠️ agentic-engineering: newer version available. Run: agentic-update (shell) or /ds-update (in session). No PATH? ${ae_repo_dir}/update.sh"
+  echo "⚠️ dinostack: newer version available. Run: ds-update (shell) or /ds-update (in session). No PATH? ${ae_repo_dir}/update.sh"
 fi
 
 exit 0

@@ -101,15 +101,28 @@ hook installed separately:
   `/ds-init-project` set it); set to `false` to opt out once enabled;
   disable via `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`enforce-turn-shape.py`](../hooks/enforce-turn-shape.py) - Stop hook;
-  advisory only - it never blocks the stop, it only checks the conductor's
-  final turn against the fixed-shape/warranted-turn rule and logs a finding;
-  controlled by `turn_shape_guard_enabled` in `.agentic/config.json`, default
-  `true` (absent key resolves to on - the inverse of the abdication guard's
-  fail-open-to-inactive, because this hook never blocks); set to `false` to
-  opt out; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Unlike its
+  checks the conductor's final turn against the fixed-shape/warranted-turn
+  rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag`
+  (a non-Answer turn's structural shape) is BLOCKING and can block the stop,
+  injecting a directive to reshape the turn; `_answer_relevance_flag`
+  (opening-preamble/closing-recap phrasing on an Answer turn) remains
+  advisory-only and only logs a finding. See
+  `content/references/conductor-turn-format.md` for the full contract.
+  Controlled by
+  `turn_shape_guard_enabled` in `.agentic/config.json`, default `true`
+  (absent key resolves to on - the inverse of the abdication guard's
+  fail-open-to-inactive default; the risk profile is now closer to
+  symmetric with the abdication guard than before DS-156, since the
+  structural check can block); set to `false` to opt out of both; disable
+  per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Unlike its
   sibling enforcers, its `~/.claude/settings.json` registration is **guarded**
   (`test -f ... && python3 ... || exit 0`), so a reverted PR removing the
   script cannot leave a dangling blocking Stop entry.
+- [`enforce-worktree-read.py`](../hooks/enforce-worktree-read.py)
+  - PreToolUse (Read); denies a worktree-isolated subagent's `Read` when the
+  target resolves inside the primary checkout instead of the agent's own
+  worktree; never fires on a conductor (main-session) read; disable via
+  `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 
@@ -128,8 +141,9 @@ Every implementer spawn (`engineer`, `qa-engineer`, `release-orchestrator`) runs
 in an isolated git worktree branched from `main`
 ([content/sections/11-worktree-lifecycle.md](../content/sections/11-worktree-lifecycle.md)).
 This keeps the conductor's untracked scaffolding out of Worker commits and stops
-parallel Workers from contaminating one shared tree. It scopes **git state**
-only - it does not isolate the host filesystem or network. Leave isolation on;
+parallel Workers from contaminating one shared tree. It scopes **git state**,
+and, as of `enforce-worktree-read.py`, a subagent's `Read` calls - it does not
+isolate any other host filesystem access or the network. Leave isolation on;
 it is mandatory in the methodology and there is no in-place exception.
 
 ## Risk profiles

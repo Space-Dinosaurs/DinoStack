@@ -11,6 +11,7 @@
   "motion_aware": false,
   "storybook_version": 7,
   "commit_telemetry": true,
+  "knowledge_commit_on_pr": true,
   "deferred_wrap_daemon": false,
   "deferred_wrap_idle_minutes": 15,
   "deferred_wrap_heartbeat_seconds": 120,
@@ -24,5 +25,6 @@
   "rework_detection": true,
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
-  "turn_shape_guard_enabled": true
+  "turn_shape_guard_enabled": true,
+  "worktree_read_guard_exemptions": []
 }

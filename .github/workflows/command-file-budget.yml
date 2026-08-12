@@ -1,0 +1,28 @@
+name: command-file-budget
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-command-file-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run command file budget check
+        # This job goes RED (fails the step, fails the job, fails the
+        # check) on overage - GitHub Actions has no mechanism for a step
+        # to render a neutral/yellow check, so `continue-on-error` cannot
+        # produce that and previously just hid the failure behind a green
+        # check with no annotation. It is advisory only in the sense that
+        # it is deliberately NOT added to the `main` ruleset's
+        # required-checks list yet - promotion to a blocking check is a
+        # separate operator decision - not because the run itself is
+        # swallowed.
+        timeout-minutes: 2
+        run: bash scripts/check-command-file-budget.sh

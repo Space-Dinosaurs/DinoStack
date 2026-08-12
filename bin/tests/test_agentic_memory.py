@@ -86,6 +86,8 @@ def _make_query_args(**kwargs) -> types.SimpleNamespace:
         "last": None,
         "source": None,
         "topic": None,
+        "max_items": 20,
+        "max_chars": 8000,
     }
     defaults.update(kwargs)
     return types.SimpleNamespace(**defaults)
@@ -258,6 +260,47 @@ def test_query_memory_md_topic():
     print("PASS test_query_memory_md_topic")
 
 
+def test_query_memory_auto_memory_fallback():
+    """When root MEMORY.md is absent, memory query falls back to the auto-memory index."""
+    with tempfile.TemporaryDirectory() as tmp:
+        auto_memory = Path(tmp) / ".agentic" / "memory"
+        auto_memory.mkdir(parents=True)
+        (auto_memory / "MEMORY.md").write_text(
+            "## Auto-memory\nHarness-injected index.\n\n"
+            "## Decisions\nFallback works.\n"
+        )
+
+        # Uses the real MEMORY_PATHS (relative paths resolved against tmp cwd),
+        # with root MEMORY.md and .agentic/memory.md absent.
+        rc, out, _ = _capture_query(
+            _make_query_args(keyword="fallback", source="MEMORY.md"),
+            tmp,
+        )
+
+        assert rc == 0
+        assert "Decisions" in out, f"Expected auto-memory section in output: {out!r}"
+    print("PASS test_query_memory_auto_memory_fallback")
+
+
+def test_query_memory_root_wins_precedence():
+    """Root MEMORY.md outranks the auto-memory index (first-match-wins preserved)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "MEMORY.md").write_text("## Root\nCurated project memory.\n")
+        auto_memory = Path(tmp) / ".agentic" / "memory"
+        auto_memory.mkdir(parents=True)
+        (auto_memory / "MEMORY.md").write_text("## Auto\nShould not win.\n")
+
+        rc, out, _ = _capture_query(
+            _make_query_args(keyword="root", source="MEMORY.md"),
+            tmp,
+        )
+
+        assert rc == 0
+        assert "Root" in out, f"Expected root MEMORY.md section in output: {out!r}"
+        assert "Auto" not in out, f"Auto-memory index should not outrank root MEMORY.md: {out!r}"
+    print("PASS test_query_memory_root_wins_precedence")
+
+
 def test_query_missing_source_warning_on_stderr():
     """Missing source files produce a warning on stderr, not a crash."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -382,6 +425,197 @@ def test_event_to_date_bad_input_returns_none():
     print("PASS test_event_to_date_bad_input_returns_none")
 
 
+def test_query_item_cap_truncates_and_marks():
+    """Item cap bounds a large result set and emits the non-silent marker."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events = agentic / "events.jsonl"
+        lines = [_make_event(f"ev_{i}", f"2026-05-{i + 1:02d}T10:00:00Z") for i in range(30)]
+        events.write_text("\n".join(lines) + "\n")
+
+        old_events = _mod.EVENTS_PATH
+        _mod.EVENTS_PATH = events
+        try:
+            rc, out, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_items=5),
+                tmp,
+            )
+        finally:
+            _mod.EVENTS_PATH = old_events
+
+        assert rc == 0
+        assert "ev_0" in out, f"first kept item should appear: {out!r}"
+        assert "ev_5" not in out, f"item beyond the cap should be excluded: {out!r}"
+        assert "... truncated: 25 more items" in out, f"expected item-cap marker: {out!r}"
+    print("PASS test_query_item_cap_truncates_and_marks")
+
+
+def test_query_char_cap_truncates_and_marks():
+    """Char budget bounds a large rendered output and emits the marker."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events = agentic / "events.jsonl"
+        big = "x" * 20000
+        events.write_text(_make_event("huge", "2026-05-01T10:00:00Z", task_id=big) + "\n")
+
+        old_events = _mod.EVENTS_PATH
+        _mod.EVENTS_PATH = events
+        try:
+            rc, out, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_chars=200),
+                tmp,
+            )
+        finally:
+            _mod.EVENTS_PATH = old_events
+
+        assert rc == 0
+        assert "... truncated:" in out, f"expected char-cap marker: {out!r}"
+        assert "more chars" in out, f"expected char count in marker: {out!r}"
+        assert big not in out, f"full oversized payload should not be emitted: {out!r}"
+    print("PASS test_query_char_cap_truncates_and_marks")
+
+
+def test_query_max_items_override_raise_and_lower():
+    """--max-items overrides the default item cap (raise, lower, disable)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events = agentic / "events.jsonl"
+        lines = [_make_event(f"ev_{i}", f"2026-05-{i + 1:02d}T10:00:00Z") for i in range(30)]
+        events.write_text("\n".join(lines) + "\n")
+
+        old_events = _mod.EVENTS_PATH
+        _mod.EVENTS_PATH = events
+        try:
+            _, out_raise, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_items=50), tmp
+            )
+            _, out_lower, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_items=3), tmp
+            )
+            _, out_zero, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_items=0), tmp
+            )
+        finally:
+            _mod.EVENTS_PATH = old_events
+
+        assert "truncated" not in out_raise, f"raised cap should not truncate: {out_raise!r}"
+        assert "... truncated: 27 more items" in out_lower, f"lowered cap should truncate: {out_lower!r}"
+        assert "truncated" not in out_zero, f"0 should disable the cap: {out_zero!r}"
+        assert "ev_29" in out_raise and "ev_29" in out_zero
+        assert "ev_29" not in out_lower
+    print("PASS test_query_max_items_override_raise_and_lower")
+
+
+def test_query_max_chars_override_raise_and_lower():
+    """--max-chars overrides the default char budget (raise, lower, disable)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events = agentic / "events.jsonl"
+        big = "y" * 30000
+        events.write_text(_make_event("huge", "2026-05-01T10:00:00Z", task_id=big) + "\n")
+
+        old_events = _mod.EVENTS_PATH
+        _mod.EVENTS_PATH = events
+        try:
+            _, out_raise, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_chars=100000), tmp
+            )
+            _, out_lower, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_chars=150), tmp
+            )
+            _, out_zero, _ = _capture_query(
+                _make_query_args(source="events.jsonl", max_chars=0), tmp
+            )
+        finally:
+            _mod.EVENTS_PATH = old_events
+
+        assert "truncated" not in out_raise, f"raised budget should not truncate: {out_raise!r}"
+        assert "... truncated:" in out_lower and "more chars" in out_lower, (
+            f"lowered budget should truncate with marker: {out_lower!r}"
+        )
+        assert "truncated" not in out_zero, f"0 should disable the cap: {out_zero!r}"
+        assert big in out_raise and big in out_zero
+        assert big not in out_lower
+    print("PASS test_query_max_chars_override_raise_and_lower")
+
+
+def test_query_small_result_byte_identical_to_no_caps():
+    """Small results with default caps match no-cap output byte-for-byte."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events = agentic / "events.jsonl"
+        events.write_text(
+            _make_event("spawn_start", "2026-05-01T10:00:00Z", agent="engineer", task_id="T-1") + "\n"
+            + _make_event("spawn_complete", "2026-05-01T10:01:00Z", agent="skeptic", task_id="T-2") + "\n"
+        )
+        (agentic / "context.md").write_text("## Turn 1\nUser asked something.\n")
+        memory = Path(tmp) / "MEMORY.md"
+        memory.write_text("## Architecture\nWe use Python for all CLIs.\n")
+
+        old_events = _mod.EVENTS_PATH
+        old_paths = _mod.MEMORY_PATHS
+        old_ctx = _mod.CONTEXT_PATH
+        _mod.EVENTS_PATH = events
+        _mod.MEMORY_PATHS = [memory]
+        _mod.CONTEXT_PATH = agentic / "context.md"
+        try:
+            _, out_default, _ = _capture_query(
+                _make_query_args(max_items=20, max_chars=8000), tmp
+            )
+            _, out_nocap, _ = _capture_query(
+                _make_query_args(max_items=0, max_chars=0), tmp
+            )
+        finally:
+            _mod.EVENTS_PATH = old_events
+            _mod.MEMORY_PATHS = old_paths
+            _mod.CONTEXT_PATH = old_ctx
+
+        assert out_default == out_nocap, (
+            "default-cap output must equal no-cap output for small results\n"
+            f"default: {out_default!r}\nnocap: {out_nocap!r}"
+        )
+    print("PASS test_query_small_result_byte_identical_to_no_caps")
+
+
+def test_turns_last_ceiling_rejects_large_n():
+    """turns --last N refuses N above the ceiling with a clear error."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = Path(tmp) / "context.md"
+        ctx.write_text("## Turn 1\nUser asked something.\n")
+        old_ctx = _mod.CONTEXT_PATH
+        _mod.CONTEXT_PATH = ctx
+        try:
+            rc, out, err = _capture_turns(types.SimpleNamespace(last=201), tmp)
+        finally:
+            _mod.CONTEXT_PATH = old_ctx
+
+        assert rc == 2, f"Expected rc=2 for N above ceiling, got {rc}"
+        assert "Error" in err and "200" in err, f"Expected clear error: {err!r}"
+    print("PASS test_turns_last_ceiling_rejects_large_n")
+
+
+def test_turns_last_ceiling_allows_boundary():
+    """turns --last 200 is accepted (the ceiling boundary)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx = Path(tmp) / "context.md"
+        ctx.write_text("## Turn 1\nUser asked something.\n")
+        old_ctx = _mod.CONTEXT_PATH
+        _mod.CONTEXT_PATH = ctx
+        try:
+            rc, out, _ = _capture_turns(types.SimpleNamespace(last=200), tmp)
+        finally:
+            _mod.CONTEXT_PATH = old_ctx
+
+        assert rc == 0, f"Expected rc=0 at the ceiling boundary, got {rc}"
+        assert "User asked something" in out
+    print("PASS test_turns_last_ceiling_allows_boundary")
+
+
 if __name__ == "__main__":
     test_query_no_sources_returns_zero()
     test_query_events_jsonl_keyword_match()
@@ -390,6 +624,8 @@ if __name__ == "__main__":
     test_query_events_last_filter()
     test_query_memory_md_keyword()
     test_query_memory_md_topic()
+    test_query_memory_auto_memory_fallback()
+    test_query_memory_root_wins_precedence()
     test_query_missing_source_warning_on_stderr()
     test_query_malformed_jsonl_skipped()
     test_turns_no_context_returns_zero()
@@ -398,4 +634,11 @@ if __name__ == "__main__":
     test_split_turns_blank_line_heuristic()
     test_event_to_date_parses_iso()
     test_event_to_date_bad_input_returns_none()
+    test_query_item_cap_truncates_and_marks()
+    test_query_char_cap_truncates_and_marks()
+    test_query_max_items_override_raise_and_lower()
+    test_query_max_chars_override_raise_and_lower()
+    test_query_small_result_byte_identical_to_no_caps()
+    test_turns_last_ceiling_rejects_large_n()
+    test_turns_last_ceiling_allows_boundary()
     print("All agentic-memory tests passed.")

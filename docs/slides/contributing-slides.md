@@ -229,9 +229,9 @@ The `content/` directory is the single source of truth. Adapter files (`.claude/
 ```
 content/
   rules/        3 rule files (module-manifest, code-standards, conventions)
-  references/   33 reference docs (agent-team, base-branch-sync, skeptic-protocol,
+  references/   39 reference docs (agent-team, base-branch-sync, skeptic-protocol,
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
-  commands/     25 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
+  commands/     26 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 
@@ -252,7 +252,7 @@ Never edit generated files directly - the pre-commit hook or CI will overwrite t
 
 11 adapters ship build scripts: `.claude/`, `.codex/`, `.copilot/`, `.cursor/`, `.gemini/`, `.hermes/`, `.kimi/`, `.omp/`, `.openclaw/`, `.opencode/`, `.pi/`. Each `build.sh` transforms `content/` into the tool's native format.
 
-- **`.claude/build.sh`** - prepends the `/agentic-engineering` prerequisite to commands; symlinks rules, references, agents directly into `content/`
+- **`.claude/build.sh`** - prepends the `/dinostack` prerequisite to commands; symlinks rules, references, agents directly into `content/`
 - **`.cursor/build.sh`** - combines YAML frontmatter sidecars with rule content to produce `.mdc` files; copies references and commands
 - **Other adapters** - each converts content into their tool's format per that tool's conventions
 
@@ -298,8 +298,8 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 3 rules into the tool's native rule format (from `content/rules/`)
-3. Copy or symlink the 33 reference docs (from `content/references/`)
-4. Convert the 25 commands into the tool's command format (from `content/commands/`)
+3. Copy or symlink the 39 reference docs (from `content/references/`)
+4. Convert the 26 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions
 7. Update root `README.md` with the new adapter

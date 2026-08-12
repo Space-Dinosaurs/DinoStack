@@ -11,13 +11,13 @@ Purpose: Executes the Phase 8 commit-and-telemetry shell block
          `Signed-off-by:  <>` trailer - fixed; the guard now skips the
          telemetry commit instead of emitting the malformed trailer).
 
-Public API: none (pytest test module; 9 functions x {bash, zsh} = 18 tests).
+Public API: none (pytest test module; 10 functions x {bash, zsh} = 20 tests).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py, bin/tests/lib/git_fixture.py,
                content/commands/ds-implement-ticket.md (file under test).
 
 Downstream consumers: .github/workflows/bin-tests.yml (python-bin-tests job),
-               which additionally floors the collected-test count at >= 18 -
+               which additionally floors the collected-test count at >= 20 -
                see the comment on that step for why.
 
 Failure modes: n/a (test module). Tests #7 and #8 are themselves a self-check
@@ -267,6 +267,29 @@ def test_correct_block_skips_telemetry_when_identity_unconfirmed(tmp_path, shell
     assert mse.COMPLETION_MARKER in result.stdout, result.stderr
     body = _telemetry_commit_body(_pr_checkout(fixture), fixture.branch_name, fixture.env)
     assert body is None, "expected no chore(telemetry): commit when identity is unconfirmed"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_correct_block_aborts_loudly_on_defeated_negation(tmp_path, shell):
+    """Point-of-use defeated-negation check (round 12). The consumer shape
+    has a WORKING `!.agentic/session-log/` negation and would otherwise
+    commit telemetry (see test_correct_block_commits_telemetry_on_consumer_
+    shape) - here a PATH-shadowed stub `ds-migrate` reports the exact
+    developer's session-log path as a DEFEATED negation, and the block must
+    print a visible ERROR and skip the commit, instead of silently no-oping
+    the way a bare `git add` on an ignored path would."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_consumer_shape(tmp_path)
+    defeated_path = f".agentic/session-log/{fixture.developer}.jsonl"
+    git_fixture.install_ds_migrate_stub(tmp_path, fixture.env, defeated_path)
+    rendered = mse.render(_raw_block())
+    result = _execute(rendered, fixture, shell)
+    assert mse.COMPLETION_MARKER in result.stdout, result.stderr
+    assert "ERROR" in result.stdout, f"expected a visible ERROR line:\n{result.stdout}"
+    assert "DEFEATED NEGATION" in result.stdout
+    assert defeated_path in result.stdout
+    body = _telemetry_commit_body(_pr_checkout(fixture), fixture.branch_name, fixture.env)
+    assert body is None, "expected no chore(telemetry): commit when the negation is defeated"
 
 
 # ---------------------------------------------------------------------------

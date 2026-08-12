@@ -155,7 +155,7 @@ Write the three files to `docs/overview/_proposed/` (`vision.md`, `requirements.
 
 Both templates open with the staged-proposal banner. Keep it verbatim on every pass, light or full - it is the operator-owned boundary made visible inside the file itself, so a reader who opens the draft directly (without the conversation) still knows it is not canonical and not yet ratified.
 
-### vision.md (one screen, narrative)
+### vision.md (one screen, narrative) [MECHANICAL, cap: 2000 chars]
 
 ```markdown
 # [Product / Feature] Vision
@@ -178,7 +178,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 [What this deliberately does not do. Naming non-goals is half of vision.]
 ```
 
-### requirements.md (scoped, checkable)
+### requirements.md (scoped, checkable) [MECHANICAL, cap: 3000 chars]
 
 ```markdown
 # [Product / Feature] Requirements
@@ -217,3 +217,4 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 - **PRFAQ only when it adds something.** Full pass only, and skip it if it would just restate the vision.
 - **Label assumptions once.** In non-interactive runs, mark each decision `[ASSUMPTION]` and carry it into Open Questions as a gate - do not stage a fake operator dialogue or record the same assumption three times.
 - **Do not spawn agents.** You are a leaf agent spawned by the conductor; you return your discovery and staged drafts to it.
+- **Capture learnings in flight.** The shard CLI is your capture path - `product-discovery` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.

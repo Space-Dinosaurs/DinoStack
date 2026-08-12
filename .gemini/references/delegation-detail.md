@@ -89,6 +89,41 @@ When the threshold is exceeded, the conductor stops spawning Workers and surface
 
 Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
 
+## Follow-up Ticket Creation Discipline
+
+Applies to ANY decision to create a tracker ticket for work discovered
+mid-session - whether via the Tracker Create Helper, a direct mcp__ tool
+call, or a manual out-of-band call. This is prose discipline with NO
+mechanical enforcement of the carve-out, the bar, or the batching rule
+below - the only mechanical artifacts are the sink
+(`.agentic/deferred-work.jsonl`, via `bin/ds-defer`) and its session-start
+reader. A conductor that ignores this discipline is not mechanically
+stopped.
+
+1. **Execution-scope carve-out.** A discovery made during an in-progress
+   unit (including at wrap/PR-summary time) is not "net-new work" for the
+   Ticket-offer gate. Top-level, operator-raised asks are unaffected by
+   everything below.
+2. **Promotion bar.** A discovery earns a ticket only if (a) it blocks the
+   current unit OR is independently schedulable with standalone value, AND
+   (b) it is not fixable inline in under one Worker spawn's effort - a
+   one-line fix is fixed inline, never deferred. Failing (a) or (b): record
+   via `bin/ds-defer append --reason failed_promotion_bar` and move on.
+3. **Batching is absolute - this is the actual branching-factor control,
+   stronger than the bar above.** When 2 or more discoveries pass the bar
+   in the same session, they are NEVER created as separate tickets. They
+   are batched into exactly ONE ticket (one title, one numbered
+   acceptance-criterion per item). A single bar-passing discovery becomes
+   exactly one ticket. There is no branch under which a bar-passing item
+   goes to the sink - the sink is reserved for bar failures and out-of-band
+   discoveries only (item 4).
+4. Manual/out-of-band discoveries (e.g. a direct API call bypassing every
+   documented path) are recorded the same way:
+   `bin/ds-defer append --reason out_of_band_manual_discovery`.
+5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
+   gated by an explicit per-batch human greenlight (`ds-feedback-triage.md`
+   §"Step 2 - Group and present"), a stronger control than anything here.
+
 ## Common Rationalizations to Reject
 
 **Common rationalizations to reject:**
@@ -111,19 +146,19 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 **Soft round cap.** Two full re-derivation passes of one decision with no new input is tripwire-adjacent: take the terminal action rather than starting a third.
 
-**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the five-source derived default (falling to source 5's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
+**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the six-source derived default (falling to source 6's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
 
-**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the five-source ordering or by reading one more file. Read first.
+**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the six-source ordering or by reading one more file. Read first.
 
 **The anti-inversion test, required before applying step 2.** Does the broad instruction read as a deliberate, recent, or policy-shaped statement the narrow file has not caught up to? Signals the broad file is authoritative and the narrow one stale: the broad text is a decision record or reads as one; it is more specific about intent while the narrow file is merely older; the narrow file's claim is an omission (a missing step) rather than a contrary assertion. When those signals are present, step 2 flips - the broad instruction wins and the narrow file is the defect. **When the staleness question cannot be answered from what is in hand, do not guess: fall to step 3.** A rule that always prefers the narrow file discards deliberate policy changes, which is worse than the loop this section ends.
 
 **Declaration line format**, emitted at resolution: `Contradiction: <fileA:line> vs <fileB:line> - applied step <1|2|3>; proceeding with <resolution>. Recorded as intent-layer defect.`
 
-**Worked example, both directions.** *Direction A (narrow file correct):* `content/rules/conventions.md:46` says root `MEMORY.md` is "written by `/ds-wrap`"; `content/commands/ds-wrap.md` has no promotion step and `content/references/conductor-operating-rules.md:87` states root `MEMORY.md` is not a `/ds-wrap` target. No decision record covers it and the broad line reads as an unmaintained summary, so step 2 resolves: the command file governs its own command. Act, declare, record - and do not decide in-session whether `/ds-wrap` *should* promote, which is a feature decision and is ticket-shaped. *Direction B (broad file correct):* had `conventions.md:46` been edited last week as a deliberate policy change with `ds-wrap.md` merely not yet updated, the anti-inversion test flips step 2, the broad instruction governs, and the command file is the defect. Same rule, opposite outcome, decided by staleness and decision-record standing rather than scope alone.
+**Worked example, both directions (historical - see Scope note).** *Direction A (narrow file correct):* at the time this contradiction existed, `content/rules/conventions.md:46` said root `MEMORY.md` was "written by `/ds-wrap`"; `content/commands/ds-wrap.md` had no promotion step and `content/references/conductor-operating-rules.md:111` (then :87) stated root `MEMORY.md` was not a `/ds-wrap` target. No decision record covered it and the broad line read as an unmaintained summary, so step 2 resolved: the command file governs its own command. Act, declare, record - and do not decide in-session whether `/ds-wrap` *should* promote, which is a feature decision and is ticket-shaped. *Direction B (broad file correct):* had `conventions.md:46` been edited last week as a deliberate policy change with `ds-wrap.md` merely not yet updated, the anti-inversion test flips step 2, the broad instruction governs, and the command file is the defect. Same rule, opposite outcome, decided by staleness and decision-record standing rather than scope alone.
 
-**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry promotes into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
+**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry can promote into root `MEMORY.md`, which is source 2 of the six-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
 
-**Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
+**Scope note.** The worked example's contradiction is now RESOLVED (DS-90): `/ds-wrap` Part B is a genuine staging-drain promotion step into root `MEMORY.md` (capped 3/run), and `content/references/conductor-operating-rules.md` now states root `MEMORY.md` IS within the `wrap/lock` scope for exactly that reason - both files agree. The worked example above is retained as a historical illustration of the resolution procedure (Direction A / Direction B), not a description of current file state; do not treat it as evidence of a live contradiction.
 
 ## Absence-claim scope axes
 
@@ -150,7 +185,7 @@ Parent clause: `content/sections/02-delegation.md` §Host-harness instruction co
 | Collision | Harness default (paraphrase) | AE locus | Resolution |
 |---|---|---|---|
 | **Approval scope** | "approval in one context doesn't extend to the next" | `content/sections/02-delegation.md` §Standing authorizations; `content/rules/conventions.md` §Git Workflow, Conductor preflight step 7 | The listed hygiene operations are durably authorized, so the harness carve-out is satisfied rather than overridden. An operator correction that an operation is routine updates the standing norm and is not instance-scoped. |
-| **Delegation suppression** | "do not call the AgentTool unless the user requested it" | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below. Remediation was settled in DS-133: unsupported configuration, no detection, no degraded mode. |
+| **Delegation suppression** | "do not call the AgentTool unless the user requested it" / "Do not use workflows or deep-research unless the user requested it" (both variants observed) | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below, which quotes both lines. Remediation was settled in DS-133: unsupported configuration, no detection, no degraded mode. |
 | **Act vs ask** | "confirm first for outward-facing or hard-to-reverse actions" | `content/sections/02-delegation.md` Hard-stop branch and Surface-and-proceed branch | Already arbitrated - the two branches partition the space by irreversibility. What was missing was the detection prompt and a definition of "pre-authorized", both now supplied. No new arbitration rule is added. |
 | **Self-correction depth** | "avoid excessive self-correction; don't ruminate or give a detailed account of the mistake" | `content/references/conductor-operating-rules.md` §learnings-agent; `content/references/capture-classification.md` | When the operator *asks* why a rule was not followed, a causal account of the mechanism is the requested answer. The defect is the wrong kind of answer, not merely a short one - a rule restatement in place of a cause is a non-answer at any length. A written LRN/KNW entry is not conversational rumination, so capture classification is unaffected. Cross-reference the third disjunct of the new kernel detection prompt (`or a restatement of the rule feels like a sufficient answer to why you broke it`), which is phrased to fire on exactly this substitution. |
 
@@ -161,6 +196,13 @@ Do not attempt to condition such a guard on whether spawning is available. **The
 The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
 
 ### Delegation suppression (Collision 2)
+
+Real harness injections have been observed carrying both of the following lines, singly or together - the resolution below applies identically to either:
+
+- "do not call the AgentTool unless the user requested it"
+- "Do not use workflows or deep-research unless the user requested it"
+
+A per-turn reminder naming this collision is wired into the risk-classification hook on adapters that execute a user-level pre-turn hook (Claude `UserPromptSubmit`, Codex `UserPromptSubmit`, Gemini `BeforeAgent`) - this closes the load-order gap for those adapters (the resolution rule is otherwise non-resident, loading only when `/dinostack` is invoked, so an injected line arriving on turn one would otherwise have nothing counteracting it). It does not, and cannot, establish that a suppressing bridge/remote-control entrypoint actually executes user-level hooks at all - the enforcement-hook prohibition above already states that session capability has no payload representation and is not derivable from an on-disk artifact.
 
 Where the directive is conditional ("unless the user requested it"), the condition is already met whenever this methodology is active, because the operator installed it into their own instruction layer and its first delegation rule is that the conductor delegates rather than implements - a standing instruction that predates the session. The conductor treats the condition as satisfied and spawns normally, and this authorizes only delegation the methodology mandates, never anything the methodology itself gates.
 
@@ -201,7 +243,7 @@ For `learnings-agent` session-tracking semantics, see `content/references/conduc
 
 ## Worker Preamble and Execution Contract Template
 
-**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block. For large tool outputs, see `content/references/evidence-on-disk.md` (spill/sketch/rehydrate protocol) - advisory.
 
 **Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` §Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
@@ -222,10 +264,13 @@ Execution contract template:
 - task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
 - brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact - arrives already absolute in the engineer's contract, normalized at spawn construction]
 - plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below - arrives already absolute in the engineer's contract, normalized at spawn construction]
+- SESSION_KEY: [the session's learnings-shard key, derived once per session and passed verbatim on every spawn thereafter]
 
 When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
 
 The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
+
+The `SESSION_KEY` field is **mandatory and never omitted**. It is the one line in this template whose obligation is wider than the template itself: it belongs in **every** Worker's spawn prompt, including Trivial-path solo spawns and the non-`engineer` roles this contract does not otherwise cover. Omitting it raises no error - the Worker simply skips shard capture in silence, so the learning is lost with no signal. Derive the value once per session and pass that same value every time; the derivation rule, the harness caveats, and the reason the scope is blanket rather than per-role live in `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**".
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
@@ -268,6 +313,8 @@ This section holds the mechanical hook detail behind the "Named agents" rule in 
 **Tier-3 escalation hook.** The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
 
 **Planning-artifact hook.** The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence.
+
+**Worktree-read hook (DS-150).** A worktree-isolated subagent is meant to reason only against the files inside its own worktree branch; a plain `Read` into the primary checkout defeats isolation silently and surfaces much later as "why did this engineer act on code that isn't in its diff?" On Claude Code this is enforced by a `PreToolUse(Read)` hook (`hooks/enforce-worktree-read.py`, wired by `.claude/install.sh`) that denies a subagent's (`agent_id` present) `Read` when the target resolves inside `CLAUDE_PROJECT_DIR` (the primary root) but outside the payload's `cwd` (the agent's own worktree root, `caller_root`) - and only when `caller_root` is itself a genuine worktree-isolated subdirectory of the primary root. All three operands (target, `caller_root`, `primary_root`) are `realpath`-normalized before the containment test, since isolation worktrees live *inside* the primary root and an unnormalized prefix test is not sufficient. A main-session call (`agent_id` absent) and a non-isolated subagent (`caller_root == primary_root`) always allow - this hook never denies conductor reads. Config-driven exemptions read from `worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`, ships empty. Fail-open on any error; set `AE_WORKTREE_READ_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule in `hooks/AGENTS.md` §Worktree isolation scope.
 
 **Fan-out `skeptic_strategy` block.** When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.
 

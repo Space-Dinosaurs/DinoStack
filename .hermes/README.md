@@ -4,7 +4,7 @@
 
 - **SKILL.md** - A Hermes skill containing the full DinoStack methodology (rules, references, agents, commands)
 - **Global config** - `~/.hermes/agentic-engineering.json` stores the activation mode (`opt-out` or `opt-in`)
-- **Auto-loading** - The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="agentic-engineering")`
+- **Auto-loading** - The skill loads automatically when Hermes detects software-development context, or manually via `skill_view(name="dinostack")`
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ Run the installer:
 
 This:
 1. Runs `.hermes/build.sh` to generate `SKILL.md` from `content/`
-2. Symlinks `~/.hermes/skills/agentic-engineering/SKILL.md` to the generated skill
+2. Symlinks `~/.hermes/skills/dinostack/SKILL.md` to the generated skill
 3. Writes the activation mode to `~/.hermes/agentic-engineering.json`
 
 ### Non-interactive install
@@ -41,14 +41,14 @@ bash ~/DinoStack/.hermes/install.sh --mode=opt-in
 
 1. **Skill is installed:**
    ```bash
-   ls -la ~/.hermes/skills/agentic-engineering/SKILL.md
+   ls -la ~/.hermes/skills/dinostack/SKILL.md
    ```
    Should show a symlink pointing to `~/DinoStack/.hermes/SKILL.md`.
 
 2. **Skill loads correctly:**
    In a Hermes session, run:
    ```
-   skill_view(name="agentic-engineering")
+   skill_view(name="dinostack")
    ```
    Then ask: "What risk tiers does the DinoStack protocol define?"
    The answer should reference Trivial/Low/Elevated/Elevated+Cleanup.
@@ -89,7 +89,7 @@ bash .hermes/install.sh
 
 ### Skill loading
 
-Hermes auto-discovers skills from `~/.hermes/skills/`. The `agentic-engineering` skill contains the full methodology as a single document. Hermes loads it based on tag matching (`software-development`, `coding-standards`, etc.) or when explicitly requested.
+Hermes auto-discovers skills from `~/.hermes/skills/`. The `dinostack` skill contains the full methodology as a single document. Hermes loads it based on tag matching (`software-development`, `coding-standards`, etc.) or when explicitly requested.
 
 ### Activation preflight
 

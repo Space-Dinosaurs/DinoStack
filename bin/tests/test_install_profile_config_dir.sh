@@ -33,9 +33,9 @@ mkdir -p "$HOME"
 PROFILE="$SANDBOX/profile"     # stand-in for ~/.claude-<tenant>
 mkdir -p "$PROFILE"
 
-bash "$REPO_DIR/.claude/install.sh" \
+INSTALL_OUT="$(bash "$REPO_DIR/.claude/install.sh" \
   --config-dir="$PROFILE" --no-identity --mode=opt-out --profile=default \
-  >/dev/null 2>&1 || true
+  2>&1 || true)"
 
 # Harness config must land in the profile dir.
 [[ -f "$PROFILE/agentic-engineering.json" ]] \
@@ -59,6 +59,12 @@ if [[ -e "$PROFILE/.agentic/agentic-engineering-config.json" ]]; then
 else
   pass "shared repo_dir config not placed under profile dir"
 fi
+if grep -Fq "ds-identity show --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT" \
+  && grep -Fq "ds-identity confirm --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT"; then
+  pass "profile completion guidance pins the active profile directory"
+else
+  fail "profile completion guidance did not pin show/confirm to $PROFILE"
+fi
 
 # ---------------------------------------------------------------------------
 # Test 2: AGENTIC_CONFIG_DIR env behaves like the flag
@@ -78,12 +84,27 @@ rm -rf "$SANDBOX2"
 # ---------------------------------------------------------------------------
 SANDBOX3="$(mktemp -d)"
 export HOME="$SANDBOX3/home"; mkdir -p "$HOME"
-bash "$REPO_DIR/.claude/install.sh" \
-  --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+DEFAULT_OUT="$(bash "$REPO_DIR/.claude/install.sh" \
+  --no-identity --mode=opt-out --profile=default 2>&1 || true)"
 [[ -f "$HOME/.claude/settings.json" ]] \
   && pass "default install targets \$HOME/.claude" \
   || fail "default install did NOT target \$HOME/.claude"
+if grep -Fq "ds-identity show --scope effective" <<<"$DEFAULT_OUT" \
+  && grep -Fq "ds-identity confirm --scope global" <<<"$DEFAULT_OUT"; then
+  pass "non-profile completion guidance uses effective/global semantics"
+else
+  fail "non-profile completion guidance lacks effective/global scope"
+fi
 rm -rf "$SANDBOX3"
+
+# Every generated adapter installer must call the shared scope-aware guidance.
+for harness in claude codex copilot cursor gemini hermes kimi omp openclaw opencode pi; do
+  if grep -Fq "_ae_identity_guidance" "$REPO_DIR/.$harness/install.sh"; then
+    pass "$harness: completion uses shared scope-aware identity guidance"
+  else
+    fail "$harness: completion still uses unscoped identity guidance"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Test 4: per-harness --config-dir isolation across all 4 harnesses
@@ -94,11 +115,12 @@ SX="$(mktemp -d)"
 export HOME="$SX/home"; mkdir -p "$HOME"
 PROF_TENANT_A="$SX/.harness-a"
 PROF_TENANT_B="$SX/.harness-b"
-mkdir -p "$PROF_TENANT_A" "$PROF_TENANT_B"
 for harness in claude codex omp pi; do
-  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$PROF_TENANT_A" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
-  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$PROF_TENANT_B" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
-  if [[ -f "$PROF_TENANT_A/agentic-engineering.json" && -f "$PROF_TENANT_B/agentic-engineering.json" ]]; then
+  tenant_a="$PROF_TENANT_A/$harness"
+  tenant_b="$PROF_TENANT_B/$harness"
+  tenant_out="$(bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_a" --no-identity --mode=opt-out --profile=default 2>&1 || true)"
+  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_b" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  if [[ -f "$tenant_a/agentic-engineering.json" && -f "$tenant_b/agentic-engineering.json" ]]; then
     pass "$harness: both tenants wrote agentic-engineering.json"
   else
     fail "$harness: agentic-engineering.json NOT present in both tenants"
@@ -108,8 +130,130 @@ for harness in claude codex omp pi; do
   else
     pass "$harness: --config-dir did NOT touch shared \$HOME/.claude"
   fi
+  if [[ "$harness" == "omp" || "$harness" == "pi" ]]; then
+    if grep -Fq "ds-identity show --scope effective" <<<"$tenant_out" \
+      && grep -Fq "ds-identity confirm --scope global" <<<"$tenant_out"; then
+      pass "$harness: flag-only redirect avoids unreachable profile identity"
+    else
+      fail "$harness: flag-only redirect advertised an unreachable profile identity"
+    fi
+  elif grep -Fq "ds-identity show --scope profile --profile-dir $tenant_a" <<<"$tenant_out" \
+    && grep -Fq "ds-identity confirm --scope profile --profile-dir $tenant_a" <<<"$tenant_out"; then
+    pass "$harness: profile guidance pins the redirected config directory"
+  else
+    fail "$harness: profile guidance did not pin $tenant_a"
+  fi
 done
 rm -rf "$SX"
+
+# ---------------------------------------------------------------------------
+# Test 4b: Pi/OMP identity scope follows runtime-visible bindings only.
+# ---------------------------------------------------------------------------
+for harness in omp pi; do
+  ISO="$(mktemp -d)"
+  export HOME="$ISO/home"; mkdir -p "$HOME"
+  target="$ISO/flag-only"
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+    -u PI_CODING_AGENT_DIR PATH="$REPO_DIR/bin:$PATH" \
+    bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" \
+      --identity="${harness}-flag" --mode=opt-out --profile=default \
+      >/dev/null 2>&1 || true
+  if [[ -f "$HOME/.agentic/identity.yml" && ! -e "$target/identity.yml" ]]; then
+    pass "$harness: flag-only identity is globally reachable at runtime"
+  else
+    fail "$harness: flag-only identity was missing or written to unreachable profile"
+  fi
+  rm -rf "$ISO"
+done
+
+PI_ENV="$(mktemp -d)"
+export HOME="$PI_ENV/home"; mkdir -p "$HOME"
+PI_TARGET="$HOME/native-profile"
+PI_OUT="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+  PI_CODING_AGENT_DIR="$PI_TARGET" PATH="$REPO_DIR/bin:$PATH" \
+  bash "$REPO_DIR/.pi/install.sh" --identity=pi-native \
+    --mode=opt-out --profile=default 2>&1 || true)"
+if [[ -f "$PI_TARGET/identity.yml" ]] \
+  && grep -Fq "ds-identity show --scope profile --profile-dir $PI_TARGET" <<<"$PI_OUT"; then
+  pass "pi: native PI_CODING_AGENT_DIR binding creates reachable profile identity"
+else
+  fail "pi: native PI_CODING_AGENT_DIR binding did not create/profile-guide identity"
+fi
+rm -rf "$PI_ENV"
+
+OMP_ENV="$(mktemp -d)"
+export HOME="$OMP_ENV/home"; mkdir -p "$HOME"
+OMP_TARGET="$HOME/shared-profile"
+OMP_OUT="$(env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  AGENTIC_CONFIG_DIR="$OMP_TARGET" PATH="$REPO_DIR/bin:$PATH" \
+  bash "$REPO_DIR/.omp/install.sh" --identity=omp-native \
+    --mode=opt-out --profile=default 2>&1 || true)"
+if [[ -f "$OMP_TARGET/identity.yml" ]] \
+  && grep -Fq "ds-identity show --scope profile --profile-dir $OMP_TARGET" <<<"$OMP_OUT"; then
+  pass "omp: shared AGENTIC_CONFIG_DIR binding creates reachable profile identity"
+else
+  fail "omp: shared AGENTIC_CONFIG_DIR binding did not create/profile-guide identity"
+fi
+rm -rf "$OMP_ENV"
+
+# The orchestrator must apply the same runtime-reachability rule as each
+# adapter's standalone installer. Without a runtime-visible binding, Pi/OMP
+# tenant directories receive harness config but identity remains global.
+for harness in omp pi; do
+  ORCH_ENV="$(mktemp -d)"
+  export HOME="$ORCH_ENV/home"; mkdir -p "$HOME"
+  if [[ "$harness" == "omp" ]]; then
+    cfg="$HOME/.omp-tenant/agent"
+    mkdir -p "$cfg"
+  else
+    cfg="$HOME/.pi-tenant"
+    mkdir -p "$cfg"
+  fi
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
+    -u PI_CODING_AGENT_DIR -u AE_IDENTITY_SCOPE PATH="$REPO_DIR/bin:$PATH" \
+    bash "$REPO_DIR/scripts/install-profiles.sh" --harnesses="$harness" \
+      --tenants=tenant --no-cursor --identity="${harness}-orchestrated" \
+      --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  if [[ -f "$HOME/.agentic/identity.yml" && ! -e "$cfg/identity.yml" ]]; then
+    pass "$harness orchestrator: no binding avoids unreachable profile identity"
+  else
+    fail "$harness orchestrator: flag-only install created unreachable identity"
+  fi
+  rm -rf "$ORCH_ENV"
+done
+
+# With the native/shared runtime binding pinned to the same tenant directory,
+# the orchestrator creates a profile identity that resolve-hook can discover.
+for harness in omp pi; do
+  ORCH_ENV="$(mktemp -d)"
+  export HOME="$ORCH_ENV/home"; mkdir -p "$HOME"
+  if [[ "$harness" == "omp" ]]; then
+    cfg="$HOME/.omp-tenant/agent"
+    mkdir -p "$cfg"
+    binding=(AGENTIC_CONFIG_DIR="$cfg")
+  else
+    cfg="$HOME/.pi-tenant"
+    mkdir -p "$cfg"
+    binding=(PI_CODING_AGENT_DIR="$cfg")
+  fi
+  env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u AE_IDENTITY_SCOPE \
+    "${binding[@]}" PATH="$REPO_DIR/bin:$PATH" \
+    bash "$REPO_DIR/scripts/install-profiles.sh" --harnesses="$harness" \
+      --tenants=tenant --no-cursor --identity="${harness}-bound" \
+      --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  resolved="$(env "${binding[@]}" "$REPO_DIR/bin/ds-identity" \
+    resolve-hook --cwd "$REPO_DIR" 2>/dev/null || true)"
+  resolved_cfg="$(python3 -c 'import json,os,sys; print(os.path.realpath(json.loads(sys.stdin.read()).get("config_dir", "")))' <<<"$resolved" 2>/dev/null || true)"
+  expected_cfg="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$cfg")"
+  if [[ -f "$cfg/identity.yml" ]] \
+    && grep -Fq '"identity_scope":"profile"' <<<"$resolved" \
+    && [[ "$resolved_cfg" == "$expected_cfg" ]]; then
+    pass "$harness orchestrator: runtime binding keeps identity and telemetry tenant-scoped"
+  else
+    fail "$harness orchestrator: bound profile identity was not runtime reachable"
+  fi
+  rm -rf "$ORCH_ENV"
+done
 
 # ---------------------------------------------------------------------------
 # Test 5: symlinked config FILE refusal (PR #416 review finding 1+2)
@@ -230,6 +374,38 @@ for harness in claude codex omp pi; do
   fi
 done
 rm -rf "$NX"
+
+# ---------------------------------------------------------------------------
+# Test 8: profile-scope identity re-run detection (PR #442 review fix 3)
+# First run writes <profile>/identity.yml via --identity; a second run of the
+# SAME installer must detect it through Branch 3 (show --scope profile
+# --profile-dir) instead of skipping to the non-TTY branch.
+# ---------------------------------------------------------------------------
+RERUN="$(mktemp -d)"
+export HOME="$RERUN/home"; mkdir -p "$HOME"
+RERUN_PROFILE="$HOME/.claude-tenant"; mkdir -p "$RERUN_PROFILE"
+# ds-identity must be on PATH for the installer's identity branches.
+export PATH="$REPO_DIR/bin:$PATH"
+
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  AE_IDENTITY_SCOPE=profile HOME="$HOME" PATH="$PATH" \
+  bash "$REPO_DIR/.claude/install.sh" \
+  --config-dir="$RERUN_PROFILE" --identity=rerun-tester --mode=opt-out --profile=default \
+  >/dev/null 2>&1 || true
+[[ -f "$RERUN_PROFILE/identity.yml" ]] \
+  && pass "first run wrote profile identity.yml" \
+  || fail "first run did NOT write profile identity.yml"
+
+rerun_out="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  AE_IDENTITY_SCOPE=profile HOME="$HOME" PATH="$PATH" \
+  bash "$REPO_DIR/.claude/install.sh" \
+  --config-dir="$RERUN_PROFILE" --mode=opt-out --profile=default 2>&1 || true)"
+if echo "$rerun_out" | grep -q "identity already set to 'rerun-tester'"; then
+  pass "re-run detected existing profile identity (Branch 3 --profile-dir)"
+else
+  fail "re-run did NOT detect existing profile identity"
+fi
+rm -rf "$RERUN"
 
 if [[ "$FAILS" -gt 0 ]]; then
   echo "FAILED: $FAILS assertion(s)"; exit 1

@@ -676,6 +676,58 @@ def test_telemetry_health_block_empty_targets(monkeypatch, tmp_path):
     assert result == []
 
 
+def test_telemetry_health_block_unknown_entry(monkeypatch, tmp_path):
+    """DS-158 round 3 Major 2: a most-recent last_unknown_ts -> UNKNOWN
+    status, never asserted as a confirmed failure, even with failures == 0
+    and a prior last_success present."""
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeSessionLogGlobal": {
+                "failures": 0,
+                "last_success": "2026-01-01T11:00:00Z",
+                "last_error": None,
+                "last_error_ts": None,
+                "last_unknown": "write outcome indeterminate (helper killed before reporting)",
+                "last_unknown_ts": "2026-01-01T12:00:00Z",
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    joined = "\n".join(result)
+    assert "UNKNOWN" in joined
+    assert "writeSessionLogGlobal" in joined
+    assert "FAILING" not in joined
+    assert "indeterminate" in joined
+
+
+def test_telemetry_health_block_stale_unknown_does_not_override_ok(monkeypatch, tmp_path):
+    """An unknown outcome OLDER than the most recent success renders OK, not
+    UNKNOWN - the indeterminate state has since been resolved by a later
+    confirmed write."""
+    data = {
+        "updated_at": "2026-01-01T12:00:00Z",
+        "targets": {
+            "writeSessionLog": {
+                "failures": 0,
+                "last_success": "2026-01-01T12:00:00Z",
+                "last_error": None,
+                "last_error_ts": None,
+                "last_unknown": "stale indeterminate outcome",
+                "last_unknown_ts": "2026-01-01T11:00:00Z",
+            }
+        },
+    }
+    p = _write_health_file(tmp_path, data)
+    monkeypatch.setattr(_mod, "HEALTH_FILE_PATH", p)
+    result = _telemetry_health_block()
+    joined = "\n".join(result)
+    assert "OK" in joined
+    assert "UNKNOWN" not in joined
+
+
 def test_main_output_contains_telemetry_health(monkeypatch, tmp_path, capsys):
     """main() includes 'Telemetry health' when health file is present."""
     _clear_harness_env(monkeypatch)
@@ -728,7 +780,7 @@ def test_main_output_contains_status_header(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     main([])
     out = capsys.readouterr().out
-    assert "agentic-engineering status" in out
+    assert "dinostack status" in out
     assert "What this means" in out
     assert "How to adjust" in out
 
@@ -838,6 +890,30 @@ def test_telemetry_health_line_malformed_json(tmp_path):
     p.write_text("{not valid json", encoding="utf-8")
     result = _telemetry_health_line(p)
     assert "OK" in result
+
+
+def test_telemetry_health_line_unknown_only_not_reported_ok(tmp_path):
+    """DS-158 round 3 Major 2: zero failures but a most-recent indeterminate
+    outcome must NOT summarize as plain OK - the operator needs to see that
+    something didn't confirm, not be told everything is fine."""
+    p = tmp_path / ".telemetry-health.json"
+    p.write_text(json.dumps({
+        "targets": {
+            "writeSessionLogGlobal": {
+                "failures": 0,
+                "last_success": None,
+                "last_error": None,
+                "last_error_ts": None,
+                "last_unknown": "killed before reporting",
+                "last_unknown_ts": "2026-06-01T12:00:00Z",
+            },
+        },
+        "updated_at": "2026-06-01T12:00:00Z",
+    }), encoding="utf-8")
+    result = _telemetry_health_line(p)
+    assert result != "telemetry-health: OK"
+    assert "indeterminate" in result
+    assert "writeSessionLogGlobal" in result
 
 
 def test_telemetry_health_line_default_path_absent(monkeypatch, tmp_path):

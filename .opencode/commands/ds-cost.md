@@ -8,18 +8,18 @@ Render token and wall-time rollups from `.agentic/events.jsonl`. Optionally
 shows dollar columns when `~/.agentic/pricing.yml` is present (opt-in;
 absent pricing means token-only output, never invented dollar figures).
 
-Implementation: `bin/agentic-cost` (Python 3 stdlib + optional pyyaml).
+Implementation: `bin/ds-cost` (Python 3 stdlib + optional pyyaml).
 
 ## Usage
 
 ```
-agentic-cost session [<session-uuid>]   # default: current project, all sessions
-agentic-cost task <task_id>             # rollup for one task_id
-agentic-cost project [--since YYYY-MM-DD]  # rollup across all sessions in this project
-agentic-cost team [--json]              # per-developer rollup from .agentic/session-log/
-agentic-cost operator [--since YYYY-MM-DD] [--json]
+ds-cost session [<session-uuid>]   # default: current project, all sessions
+ds-cost task <task_id>             # rollup for one task_id
+ds-cost project [--since YYYY-MM-DD]  # rollup across all sessions in this project
+ds-cost team [--json]              # per-developer rollup from .agentic/session-log/
+ds-cost operator [--since YYYY-MM-DD] [--json]
                                         # cross-project rollup from ~/.agentic/session-log/
-agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--json]
+ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--json]
                                         # historical rollup from git log + gh pr list
 ```
 
@@ -56,7 +56,7 @@ to token-only output and prints "Install pyyaml for pricing support."
 
 V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
 
-This footer is appended to every `agentic-cost session|task|project` output
+This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
 
 ## Pricing config (opt-in)
@@ -82,7 +82,7 @@ models:
 
 ## operator subcommand
 
-`agentic-cost operator` reads the **global** mirror at `~/.agentic/session-log/*.jsonl`
+`ds-cost operator` reads the **global** mirror at `~/.agentic/session-log/*.jsonl`
 and produces a cross-project rollup aggregated by `developer_id` and `project_slug`.
 It is the third dimension in the cost-visibility hierarchy:
 
@@ -92,11 +92,11 @@ It is the third dimension in the cost-visibility hierarchy:
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
 
-**Per-repo handle attribution:** A developer who uses `agentic-identity init --scope project`
-with a handle different from their global handle will appear as two separate rows in both
-`team` and `operator` output - one row per distinct `developer_id`. This is expected behavior;
-each handle is an independent identity. Manual cross-handle aggregation is required if a
-unified view is needed.
+**Multi-scope handle attribution:** A developer who uses project, profile, and
+global handles can appear as separate rows in both `team` and `operator`
+output - one row per distinct `developer_id`. This is expected behavior; each
+handle is an independent identity. Manual cross-handle aggregation is required
+if a unified view is needed.
 
 The `.pending/` staging directory is never globbed - only fully-attributed
 lines from `*.jsonl` files are included. If no global logs exist (directory absent or
@@ -128,7 +128,7 @@ cells).
 
 ## retro subcommand
 
-`agentic-cost retro` reconstructs a rough per-author work rollup from external
+`ds-cost retro` reconstructs a rough per-author work rollup from external
 data sources for projects that pre-date Stage 1 telemetry (or any period where
 `.agentic/session-log/` is empty). It is an escape hatch for historical
 analysis - not a replacement for true Stage 1 telemetry.
@@ -149,7 +149,7 @@ Data sources (used in order of availability):
 Example output:
 
 ```
-Retro rollup for agentic-engineering (2026-04-01 -> 2026-05-28)
+Retro rollup for dinostack (2026-04-01 -> 2026-05-28)
 WARNING: External-source reconstruction. NOT Stage 1 telemetry.
          No per-agent attribution. No token counts. Wall-time is PR-merge proxy only.
 
@@ -162,11 +162,11 @@ Top ticket prefixes (from commit messages):
   DINO            34 commits across  18 tickets
   (no prefix)     13 commits
 
-Stage 1 telemetry: agentic-cost team for accurate per-agent breakdown
+Stage 1 telemetry: ds-cost team for accurate per-agent breakdown
                    from sessions starting when Stage 1 was active here.
 ```
 
-Use `agentic-cost team` for accurate per-agent and per-token breakdowns from
+Use `ds-cost team` for accurate per-agent and per-token breakdowns from
 sessions where Stage 1 telemetry was active (`.agentic/session-log/` populated).
 Cross-reference with `.agentic/session-log/` to determine when Stage 1 coverage
 begins for your project.
@@ -175,4 +175,4 @@ begins for your project.
 
 V1 is Claude Code only. Codex CLI and Gemini CLI sessions produce no
 token data because the transcript schema differs; their rows do not
-appear in `agentic-cost` output. V2 will add a harness adapter layer.
+appear in `ds-cost` output. V2 will add a harness adapter layer.

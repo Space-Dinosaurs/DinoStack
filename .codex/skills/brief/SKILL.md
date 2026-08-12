@@ -11,7 +11,7 @@ Before executing this skill, resolve the physical directory containing this load
 (follow the installed skill-directory symlink) and bind it as `AE_SKILL_ROOT`. Set
 `AE_CORE_SKILL_ROOT` to `resources` beneath that physical root and validate its
 `.dinostack-skill.json` marker has `magic=DINOSTACK_CODEX_SKILL`, `adapter=codex`,
-`name=agentic-engineering`, and `schema_version=1`. Resolve every logical resource through
+`name=dinostack`, and `schema_version=1`. Resolve every logical resource through
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
@@ -20,16 +20,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.
@@ -39,7 +39,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -49,7 +49,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -183,7 +183,17 @@ If `$brief` received no topic argument, conductor asks:
 
 > "What are you trying to build or solve? One or two sentences is enough to start."
 
-Operator replies. Write `brief-session.json` with `status: intent_captured`.
+Operator replies.
+
+**Intent-layer read (runs after the reply above, or immediately after a topic argument was given - in EITHER case; this step never gates, delays, or replaces the question above).** If at least one of `docs/overview/vision.md` / `docs/overview/requirements.md` exists, conductor reads whichever exist and derives:
+- Candidate Constraints: any requirements.md non-functional requirement or vision.md stated boundary relevant to the operator's stated (or given) task-level intent.
+- A Problem-framing note: does the stated intent map to a North Star pillar or a scoped requirement already on file.
+
+This does not ask a further question. It is folded, as a brief same-turn note, into the conductor's next response (the Turn 2 gray-area menu presentation, per the amendment below) - never as a standalone message that waits for a reply. The canonical note wording is defined in the Turn 2 amendment; do not restate it here.
+
+When neither file exists: no note is generated; proceed silently.
+
+**State write (unconditional - fires identically whether or not a topic argument was given, and whether or not the intent-layer files exist):** write `brief-session.json` with `status: intent_captured`, `topic: <the operator's reply, or the topic argument>`, and `intent_layer_derived: {problem, constraints, source}` - using `{problem: null, constraints: null, source: []}` when the intent-layer files are absent. This is one write covering all four branches (topic-given x files-present, topic-given x files-absent, no-topic x files-present, no-topic x files-absent); no branch omits any of the three fields.
 
 Run the prior-decisions scan (Section 7) after intent is captured but before presenting
 the gray-area menu.
@@ -209,6 +219,8 @@ Examples for "user authentication": session handling, error responses, multi-dev
 policy, recovery flow.
 Examples for "CLI for db backups": output format, flag design, progress reporting,
 error recovery.
+
+When `intent_layer_derived.constraints` is non-null: prepend a note before the menu: "Already noted from docs/overview/vision.md / requirements.md: [derived constraint] - flag if it doesn't apply." Do not generate a gray area for a dimension `intent_layer_derived` already answers - this is the mechanism that reduces re-elicitation; it removes candidate gray areas, never the Turn 1 intent question itself. If suppression would take the menu below 4 items, retain the next-best candidate areas to preserve the stated 4-8 floor.
 
 Present as a numbered menu:
 
@@ -240,6 +252,8 @@ in `$AE_REPO_DIR/content/references/planning-artifacts.md` §Brief template, and
 - **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before $brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
 - **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
 
+When `intent_layer_derived.problem` or `.constraints` is non-null, seed the Problem and Constraints fields from it (merged with anything surfaced in the per-area dialogue) instead of synthesizing those two fields from dialogue alone, and note inline in the draft presentation: "Problem/Constraints derived from docs/overview/vision.md + requirements.md, noted in Turn 2." Success criteria and Non-goals continue to synthesize from dialogue as today.
+
 The outcome rubric is part of the Brief draft and subject to the same iteration rounds (max 3 adjustments). Store the confirmed rubric in `brief-session.json` under the `rubric` array (see Section 8).
 
 Conductor presents the full Brief to the operator:
@@ -269,7 +283,7 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `$AE_REPO_DIR/content/sections/02-delegation.md` §Ticket-offer gate): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `$AE_REPO_DIR/content/sections/02-delegation.md` §Ticket-offer gate; mid-session discoveries instead follow `$AE_REPO_DIR/content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
    - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `$AE_REPO_DIR/content/commands/ds-implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
    - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
    - On CREATE_STATUS=created: hand off to `$implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
@@ -443,7 +457,12 @@ Gitignored under the existing `$AE_PROJECT_DIR/.agentic/` rule. No `$AE_PROJECT_
       "verification_type": "<deterministic | judgment>",
       "confirmed": false
     }
-  ]
+  ],
+  "intent_layer_derived": {
+    "problem": "<string or null>",
+    "constraints": "<string or null>",
+    "source": ["<vision.md and/or requirements.md, whichever were read>"]
+  }
 }
 ```
 
@@ -462,3 +481,4 @@ Gitignored under the existing `$AE_PROJECT_DIR/.agentic/` rule. No `$AE_PROJECT_
   `selected: true`.
 - `brief_source` drives Skeptic variant selection per Section 6.
 - `deferred[].status: withdrawn` marks items the operator pushed back and folded in scope.
+- `intent_layer_derived`: written on EVERY Turn 1 completion, unconditionally, in the same `brief-session.json` write as `status: intent_captured` and `topic` - regardless of whether a topic argument was given and regardless of whether the intent-layer files exist. When at least one of `docs/overview/vision.md` / `docs/overview/requirements.md` exists, it carries the derived `problem`/`constraints`/`source`; otherwise it is written as `{problem: null, constraints: null, source: []}` (never omitted). Persists across an interrupted-session resume (Section 2) the same way `draft` and `rubric` do, since resume restores the full state file verbatim.

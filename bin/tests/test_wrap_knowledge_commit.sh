@@ -122,11 +122,11 @@ else
   _fail "$TICKET_REWORK does not name Phase 11b as the Trivial-skipped mechanism - spec item 18's reword is missing."
 fi
 
-# 4. agentic-emit knowledge_commit must appear inside Part G.
-if grep -qF 'agentic-emit knowledge_commit' "$WRAP"; then
-  _pass "'agentic-emit knowledge_commit' present in $WRAP"
+# 4. ds-emit knowledge_commit must appear inside Part G.
+if grep -qF 'ds-emit knowledge_commit' "$WRAP"; then
+  _pass "'ds-emit knowledge_commit' present in $WRAP"
 else
-  _fail "'agentic-emit knowledge_commit' not found in $WRAP - Part G step 10's auditability event is missing."
+  _fail "'ds-emit knowledge_commit' not found in $WRAP - Part G step 10's auditability event is missing."
 fi
 
 # 5. The check-ignore gate must be present, and must NOT be suffixed
@@ -237,19 +237,27 @@ else
   _pass "$CONVENTIONS no longer duplicates the tracker-key derivation prose (relocated, not copied)"
 fi
 
-# 11. Skeptic Major (final round) - the Part E clause in the deletion warning
-#     is provably dead (Part E's target set and Part G's candidate set are
-#     disjoint) and must be gone. The MEMORY-archive.md clause (DS-130) was a
-#     DinoStack-local convention that leaked into the shipped methodology -
-#     /ds-init-project never scaffolds a MEMORY-archive.md for consumer
-#     projects, so the caveat was unreachable for every consumer and has been
-#     retired; the deletion warning now prints unconditionally with no
-#     archive-specific carve-out.
-COUNT_PART_E_CLAUSE=$(grep -c 'Part E ran earlier\|Part E compressed' "$WRAP" || true)
-if [ "$COUNT_PART_E_CLAUSE" -eq 0 ]; then
-  _pass "the dead 'Part E ran earlier'/'Part E compressed' clause is absent from $WRAP (count=0)"
+# 11. Skeptic Major (final round), REVISED by DS-90 (v2 retarget) - the Part E
+#     clause in the deletion warning was provably dead on origin/main (Part
+#     E's target set - `.agentic/memory.md` + `[cwd]/CLAUDE.md` - and Part
+#     G's candidate set - root `MEMORY.md`, `decisions.md`,
+#     `.agentic/learnings.md` - were disjoint there: Part B wrote
+#     `.agentic/memory.md`, not root MEMORY.md, so Part E never touched a
+#     Part G candidate). DS-90 v2 retargets Part B to write root `MEMORY.md`
+#     and ADDS root `MEMORY.md` to Part E's target list (see
+#     content/commands/ds-wrap.md's Part E "Targets:" block) - so the two
+#     sets now OVERLAP at root MEMORY.md, and the clause is reachable again:
+#     a same-session Part E compression of root MEMORY.md legitimately
+#     explains deleted lines Part G's revert-risk check would otherwise flag
+#     as a possible revert. The clause must therefore be PRESENT, not absent -
+#     inverted from the prior round's assertion. The MEMORY-archive.md clause
+#     (DS-130) remains retired and is asserted separately below; that
+#     premise is unaffected by this reversal.
+COUNT_PART_E_CLAUSE=$(grep -c 'Part E compressed this file this session' "$WRAP" || true)
+if [ "$COUNT_PART_E_CLAUSE" -ge 1 ]; then
+  _pass "the compression-explained Part E clause is present in $WRAP (count=$COUNT_PART_E_CLAUSE) - DS-90 v2 made Part E's and Part G's target sets overlap at root MEMORY.md, so the clause is load-bearing again."
 else
-  _fail "'Part E ran earlier'/'Part E compressed' still appears $COUNT_PART_E_CLAUSE time(s) in $WRAP - the provably-dead Part E clause was not removed."
+  _fail "the compression-explained Part E clause is absent from $WRAP - DS-90 v2 added root MEMORY.md to Part E's targets, which now overlaps Part G's candidate set, so this clause is reachable and must be present to explain a same-session compression instead of misreporting it as a possible revert."
 fi
 
 if grep -qF 'moved verbatim to `MEMORY-archive.md`' "$WRAP"; then
@@ -315,6 +323,117 @@ if grep -qF 'the steps-1-3 setup-failure soft-fail' "$WRAP"; then
   _pass "step 9's cleanup enumeration in $WRAP names the steps-1-3 setup-failure soft-fail"
 else
   _fail "step 9's cleanup enumeration in $WRAP does not name the steps-1-3 setup-failure soft-fail - a leaked ephemeral worktree on setup failure would go undetected."
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 11e (knowledge commit onto the PR branch) and the Part G dedup gate.
+#
+# The Part G dedup bullet is the ONLY thing stopping Part G from re-committing
+# knowledge Phase 11e already shipped, and it encodes three separately
+# breakable contracts: a five-condition FAIL-OPEN rule, a load-bearing
+# "deliberately LAST in the gating order" position, and a writer/reader
+# filename contract on .agentic/knowledge-commit-state.json that spans two
+# files. Behavioral coverage of the 11e block lives in
+# bin/tests/test_phase11e_knowledge_commit_shell.py; the gate below is prose,
+# so it is pinned here the same way every other normative sentence in this
+# region is.
+# ---------------------------------------------------------------------------
+
+# 16. The new phase is numbered 11e, exactly once. This is the other half of
+#     the `grep -c '11c' == 0` invariant above (assertions 3 and 4): that
+#     invariant is what forced the 11e numbering in the first place, and
+#     without this check a renumbering back onto 11c would break it silently.
+COUNT_11E_HEADING=$(grep -c '^## Phase 11e:' "$IMPLEMENT_TICKET" || true)
+if [ "$COUNT_11E_HEADING" -eq 1 ]; then
+  _pass "the '## Phase 11e:' heading appears exactly once in $IMPLEMENT_TICKET"
+else
+  _fail "'## Phase 11e:' appears $COUNT_11E_HEADING time(s) in $IMPLEMENT_TICKET (expected exactly 1) - the knowledge-commit phase is missing, duplicated, or was renumbered (which would collide with the '11c' == 0 invariant asserted above)."
+fi
+
+# 17. Writer/reader filename contract. The marker file is WRITTEN by the
+#     Phase 11e block and READ by Part G's dedup gate; they live in different
+#     files, so renaming one side alone is a silent break with no conflict
+#     marker. Assert both sides name the same file.
+COUNT_STATE_WRITER=$(grep -c 'knowledge-commit-state\.json' "$IMPLEMENT_TICKET" || true)
+COUNT_STATE_READER=$(grep -c 'knowledge-commit-state\.json' "$WRAP" || true)
+if [ "$COUNT_STATE_WRITER" -ge 1 ] && [ "$COUNT_STATE_READER" -ge 1 ]; then
+  _pass "'.agentic/knowledge-commit-state.json' is named on BOTH sides of the writer/reader contract ($IMPLEMENT_TICKET=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER)"
+else
+  _fail "the knowledge-commit-state.json writer/reader contract is broken ($IMPLEMENT_TICKET=$COUNT_STATE_WRITER, $WRAP=$COUNT_STATE_READER; both must be >= 1) - Phase 11e writes the marker and Part G's dedup gate reads it, so a rename on one side alone silently disables the gate."
+fi
+
+# 18. The dedup gate must be FAIL-OPEN toward committing. A duplicate commit
+#     is a reviewable diff; failing open toward SKIPPING silently drops
+#     knowledge, which is the exact failure Part G exists to prevent.
+if grep -qF 'the gate does NOT fire and Part G proceeds exactly as it does today' "$WRAP"; then
+  _pass "the Part G dedup gate declares its fail-open direction in $WRAP"
+else
+  _fail "$WRAP does not state that any unmet condition leaves the dedup gate UNFIRED - a gate that fails open toward skipping would silently drop knowledge."
+fi
+
+# 19. All five gate conditions must be named. Dropping any one of them turns
+#     the gate from "provably already shipped" into a guess.
+MISSING_COND=""
+for cond in 'parses as JSON' '`commit` field is non-empty' 'cat-file -e <commit>^{commit}' 'cat-file -e <commit>:<f>' 'diff --quiet <commit> -- <f>'; do
+  grep -qF "$cond" "$WRAP" || MISSING_COND="$MISSING_COND [$cond]"
+done
+if [ -z "$MISSING_COND" ]; then
+  _pass "all five dedup-gate conditions are named in $WRAP"
+else
+  _fail "the Part G dedup gate is missing condition(s):$MISSING_COND - each dropped condition lets the gate fire on unproven state and skip content that was never shipped."
+fi
+
+# 20. `deleted_lines` must be explicitly excluded: this gate is content-based,
+#     not risk-based.
+if grep -qF '`deleted_lines` is NOT consulted' "$WRAP"; then
+  _pass "$WRAP states that deleted_lines is not consulted by the dedup gate"
+else
+  _fail "$WRAP does not state that deleted_lines is excluded from the dedup gate - a risk-based reading of a content-based gate would skip on the wrong signal."
+fi
+
+# 21. ORDERING (load-bearing). The dedup bullet must come AFTER the
+#     byte-identity bullet. Hoisted above it, a genuinely UNCHANGED file would
+#     report "already captured" instead of "unchanged". Compare line numbers
+#     directly rather than trusting prose, same technique as assertion 6.
+LINE_IDENTITY_BULLET=$(grep -n '^- File exists and is not gitignored, but is byte-identical to its' "$WRAP" | head -1 | cut -d: -f1)
+LINE_DEDUP_BULLET=$(grep -n 'already captured onto a ticket PR branch by' "$WRAP" | head -1 | cut -d: -f1)
+if [ -n "$LINE_IDENTITY_BULLET" ] && [ -n "$LINE_DEDUP_BULLET" ] && [ "$LINE_IDENTITY_BULLET" -lt "$LINE_DEDUP_BULLET" ]; then
+  _pass "the dedup bullet (line $LINE_DEDUP_BULLET) follows the byte-identity bullet (line $LINE_IDENTITY_BULLET) in $WRAP"
+else
+  _fail "the Part G dedup bullet is not positioned after the byte-identity bullet in $WRAP (byte-identity line='$LINE_IDENTITY_BULLET', dedup line='$LINE_DEDUP_BULLET') - hoisted above it, a genuinely unchanged file reports 'already captured' rather than 'unchanged'."
+fi
+
+# 22. The step-10 payload sentence appended for the SECOND emit site.
+if grep -qF 'one of `wrap-part-g` or `phase-11e`' "$WRAP"; then
+  _pass "step 10's payload prose in $WRAP declares the two-site \`site\` field"
+else
+  _fail "$WRAP does not declare the \`site\` field's two values - the knowledge_commit event is now emitted from two sites and events.jsonl could not tell them apart."
+fi
+
+if grep -qF 'files ACTUALLY committed' "$WRAP" && grep -qF '`files_staged`' "$WRAP"; then
+  _pass "step 10's payload prose in $WRAP defines files_staged and pins files_committed to files ACTUALLY committed"
+else
+  _fail "$WRAP does not define files_staged and/or does not pin files_committed's meaning - populating files_committed at staging time would make a failed push indistinguishable from a success."
+fi
+
+# 23. `no-branch` must be in the Phase 11e status enum. Without it, "there was
+#     no PR branch to commit onto" is indistinguishable from "nothing changed"
+#     in events.jsonl - the ambiguity that let this phase's deleted predecessor
+#     ship zero commits for its entire lifetime unnoticed.
+if grep -qF 'no-branch' "$WRAP" && grep -qF 'KC_STATUS="no-branch"' "$IMPLEMENT_TICKET"; then
+  _pass "the 'no-branch' status is set in $IMPLEMENT_TICKET and documented in $WRAP's enum sentence"
+else
+  _fail "the 'no-branch' status is missing from $IMPLEMENT_TICKET's block and/or $WRAP's enum sentence - the ref-absent path would report 'no-changes', which is indistinguishable from 'nothing changed' in events.jsonl."
+fi
+
+# 24. The gitignore diagnostic must stay audible in the Phase 11e block too -
+#     assertion 5 above already covers $WRAP, but the check-ignore gate now
+#     exists in BOTH files and only one of them was protected.
+COUNT_SUPPRESSED_CI_IT=$(grep -c 'check-ignore.*2>/dev/null' "$IMPLEMENT_TICKET" || true)
+if [ "$COUNT_SUPPRESSED_CI_IT" -eq 0 ]; then
+  _pass "check-ignore is never suffixed 2>/dev/null in $IMPLEMENT_TICKET (count=0)"
+else
+  _fail "check-ignore is suffixed 2>/dev/null $COUNT_SUPPRESSED_CI_IT time(s) in $IMPLEMENT_TICKET - this would suppress the Phase 11e gitignored-file diagnostic, which is load-bearing for correctness (git add refuses an ignored path without -f), not merely diagnostic."
 fi
 
 echo
