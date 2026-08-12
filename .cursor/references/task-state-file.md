@@ -30,7 +30,9 @@ Downstream consumers: conductor (/ds-implement-ticket multi-unit orchestration;
                       rewrites); engineer agents (receive task_id in
                       execution contract for identification only - never
                       write to tasks.jsonl); skeptic / security-auditor (read
-                      author_model before selecting their own model).
+                      author_model before selecting their own model);
+                      /ds-implement-ticket Phase 9 (reads author_model for the
+                      PR body Model: attribution line beside Developer:).
 
 Failure modes: tasks.jsonl IS gitignored, like other .agentic/ state files
                (see ds-init-project.md's scaffolded .gitignore block and
@@ -99,5 +101,11 @@ not recorded). Consumed by reviewer spawns (Skeptic, security-auditor) to pick
 a different model when role-model routing is active -- reviewer-diversity
 prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
 The conductor records `author_model` at engineer spawn time (Phase 5) as part
-of the ownership claim's append, and reviewer spawns read the folded value
-before selecting their own model.
+of the ownership claim's append. Both Phase 5 claim sites - the sequential
+single-engineer claim and the parallel per-unit fan-out claim - carry
+`ticket_id` alongside `author_model`, so Phase 9's `Model:` attribution read
+can scope to the current ticket. Reviewer spawns read the folded value before
+selecting their own model. `/ds-implement-ticket` Phase 9 reads the raw claim
+records (filtered on raw `status` `in_progress`/`done`) to emit a `Model:`
+attribution line beside `Developer:` on the PR body, so a PR carries the
+model(s) that produced it.
