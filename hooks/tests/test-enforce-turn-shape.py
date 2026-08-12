@@ -2393,20 +2393,20 @@ check(
 )
 
 # y8. CHARACTERIZATION (DS-157 round 2, Skeptic Major 1's demonstrated
-# latent hard-block path) - NOT a claim this ticket fixes the mechanism,
-# only that it is pinned so a future change surfaces it deliberately
-# rather than by accident. When a genuine `stoppage`+`completion` turn's
-# body ALSO contains a (correctly-kept) continuing-work veto phrase
-# ("CI running on #640" inside its own Waiting: line), losing the
-# `completion` warrant flips `stoppage_sole` True, routing the turn onto
-# _execution_prose_flag's STRICTER sole-stoppage branch - which then
-# BLOCKS the State:/Running:/Blocked: lines the general branch would have
-# permitted. This mechanism pre-exists on main for the original 3 DS-156
-# phrases too (any of them matching inside a dependency mention has the
-# same effect); DS-157 widens the trigger vocabulary but does not
-# introduce the mechanism itself, and fixing the sole-stoppage/general
-# branch routing interaction is out of this ticket's scope (Major 1's fix
-# is the phrase-set narrowing above, not this routing predicate).
+# latent hard-block path; RE-DERIVED DS-158). When a genuine
+# `stoppage`+`completion` turn's body ALSO contains a (correctly-kept)
+# continuing-work veto phrase ("CI running on #640" inside its own
+# Waiting: line), losing the `completion` warrant flips `stoppage_sole`
+# True, routing the turn onto _execution_prose_flag's sole-stoppage
+# branch. Before DS-158 this branch was fence-blind AND recognized ONLY
+# Waiting: lines, so it BLOCKED the well-formed State:/Running:/Blocked:
+# lines the general branch would have permitted - documented then as a
+# latent, out-of-scope mechanism. DS-158 widens the sole-stoppage branch
+# to also permit well-formed State:/Running:/Blocked: slot lines (the
+# same "here is my status and here is what I'm blocked on" fix as
+# elsewhere in this ticket), which resolves this exact latent mechanism
+# as a side effect: this turn is now well-formed on the sole-stoppage
+# branch too, so it stays QUIET.
 y8_msg = (
     "Conductor\n"
     "State: work complete.\n"
@@ -2428,11 +2428,10 @@ check(
     _y8_stoppage_sole is True,
 )
 check(
-    "y8c. the sole-stoppage branch then BLOCKS the State:/Running:/"
-    "Blocked: lines the general branch would have permitted - latent, "
-    "pre-existing mechanism, not introduced by this ticket, pinned here "
-    "so a future change to it is deliberate",
-    _mod._execution_prose_flag(y8_msg, _y8_warrants) is not None,
+    "y8c. DS-158: the sole-stoppage branch now PERMITS the well-formed "
+    "State:/Running:/Blocked: lines too, resolving the formerly-latent "
+    "hard-block as a side effect of the sole-stoppage widening",
+    _mod._execution_prose_flag(y8_msg, _y8_warrants) is None,
 )
 
 # y9. REGRESSION (DS-157 round 3, Skeptic Major): the "in progress"
@@ -2601,6 +2600,479 @@ check(
     "_identity_line_trailing_completion (already covered by the "
     "leading-declaration path)",
     _mod._identity_line_trailing_completion("Done.") is False,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158: two operator-reported false positives on the execution-prose
+# check, plus the discriminator's regression coverage.
+# ---------------------------------------------------------------------------
+
+# ds158-a. FALSE POSITIVE A (operator report): identity line + well-formed
+# State:/Running:/Blocked: slot lines + one genuine multi-sentence
+# answer/explanation paragraph + a completion warrant -> was BLOCKING
+# pre-fix, must be ADVISORY (downgraded) post-fix, never QUIET (the
+# unrecognized content is still flagged, just not as a hard block).
+ds158_a_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    "The reason the guard misfires here is that the status-region prose "
+    "classifier treats the entire body as the status region regardless "
+    "of warrant type. Any explanatory paragraph placed there trips the "
+    "unrecognized-line check even though it is genuinely part of the "
+    "answer the operator asked for, which is exactly the false positive "
+    "this fix addresses.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_a_msg))
+check(
+    "ds158-a. status slot lines + a genuine multi-sentence explanation "
+    "paragraph, completion warrant -> ADVISORY (downgraded), not BLOCKING",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+check(
+    "ds158-a2. same fixture is NOT blocking",
+    not is_blocking(rc, out),
+)
+
+# ds158-b. FALSE POSITIVE B (operator report): a Waiting: line combined
+# with plain, well-formed State:/Running:/Blocked: lines -> was BLOCKING
+# pre-fix via the sole-stoppage branch's Waiting:-only requirement, must
+# be QUIET post-fix.
+ds158_b_msg = (
+    IDENTITY_OK + "\n"
+    "State: implementing unit 2.\n"
+    "Running: unit 2 build.\n"
+    "Blocked: none.\n"
+    "Waiting: operator sign-off on the plan.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_b_msg))
+check(
+    "ds158-b. sole-stoppage turn, Waiting: line + well-formed status slot "
+    "lines -> QUIET",
+    is_quiet(rc, out),
+)
+
+# ds158-c. sole-stoppage branch still BLOCKS a genuinely unrecognized line
+# (not a slot line, not a Waiting: line) alongside a Waiting: line -
+# proves the widening in ds158-b is scoped to recognized slot lines, not
+# a blanket pass.
+ds158_c_msg = (
+    IDENTITY_OK + "\n"
+    "State: implementing unit 2.\n"
+    "Some free-floating narrative aside that is not a recognized slot.\n"
+    "Waiting: operator sign-off on the plan.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_c_msg))
+check(
+    "ds158-c. sole-stoppage turn, Waiting: + status slot + one genuinely "
+    "unrecognized line -> still BLOCKING",
+    is_blocking(rc, out, "sole-stoppage"),
+)
+
+# ds158-d. narrative-creep MUST still BLOCK: re-confirms s5c-b's verdict
+# directly against the new tuple-returning _execution_prose_flag, proving
+# the discriminator does not make everything advisory. Same fixture as
+# s5c-b above.
+ds158_d_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "Merged the fix for the turn-shape gate regression into main.\n"
+    + _nlines(7, prefix="Also did thing")
+)
+rc, out, err = run_hook(make_payload(ds158_d_msg))
+check(
+    "ds158-d. narrative-creep (many short templated pings) -> still "
+    "BLOCKING, not downgraded",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+check(
+    "ds158-d2. narrative-creep finding is NOT tagged 'downgraded to "
+    "advisory'",
+    "downgraded to advisory" not in parse_output(out).get("reason", ""),
+)
+
+# ds158-e. _is_answer_shaped_prose unit coverage: a single well-formed,
+# reasonably long sentence is NOT answer-shaped (the multi-sentence floor
+# is load-bearing - see ds156-e above, the live regression this guards).
+check(
+    "ds158-e1. a single 12-word sentence is NOT answer-shaped (fails the "
+    "multi-sentence floor)",
+    _mod._is_answer_shaped_prose(
+        "One more thing worth mentioning here that is not a status slot."
+    )
+    is False,
+)
+check(
+    "ds158-e2. two short templated sentences (well under the "
+    "words-per-sentence average) are NOT answer-shaped",
+    _mod._is_answer_shaped_prose("Also did thing 1. Also did thing 2.") is False,
+)
+check(
+    "ds158-e3. two genuinely developed sentences (over the "
+    "words-per-sentence average) ARE answer-shaped",
+    _mod._is_answer_shaped_prose(
+        "This is a genuinely developed explanatory sentence with real "
+        "content in it. Here is a second one that also carries real "
+        "explanatory weight and detail."
+    )
+    is True,
+)
+check(
+    "ds158-e4. empty text is NOT answer-shaped",
+    _mod._is_answer_shaped_prose("") is False,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 2 (Skeptic Major 1 - laundering bypass; residual
+# false-positive rate). Round 1's _is_answer_shaped_prose classified the
+# WHOLE status region as one joined blob, so a single developed paragraph
+# anywhere in the region could downgrade an arbitrarily large,
+# NON-ADJACENT narrative-creep sprawl riding alongside it. Round 2
+# classifies PER CONTIGUOUS BLOCK instead (a recognized slot/Waiting:
+# line, or a fence, breaks contiguity) and blocks unless EVERY block
+# passes the discriminator.
+# ---------------------------------------------------------------------------
+
+_creep8_lines = ["Also did thing {}.".format(i) for i in range(1, 9)]
+_pad_lines = [
+    "This is a genuinely developed explanatory sentence with real "
+    "content in it, written the way a real conductor answer to a real "
+    "operator question would actually read, at real length.",
+    "Here is a second one that also carries real explanatory weight "
+    "and detail, deliberately long enough that its own average pulls "
+    "a mixed contiguous block above the answer-shaped threshold.",
+    "And a third one, for the same reason, so the combined contiguous "
+    "block's average genuinely clears the discriminator on its own "
+    "arithmetic merits rather than by a hand-tuned coincidence.",
+]
+
+# ds158-f. THE LAUNDERING BYPASS FIXTURE (Skeptic Major 1's exact repro
+# shape): creep8 (narrative-creep, fails the discriminator alone) plus a
+# genuine answer-shaped pad paragraph, separated by a recognized State:
+# line - two DIFFERENT, NON-CONTIGUOUS blocks. Round 1 flattened both
+# into one union and the pad's high word average laundered the creep8
+# block to advisory; round 2 classifies each block independently, so the
+# creep8 block alone still fails and the whole finding stays BLOCKING.
+ds158_f_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "State: unrelated status update.\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_f_msg))
+check(
+    "ds158-f. non-contiguous creep8 + State: + pad -> still BLOCKING "
+    "(laundering bypass closed, Skeptic Major 1)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# ds158-f2. CONTRAST: the SAME creep8 + pad content, but CONTIGUOUS (no
+# recognized line splitting them into two blocks) - this is genuinely
+# ONE block by the spec's own "contiguous block" language, and its
+# combined average legitimately clears the discriminator. This is NOT a
+# laundering bypass - unlike ds158-f, there is no separate, non-adjacent
+# narrative-creep block riding along; it is one literal contiguous run
+# of text.
+ds158_f2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_f2_msg))
+check(
+    "ds158-f2. contiguous creep8 + pad (one literal block) -> DOWNGRADE "
+    "(contrast case: this is not laundering, it is one genuine block)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ds158-f3. Direct unit-level pin of the per-block boolean itself:
+# _is_answer_shaped_prose(creep8 alone) is False (fails on its own),
+# proving ds158-f's BLOCK verdict traces to the creep8 block failing
+# independently, not to some other mechanism.
+check(
+    "ds158-f3. creep8 alone is NOT answer-shaped (the block that must "
+    "fail independently in ds158-f)",
+    _mod._is_answer_shaped_prose(_creep8_lines) is False,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 2: residual-false-positive fix. The round-1 discriminator
+# reused _SENTENCE_BOUNDARY_RE (splits on `.`/`!`/`:`), so a colon-led
+# clause, "e.g."/"i.e.", or a decimal/version number each inflated the
+# unit count and sank the average below threshold; and a bullet/numbered
+# list item with no terminal punctuation collapsed an entire list into
+# ONE unit, failing the multi-unit floor even though bullets are the most
+# common conductor answer shape. Round 2 fixes both - see
+# _answer_prose_units / _ANSWER_SENTENCE_SPLIT_RE / _ANSWER_ABBREVIATION_RE.
+# ---------------------------------------------------------------------------
+
+check(
+    "ds158-g1. a 3-item bullet list with NO terminal punctuation is "
+    "answer-shaped (each bullet is its own unit)",
+    _mod._is_answer_shaped_prose(
+        [
+            "- Rewrote the discriminator to stop splitting on colons",
+            "- Added abbreviation masking for e.g. and i.e.",
+            "- Treated each bullet item as its own answer unit",
+        ]
+    )
+    is True,
+)
+check(
+    "ds158-g2. a 3-item NUMBERED list with no terminal punctuation is "
+    "answer-shaped (numbered items are recognized the same as bullets)",
+    _mod._is_answer_shaped_prose(
+        [
+            "1. Rewrote the discriminator to stop splitting on colons",
+            "2. Added abbreviation masking for e.g. and i.e.",
+            "3. Treated each bullet item as its own answer unit",
+        ]
+    )
+    is True,
+)
+check(
+    "ds158-g3. a genuinely short 2-item bullet list stays NOT "
+    "answer-shaped (disclosed residual - low word count per item, not a "
+    "regression: see conductor-turn-format.md's residual list)",
+    _mod._is_answer_shaped_prose(["- Fixed the bug", "- Added a test"]) is False,
+)
+
+_ds158_h1_text = (
+    "Two things changed in this pass: the sentence splitter no "
+    "longer treats a colon as a boundary, and bullet items now "
+    "count on their own regardless of punctuation. Both fixes are "
+    "covered by new regression fixtures."
+)
+check(
+    "ds158-h1. a colon-led clause inside a genuine 2-sentence answer "
+    "does not inflate the unit count (colon is no longer a unit "
+    "boundary)",
+    _mod._is_answer_shaped_prose(_ds158_h1_text)
+    is True,
+)
+check(
+    "ds158-h2. 'e.g.' inside a genuine 2-sentence answer does not "
+    "inflate the unit count (abbreviation masking)",
+    _mod._is_answer_shaped_prose(
+        "We considered a few mitigations, e.g. rate limiting and "
+        "request coalescing, and settled on coalescing because it "
+        "needed no client changes. The rollout is staged behind a "
+        "feature flag."
+    )
+    is True,
+)
+check(
+    "ds158-h3. 'i.e.' inside a genuine 2-sentence answer does not "
+    "inflate the unit count (abbreviation masking)",
+    _mod._is_answer_shaped_prose(
+        "The fix only touches the general branch, i.e. the "
+        "sole-stoppage branch is untouched by this change and keeps "
+        "its existing shape. Both branches share the same length bound "
+        "on the identity line."
+    )
+    is True,
+)
+check(
+    "ds158-h4. a version number ('3.10 to 3.11') does not split as a "
+    "sentence boundary",
+    _mod._is_answer_shaped_prose(
+        "Bumped the dependency from 3.10 to 3.11 to pick up the "
+        "upstream fix for the regression we were chasing. Reran the "
+        "full suite afterward to confirm nothing else broke."
+    )
+    is True,
+)
+
+# ds158-i. Hook-level regression pin (not just the unit-level function):
+# a realistic bullet-list answer beside status slots, no other warrant
+# complication, downgrades end-to-end through _execution_prose_flag and
+# main().
+ds158_i_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    "- Rewrote the sentence-boundary regex so it no longer splits on a "
+    "colon, which was inflating the unit count on ordinary explanatory "
+    "answers\n"
+    "- Added abbreviation masking so e.g. and i.e. no longer count as "
+    "sentence boundaries either\n"
+)
+rc, out, err = run_hook(make_payload(ds158_i_msg))
+check(
+    "ds158-i. realistic bullet-list answer beside status slots -> "
+    "ADVISORY (downgraded), hook-level end-to-end pin",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 3 (Skeptic Major): the round-2 discriminator REGRESSED
+# three realistic shapes from DOWNGRADE to BLOCK - a first sentence
+# ending in "no." (masked as an abbreviation, merging it into the next
+# sentence and dropping the unit count below the floor), a first
+# sentence ending in a version number ("3.11.") or a plain count
+# ("174.") (the old digit lookbehind suppressed the boundary after ANY
+# digit-final token, not just inside a decimal). Confirmed via
+# `git stash` against cd5b0666: all three collapsed to 1 unit there
+# (shaped=False); a "negative" control (same shape, no digit/no-token
+# involved) correctly split into 2 units and stayed shaped=True at BOTH
+# commits - proving the regression was specific to "no."/digits, not a
+# general break.
+# ---------------------------------------------------------------------------
+
+_ds158_j_no = (
+    "The answer is no. We are not proceeding with that approach for "
+    "the current release, given the regression risk it carries."
+)
+_ds158_j_version = (
+    "We upgraded the dependency to version 3.11. The regression is "
+    "confirmed fixed on that release after a full suite re-run."
+)
+_ds158_j_count = (
+    "The measured value came out to 174. That confirms the earlier "
+    "estimate was accurate to within the expected margin of error."
+)
+_ds158_j_control = (
+    "The answer is negative. We are not proceeding with that approach "
+    "for the current release, given the regression risk it carries."
+)
+
+check(
+    "ds158-j1. first sentence ends in 'no.' -> answer-shaped (round-3 "
+    "regression fix: 'no' removed from the abbreviation mask)",
+    _mod._is_answer_shaped_prose(_ds158_j_no) is True,
+)
+check(
+    "ds158-j2. first sentence ends in a version number ('3.11.') -> "
+    "answer-shaped (round-3 regression fix: digit lookbehind removed "
+    "from the split regex)",
+    _mod._is_answer_shaped_prose(_ds158_j_version) is True,
+)
+check(
+    "ds158-j3. first sentence ends in a plain count ('174.') -> "
+    "answer-shaped (same digit-lookbehind regression fix)",
+    _mod._is_answer_shaped_prose(_ds158_j_count) is True,
+)
+check(
+    "ds158-j4. control: same shape with 'negative' instead of 'no' -> "
+    "answer-shaped at both round 2 and round 3 (proves the regression "
+    "was specific to the digit/'no.' handling, not a general split "
+    "failure)",
+    _mod._is_answer_shaped_prose(_ds158_j_control) is True,
+)
+
+# ds158-j5. Hook-level end-to-end pin for one of the round-3 regression
+# shapes (version number), beside status slots with a completion warrant.
+ds158_j5_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    + _ds158_j_version + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_j5_msg))
+check(
+    "ds158-j5. version-number-ending sentence beside status slots -> "
+    "ADVISORY (downgraded), hook-level end-to-end pin",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ds158-j6. decimal number MID-sentence (not at a sentence boundary)
+# still does not spuriously split - "3.11" between two words never
+# produces a stray unit at the internal decimal point (the \s+
+# requirement alone prevents this, since no whitespace follows the
+# internal dot).
+check(
+    "ds158-j6. a mid-sentence decimal ('bumped from 3.10 to 3.11 to') "
+    "does not spuriously split at the internal decimal point",
+    len(
+        _mod._answer_prose_units(
+            ["Bumped the dependency from 3.10 to 3.11 to fix the bug."]
+        )
+    )
+    == 1,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 3 (Skeptic Minor 2): a blank line must break contiguity
+# too, not just a recognized slot/Waiting: line or a fence boundary.
+# Pre-fix, `_execution_prose_flag`'s general branch `continue`d on a
+# blank line without flushing `current_block`, so creep8 + a blank line
+# + pad was still ONE block and its combined average could downgrade -
+# even though a blank line is the canonical markdown paragraph/block
+# separator and every prose statement of the contiguity rule lists it.
+# ---------------------------------------------------------------------------
+
+ds158_k_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_k_msg))
+check(
+    "ds158-k. creep8 + BLANK LINE + pad -> still BLOCKING (blank line "
+    "breaks contiguity, Skeptic Minor 2 - creep8 must be classified "
+    "independently from the pad paragraph that follows the blank line)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# ds158-k2. CONTRAST: two genuinely separate, blank-line-separated
+# paragraphs that are BOTH independently answer-shaped still downgrade -
+# the blank-line boundary is a free tightening, not a new false positive.
+# Paragraph 1 is the full 3-line pad block (3 units, well over
+# threshold); paragraph 2 reuses ds158-h1's colon-led 2-sentence answer
+# (2 units, over threshold) - each block independently clears the
+# discriminator on its own.
+ds158_k2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_pad_lines) + "\n"
+    + "\n"
+    + _ds158_h1_text + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_k2_msg))
+check(
+    "ds158-k2. two blank-line-separated paragraphs, EACH independently "
+    "answer-shaped -> DOWNGRADE (blank-line boundary is a free "
+    "tightening, not a new false positive)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 4 (Skeptic Minor): "etc" remained in
+# _ANSWER_ABBREVIATION_RE and the round-3 comment justifying it claimed
+# none of the retained entries "end an English sentence on their own
+# (unlike 'no')" - false for "etc.", which routinely does. This is a
+# RESIDUAL (identical BLOCK at 05fe944d, cd5b0666, and main), not a
+# round-3 regression.
+# ---------------------------------------------------------------------------
+
+_ds158_l_etc = (
+    "We covered lint, typecheck, tests, etc. Everything else was "
+    "already green before this change ever landed."
+)
+check(
+    "ds158-l1. a sentence ending in 'etc.' followed by a second "
+    "sentence is answer-shaped ('etc' removed from the abbreviation "
+    "mask, Skeptic round-4 Minor)",
+    _mod._is_answer_shaped_prose(_ds158_l_etc) is True,
+)
+
+# ds158-l2. Hook-level end-to-end pin, the Skeptic's exact measured
+# sentence beside status slots.
+ds158_l2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    + _ds158_l_etc + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_l2_msg))
+check(
+    "ds158-l2. 'etc.'-ending sentence beside status slots -> ADVISORY "
+    "(downgraded), hook-level end-to-end pin (was BLOCKING before this "
+    "fix)",
+    is_advisory(rc, out, "downgraded to advisory"),
 )
 
 # ---------------------------------------------------------------------------

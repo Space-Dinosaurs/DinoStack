@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """
-Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
-         the conductor's final assistant message against the turn-shape
-         contract in content/references/conductor-turn-format.md §9 (the
-         hook contract) / content/sections/02-delegation.md ("Operator
-         decisions go last in the turn"). As of DS-156 this hook is NO
-         LONGER uniformly advisory: it runs two checks with DIFFERENT
-         enforcement postures.
+Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158) that checks the
+         SHAPE of the conductor's final assistant message against the
+         turn-shape contract in content/references/conductor-turn-format.md
+         §9 (the hook contract) / content/sections/02-delegation.md
+         ("Operator decisions go last in the turn"). As of DS-156 this
+         hook is NO LONGER uniformly advisory: it runs two checks with
+         DIFFERENT enforcement postures.
 
            - `_execution_prose_flag` (execution-turn structural shape,
-             REPLACES the deleted `_forced_yield_flag`) is BLOCKING: on a
-             finding it exits via {"decision": "block", "reason": ...},
-             the same shape its sibling enforce-no-abdication.py uses.
+             REPLACES the deleted `_forced_yield_flag`) is BLOCKING BY
+             DEFAULT: on a finding it exits via {"decision": "block",
+             "reason": ...}, the same shape its sibling
+             enforce-no-abdication.py uses. DS-158 narrows this: the
+             general branch's unrecognized-status-region-line finding
+             downgrades to ADVISORY when the offending content is itself
+             answer-shaped prose (see `_is_answer_shaped_prose`) rather
+             than narrative-creep noise - see that function's own
+             docstring for the two false-positive reports that motivated
+             the split and why blocking is still the default.
            - `_answer_relevance_flag` (Answer-turn opening-preamble/
              closing-recap phrasing) remains ADVISORY-ONLY - it always
              exits 0 and surfaces via `additionalContext` on the next
@@ -30,7 +37,13 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
          stays advisory because its two mechanized bans are curated phrase
          lists, not semantic detectors, and blocking a genuine answer over
          an opening phrase like "Good question" is a real friction cost.
-         See content/references/conductor-turn-format.md's Hook contract
+         DS-158's advisory carve-out for answer-shaped prose is narrower
+         than a blanket downgrade for exactly this reason: it applies only
+         to the one sub-finding measured to fire on real answers (see
+         `_is_answer_shaped_prose`), and the narrative-creep case that
+         motivated blocking in the first place (DS-122/DS-151/DS-155)
+         stays blocking by default. See
+         content/references/conductor-turn-format.md's Hook contract
          section for the full rationale and the operator decision that
          overrode the architect's blanket-advisory recommendation.
 
@@ -211,26 +224,41 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
 
             (b) Execution turn (`answer` ABSENT, at least one of
                 decision/stoppage/completion PRESENT): routes to
-                `_execution_prose_flag` (BLOCKING). Its domain depends on
-                whether `stoppage` is the SOLE warrant present:
+                `_execution_prose_flag` (BLOCKING BY DEFAULT - see the
+                DS-158 carve-out below). Its domain depends on whether
+                `stoppage` is the SOLE warrant present:
                   - Sole-stoppage branch: every non-blank RAW line after
                     the identity line, fenced or not, must be a
-                    "Waiting:" line - predicate-identical to the deleted
-                    `_forced_yield_flag` (same gate, same
-                    `_body_after_identity_line` domain, same
-                    `_WAITING_LINE_RE`, no length test on Waiting:
+                    "Waiting:" line OR a well-formed State:/Running:/
+                    Blocked: status slot line (DS-158, bounded by
+                    STATUS_LINE_MAX_CHARS like the general branch below) -
+                    "here is my status and here is what I'm blocked on" is
+                    legitimate conductor output. Otherwise
+                    predicate-identical to the deleted `_forced_yield_flag`
+                    (same gate, same `_body_after_identity_line` domain,
+                    same `_WAITING_LINE_RE`, no length test on Waiting:
                     lines).
                   - General branch (decision and/or completion present,
                     with or without stoppage): inspects only the
                     unfenced lines of the fence-aware status region
-                    (`_segment`/`_regions`). Only a recognized
+                    (`_segment`/`_regions`). A recognized
                     State:/Running:/Blocked: slot line (bounded by
                     STATUS_LINE_MAX_CHARS) or a Waiting:-shaped line
-                    (unbounded length) is permitted; anything else
-                    unfenced is a shape violation.
+                    (unbounded length) is permitted for free; anything
+                    else unfenced is a shape violation that BLOCKS unless
+                    (DS-158, round 2 fix) EVERY CONTIGUOUS BLOCK of such
+                    unrecognized lines reads as answer-shaped prose per
+                    `_is_answer_shaped_prose`, in which case it downgrades
+                    to ADVISORY instead - classified PER block (a
+                    recognized slot/Waiting: line, a fence boundary, or a
+                    blank line breaks contiguity), never as one flattened
+                    union of the whole status region, so a single developed
+                    paragraph cannot launder an unrelated, non-adjacent
+                    narrative-creep sprawl elsewhere in the same turn.
                   On BOTH branches, the identity line at position 1 is
                   additionally checked for LENGTH ONLY (never shape)
-                  against STATUS_LINE_MAX_CHARS.
+                  against STATUS_LINE_MAX_CHARS - always BLOCKING,
+                  unaffected by the DS-158 carve-out.
 
             (c) Zero-warrant turn (neither Answer nor any of
                 decision/stoppage/completion present): routes to
@@ -480,12 +508,18 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             even on a BLOCKING finding - it is the `"decision": "block"`
             payload, not the process exit code, that stops the turn, the
             same convention enforce-no-abdication.py uses). On a clean
-            turn (no findings), emits nothing on stdout. On an
-            `_execution_prose_flag` finding, emits exactly one JSON
-            object:
+            turn (no findings), emits nothing on stdout. On a BLOCKING
+            finding, emits exactly one JSON object:
               {"decision": "block", "reason": "TURN-SHAPE: <finding>"}
-            On any other flagged turn (advisory), emits exactly one JSON
-            object:
+            DS-158: `_execution_prose_flag` findings are NOT uniformly
+            BLOCKING any more - its general branch can downgrade an
+            unrecognized-line finding to ADVISORY when the content is
+            answer-shaped prose (see that function's docstring and
+            `_is_answer_shaped_prose`). On any advisory-routed finding -
+            whether from `_answer_relevance_flag`, `_status_only_flag`,
+            the volume check, the decision-sprawl check, or a DS-158
+            downgraded `_execution_prose_flag` finding - emits exactly one
+            JSON object:
               {"hookSpecificOutput": {"hookEventName": "Stop",
                                        "additionalContext": "TURN-SHAPE: <finding>"}}
             `additionalContext` (not `systemMessage`) is used deliberately -
@@ -1414,15 +1448,158 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
     return len(body_lines) > 2
 
 
+# DS-158 (round 2 Skeptic Major, residual-false-positive fix): minimum
+# unit count and average words-per-unit threshold used by
+# _is_answer_shaped_prose to distinguish genuine explanatory prose (a
+# developed, multi-sentence/multi-item paragraph or list) from
+# narrative-creep noise (single terse status pings, or a sprawl of many
+# short templated pings - see s5c-b in
+# hooks/tests/test-enforce-turn-shape.py, which stays BLOCKING at ~4.75
+# words/unit across 8 lines like "Also did thing 1."). Requiring >=2 units
+# (not just a high word-count average) is load-bearing: a single
+# well-formed, 12-word sentence beside status slot lines (ds156-e's "One
+# more thing worth mentioning here that is not a status slot.") is
+# exactly the operator's founding narrative-creep complaint this hook
+# exists to catch, not an answer - one short sentence is never a
+# "paragraph". An unclosed fence's buffered content (s13) is 15 physical
+# lines with no sentence-terminal punctuation at all; each becomes its
+# own low-word-count unit (round 2: units are line-scoped, see below), so
+# it fails on the AVERAGE, not the count - still correctly BLOCKING. The
+# avg-words-per-unit threshold (8) is measured against the two DS-158
+# false-positive reports named in the module docstring: the reported
+# answer paragraphs run well over 8 words/unit, s5c-b's narrative body
+# runs well under it. Not corpus-swept beyond those shapes; revisit if
+# false positives recur on either side.
+_ANSWER_PROSE_MIN_SENTENCES = 2
+_ANSWER_PROSE_AVG_WORDS_PER_SENTENCE = 8
+
+# DS-158 round 2 (Skeptic-mandated residual-false-positive fix); round 3
+# (Skeptic Major - the round-2 version of this regex REGRESSED three
+# realistic shapes from DOWNGRADE to BLOCK: a sentence ending in "no.", a
+# version number ("3.11."), and a plain count ("174."), because
+# `(?<!\d)[.!](?!\d)\s+` suppressed the boundary after ANY digit-final
+# token, not just inside a genuine decimal. A decimal point ("3.11") is
+# already safe WITHOUT a digit lookbehind at all: `\s+` after the match
+# already requires literal whitespace, and the internal dot in "3.11" is
+# followed immediately by a digit, never whitespace, so it can never
+# match this pattern regardless. The lookbehind was therefore not
+# guarding decimals - it was suppressing every sentence-ending period
+# that happens to follow a digit, which is exactly the regression. Fixed
+# by dropping the digit lookarounds entirely, matching the Skeptic's
+# "anchor the digit guard to a digit on BOTH sides" note: the `\s+`
+# requirement already IS that both-sides anchor in practice, since a
+# digit-then-digit decimal point is never followed by whitespace).
+#
+# The original _is_answer_shaped_prose reused _SENTENCE_BOUNDARY_RE,
+# which splits on `.`/`!`/`:` - the trailing `:` alone made every
+# colon-led clause ("What changed:", "Two things:") count as a spurious
+# unit boundary, inflating the unit count and sinking the words-per-unit
+# average below threshold on ordinary answer prose. This regex
+# intentionally does NOT split on `:` at all - it is deliberately NOT the
+# same regex _identity_line_trailing_completion uses, which has a
+# different, narrower domain (the single-line identity line only) and
+# must keep matching `:` there (unchanged, not touched by this fix).
+_ANSWER_SENTENCE_SPLIT_RE = re.compile(r"[.!]\s+")
+
+# Common abbreviations whose internal `.` must not be treated as a
+# sentence boundary (measured false-positive cause, DS-158 round 2).
+# "e.g." / "i.e." are the only two ever actually measured, and (round 4,
+# Skeptic Minor) the only two retained. Round 3 already removed
+# "no"/"st"/"fig"/"mr"/"mrs"/"dr" after "no." (a common English word, not
+# an abbreviation) masked a genuine sentence-ending period and regressed
+# a realistic answer shape from DOWNGRADE to BLOCK - but round 3's own
+# comment claimed the remaining "etc"/"vs"/"approx" were safe because
+# "none of them end an English sentence on their own (unlike 'no')".
+# That claim was FALSE for "etc.", which routinely ends a sentence
+# ("...lint, typecheck, tests, etc. Everything else was already green.")
+# - measured (round 4) to reproduce the identical residual: the trailing
+# period is masked, the sentence merges with the next one, the unit
+# count drops below the floor, and the finding BLOCKS a genuine answer.
+# "vs"/"approx" are removed with it on the same reasoning, since neither
+# was ever independently measured either - narrowing to exactly the two
+# tokens this module has actual evidence for.
+_ANSWER_ABBREVIATION_RE = re.compile(r"\b(?:e\.g|i\.e)\.", re.IGNORECASE)
+
+
+def _answer_prose_units(lines) -> list:
+    """DS-158 round 2. Split a block's PHYSICAL lines into "units" for
+    _is_answer_shaped_prose: a bullet/numbered list item (matching
+    `_DECISION_ITEM_START_RE`'s shape, reused as-is rather than
+    duplicated) is always exactly ONE unit regardless of terminal
+    punctuation - the residual-false-positive measurement found ordinary
+    bullet/numbered answers without trailing periods were previously
+    collapsed into a single giant "sentence" and failed the multi-unit
+    floor purely because list items don't end in `.`/`!`. A non-list line
+    is split on `_ANSWER_SENTENCE_SPLIT_RE` (abbreviations masked first
+    via `_ANSWER_ABBREVIATION_RE` so their internal `.` cannot count as a
+    boundary); a line with no internal sentence boundary becomes exactly
+    one unit. Line-scoped rather than whole-text-scoped so an unclosed
+    fence's buffered "line_i = i" content (s13) still yields many
+    low-word-count units instead of one long blob - see the
+    `_ANSWER_PROSE_MIN_SENTENCES` docstring above.
+    """
+    units = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if _DECISION_ITEM_START_RE.match(raw_line) or _DECISION_ITEM_START_RE.match(line):
+            units.append(line)
+            continue
+        masked = _ANSWER_ABBREVIATION_RE.sub(
+            lambda m: m.group(0).replace(".", "\x00"), line
+        )
+        pieces = [p for p in _ANSWER_SENTENCE_SPLIT_RE.split(masked) if p.strip()]
+        if not pieces:
+            pieces = [masked]
+        units.extend(p.replace("\x00", ".") for p in pieces)
+    return units
+
+
+def _is_answer_shaped_prose(lines) -> bool:
+    """DS-158 (round 2: reworked to fix a measured residual
+    false-positive rate - see `_answer_prose_units`). True iff the
+    PHYSICAL LINES in `lines` (an iterable of raw block-line strings, NOT
+    a single joined blob - see `_execution_prose_flag`'s per-block
+    call site, Major 1 fix) read as genuine explanatory/answer prose
+    rather than narrative-creep noise (a single stray sentence/label, or
+    a sprawl of short templated status pings). Consumed ONLY by
+    _execution_prose_flag's general branch, to decide whether ONE
+    contiguous block of unrecognized status-region lines downgrades to
+    ADVISORY instead of staying BLOCKING - see that function's docstring.
+
+    Discriminator: at least _ANSWER_PROSE_MIN_SENTENCES units (see
+    `_answer_prose_units`) AND an average words-per-unit >=
+    _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE. Both conditions are required
+    (see the constants' docstring above for why each alone is
+    insufficient) - a short templated status ping averages only a
+    handful of words per unit even when there are many of them
+    (narrative creep, fails on the average); a single isolated sentence
+    never reaches the multi-unit floor no matter how long it is
+    (ds156-e, fails on the count). This is deliberately a volume/shape
+    heuristic, not a semantic one - matching this module's existing
+    "structural predicate, not phrase matching" design for the BLOCKING
+    check (see the module docstring's "Why the split" paragraph).
+    """
+    if isinstance(lines, str):
+        lines = lines.splitlines()
+    units = _answer_prose_units(lines)
+    if len(units) < _ANSWER_PROSE_MIN_SENTENCES:
+        return False
+    total_words = sum(len(u.split()) for u in units)
+    avg_words = total_words / len(units)
+    return avg_words >= _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE
+
+
 def _execution_prose_flag(text: str, warrants: dict):
-    """Return a finding string, or None. BLOCKING (DS-156) - implements
+    """Return (finding string, is_blocking bool), or None. Implements
     content/references/conductor-turn-format.md §4's execution-turn
     structural rule. REPLACES _forced_yield_flag; it does not run
     alongside it - the sole-stoppage branch below is predicate-identical
     to the deleted _forced_yield_flag (same gate, same
     _body_after_identity_line domain, same _WAITING_LINE_RE, no length
-    test on Waiting: lines), so nothing that used to pass now fails on
-    that branch alone.
+    test on Waiting: lines) EXCEPT for the DS-158 widening documented on
+    that branch below.
 
     Called ONLY for execution turns (answer warrant ABSENT, at least one
     of decision/stoppage/completion PRESENT) - see main()'s three-way
@@ -1433,14 +1610,46 @@ def _execution_prose_flag(text: str, warrants: dict):
     for LENGTH ONLY, never shape, against STATUS_LINE_MAX_CHARS - the
     bound is a property of position 1 itself, not of which branch is
     running (a sole-stoppage turn cannot use its wider raw-line domain to
-    smuggle an over-length line into position 1).
+    smuggle an over-length line into position 1). Both length findings are
+    always BLOCKING - DS-158's advisory downgrade applies only to the
+    general branch's unrecognized-prose finding, never to a length
+    violation.
+
+    DS-158: this function's enforcement posture is no longer uniformly
+    BLOCKING. Two false-positive reports (an operator report plus live
+    evidence captured mid-fix) showed real conductor output - "here is my
+    status and here is what I'm blocked on", and a genuine answer/
+    explanation paragraph sitting beside well-formed status slot lines -
+    tripping this check even though nothing was actually malformed.
+      - Sole-stoppage branch: now additionally permits well-formed
+        State:/Running:/Blocked: slot lines (see _STATUS_SLOT_LINE_RE),
+        subject to the same STATUS_LINE_MAX_CHARS bound the general
+        branch already applies to them. "Waiting: X" alongside "State: Y"
+        is legitimate conductor output, not a shape violation.
+      - General branch: an unrecognized (non-slot, non-Waiting:) line is
+        still BLOCKING by default - this is the narrative-creep case
+        s5c-b in hooks/tests/test-enforce-turn-shape.py exists to catch,
+        and advisory-only enforcement of exactly this shape problem
+        shipped three times (DS-122/DS-151/DS-155) without the prose ever
+        going away (see the module docstring). It downgrades to ADVISORY
+        only when EVERY CONTIGUOUS BLOCK of unrecognized content is
+        itself answer-shaped prose per _is_answer_shaped_prose (DS-158
+        round 2, Skeptic Major 1: classified PER contiguous block, never
+        as one flattened union of the whole status region - a recognized
+        slot/Waiting: line, a fence boundary, OR (DS-158 round 3, Skeptic
+        Minor 2) a blank line breaks contiguity between blocks) - a real
+        explanatory paragraph, not a stray label or a
+        sprawl of short status pings. This closes a laundering bypass the
+        original union-based version had: one developed paragraph
+        anywhere in the region could otherwise downgrade an arbitrarily
+        large, non-adjacent narrative-creep sprawl riding alongside it.
     """
     identity_line, body = _segment(text)
     if len(identity_line) > STATUS_LINE_MAX_CHARS:
         return (
             "execution turn: identity line is {} characters, over the "
             "{}-character limit"
-        ).format(len(identity_line), STATUS_LINE_MAX_CHARS)
+        ).format(len(identity_line), STATUS_LINE_MAX_CHARS), True
 
     stoppage_sole = warrants["stoppage"] and not (
         warrants["decision"] or warrants["completion"]
@@ -1448,27 +1657,80 @@ def _execution_prose_flag(text: str, warrants: dict):
 
     if stoppage_sole:
         # Sole-stoppage branch: every non-blank RAW line after the
-        # identity line, fenced or not, must be a Waiting: line. Same
-        # domain _forced_yield_flag inspected today via
-        # _body_after_identity_line.
+        # identity line, fenced or not, must be a Waiting: line or a
+        # well-formed State:/Running:/Blocked: status slot line (DS-158:
+        # "here is my status and here is what I'm blocked on" is
+        # legitimate conductor output). Same domain _forced_yield_flag
+        # inspected today via _body_after_identity_line.
         for line in _body_after_identity_line(text):
             if not line.strip():
                 continue
-            if not _WAITING_LINE_RE.match(line):
-                return (
-                    "execution turn (sole-stoppage): line other than a "
-                    "Waiting: line present after the identity line"
-                )
+            if _WAITING_LINE_RE.match(line):
+                continue
+            stripped = line.strip()
+            if _STATUS_SLOT_LINE_RE.match(line):
+                if len(stripped) > STATUS_LINE_MAX_CHARS:
+                    return (
+                        "execution turn (sole-stoppage): status slot line "
+                        "is {} characters, over the {}-character limit"
+                    ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+                continue
+            return (
+                "execution turn (sole-stoppage): line other than a "
+                "Waiting: line or a State:/Running:/Blocked: slot line "
+                "present after the identity line"
+            ), True
         return None
 
     # General branch: decision and/or completion present, with or without
     # stoppage. Inspects only the unfenced lines of the fence-aware status
     # region. Waiting: lines are exempt from the length bound by design.
+    #
+    # DS-158 round 2 (Skeptic Major 1 - laundering bypass fix): unrecognized
+    # lines are grouped into CONTIGUOUS blocks, not flattened into one
+    # whole-region union. A recognized line (a Waiting: line, or a
+    # well-formed status slot line), a fenced line, or (DS-158 round 3,
+    # Skeptic Minor 2) a blank line BREAKS contiguity - it ends the
+    # current block, since it is not itself part of the unrecognized
+    # content, and a blank line is the canonical markdown block
+    # separator. Each block is then classified INDEPENDENTLY;
+    # the finding downgrades to advisory only when EVERY block is
+    # answer-shaped prose, and stays BLOCKING the moment any single block
+    # fails the discriminator. This matches
+    # content/references/conductor-turn-format.md's spec text ("an
+    # unrecognized line, or CONTIGUOUS BLOCK of unrecognized lines") and
+    # closes the laundering bypass the flat-union version had: a single
+    # developed paragraph ANYWHERE in the status region used to downgrade
+    # an arbitrarily large, non-adjacent narrative-creep sprawl riding
+    # alongside it, because the union's AVERAGE was computed across both
+    # regardless of whether they were ever adjacent in the actual turn.
     status_lines, _decisions_lines, _heading_present = _regions(body)
+    blocks = []
+    current_block = []
     for line, is_fenced in status_lines:
-        if is_fenced or not line.strip():
+        if is_fenced:
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
+            continue
+        if not line.strip():
+            # DS-158 round 3 (Skeptic Minor 2): a blank line is the
+            # canonical markdown block separator and must break
+            # contiguity too, not just a recognized slot/Waiting: line or
+            # a fence boundary - every prose statement of this rule
+            # (module docstring, content/references/conductor-turn-format.md
+            # §4/§9) already lists it that way. Free tightening: two
+            # genuinely separate, blank-line-separated paragraphs still
+            # each pass the discriminator independently when they are
+            # each individually answer-shaped.
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
             continue
         if _WAITING_LINE_RE.match(line):
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
             continue
         stripped = line.strip()
         if _STATUS_SLOT_LINE_RE.match(line):
@@ -1476,14 +1738,29 @@ def _execution_prose_flag(text: str, warrants: dict):
                 return (
                     "execution turn: status slot line is {} characters, "
                     "over the {}-character limit"
-                ).format(len(stripped), STATUS_LINE_MAX_CHARS)
+                ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
             continue
+        current_block.append(line)
+    if current_block:
+        blocks.append(current_block)
+
+    if not blocks:
+        return None
+
+    finding = (
+        "execution turn: unrecognized line in the status region "
+        "(expected only State:/Running:/Blocked: slot lines or "
+        "Waiting: lines)"
+    )
+    if all(_is_answer_shaped_prose(block) for block in blocks):
         return (
-            "execution turn: unrecognized line in the status region "
-            "(expected only State:/Running:/Blocked: slot lines or "
-            "Waiting: lines)"
-        )
-    return None
+            finding + " - downgraded to advisory (DS-158): content reads "
+            "as answer-shaped prose, not narrative creep"
+        ), False
+    return finding, True
 
 
 def _turn_charge(text: str, warrants: dict = None) -> tuple:
@@ -2252,9 +2529,20 @@ def main() -> None:
             if relevance_finding:
                 advisory_findings.append(relevance_finding)
         elif is_execution_turn:
-            # 2. Execution-turn structural shape check (BLOCKING). This
-            # REPLACES the deleted _forced_yield_flag.
-            block_finding = _execution_prose_flag(msg_text, warrants)
+            # 2. Execution-turn structural shape check. This REPLACES the
+            # deleted _forced_yield_flag. DS-158: no longer uniformly
+            # BLOCKING - _execution_prose_flag now returns (finding,
+            # is_blocking) so its general branch can downgrade a genuine
+            # answer-shaped prose paragraph to advisory while keeping the
+            # narrative-creep case BLOCKING (see that function's
+            # docstring).
+            prose_finding = _execution_prose_flag(msg_text, warrants)
+            if prose_finding is not None:
+                finding_text, finding_is_blocking = prose_finding
+                if finding_is_blocking:
+                    block_finding = finding_text
+                else:
+                    advisory_findings.append(finding_text)
         else:
             # 2. Zero-warrant turn: status-only flag (ADVISORY, unchanged).
             if _status_only_flag(msg_text, warrants):
