@@ -28,6 +28,15 @@ jobs:
           bash .hermes/build.sh
           bash .openclaw/build.sh
           bash .copilot/build.sh
+      - name: Verify adapter-sync pathspec entries exist
+        run: |
+          for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+                   .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks; do
+            if [[ ! -e "$p" ]]; then
+              echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
+              exit 1
+            fi
+          done
       - name: Fail on adapter drift
         run: |
           if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks; then

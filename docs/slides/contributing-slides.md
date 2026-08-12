@@ -233,12 +233,13 @@ content/
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
   commands/     26 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
+  fragments/    shared wording kernels transcluded into multiple agents/*.md files
 ```
 
-Build scripts regenerate adapter files from `content/`. The pre-commit hook runs all 11 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.
+Build scripts regenerate adapter files from `content/`. The pre-commit hook stamps shared agent-check fragments (`scripts/stamp-agent-fragments.sh`), then runs all 11 adapter builds automatically when `content/` files are staged. Slide `.md` sources have a separate `slides-sync` CI gate: after editing, run `bash scripts/build-slides.sh` and commit the regenerated `.html`.
 
 <div class="callout">
-Never edit generated files directly - the pre-commit hook or CI will overwrite them. Always edit the source in <code>content/</code> (adapter files) or <code>docs/slides/</code> (slide sources).
+Never edit generated files directly - the pre-commit hook or CI will overwrite them. Always edit the source in <code>content/</code> (adapter files), <code>docs/slides/</code> (slide sources), or <code>content/fragments/</code> (never the interior of a <code>&lt;!-- shared:id --&gt;</code> span in an agent file).
 </div>
 
 ---
@@ -256,7 +257,7 @@ Never edit generated files directly - the pre-commit hook or CI will overwrite t
 - **`.cursor/build.sh`** - combines YAML frontmatter sidecars with rule content to produce `.mdc` files; copies references and commands
 - **Other adapters** - each converts content into their tool's format per that tool's conventions
 
-The pre-commit hook runs ALL 11 builds when `content/` files are staged - a single missed build fails the `adapter-sync` CI gate. Run `bash scripts/build-slides.sh` separately for slide changes (enforced by the `slides-sync` CI gate).
+The pre-commit hook stamps shared agent-check fragments, then runs ALL 11 builds when `content/` files are staged - a single missed build fails the `adapter-sync` CI gate, and a missed stamp fails the `agent-fragment-sync` CI gate. Run `bash scripts/build-slides.sh` separately for slide changes (enforced by the `slides-sync` CI gate).
 
 <div class="callout">
 The build is idempotent. Running <code>install.sh</code> re-runs all builds automatically. You must run ALL 11 builds before committing <code>content/</code> changes or CI will fail.
@@ -274,7 +275,7 @@ The build is idempotent. Running <code>install.sh</code> re-runs all builds auto
 
 1. **Pull before you change anything** - `git fetch origin && git pull --rebase origin main`
 2. Create a feature branch from `main`
-3. Edit in `content/` - the pre-commit hook rebuilds all 11 adapter files on commit
+3. Edit in `content/` - the pre-commit hook stamps shared fragments and rebuilds all 11 adapter files on commit
 4. If you edited a slide `.md`, run `bash scripts/build-slides.sh` and commit the `.html` too
 5. Test locally: re-run `install.sh`, open a session, verify the change works
 6. Sign off every commit - `git commit -s` (DCO, enforced by `.github/workflows/dco.yml`)

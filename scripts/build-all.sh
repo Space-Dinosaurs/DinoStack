@@ -7,7 +7,9 @@
 #             Exits 0 when all adapters build successfully.
 #             Exits non-zero (first failure) when any adapter build fails.
 #
-# Upstream deps: .claude/build.sh, .cursor/build.sh, .codex/build.sh,
+# Upstream deps: scripts/stamp-agent-fragments.sh (run first, so every
+#                adapter build sees content/agents/*.md already stamped);
+#                .claude/build.sh, .cursor/build.sh, .codex/build.sh,
 #                .gemini/build.sh, .kimi/build.sh, .opencode/build.sh,
 #                .omp/build.sh, .pi/build.sh, .hermes/build.sh,
 #                .openclaw/build.sh, .copilot/build.sh; bash; coreutils.
@@ -24,6 +26,11 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "--- stamping shared agent fragments ---"
+bash "$REPO_DIR/scripts/stamp-agent-fragments.sh"
+echo "--- stamp-agent-fragments: OK ---"
+echo ""
 
 ADAPTERS=(
   .claude

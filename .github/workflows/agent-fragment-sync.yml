@@ -1,0 +1,24 @@
+name: agent-fragment-sync
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  check-agent-fragment-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Stamp shared agent-check fragments
+        run: bash scripts/stamp-agent-fragments.sh
+      - name: Fail on agent-check fragment drift
+        run: |
+          if ! git diff --exit-code -- content/agents/; then
+            echo "::error::one or more content/agents/*.md files are out of sync with content/fragments/pre-submit-check-kernels.md. Run 'bash scripts/stamp-agent-fragments.sh' locally and commit the result." >&2
+            exit 1
+          fi
