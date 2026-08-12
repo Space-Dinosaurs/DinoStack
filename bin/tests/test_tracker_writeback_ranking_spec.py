@@ -1039,36 +1039,36 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by eight of the nine enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by nine of the ten enforce-*.py hooks - every one except `enforce-no-abdication.py`",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the eight enforce-*.py hooks' best-effort dynamic import",
+        "for the nine enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Eight of the nine enforce-*.py hooks additionally",
+        "Nine of the ten enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "eight of the nine `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "nine of the ten `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the eight consumer hooks enumerated below",
+        "one of the nine consumer hooks enumerated below",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (seven hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (eight hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-turn-shape.py`, "
-        "`enforce-worktree-read.py`) "
+        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, "
+        "`enforce-turn-shape.py`, `enforce-worktree-read.py`) "
         'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
     (
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
-        "Downstream consumers: the eight enforce-*.py PreToolUse/Stop hooks that",
+        "Downstream consumers: the nine enforce-*.py PreToolUse/Stop hooks that",
     ),
 ]
 

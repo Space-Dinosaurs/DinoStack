@@ -1,8 +1,8 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Eighteen scripts in the table
-below (9 Python PreToolUse/Stop enforcers, 6 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Nineteen scripts in the table
+below (10 Python PreToolUse/Stop enforcers, 6 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities
 consumed by the JS hooks and one bin script. Each script ships with a
@@ -19,6 +19,7 @@ module-group map.
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
 | `enforce-planning-artifact-spawn.py` | Python | PreToolUse (Write/Edit) | WARN-ONLY: surface an advisory (never deny) when a `docs/planning/**` write has no architect spawn on record in the last 4h. |
 | `enforce-shippable-edit.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Deny a conductor-direct (`agent_id` absent) Write/Edit/MultiEdit against a shippable file inside the repo, per METHODOLOGY.md §Git Workflow's shippable/exempt classifier. Engineer subagent edits (`agent_id` present) always allow. |
+| `enforce-skeptic-round-cap.py` | Python | PreToolUse (Task/Agent, `subagent_type == "skeptic"`) | Mechanically enforces the ad-hoc Skeptic round-budget policy (content/sections/05-qa-gate.md §Re-route limits): denies a 4th Skeptic round for the same unit (keyed off the current git branch in the payload's `cwd`, state at `.agentic/skeptic-round-<branch>.json`) unless the conductor has recorded an explicit `ship` or `escalate` decision in that state file. A recorded `ship` decision while `unresolved_critical` is still true always denies - an unresolved Critical never ships. Fail-open on any error (no git repo, unparsable state, write failure). |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `enforce-turn-shape.py` | Python | Stop | Two checks with different postures (DS-156): `_execution_prose_flag` (execution-turn structural shape) is BLOCKING and can block the stop; `_answer_relevance_flag` (answer-turn opening-preamble/closing-recap phrasing) remains advisory-only and only logs, via `lib/enforcement_log.py`. `_status_only_flag` (zero-warrant turns), the turn-charge volume check, and the operator-decisions item-sprawl check remain advisory-only, unchanged in posture. A two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap, machinery in `lib/loop_guard.py`) bounds how many times either check can re-invoke the model on consecutive non-conforming turns - ONE shared counter/cap governs both. |
 | `enforce-worktree-read.py` | Python | PreToolUse (Read) | Deny a worktree-isolated subagent's (`agent_id` present, `cwd` a proper subdirectory of `CLAUDE_PROJECT_DIR`) `Read` that resolves inside the primary checkout instead of the agent's own worktree (DS-150). `caller_root` from the payload's `cwd`, `primary_root` from `CLAUDE_PROJECT_DIR`, both `realpath`-normalized before the containment test. Never fires on a main-session call or a non-isolated subagent. Config-driven exemption list (`worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_READ_GUARD_DISABLE=1`. |
@@ -43,13 +44,13 @@ module-group map.
 | `lib/stdin-guard.js` | Shared bounded-stdin reader (`readStdinGuarded`) with a first-byte timeout, a re-armed inactivity timeout, a one-shot absolute deadline, a max-bytes cap, and early-completion-by-parse (gated behind a cheap tail precheck), so a stdin-blocking hook cannot hang a harness's shutdown path when the spawning process never closes stdin; wired into all 10 consumers: `stop-context.js`, `post-tool-use-capture-nudge.js`, `session-end-wrap.js`, `pre-tool-use-spawn-emit.js`, `subagent-stop-spawn-emit.js`, the `.codex/hooks/stop-context-codex.js`, `.gemini/hooks/stop-context-gemini.js`, and `.copilot/hooks/stop-context-copilot.js` ports, the `.cursor/hooks/stop-context-cursor.js` port, plus the generated `.github/hooks/stop-context-copilot.js` mirror. |
 | `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
 | `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
-| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl` whenever an enforce-*.py hook takes a non-passthrough action (deny, or allow-with-advisory-reason); a silent allow never calls it. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's action branch, by eight of the nine enforce-*.py hooks - every one except `enforce-no-abdication.py`, which keeps its own pre-existing `.abdication-guard-fire-count` counter file unchanged. |
+| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl` whenever an enforce-*.py hook takes a non-passthrough action (deny, or allow-with-advisory-reason); a silent allow never calls it. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's action branch, by nine of the ten enforce-*.py hooks - every one except `enforce-no-abdication.py`, which keeps its own pre-existing `.abdication-guard-fire-count` counter file unchanged. |
 | `lib/loop_guard.py` | Shared two-layer loop-guard machinery for the two Stop hooks that act on the conductor's final message (`enforce-no-abdication.py` and `enforce-turn-shape.py`): the `stop_hook_active` primary guard is checked by the hooks themselves, and this module supplies the Layer-2 counter-cap backstop (CC bug #54360) - per-hook counter filename + cap, `read_counter`/`write_counter`/`reset_counter` (pid-suffixed tmp + atomic replace, fail-open toward allow), and `count_user_messages`/`is_genuine_user_turn`/`last_genuine_user_text` (filters out tool_result, meta, and harness-injected lines; `last_genuine_user_text` added DS-155 for `enforce-turn-shape.py`'s answer-warrant detector). Counter files: `.abdication-guard-fire-count` (cap 2) and `.turn-shape-guard-fire-count` (cap 2), both under `.agentic/`. |
 
 ## Upstream dependencies
 
 - Python hooks: Python 3 stdlib only (`json`, `sys`, `os`, `importlib.util`
-  for the eight enforce-*.py hooks' best-effort dynamic import of
+  for the nine enforce-*.py hooks' best-effort dynamic import of
   `lib/enforcement_log.py`).
 - Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.
@@ -149,7 +150,7 @@ exit 0 without denying the triggering action. Enforcement gaps are preferable
 to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
-violating tool calls. Eight of the nine enforce-*.py hooks additionally
+violating tool calls. Nine of the ten enforce-*.py hooks additionally
 append a fire-log line to `.agentic/.enforcement-fires.jsonl` on every
 non-passthrough action (via `lib/enforcement_log.py`); `enforce-no-abdication.py`
 is the exception and keeps its own separate `.agentic/.abdication-guard-fire-count`
