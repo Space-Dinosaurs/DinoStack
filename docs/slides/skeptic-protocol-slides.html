@@ -975,7 +975,7 @@ hr {
 <h2 id="escalation-and-round-limits">Escalation and round limits</h2>
 
 <ul>
-<li><strong>Max 3 fix passes (hard cap)</strong>: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of <strong>3 fix passes</strong>. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. Mechanically enforced by <code>hooks/enforce-skeptic-round-cap.py</code> (denies a 4th Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller; Phase 6's own step text does not yet describe the ship branch.</li>
+<li><strong>Max 3 fix passes (hard cap)</strong>: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of <strong>3 fix passes</strong>. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. The round count is mechanically enforced by <code>hooks/enforce-skeptic-round-cap.py</code> (denies a 4th Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller; the Critical-never-ships rule inside it is conductor-attested, not independently verified. Phase 6's own step text does not yet describe the ship branch.</li>
 <li><strong>2 re-route limit (per finding)</strong>: same finding contested across 2+ rounds without resolution - escalate with both positions</li>
 <li><strong>Simple changes</strong>: capped at <strong>1 round</strong> - Critical/Major findings escalate directly</li>
 <li><strong>Standard Elevated changes</strong>: the 2-re-route rule applies</li>

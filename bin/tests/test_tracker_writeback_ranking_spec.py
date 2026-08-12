@@ -1003,35 +1003,36 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 # The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
 # call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
 # content/references/events-log.md in at least FOUR different grammatical
-# forms - "seven of the eight", the bare cardinal "the seven enforce-*.py
-# hooks", "one of the seven consumer hooks", and a decomposed enumeration
-# ("(six hooks) ... (`enforce-turn-shape.py`)" that sums to
-# the same total without using the word "seven" or "eight" at all - none of
+# forms - "nine of the ten", the bare cardinal "the nine enforce-*.py
+# hooks", "one of the nine consumer hooks", and a decomposed enumeration
+# ("(eight hooks) ... (`enforce-turn-shape.py`)" that sums to
+# the same total without using the word "nine" or "ten" at all - none of
 # which a single-phrasing sweep catches as a set. This is why sites kept
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 9 enforce-*.py hooks post-
-# merge with both the worktree-read-guard unit (DS-150) and the
-# turn-shape-hook unit (DS-156), 8 of them call log_fire, split 7 deny +
-# 2 allow_advisory - `enforce-turn-shape.py` is the one hook in both
-# subsets, since it logs `"deny"` from its blocking execution-turn check
-# and `"allow_advisory"` from its advisory-only answer-turn check):
+# Site inventory (all reference the same fact: 10 enforce-*.py hooks post-
+# merge with the worktree-read-guard unit (DS-150), the turn-shape-hook
+# unit (DS-156), and the skeptic-round-cap unit, 9 of them call log_fire,
+# split 8 deny + 2 allow_advisory - `enforce-turn-shape.py` is the one hook
+# in both subsets, since it logs `"deny"` from its blocking execution-turn
+# check and `"allow_advisory"` from its advisory-only answer-turn check):
 #   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
 #   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
 #   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 7 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("seven
+#   events-log.md:130   - decomposed enumeration: 8 deny + 2 allow_advisory,
+#                         pinned by the FULL LITERAL - cardinals ("eight
 #                         hooks", "two hooks") AND named members together.
 #                         This is deliberately count- AND membership-bound:
-#                         a ninth enforcer added later (denying or advisory)
-#                         changes either the cardinal or the member list, so
-#                         either change breaks this exact-substring pin and
-#                         forces the enumeration to be revisited by hand -
-#                         it is not a count-agnostic pin that tolerates a
-#                         stale number as long as names are unchanged.
+#                         an eleventh enforcer added later (denying or
+#                         advisory) changes either the cardinal or the
+#                         member list, so either change breaks this
+#                         exact-substring pin and forces the enumeration to
+#                         be revisited by hand - it is not a count-agnostic
+#                         pin that tolerates a stale number as long as
+#                         names are unchanged.
 #   enforcement_log.py:39-47 - module manifest's own "Downstream consumers"
 #                         field (was omitted from this sweep entirely, which
 #                         is exactly why it went stale for two fix passes -
@@ -1072,44 +1073,49 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
 ]
 
-# Bidirectional and case-insensitive: "six" followed by "enforce" within one
-# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
-# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
-# "enforce" followed by "six" within one sentence (catches "...enforce-
-# shippable-edit" - one of the six consumer hooks", and the pre-DS-156
-# decomposed deny-subset enumeration "(six hooks - `enforce-...`)"). The
-# `[^.]{0,80}` bound stops the match from crossing a sentence boundary into
-# an unrelated "six".
-# Target word is "six" because this repo has TWO independent enforcer-count
-# facts that both restate stale cardinals in prose, and "six" is the shared
-# most-recently-retired value across both: (1) the total-consumer-count
-# fact ("N of the M enforce-*.py hooks call log_fire"), which moved
-# seven-of-eight -> eight-of-nine when DS-150 added `enforce-worktree-read.py`
-# (that transition's own regression is already caught by the positive pins
-# above requiring the literal "eight of the nine" text - a revert to
-# seven-of-eight would fail those asserts directly); and (2) the deny-subset
-# count ("N hooks" in the decomposed enumeration at events-log.md:130), which
-# moved five -> six when DS-150 added `enforce-worktree-read.py` to the deny
-# group, then six -> seven when DS-156 added `enforce-turn-shape.py` to the
-# deny group. "seven" cannot be used as this sweep's stale marker: it is now
-# itself a live, correct cardinal (the deny-hook enumeration currently reads
-# "seven hooks"), so a sweep still keyed to "seven" would false-positive
-# against that legitimate use, mirroring why an earlier pass retired "six" as
-# a marker only to have DS-156's deny-subset change make "six" stale again.
+# Bidirectional and case-insensitive: "seven" followed by "enforce" within
+# one sentence (catches "seven of the eight enforce-*.py", "the seven
+# enforce-*.py hooks", and the capitalized "Seven of the eight enforce-*.py
+# hooks"), OR "enforce" followed by "seven" within one sentence (catches
+# "...enforce-shippable-edit" - one of the seven consumer hooks", and the
+# pre-this-fix decomposed deny-subset enumeration "(seven hooks -
+# `enforce-...`)"). The `[^.]{0,80}` bound stops the match from crossing a
+# sentence boundary into an unrelated "seven".
+# Target word is "seven" because this repo has TWO independent enforcer-
+# count facts that both restate stale cardinals in prose, and "seven" is
+# the shared most-recently-retired value across both: (1) the total-
+# consumer-count fact ("N of the M enforce-*.py hooks call log_fire"),
+# which moved eight-of-nine -> nine-of-ten when the skeptic-round-cap unit
+# added `enforce-skeptic-round-cap.py` as a log_fire caller (that
+# transition's own regression is already caught by the positive pins above
+# requiring the literal "nine of the ten" text - a revert to eight-of-nine
+# would fail those asserts directly); and (2) the deny-subset count ("N
+# hooks" in the decomposed enumeration at events-log.md:130), which moved
+# five -> six when DS-150 added `enforce-worktree-read.py` to the deny
+# group, six -> seven when DS-156 added `enforce-turn-shape.py` to the deny
+# group, then seven -> eight when the skeptic-round-cap unit added
+# `enforce-skeptic-round-cap.py` to the deny group. "eight" cannot be used
+# as this sweep's stale marker: it is now itself a live, correct cardinal
+# (the deny-hook enumeration currently reads "eight hooks"), so a sweep
+# still keyed to "eight" would false-positive against that legitimate use,
+# mirroring why an earlier pass retired "six" as a marker only to have
+# DS-156's deny-subset change make "six" stale again, and this fix's
+# deny-subset change make "seven" stale in turn.
 # Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
-# goes silent once the live deny-subset count moves past seven (when "seven"
-# itself becomes stale), and it does not catch numeral ("6 of the 7") forms.
+# goes silent once the live deny-subset count moves past eight (when
+# "eight" itself becomes stale), and it does not catch numeral ("7 of the
+# 8") forms.
 # A further limitation (Skeptic Minor, round 1 finding, still applicable
 # post-rebase): keying on a single cardinal cannot simultaneously guard
 # every possible stale restatement of BOTH facts above - e.g. a reverted
 # total-count restatement using some other now-stale cardinal shape would
 # not be caught by this sweep alone. The positive pins above still confirm
-# the current "eight of the nine" / "seven hooks" phrasing is present at
+# the current "nine of the ten" / "eight hooks" phrasing is present at
 # every known site, so residual risk is limited to an unenumerated site
 # using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
+    r"\bseven\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bseven\b",
     re.IGNORECASE,
 )
 

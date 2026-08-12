@@ -12,6 +12,16 @@
       "source_token": ".codex/skills/**"
     },
     {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "05f818ff1378327267da35aac485736de9b5616bee65df9b34c743d34d05985a",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": ".agentic/worktrees/*",
       "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
       "kind": "operational",
@@ -252,6 +262,16 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
+      "expected_target": "hooks/enforce-skeptic-round-cap.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
+      "kind": "operational",
+      "occurrence_hash": "1ef9367e5306c4fbdc76f5a18c398bbfe07610912a3479463e95ce44c8880ed3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/enforce-skeptic-round-cap.py"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -450,16 +470,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "3d7b9ad3e43b1b02381c74e4fae95ac9b88afc84d0faf8abf289ca021c66e57a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/commands/ds-skeptic.md",
@@ -790,6 +800,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "63a1cdafb53e467ab3d10767450321b1d11bf5eba9b671da041dac9fda69140d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/SKILL.md",
@@ -1330,16 +1350,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "a69341593fe5ed61bc16c4d40df1f52f1c7d2077d7389560e72746f812263b82",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1922,6 +1932,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "apply_patch",
+      "generated_token": "Edit",
+      "kind": "semantic-reference",
+      "occurrence_hash": "def3dbf49a63d39df71b46d77a136b1dedfa74dcb0287eef673c952721446975",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Edit"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -2090,16 +2110,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "hooks/enforce-skeptic-round-cap.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
-      "kind": "operational",
-      "occurrence_hash": "f5626d92ff8ad34dc04e800543281ab4596718f1cc5a54e36fb7e45178e53317",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-skeptic-round-cap.py"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
