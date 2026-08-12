@@ -77,7 +77,7 @@ task and get back a verifiable outcome.
    it" is a regression against Pillar 2, not a win against this one. (The "prevention test": does
    this change move a mechanical check earlier without weakening the later one? A single session
    once ran a 5-round Skeptic loop where rounds 1-2 found real code defects and rounds 3-5
-   re-litigated a single comment in a test file; separately, four of the Skeptic's mechanical
+   re-litigated a single comment in a test file; separately, as of 2026-08, four of the Skeptic's mechanical
    checks - the cross-file reference-consistency check, the async error-handling check, the
    new-test-CI-wiring check, and the per-consumer impact-table check - had no counterpart anywhere
    in the engineer's own process, so the engineer had no way to catch them before submitting.)
