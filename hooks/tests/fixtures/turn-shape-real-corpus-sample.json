@@ -1,0 +1,67 @@
+{
+  "_purpose": "Curated subset (10 of 320) of a real-conductor-turn corpus extracted from ~/.claude/projects transcripts, measured against hooks/enforce-turn-shape.py at commit cfd764e4 (DS-159 HEAD). Verbatim turn text - checked for API keys/secrets/passwords/private-key material before inclusion (none found). The first 5 entries are the ONLY 5 turns (of 320) that BLOCKed at cfd764e4, all confirmed false positives and the motivating repro for the markup-blindspot fix (markdown headings, markdown tables, the sole-stoppage branch's missing downgrade path, and unconditional identity-line-length blocking). The remaining 5 are QUIET/ADVISORY controls, included so a future change can re-run this subset end-to-end without needing the full local, uncommitted corpus. This is a curated subset, not the full 320-turn corpus - the full corpus was not committed because a blanket secret-scan of all 320 files returned enough incidental hits on words like 'token'/'API key' (LLM-token and vulnerability-description prose, not real credentials) that a full manual audit of all 320 was out of scope for this fix; this subset was audited turn-by-turn instead.",
+  "_source": "~/.claude/projects (local developer machine, not committed)",
+  "_measurement_commit": "cfd764e4",
+  "turns": [
+    {
+      "file": "turn_0090_dinostack.txt",
+      "pre_fix_class": "BLOCK",
+      "pre_fix_reason": "TURN-SHAPE: execution turn: identity line is 384 characters, over the 200-character limit",
+      "text": "[phase: skeptic-reroute-2] DS-46 is the healthy one: all nine round-1 findings closed, and the switch from regex-splitting to `git diff`/`git apply` was the right structural call. Its new Critical is that the fan-out path computes a patch from the same tree it applies it to - which always fails, and would regress a path that works today. Concrete, one-line fix. Round 3 in progress.\n\nDS-120 round 2 still running.\n\n## Operator decisions\n\n**DS-118 is still paused on your call** (from my last turn): replace the prose worktree classifier with an executable model + fixture tests, per DS-108's precedent, rather than spending the last review pass on a third prose framing of the same defect. I'd recommend the executable route; tell me otherwise and I'll use the remaining pass on prose."
+    },
+    {
+      "file": "turn_0093_dinostack.txt",
+      "pre_fix_class": "BLOCK",
+      "pre_fix_reason": "TURN-SHAPE: execution turn (sole-stoppage): line other than a Waiting: line or a State:/Running:/Blocked: slot line present after the identity line",
+      "text": "fix/turn-shape-loop-guard · main · [phase: engineer-running]\nWaiting: engineer - implementing the turn-shape loop guard (fresh attempt, background)\n\nThe first engineer attempt died to a transient harness connection error before writing anything (no worktree was ever created - I verified). A fresh engineer respawned with the same brief; Skeptic review follows when it returns."
+    },
+    {
+      "file": "turn_0096_dinostack.txt",
+      "pre_fix_class": "BLOCK",
+      "pre_fix_reason": "TURN-SHAPE: execution turn: identity line is 232 characters, over the 200-character limit",
+      "text": "DS-26 is fully complete. The trailing knowledge PR **#480 merged** (`8996431c`) with all checks green, local `main` is pulled up to date, the working branch is deleted, and the tracked tree is clean with no leftover agent worktrees.\n\nFinal state:\n\n- **Rename shipped** (PR #479 → `18f8707a`): all 25 commands are now `/ds-*` across the 11 adapters, with build- and install-layer stale cleanup guaranteeing the old handles are retired without ever touching non-DinoStack commands.\n- **Learnings captured** (PR #480 → `8996431c`): three durable gotchas in MEMORY.md for future sessions - prefix REPLACE-not-prepend semantics, hand-authored adapter sources that `build.sh` doesn't regenerate, and excluding `evals/.worktrees` from bulk sweeps.\n- **Jira DS-26 is Done**, loop state closed, and this machine is already cut over (`/ds-wrap` resolves; `/wrap` is gone; your personal commands untouched).\n\nThe only action for other machines is a one-time re-run of the adapter install after pulling, which the PR body and ticket comment both note."
+    },
+    {
+      "file": "turn_0267_helios.txt",
+      "pre_fix_class": "BLOCK",
+      "pre_fix_reason": "TURN-SHAPE: execution turn: unrecognized line in the status region (expected only State:/Running:/Blocked: slot lines or Waiting: lines)",
+      "text": "no-ticket · main · [phase: wrap-complete]\n\n## `/ds-wrap` complete\n\n**Skeptic rounds:** 2 review chains, no step skipped. Draft outputs → Skeptic (1 Critical, 4 Major, 5 Minor, all fixed). Compression → Skeptic, which returned BLOCKED first on my own incomplete spawn brief, then on re-spawn found 1 Critical + 1 Major + 4 Minor, all fixed. Standard path throughout; no light or zero-substance shortcut.\n\n**Written:**\n- `.agentic/_wrap.md` (7,309 bytes) - curated context, all five draft corrections applied\n- `.agentic/memory/MEMORY.md` - **21,511 → 21,501 bytes while going from 55 to 58 facts.** Backups at `MEMORY.original.md` + 3 rolling snapshots, all gitignored; state recorded\n- `.agentic/memory/topics/archive-2026-07.md` (32,673 bytes) - verbatim pre-compression text of every shortened bullet\n- `.agentic/wrap/last-wrap`, `.agentic/compression-state.json`\n\n**AGENTS.md:** PR **#134** - 2 insertions, 0 deletions, verified independently. Routed through a worktree-isolated engineer because this project's rules override the wrap carve-out. **Open, unmerged, awaiting your call.**\n\n**Part F:** no-op - no session commit references a ticket key.\n**Part G:** `.agentic/learnings.md` committed (`94cd47c`, +111 lines, 0 deletions) and pushed to `chore/knowledge-20260810-e06329`. Open with `gh pr create --base main --head chore/knowledge-20260810-e06329`.\n\nTwo things worth your attention. The compression pass was nearly self-defeating: it recovered 1,751 bytes and my three new entries spent 2,305, so the file briefly ended up *larger* than it started. Catching that required actually measuring rather than trusting the compressor's report. It's now denser but still ~500 bytes above its own 21KB archive-before-append trigger, so the next session that adds facts will trip the rule immediately.\n\nAnd the Skeptic caught something I'd have shipped: four `[archive]` → `[a7]` pointer flips that would have orphaned richer detail sitting in `archive-2026-06.md`, a file nothing in this pass modified. Those are now dual-pointed.\n\n## Operator decisions\n\n**Merge PR #134 despite the red Tests check.** It's the same call I raised before the wrap and it's still open. The red is `main`'s own four-week-old CI rot - `bun-version: latest` plus `@types/bun: \"latest\"`, green at `67efb04` on 07-14 and red on an identical tree since, with the 9 failures all in mock/spy suites. #134 is 2 added lines in a markdown file. If you'd rather not merge into a red baseline, say so and I'll leave it open; the separate CI-pinning fix needs its own ticket either way, since it's a code change to CI."
+    },
+    {
+      "file": "turn_0314_helios.txt",
+      "pre_fix_class": "BLOCK",
+      "pre_fix_reason": "TURN-SHAPE: execution turn: unrecognized line in the status region (expected only State:/Running:/Blocked: slot lines or Waiting: lines)",
+      "text": "**Done. The plan is complete and closed out.**\n\n`main` at `8eadff6`, in sync with origin, worktree cleaned up. The stale caveat is gone from AGENTS.md, which now records the plan as Skeptic-approved and points at THU-88.\n\n| | |\n|---|---|\n| **THU-88** | Todo, unstarted |\n| **Brief** | signed off, 4 rounds |\n| **Plan** | signed off, 5 rounds, 10 units, ready for engineer spawn |\n| **Code written** | none |\n\nOne thing worth flagging from just now: my own verification grep gave a false negative. I checked deletions with `^-[^-]`, which silently excluded the removed line because markdown bullets start with `- ` - so the diff line was `-- **Parallel...`. It reported 0 deletions on a change that had one. Same class of error I've been catching all session, this time in my checking tool rather than the artifact. Re-ran it correctly before merging.\n\nWhen you're ready: `/ds-implement-ticket THU-88`. Spine is `1 → 2 → {3,4} → 5 → 9 → 10`, with 6, 7, 8 parallel off it.\n\nStill open and unstarted, in priority order: **THU-85** (Urgent - unauthenticated path to your provider API key), **THU-87** (the 6 Linux-only test failures, still unexplained), and the unresolved question of why `67efb04` reported green when those three STOP-guard tests reproduce as failing there."
+    },
+    {
+      "file": "turn_0001_dinostack.txt",
+      "pre_fix_class": "QUIET",
+      "pre_fix_reason": "",
+      "text": "ad-hoc · feat/ds-154-capture-instruction-v3 · [phase: ci-wait]\n\n24/25 green, one macOS `check-codex-skill-sync` leg left. Waiting on it, then merging."
+    },
+    {
+      "file": "turn_0002_dinostack.txt",
+      "pre_fix_class": "QUIET",
+      "pre_fix_reason": "",
+      "text": "**PR #650 open**: https://github.com/Space-Dinosaurs/DinoStack/pull/650 (hooks-snapshot staleness)\n\nThe precommit unit is on its last cleanup round; its PR follows. I'll rebase both onto current `main` - they're several commits behind and `main` enforces strict checks - then merge on green."
+    },
+    {
+      "file": "turn_0003_dinostack.txt",
+      "pre_fix_class": "QUIET",
+      "pre_fix_reason": "",
+      "text": "The rebase did more than satisfy the merge gate - it removed the constraint that forced the fossil in the first place. The engineer embedded a copy because the branch predated #640; now the real function is on the branch, so the test can pin against it.\n\nBoth Majors are the same underlying instinct made twice: when the real thing was awkward to reach, substitute a stand-in that behaves like it. The fixture stood in for the library, and the hardcode stands in for a failed resolution. Both go green while being wrong."
+    },
+    {
+      "file": "turn_0016_dinostack.txt",
+      "pre_fix_class": "ADVISORY",
+      "pre_fix_reason": "TURN-SHAPE: status-only turn - no decision/stoppage/completion/answer warrant present",
+      "text": "Because I told the engineer to set it. My spawn prompt included the literal instruction `git config user.email thummelbiz@gmail.com`, so that's the email it stamped on the commit.\n\nWhere I got that address: it's in this session's context as your account email (`userEmail`), and MEMORY.md has a note that the DCO check rejects the default `skeptic@local` identity - so I picked your known-good email to avoid a DCO failure. That was me filling in a value, not you specifying one.\n\nSo the chain is: `thummelbiz@gmail.com` is the raw author because I hardcoded it → `.mailmap` in the repo rewrites `thummelbiz@gmail.com` → `tyhummel@gmail.com` for *display*, which is why `git show` shows the other address. The commit object itself never had `tyhummel`.\n\nWorth checking against reality: is `thummelbiz@gmail.com` actually the email you want on commits to this repo? The `.mailmap` entry suggests `tyhummel@gmail.com` might be your canonical one and `thummelbiz` is being treated as an alias to fold into it. If `tyhummel` is what your GitHub account uses, I should have signed with that. Since the commit is throwaway anyway (the CODEOWNERS list is changing under your clarification), it doesn't matter for this file - but tell me which email is correct and I'll use it on the real commit."
+    },
+    {
+      "file": "turn_0037_dinostack.txt",
+      "pre_fix_class": "ADVISORY",
+      "pre_fix_reason": "TURN-SHAPE: status-only turn - no decision/stoppage/completion/answer warrant present",
+      "text": "Fix in flight. [phase: ci-fix]\n\nThe verification round paid for itself. Everything the engineer claimed held up under independent mutation testing - including the `closed_unmerged` mapping surviving, which is the exact spot a bad quote would have silently deleted. But it also caught what the earlier round didn't: a JS hook test pins the old Part F sentence verbatim, and it lives in `hooks/tests/`, not `bin/tests/`. The 600-pass number was accurate and irrelevant to it.\n\nWorth noting the fix direction, because the tempting move is wrong: revert the prose to satisfy the old regex. That prose is a byte-identical clause shared across two files - itself a Skeptic finding that took three attempts to land. So the stale guard gets updated, and it has to still fail when the gate is removed, or it's worse than what it replaced.\n\nThe verifier was also honest about its own new guard: it probed the R4 never-substitutes test with novel wording (`retry with the semantically equivalent live state name`) and got a pass. The guard is real at its pinned call sites but the docstring claims block-wide coverage it doesn't have - so the docstring gets corrected rather than trusted."
+    }
+  ]
+}

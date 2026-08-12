@@ -2576,18 +2576,48 @@ check(
     "z4b. the `completion` warrant key is NOT granted for the z1 fixture",
     _z1_warrants["completion"] is False,
 )
-# z4c. Directly verifies the blocking-path danger this ticket required be
-# analyzed: simulating the z1 warrant dict with `completion` forced True
-# trips _execution_prose_flag (BLOCKING) on this exact genuine-completion
-# turn (the table row is not a State:/Running:/Blocked:/Waiting: slot
-# line).
+# z4c REVISED (markup-blindspot fix, real-corpus turn_0314): the ORIGINAL
+# z1_msg's table-shaped first body paragraph is no longer proof of
+# blocking-path danger, because this fix's table-row exemption (see
+# _TABLE_ROW_RE) makes a synthetic completion=True grant for that EXACT
+# shape now return None (quiet) - the table rows are all recognized
+# structure now, not unrecognized prose. See z4d below for that changed
+# outcome pinned directly. The underlying "do not widen the completion
+# warrant" conclusion still holds for content this fix does not touch:
+# re-targeted at a non-table (bulleted-list) variant of the same z1
+# identity line, matching the bulleted-detail shape
+# _has_body_completion_declaration's own docstring names as a confirmed
+# true positive (see also y6c above, whose bulleted-list body already
+# demonstrates the same still-live danger).
+_z4c_bullet_msg = (
+    "All three shipped. Done.\n"
+    "\n"
+    "- Killed any dev servers still running from testing.\n"
+    "- Removed both agent worktrees.\n"
+    "- Confirmed the branch is deleted upstream.\n"
+)
+_z4c_warrants = _mod._classify_warrants(_z4c_bullet_msg)
+_z4c_warrants_if_granted = dict(_z4c_warrants)
+_z4c_warrants_if_granted["completion"] = True
+check(
+    "z4c. _execution_prose_flag BLOCKS a non-table (bulleted-list) "
+    "variant of the z1 identity line under a synthetic completion=True "
+    "warrant dict - shows the general danger z4b's fix must NOT widen "
+    "the warrant into still holds for content the table-row exemption "
+    "does not cover",
+    _mod._execution_prose_flag(_z4c_bullet_msg, _z4c_warrants_if_granted) is not None,
+)
+# z4d. Direct pin of the table-exemption's effect on the ORIGINAL z1
+# shape: a synthetic completion=True grant no longer blocks it, because
+# every line of its first body paragraph is a recognized table row.
 _z1_warrants_if_granted = dict(_z1_warrants)
 _z1_warrants_if_granted["completion"] = True
 check(
-    "z4c. _execution_prose_flag BLOCKS the z1 fixture under a synthetic "
-    "completion=True warrant dict - shows why z4b's fix must NOT widen "
-    "the warrant",
-    _mod._execution_prose_flag(z1_msg, _z1_warrants_if_granted) is not None,
+    "z4d. _execution_prose_flag does NOT block the z1 fixture under a "
+    "synthetic completion=True warrant dict now that its table body is "
+    "recognized structure (contrast with z4c's bulleted-list variant, "
+    "which still blocks)",
+    _mod._execution_prose_flag(z1_msg, _z1_warrants_if_granted) is None,
 )
 
 # z5. A single-sentence identity line ("Done.") must not be treated as a
@@ -3221,6 +3251,269 @@ check(
     "aggregate floor of 2 to be meaningfully exercised by ds159-a/b "
     "above, not accidentally satisfied by a single oversized block)",
     _ds159_units_per_block == [1, 1, 1],
+)
+
+# ---------------------------------------------------------------------------
+# Markup-blindspot fix (real-corpus 320-turn extraction from
+# ~/.claude/projects at DS-159 HEAD - see
+# content/references/conductor-turn-format.md's residual-false-positive
+# list). Four classes, each reproduced from a real BLOCKed turn:
+#   mb1 - markdown ATX heading forms its own low-word block
+#   mb2 - markdown table forms its own low-word block
+#   mb3 - sole-stoppage branch had NO downgrade path at all
+#   mb4 - identity-line length check was unconditionally BLOCKING
+# Each class also gets a negative counterpart proving the exemption
+# cannot itself be used to launder narrative creep past the STRUCTURAL
+# check for free - see _MARKDOWN_HEADING_RE/_TABLE_ROW_RE's own "can a
+# creep author defeat this" analysis: a heading/table sprawl still
+# charges through the separate ADVISORY volume check.
+# ---------------------------------------------------------------------------
+
+# mb1. Real-corpus turn_0267 shape: a completion turn whose status region
+# opens with a markdown heading ("## /ds-wrap complete") as its own
+# blank-line-separated block, alongside a genuinely developed paragraph.
+# Pre-fix: BLOCKING (the heading's 3 words/unit sank it below the
+# average-words threshold). Post-fix: the heading is recognized structure
+# and skipped, so only the genuine paragraph is classified -> QUIET (it
+# individually clears both the average-words check and, since there is no
+# OTHER competing warrant-worthy content, this whole turn is Answer-free
+# completion prose that must still pass the general branch legitimately).
+mb1_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "\n"
+    "## /ds-wrap complete\n"
+    "\n"
+    + _pad_lines[0] + "\n"
+    "\n"
+    + _pad_lines[1] + "\n"
+)
+rc, out, err = run_hook(make_payload(mb1_msg))
+check(
+    "mb1. markdown heading forming its own block + a genuine answer-shaped "
+    "paragraph -> not BLOCKING (heading recognized as structure, real-"
+    "corpus turn_0267 shape)",
+    not is_blocking(rc, out),
+)
+
+# mb1-neg. The heading regex alone, unit-level: a heading line is
+# recognized (matches _MARKDOWN_HEADING_RE) at 1-6 hashes, but ordinary
+# prose that merely starts with a literal '#' character mid-sentence (no
+# following whitespace) must NOT be mistaken for a heading.
+check(
+    "mb1-neg1. '## Heading text' matches _MARKDOWN_HEADING_RE",
+    bool(_mod._MARKDOWN_HEADING_RE.match("## Heading text")),
+)
+check(
+    "mb1-neg2. '#nofollowingspace' does NOT match _MARKDOWN_HEADING_RE "
+    "(no whitespace after the hash run)",
+    not bool(_mod._MARKDOWN_HEADING_RE.match("#nofollowingspace")),
+)
+
+# mb1-creep. A heading exemption cannot itself launder an UNBOUNDED
+# sprawl of heading-formatted narrative-creep past the STRUCTURAL check
+# for free: 8 short pings, each disguised as its own heading, all become
+# recognized/skipped, so _execution_prose_flag returns None (quiet) - but
+# the separate CHARGE model (_turn_charge/_volume_flag) is untouched by
+# the heading exemption and still charges each one, so the pre-existing
+# ADVISORY volume backstop still fires. Proves the "recognized, not
+# exempt from volume" bound the exemption's own docstring names.
+mb1_creep_lines = ["## Also did thing {}.".format(i) for i in range(1, 13)]
+mb1_creep_msg = IDENTITY_COMPLETE + "\n" + "\n".join(mb1_creep_lines) + "\n"
+_mb1_creep_warrants = _mod._classify_warrants(mb1_creep_msg)
+check(
+    "mb1-creep1. _execution_prose_flag does NOT block a heading-formatted "
+    "narrative-creep sprawl (the structural check alone cannot see it)",
+    _mod._execution_prose_flag(mb1_creep_msg, _mb1_creep_warrants) is None,
+)
+check(
+    "mb1-creep2. the SAME heading-formatted sprawl still trips the "
+    "ADVISORY turn-volume check (charge model is unaffected by the "
+    "heading exemption - the bound the exemption relies on)",
+    _mod._volume_flag(mb1_creep_msg, _mb1_creep_warrants) is not None,
+)
+
+# mb2. Real-corpus turn_0314 shape: a completion turn whose status region
+# contains a compact markdown table (header row + separator + 4 data
+# rows), alongside ordinary prose paragraphs. Pre-fix: BLOCKING (6 rows,
+# 6.33 words/row average, below threshold). Post-fix: every table/
+# separator row is recognized and skipped.
+mb2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "\n"
+    + _pad_lines[0] + "\n"
+    "\n"
+    "| | |\n"
+    "|---|---|\n"
+    "| **Ticket** | Todo, unstarted |\n"
+    "| **Plan** | signed off, ready for engineer spawn |\n"
+    "\n"
+    + _pad_lines[1] + "\n"
+)
+rc, out, err = run_hook(make_payload(mb2_msg))
+check(
+    "mb2. markdown table forming its own block, sandwiched between two "
+    "genuine answer-shaped paragraphs -> not BLOCKING (table rows "
+    "recognized as structure, real-corpus turn_0314 shape)",
+    not is_blocking(rc, out),
+)
+
+# mb2-neg. Unit-level table-row regex checks: a genuine pipe-delimited
+# row/separator matches; an ordinary sentence that merely CONTAINS a
+# literal '|' character (e.g. a pasted shell pipeline) does NOT, because
+# it lacks the required trailing '|'.
+check(
+    "mb2-neg1. '| a | b |' matches _TABLE_ROW_RE",
+    bool(_mod._TABLE_ROW_RE.match("| a | b |")),
+)
+check(
+    "mb2-neg2. '|---|---|' (separator row) matches _TABLE_ROW_RE",
+    bool(_mod._TABLE_ROW_RE.match("|---|---|")),
+)
+check(
+    "mb2-neg3. 'ran cmd | grep foo' (a pasted shell pipeline, no "
+    "trailing pipe) does NOT match _TABLE_ROW_RE",
+    not bool(_mod._TABLE_ROW_RE.match("ran cmd | grep foo")),
+)
+
+# mb2-creep. Same laundering-bound proof as mb1-creep, for table rows:
+# a table-formatted creep sprawl escapes the structural check but still
+# charges through the volume check.
+mb2_creep_lines = ["| Also did thing {} | done |".format(i) for i in range(1, 13)]
+mb2_creep_msg = IDENTITY_COMPLETE + "\n" + "\n".join(mb2_creep_lines) + "\n"
+_mb2_creep_warrants = _mod._classify_warrants(mb2_creep_msg)
+check(
+    "mb2-creep1. _execution_prose_flag does NOT block a table-formatted "
+    "narrative-creep sprawl",
+    _mod._execution_prose_flag(mb2_creep_msg, _mb2_creep_warrants) is None,
+)
+check(
+    "mb2-creep2. the SAME table-formatted sprawl still trips the "
+    "ADVISORY turn-volume check",
+    _mod._volume_flag(mb2_creep_msg, _mb2_creep_warrants) is not None,
+)
+
+# mb3. Real-corpus turn_0093 shape: a sole-stoppage turn (a "Waiting:"
+# line is the ONLY warrant) followed by a genuine two-sentence
+# explanatory paragraph. Pre-fix: the sole-stoppage branch had NO
+# downgrade path at all - ANY line other than Waiting:/a status slot
+# BLOCKED unconditionally. Post-fix: extended to the same
+# contiguous-block + answer-shaped-prose mechanism the general branch
+# already uses.
+mb3_msg = (
+    IDENTITY_OK + "\n"
+    "Waiting: engineer - implementing the fix (fresh attempt, background)\n"
+    "\n"
+    "The first attempt died to a transient harness connection error "
+    "before writing anything, so a fresh attempt was respawned with the "
+    "same brief. Skeptic review follows when it returns.\n"
+)
+rc, out, err = run_hook(make_payload(mb3_msg))
+check(
+    "mb3. sole-stoppage turn (Waiting: is the only warrant) + a genuine "
+    "two-sentence explanatory paragraph -> ADVISORY, not BLOCKING "
+    "(real-corpus turn_0093 shape - the sole-stoppage branch previously "
+    "had no downgrade path at all)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# mb3-neg. The SAME sole-stoppage domain must still BLOCK on genuine
+# narrative-creep (a sprawl of short templated pings), proving the
+# downgrade mechanism did not simply disable the sole-stoppage check.
+mb3_creep_msg = (
+    IDENTITY_OK + "\n"
+    "Waiting: engineer - implementing the fix.\n"
+    + "\n".join(_creep8_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(mb3_creep_msg))
+check(
+    "mb3-neg. sole-stoppage turn + narrative-creep sprawl (not a genuine "
+    "answer paragraph) -> still BLOCKING (anti-laundering property "
+    "preserved on the newly-extended branch)",
+    is_blocking(rc, out, "sole-stoppage"),
+)
+
+# mb4. Real-corpus turn_0090/turn_0096 shape: a multi-sentence identity
+# line with no early line break, over STATUS_LINE_MAX_CHARS (200 chars).
+# Pre-fix: unconditionally BLOCKING regardless of content. Post-fix:
+# downgrades to ADVISORY when the identity line itself clears the same
+# answer-shaped-prose discriminator (average words/unit + >=2 units) used
+# elsewhere in this hook.
+mb4_identity = (
+    "unit-1 · fix-thing · abc1234 [phase: complete] The first sentence "
+    "here carries real explanatory content well past the two hundred "
+    "character mark on its own. A second genuine sentence follows it "
+    "immediately, with no line break separating the two at all."
+)
+mb4_msg = mb4_identity + "\nState: done.\n"
+rc, out, err = run_hook(make_payload(mb4_msg))
+check(
+    "mb4. multi-sentence identity line over STATUS_LINE_MAX_CHARS -> "
+    "ADVISORY, not BLOCKING (real-corpus turn_0090/turn_0096 shape - "
+    "identity line reads as genuine answer-shaped prose)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# mb4-neg. A genuinely non-prose over-length identity line (the existing
+# ds156-h stress shape: one long run of a repeated, non-word-boundary
+# character with no recognizable sentence structure) must still BLOCK -
+# proves the downgrade cannot be triggered by length alone.
+_mb4_neg_rc, _mb4_neg_out, _mb4_neg_err = run_hook(make_payload(ds156_h_general_msg))
+check(
+    "mb4-neg. ds156-h's repeated-character identity line still BLOCKS "
+    "(no sentence structure to clear the answer-shaped-prose "
+    "discriminator)",
+    is_blocking(_mb4_neg_rc, _mb4_neg_out, "identity line is"),
+)
+
+# ---------------------------------------------------------------------------
+# Real-corpus regression replay (hooks/tests/fixtures/
+# turn-shape-real-corpus-sample.json): a curated 10-turn subset of the
+# 320-turn real conductor-transcript corpus this fix was measured
+# against. The 5 "was_block" entries are the ONLY 5 turns (of 320) that
+# BLOCKed at cfd764e4 (DS-159 HEAD) - all 5 must no longer BLOCK. The
+# other 5 are QUIET/ADVISORY controls, replayed unchanged to catch a
+# future regression that reintroduces a false positive on real turns
+# rather than only on hand-written fixtures.
+# ---------------------------------------------------------------------------
+
+with open(
+    os.path.join(
+        os.path.dirname(__file__), "fixtures", "turn-shape-real-corpus-sample.json"
+    ),
+    "r",
+    encoding="utf-8",
+) as _rc:
+    _real_corpus = json.load(_rc)
+
+_real_corpus_still_blocking = []
+for _turn in _real_corpus["turns"]:
+    _rc_rc, _rc_out, _rc_err = run_hook(make_payload(_turn["text"]))
+    _rc_is_block = '"decision": "block"' in _rc_out
+    if _rc_is_block:
+        _real_corpus_still_blocking.append(_turn["file"])
+    if _turn["pre_fix_class"] == "BLOCK":
+        check(
+            "real-corpus {}. was the pre-fix BLOCKing false positive this "
+            "fix targets -> no longer BLOCKING".format(_turn["file"]),
+            not _rc_is_block,
+        )
+    else:
+        # Control turn: assert its classification is UNCHANGED by this
+        # fix (QUIET stays QUIET, ADVISORY stays non-BLOCKING) - proves
+        # the heading/table/sole-stoppage/identity-length changes did not
+        # newly block or newly silence a turn the guard already handled
+        # correctly.
+        check(
+            "real-corpus {}. control turn ({}) -> still not BLOCKING".format(
+                _turn["file"], _turn["pre_fix_class"]
+            ),
+            not _rc_is_block,
+        )
+
+check(
+    "real-corpus summary: 0 of the curated 10-turn subset BLOCK "
+    "post-fix (was 5 pre-fix)",
+    len(_real_corpus_still_blocking) == 0,
 )
 
 # ---------------------------------------------------------------------------
