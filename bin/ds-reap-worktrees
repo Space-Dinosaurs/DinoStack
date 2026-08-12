@@ -687,18 +687,30 @@ def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
     silently archive-and-remove a worktree behind a live PR (see the
     module docstring's "Archiving unproven branches" section).
 
-    Uses `gh pr list --head <branch> --state all --json number,state`
-    rather than `gh pr view <branch>` - `gh pr view` exits nonzero
-    IDENTICALLY for "no PR exists for this branch" and for a genuine query
-    failure, which is exactly the ambiguity this function exists to
-    resolve. `gh pr list` exits 0 and returns `[]` on a genuine no-PR
-    branch, so any nonzero exit or unparseable/malformed JSON here is
-    unambiguous evidence of a QUERY failure, never proof of absence.
-    `--state all` is required - the command's own default is open-only,
-    which would silently misreport a MERGED/CLOSED PR as "no PR".
+    Runs the LITERAL argv `gh pr list --head <branch> --state all --json
+    number,state` (no `--limit`) rather than `gh pr view <branch>` - `gh pr
+    view` exits nonzero IDENTICALLY for "no PR exists for this branch" and
+    for a genuine query failure, which is exactly the ambiguity this
+    function exists to resolve. `gh pr list` exits 0 and returns `[]` on a
+    genuine no-PR branch, so any nonzero exit or unparseable/malformed JSON
+    here is unambiguous evidence of a QUERY failure, never proof of
+    absence. `--state all` is required - the command's own default is
+    open-only, which would silently misreport a MERGED/CLOSED PR as "no
+    PR" - but `--state all` alone does NOT prevent misreporting a
+    multi-PR head branch: a branch can carry more than one PR over its
+    lifetime (e.g. closed-then-reopened-as-new, or a merged PR followed by
+    a fresh one), and `gh pr list` orders results CREATED_AT DESC with no
+    OPEN-first preference. A round-N Major fix removed a `--limit 1` that
+    truncated to the single newest row and picked it by construction,
+    which silently masked a live OPEN PR behind a more recent CLOSED or
+    MERGED one - verified live against this repo (`gh pr list --state all
+    --limit 5 --json number,state,createdAt` returned strict newest-first
+    order spanning OPEN/MERGED/CLOSED). The fix below fetches every row
+    (no `--limit`) and explicitly prefers OPEN over recency - see the
+    selection logic itself.
     """
     proc = _run(
-        ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state", "--limit", "1"],
+        ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"],
         cwd=repo,
         timeout=_NETWORK_TIMEOUT_SECONDS,
     )
@@ -712,11 +724,22 @@ def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
         return "not_checked", True
     if not rows:
         return "NONE", False
-    first = rows[0]
-    state = first.get("state") if isinstance(first, dict) else None
-    if not state or not isinstance(state, str):
-        return "not_checked", True
-    return state.upper(), False
+    # Select by SAFETY, not recency: if ANY row is OPEN, that is the
+    # disposition-relevant fact regardless of how many other PRs (older or
+    # newer) also exist for this head branch - an OPEN PR is a hard safety
+    # override (see Disposition.SKIP_PR_OPEN) and must never be masked by a
+    # more recent CLOSED/MERGED row. Only fall back to the first row
+    # (`gh pr list`'s own CREATED_AT DESC order) when no row is OPEN - do
+    # NOT silently restore recency-only selection here on a later refactor.
+    states: List[str] = []
+    for row in rows:
+        state = row.get("state") if isinstance(row, dict) else None
+        if not state or not isinstance(state, str):
+            return "not_checked", True
+        states.append(state.upper())
+    if "OPEN" in states:
+        return "OPEN", False
+    return states[0], False
 
 
 def _is_self_worktree(entry_path: str) -> bool:
@@ -1375,6 +1398,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             "NOTE: degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - the "
             "PR-state leg is unavailable" + (" and git ls-remote was suppressed (--no-gh)" if args.no_gh else "")
             + "; this can only remove FEWER worktrees than a full run, never more."
+        )
+
+    # Minor fix: visibility parity with the degraded-mode NOTE above -
+    # gh_ok being True (process-level auth fine) does not mean every
+    # PER-ENTRY `gh pr list` call succeeded; without this, a nonzero
+    # `skipped-pr-query-error` count was visible only in the bucket field
+    # and `--explain`, while `mode` still read plain "live" with no
+    # explanation printed.
+    pr_query_error_count = outcome_counts.get("SKIP_PR_QUERY_ERROR", 0)
+    if pr_query_error_count:
+        print(
+            f"NOTE: {pr_query_error_count} worktree(s) had a `gh pr list` query failure "
+            "(rate limit/auth hiccup/network blip on that one call, even though gh itself is "
+            "available) - never treated as proof of no PR; preserved and reported as "
+            "SKIP_PR_QUERY_ERROR, never archived or removed."
         )
 
     if args.dry_run and salvage_would:

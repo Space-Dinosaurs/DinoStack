@@ -157,10 +157,11 @@ def run_reap(
 
 
 def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "", pr_list_fails: bool = False) -> Path:
-    """Round-6 (extended by the round-N Major fix): a directory containing
-    a stub `gh` executable answering `gh auth status` with success and
-    `gh pr list --head <branch> --state all --json number,state --limit 1`
-    per `pr_list_fails`/`pr_state`:
+    """Round-6 (extended by round-N): a directory containing a stub `gh`
+    executable answering `gh auth status` with success and `gh pr list
+    --head <branch> --state all --json number,state` (NO `--limit` - the
+    round-N Major fix removed it from the real script; see `_pr_state`'s
+    docstring for why) per `pr_list_fails`/`pr_state`:
 
       - `pr_list_fails=True`: the `pr list` invocation exits nonzero (a
         stderr message, no stdout) - simulates a transient query failure
@@ -178,7 +179,10 @@ def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "", pr_list_fails: bool = Fa
 
     Zero real network/API dependency in any case - used only by scenarios
     that need `--archive-unproven` to actually run, since it refuses in
-    degraded gh mode (see `--archive-unproven requires PR evidence`)."""
+    degraded gh mode (see `--archive-unproven requires PR evidence`).
+
+    For a MULTI-row response (more than one PR on the same head branch),
+    use `_fake_gh_dir_multi_pr` below instead."""
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir(exist_ok=True)
     gh = bin_dir / "gh"
@@ -192,6 +196,42 @@ def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "", pr_list_fails: bool = Fa
         "#!/usr/bin/env bash\n"
         'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi\n'
         f'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then {pr_list_body}; fi\n'
+        "exit 1\n"
+    )
+    gh.chmod(0o755)
+    return bin_dir
+
+
+def _fake_gh_dir_multi_pr(tmp_path: Path, rows) -> Path:
+    """Round-N Major regression coverage: a stub `gh` returning MULTIPLE
+    rows for a single `gh pr list --head <branch> --state all --json
+    number,state` call, in the EXACT order given by `rows` (a list of
+    `(number, state)` tuples) - mirroring a real `gh pr list`'s own
+    CREATED_AT DESC ordering, where the caller controls which row is
+    "newest" by list position. This is the fixture that pins the fix: the
+    tool under test must select `OPEN` from anywhere in this list, never
+    merely `rows[0]`.
+
+    Also asserts the REAL script's argv contains no `--limit` - a stub
+    honoring a `--limit N` the real command still (incorrectly) passed
+    would silently truncate `rows` before this fixture's multi-row
+    property could ever matter, masking a regression of the `--limit 1`
+    removal itself. The stub does this by ignoring any `--limit` flag
+    entirely (always returns the full `rows` list) - a real `gh` would
+    NOT ignore `--limit`, so this fixture's own end-to-end test would
+    still catch a caller that reintroduces `--limit 1` (a truncated
+    single-row array would no longer contain a later-listed OPEN row that
+    an untruncated call requires for the assertion to hold, in the
+    `[{CLOSED},{OPEN}]`/`[{MERGED},{OPEN}]` orderings this fixture is used
+    to build)."""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    gh = bin_dir / "gh"
+    payload = "[" + ", ".join(f'{{"number": {n}, "state": "{s}"}}' for n, s in rows) + "]"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi\n'
+        f"if [ \"$1\" = \"pr\" ] && [ \"$2\" = \"list\" ]; then echo '{payload}'; exit 0; fi\n"
         "exit 1\n"
     )
     gh.chmod(0o755)
@@ -1595,3 +1635,94 @@ def test_remove_failure_reclassifies_to_skip_remove_failed(tmp_path):
     assert counts.get("skipped-remove-failed", 0) == 1
     assert counts.get("removed", 0) == 0
     assert "WARNING: failed to remove" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# 30. (round-8 MAJOR fix) A newer non-OPEN PR must never mask a live OPEN
+#     PR on the same head branch. `[{2, CLOSED}, {1, OPEN}]` (CLOSED listed
+#     first, i.e. "newer") under --archive-unproven must resolve
+#     SKIP_PR_OPEN and be preserved - never archived. Pre-fix, `rows[0]`
+#     selection (and the `--limit 1` truncation that made it the ONLY row
+#     the tool ever saw) picked CLOSED, which is inconclusive, fell through
+#     to the generic SKIP_AMBIGUOUS_NO_PR (archive-whitelisted), and
+#     archived-and-removed a worktree behind a live PR.
+# --------------------------------------------------------------------------
+
+
+def test_multi_pr_open_masked_by_closed_under_archive_unproven(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-multi-pr-closed", "worktree-agent-multi-pr-closed", push=True)
+    (wt / "extra.txt").write_text("unique work behind a live OPEN PR, masked by a newer CLOSED one\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", "worktree-agent-multi-pr-closed")
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir_multi_pr(tmp_path, [(2, "CLOSED"), (1, "OPEN")]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)", result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+    counts = bucket_counts(summary_line(proc.stdout))
+    assert counts.get("archived-and-removed", 0) == 0
+
+
+# --------------------------------------------------------------------------
+# 31. (round-8 MAJOR fix, the more serious half) `[{2, MERGED}, {1, OPEN}]`
+#     on a PLAIN DEFAULT RUN (no --archive-unproven, no --dry-run) must
+#     resolve SKIP_PR_OPEN and be preserved. Pre-fix, `rows[0]` selection
+#     picked MERGED, which the LENIENT worktree-removal pr_state check
+#     (`_check_pr_state_lenient`) treats as sufficient for `ELIGIBLE` on
+#     its own - so this destroyed a worktree behind a live OPEN PR with NO
+#     flags at all, the most dangerous possible manifestation of this bug.
+# --------------------------------------------------------------------------
+
+
+def test_multi_pr_open_masked_by_merged_on_default_run(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-multi-pr-merged", "worktree-agent-multi-pr-merged", push=True)
+    (wt / "extra.txt").write_text("unique work behind a live OPEN PR, masked by a newer MERGED one\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", "worktree-agent-multi-pr-merged")
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        gh_dir=_fake_gh_dir_multi_pr(tmp_path, [(2, "MERGED"), (1, "OPEN")]),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)", result[str(wt)]
+    assert str(wt) in worktree_paths(repo), "an entry behind a live OPEN PR must never be REMOVEd, even on a plain default run"
+    counts = bucket_counts(summary_line(proc.stdout))
+    assert counts.get("removed", 0) == 0
+
+
+# --------------------------------------------------------------------------
+# 32. (round-8 Minor a) A nonzero SKIP_PR_QUERY_ERROR count must be visible
+#     via a dedicated NOTE line, matching the existing degraded-mode NOTE
+#     shape - not merely the bucket field and --explain.
+# --------------------------------------------------------------------------
+
+
+def test_pr_query_error_note_line_printed_when_nonzero(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-prqerr-note", "worktree-agent-prqerr-note", push=True)
+    (wt / "extra.txt").write_text("unique work\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", "worktree-agent-prqerr-note")
+
+    proc = run_reap(repo, dry_run=False, no_gh=False, gh_dir=_fake_gh_dir(tmp_path, pr_list_fails=True))
+    assert proc.returncode == 0, proc.stderr
+    assert "skipped-pr-query-error=1" in summary_line(proc.stdout)
+    assert "NOTE:" in proc.stdout and "gh pr list` query failure" in proc.stdout, proc.stdout
+    assert "SKIP_PR_QUERY_ERROR" in proc.stdout
