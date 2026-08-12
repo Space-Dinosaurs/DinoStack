@@ -60,22 +60,37 @@ Gate order, first match wins, ALL must clear for REMOVE:
   6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
      computed together with the ignored-content check below in one call).
   7. PROTECTED CONTENT (round-2 Major 3, round-3 OPERATOR DECISION on
-     polarity) -> gitignored content is a PROTECTED DENYLIST by default,
-     not a fail-safe allowlist: a path blocks removal ONLY when it matches
+     polarity, round-4 correction inside `.agentic/`) -> gitignored
+     content is a PROTECTED DENYLIST by default, not a fail-safe
+     allowlist: a path blocks removal ONLY when it matches
      `_PROTECTED_CONTENT_DIR_PREFIXES`/`_PROTECTED_CONTENT_BASENAME_PATTERNS`
-     below (`.agentic/**`, `docs/planning/**`, `.env*`, `*.local`) -
+     below (`docs/planning/**`, `.env*`, `*.local`) -
      `SKIP_PROTECTED_CONTENT`, reporting the offending paths. Everything
      else ignored, INCLUDING generated adapter output (`.kimi/`, `.codex/`,
      `.claude/skills/`) and the round-2 ephemeral set (`node_modules/`,
-     `dist/`, etc.), is disposable and does NOT block. Round 2 shipped the
-     opposite polarity (a fail-safe allowlist) and measured `removed=0`
-     against the live checkout - see `_PROTECTED_CONTENT_DIR_PREFIXES`'s
-     own comment for the full rationale and trade-off. The round-2
-     allowlist behavior remains reachable via `--strict-ignored`.
-     `.agentic/**` is the highest-value entry, proven empirically: a
-     worktree holding only a gitignored `.agentic/plan.md` reports a CLEAN
-     `git status --porcelain` (no `--ignored` flag) and a non-force
-     `git worktree remove` destroys it silently.
+     `dist/`, etc.), is disposable and does NOT block - EXCEPT
+     `.agentic/**`, which flips to the OPPOSITE polarity (see
+     `_is_agentic_disposable`'s docstring): protected by default inside
+     `.agentic/`, disposable ONLY for a small named set of routine
+     telemetry/generated-subdir/cache paths. Round 2 shipped the round-3
+     polarity's opposite (a fail-safe allowlist everywhere) and measured
+     `removed=0`; round 3 then blanket-protected `.agentic/**` and
+     ALSO measured `removed=0`, because this repo dogfoods its own
+     methodology and every worktree that has ever hosted an agent
+     accumulates routine `.agentic/events.jsonl` telemetry. Round 4 is the
+     correction: `.agentic/**` was only ever meant to protect AUTHORED
+     work (plans, notes, decisions), not routine session telemetry. The
+     round-2/round-3 allowlist behavior (for everything, including
+     `.agentic/`) remains reachable via `--strict-ignored`, UNCHANGED by
+     round 4. `.agentic/plan.md` (or any other still-protected `.agentic/`
+     path) is the highest-value entry, proven empirically: a worktree
+     holding only that file reports a CLEAN `git status --porcelain` (no
+     `--ignored` flag) and a non-force `git worktree remove` destroys it
+     silently. Before any REMOVE actually runs, `.agentic/events.jsonl`
+     (if present) is salvaged into the primary repo's
+     `.agentic/reaped-telemetry/` first - see "Telemetry salvage" below;
+     telemetry is disposable for the purpose of BLOCKING removal, but it
+     is not worthless, and a failed salvage blocks removal too.
   8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
      then a bare MERGED PR, then push status - `strict_pr_state=False`,
      the same lenient grade the shared model already reserves for
@@ -86,6 +101,22 @@ Gate order, first match wins, ALL must clear for REMOVE:
 `ELIGIBLE` from `disposition_for`, with no protected-content offenders, is
 the only path to `REMOVE`. Every other outcome is reported, never a
 force-delete on an inconclusive read.
+
+Telemetry salvage (round-4 requirement, non-`--dry-run` only): immediately
+before `git worktree remove` runs for an entry, `<path>/.agentic/
+events.jsonl` (if present and non-empty) is copied into `<repo>/.agentic/
+reaped-telemetry/<branch>-<timestamp>.jsonl` and the copy is VERIFIED to
+have actually landed non-empty - `ds-cost`/retro read this data, so
+it must survive the worktree's own deletion even though it does not block
+removal on its own. ANY salvage failure (unreadable source, uncreatable
+destination directory, copy error, or failed post-copy verification)
+reclassifies that entry to `SKIP_PROTECTED_CONTENT` and skips the remove
+entirely for it - a failed salvage must never become a silent deletion of
+the data it was trying to preserve. `--dry-run` skips salvage entirely
+(nothing is copied) but still reports how many files WOULD be salvaged.
+`.agentic/reaped-telemetry/` needs no new `.gitignore` carve-out: the
+repo's existing `/.agentic/*`-style umbrella already covers any new
+top-level entry under `.agentic/`.
 
 Public API (CLI):
   ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
@@ -131,7 +162,13 @@ Public API (CLI):
                           is covered by `_IGNORED_ALLOWLIST_*` (see gate 7
                           above and `_PROTECTED_CONTENT_DIR_PREFIXES`'s own
                           comment for the operator-decision rationale this
-                          flag exists to preserve).
+                          flag exists to preserve). Applies UNIFORMLY,
+                          including inside `.agentic/` - round 4's
+                          inverted-polarity disposable set
+                          (`_AGENTIC_DISPOSABLE_*`) is a `--strict-ignored`
+                          bypass mechanism this flag does not use at all;
+                          under `--strict-ignored` `.agentic/events.jsonl`
+                          blocks removal exactly like round 2, unchanged.
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -219,6 +256,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import re
 import shutil
 import subprocess
 import sys
@@ -273,15 +311,41 @@ _NETWORK_TIMEOUT_SECONDS = 8
 #: `--strict-ignored` for an operator who wants the more conservative
 #: (and, per round 2's own measurement, far less useful) behavior instead.
 #: Single named constant, per the operator decision - do not scatter these
-#: patterns elsewhere. `.agentic/**` is the highest-value entry: it is
-#: exactly the empirically-proven data-loss case above.
-_PROTECTED_CONTENT_DIR_PREFIXES = (
-    ".agentic",  # plans, notes, session state
-    "docs/planning",  # gitignored plans
-)
+#: patterns elsewhere. `docs/planning/**` (gitignored plans) and
+#: `.env*`/`*.local` (secrets/local config) are simple always-protected
+#: prefixes/patterns. `.agentic/**` is handled separately, below, by
+#: `_is_agentic_disposable` - round 4 inverted the polarity INSIDE
+#: `.agentic/` specifically (see that function's docstring).
+_PROTECTED_CONTENT_DIR_PREFIXES = ("docs/planning",)
 _PROTECTED_CONTENT_BASENAME_PATTERNS = (
     ".env*",  # secrets
     "*.local",  # local config
+)
+
+#: Round-4 OPERATOR DECISION (correcting round 3): `.agentic/**` was meant
+#: to protect AUTHORED work (plans, notes, decisions), not routine
+#: telemetry - round 3's blanket `.agentic/**` protection swept in
+#: `.agentic/events.jsonl` and friends, and because this repo dogfoods its
+#: own methodology every worktree that has ever hosted an agent
+#: accumulates that telemetry, making protection effectively universal
+#: and measuring `removed=0` again. The rule INSIDE `.agentic/` is now
+#: INVERTED relative to everywhere else: everything under `.agentic/` is
+#: PROTECTED by default (fail-safe - an unanticipated new file blocks,
+#: never silently vanishes) EXCEPT this named disposable set. Do not
+#: scatter these patterns elsewhere either - see `_is_agentic_disposable`.
+_AGENTIC_DISPOSABLE_DIR_NAMES = (
+    "wrap",
+    "codex-prompt-generation",
+    "hud",
+    "cache",  # ordinary cache dirs
+    "__pycache__",  # ordinary cache dirs
+    ".cache",  # ordinary cache dirs
+)
+_AGENTIC_DISPOSABLE_BASENAME_PATTERNS = (
+    "*.jsonl",  # events.jsonl and any other telemetry log
+    "tracker-states.json",
+    ".skill-candidate-tally.json",
+    "worktree-cleanup-skips.jsonl",  # also covered by *.jsonl above; named explicitly per the operator's own list
 )
 
 #: Ephemeral/regenerable allowlist - the round-2 default, kept reachable
@@ -346,20 +410,51 @@ def _is_allowlisted_ignored_path(rel_path: str) -> bool:
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _IGNORED_ALLOWLIST_PATTERNS)
 
 
+def _is_agentic_disposable(sub_parts: List[str]) -> bool:
+    """Round 4: `sub_parts` is a path INSIDE `.agentic/`, given as its
+    segments AFTER the leading `.agentic` segment (e.g. `.agentic/wrap/lock`
+    -> `["wrap", "lock"]`). Returns True only when it is on the named
+    disposable set (`_AGENTIC_DISPOSABLE_DIR_NAMES` /
+    `_AGENTIC_DISPOSABLE_BASENAME_PATTERNS`) - the INVERTED default for
+    everywhere else in `_is_protected_ignored_path`: inside `.agentic/`,
+    NOT being disposable means PROTECTED (fail-safe - an unanticipated new
+    file under `.agentic/` blocks removal, it does not silently vanish).
+    A bare/collapsed `.agentic/` entry (whole directory ignored as one
+    unit, `sub_parts == []`) is never disposable - it could contain a
+    protected file mixed in and there is no way to tell from a collapsed
+    entry alone, so it fails closed as protected.
+    """
+    if not sub_parts:
+        return False
+    if sub_parts[0] in _AGENTIC_DISPOSABLE_DIR_NAMES:
+        return True
+    basename = sub_parts[-1]
+    return any(fnmatch.fnmatch(basename, pattern) for pattern in _AGENTIC_DISPOSABLE_BASENAME_PATTERNS)
+
+
 def _is_protected_ignored_path(rel_path: str) -> bool:
-    """Default mode (round-3 operator decision): True when `rel_path`
-    matches the PROTECTED denylist above - i.e. blocks removal. Everything
-    else ignored is disposable and does not block.
+    """Default mode (round-3 operator decision, round-4 correction inside
+    `.agentic/`): True when `rel_path` blocks removal, False when it is
+    disposable.
+
+    `.agentic/**` is handled FIRST and separately, with INVERTED polarity
+    from the rest of this function (see `_is_agentic_disposable`'s
+    docstring): protected by default, disposable only for the named set.
+    Everywhere else (`docs/planning/**`, `.env*`, `*.local`), the round-3
+    polarity is unchanged: protected ONLY when it matches one of those
+    patterns; everything else is disposable.
 
     A directory-form ignore entry (e.g. `git status --ignored=matching`
-    reporting the collapsed `.agentic/` when the whole directory is
+    reporting a collapsed `docs/planning/` when the whole directory is
     ignored, rather than descending into it) is matched as a PREFIX via
-    the first path segment, not only as an exact filename - `.agentic/`,
-    `.agentic/plan.md`, and `.agentic/wrap/lock` must all match the
-    `.agentic` prefix identically.
+    the leading path segments, not only as an exact filename.
     """
     normalized = rel_path.strip("/")
     parts = normalized.split("/")
+
+    if parts[0] == ".agentic":
+        return not _is_agentic_disposable(parts[1:])
+
     for prefix in _PROTECTED_CONTENT_DIR_PREFIXES:
         prefix_parts = prefix.split("/")
         if parts[: len(prefix_parts)] == prefix_parts:
@@ -461,6 +556,72 @@ def _worktree_age_hours(entry_path: str) -> Optional[float]:
     except OSError:
         return None
     return (time.time() - mtime) / 3600.0
+
+
+_BRANCH_SAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _worktree_has_salvageable_telemetry(worktree_path: str) -> bool:
+    """True when `<worktree_path>/.agentic/events.jsonl` exists and is
+    non-empty - i.e. there is something for `_salvage_telemetry` to
+    actually salvage. Used both by the real salvage path and by the
+    --dry-run "would salvage" count, so the two can never disagree about
+    what counts as salvageable.
+    """
+    src = Path(worktree_path) / ".agentic" / "events.jsonl"
+    try:
+        return src.is_file() and src.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _salvage_telemetry(repo: str, worktree_path: str, branch: Optional[str]) -> Tuple[bool, str]:
+    """Round-4 requirement: copies `<worktree_path>/.agentic/events.jsonl`
+    into `<repo>/.agentic/reaped-telemetry/<branch>-<timestamp>.jsonl`
+    BEFORE the worktree is removed - telemetry is disposable for the
+    purpose of BLOCKING removal, but it is not worthless (ds-cost /
+    retro read it), so it must survive the worktree's own deletion.
+
+    Returns (ok, detail). `ok=True` covers two cases: (a) there was
+    nothing to salvage (no `events.jsonl`, or it is empty) - a no-op,
+    correctly not blocking removal; (b) the copy succeeded AND was
+    verified to have actually landed non-empty at the destination.
+    `ok=False` on ANY other failure (source unreadable, destination
+    directory uncreatable, copy error, or post-copy verification
+    failing) - the caller MUST NOT remove the worktree when `ok=False`;
+    a failed salvage must never become a silent deletion of the telemetry
+    it was trying to preserve.
+
+    `.agentic/reaped-telemetry/` needs no new `.gitignore` carve-out: the
+    existing `/.agentic/*` umbrella (content/.gitignore's own root-level
+    entry, unchanged by this ticket) already covers any new top-level
+    entry under `.agentic/`, including this one.
+    """
+    if not _worktree_has_salvageable_telemetry(worktree_path):
+        return True, "nothing to salvage"
+
+    src = Path(worktree_path) / ".agentic" / "events.jsonl"
+    dest_dir = Path(repo) / ".agentic" / "reaped-telemetry"
+    branch_safe = _BRANCH_SAFE_CHARS_RE.sub("_", branch) if branch else "unknown-branch"
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    dest = dest_dir / f"{branch_safe}-{timestamp}.jsonl"
+
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dest))
+    except OSError as exc:
+        return False, f"copy to {dest} failed: {exc}"
+
+    # Verify the copy actually landed and is non-empty - never trust a
+    # copy call's own success return alone (e.g. a race, a filesystem
+    # quirk, or a partial write could still leave nothing usable behind).
+    try:
+        if not dest.is_file() or dest.stat().st_size == 0:
+            return False, f"copy to {dest} did not verify (missing or empty)"
+    except OSError as exc:
+        return False, f"verification of {dest} failed: {exc}"
+
+    return True, f"salvaged to {dest}"
 
 
 # --------------------------------------------------------------------------
@@ -651,7 +812,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             empty_mode_parts.append("dry-run")
         empty_mode = ", ".join(empty_mode_parts) if empty_mode_parts else "live"
         empty_fields = " ".join(f"{_field_name(o)}=0" for o in _ALL_OUTCOMES if o != "REMOVE")
-        print(f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 {empty_fields} pruned-admin=0")
+        print(
+            f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 "
+            f"{empty_fields} pruned-admin=0 salvaged=0"
+        )
         return 0
 
     gh_ok = _gh_available(repo, args.no_gh)
@@ -684,9 +848,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     remove_results = [r for r in results if r["outcome"] == "REMOVE"]
 
     removed = 0
+    salvaged = 0
+    salvage_would = 0
     if not args.dry_run:
         for r in remove_results:
             path = r["path"]
+            # Round-4 requirement: salvage BEFORE remove, and a failed
+            # salvage must NEVER become a silent deletion - reclassify to
+            # SKIP_PROTECTED_CONTENT and skip the remove entirely.
+            salvage_ok, salvage_detail = _salvage_telemetry(repo, path, r.get("branch"))
+            if not salvage_ok:
+                print(
+                    f"WARNING: telemetry salvage failed for {path} (branch={r.get('branch')}): "
+                    f"{salvage_detail} - worktree NOT removed",
+                    file=sys.stderr,
+                )
+                r["outcome"] = "SKIP_PROTECTED_CONTENT"
+                r["offenders"] = [f"salvage-failed: {salvage_detail}"]
+                continue
+            if salvage_detail.startswith("salvaged to "):
+                salvaged += 1
             proc = _run(["git", "-C", repo, "worktree", "remove", path])
             if proc.returncode == 0:
                 removed += 1
@@ -697,8 +878,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f"{proc.returncode}): {proc.stderr.strip()}",
                     file=sys.stderr,
                 )
+        # A salvage failure above may have downgraded a REMOVE entry to
+        # SKIP_PROTECTED_CONTENT after `outcome_counts` was first computed -
+        # recompute so the summary line reflects the FINAL state, never a
+        # stale pre-salvage snapshot. Every value this loop can assign
+        # (SKIP_PROTECTED_CONTENT) is already a member of _ALL_OUTCOMES, so
+        # no further unknown-outcome check is needed.
+        outcome_counts = Counter(r["outcome"] for r in results)
     else:
         removed = len(remove_results)
+        # --dry-run: skip salvage cleanly, but still report how many files
+        # WOULD be salvaged if this were a live run (round-4 requirement).
+        salvage_would = sum(1 for r in remove_results if _worktree_has_salvageable_telemetry(r["path"]))
 
     # Unlock any directory-missing locked entries so the admin-prune pass
     # below can reclaim them (the sole permitted unlock case - see the
@@ -729,9 +920,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     field_str = " ".join(
         f"{_field_name(outcome)}={outcome_counts.get(outcome, 0)}" for outcome in _ALL_OUTCOMES if outcome != "REMOVE"
     )
+    # `salvaged` (round-4): actual telemetry-salvage count, 0 under
+    # --dry-run unconditionally - matches the `pruned-admin` "action
+    # taken, not a candidate count" convention above.
     print(
         f"ds-reap-worktrees: base={args.base} mode={mode} entries={len(results)} "
-        f"removed={removed} {field_str} pruned-admin={pruned_admin}"
+        f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}"
     )
 
     if degraded:
@@ -739,6 +933,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             "NOTE: degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - the "
             "PR-state leg is unavailable" + (" and git ls-remote was suppressed (--no-gh)" if args.no_gh else "")
             + "; this can only remove FEWER worktrees than a full run, never more."
+        )
+
+    if args.dry_run and salvage_would:
+        print(
+            f"NOTE: {salvage_would} .agentic/events.jsonl file(s) would be salvaged to "
+            ".agentic/reaped-telemetry/ before removal if this were a live run."
         )
 
     if args.explain:

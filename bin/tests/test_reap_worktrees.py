@@ -47,6 +47,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parent.parent / "ds-reap-worktrees"
 
 
@@ -567,6 +569,197 @@ def test_env_and_local_files_block_removal_by_default(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 14d. (round-4 operator correction) The rule INSIDE `.agentic/` is
+#      INVERTED relative to everywhere else: protected by default, EXCEPT
+#      a named disposable set (routine telemetry, generated adapter
+#      sub-dirs, cache dirs). `events.jsonl`-only content is the exact
+#      case that drove round 3's `removed=0` measurement (this repo
+#      dogfoods its own methodology, so every worktree accumulates it) -
+#      it must now be disposable, not blocking.
+# --------------------------------------------------------------------------
+
+
+def test_agentic_events_jsonl_only_is_disposable_by_default(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-telemetry", "worktree-agent-telemetry", push=False)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "test"}\n')
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (ancestor-of-base)"
+    assert str(wt) not in worktree_paths(repo)
+
+
+@pytest.mark.parametrize(
+    "rel_path,content",
+    [
+        (".agentic/wrap/lock", "lock\n"),
+        (".agentic/codex-prompt-generation/scratch.txt", "scratch\n"),
+        (".agentic/hud/worker-1.json", "{}\n"),
+        (".agentic/tracker-states.json", "{}\n"),
+        (".agentic/.skill-candidate-tally.json", "{}\n"),
+        (".agentic/worktree-cleanup-skips.jsonl", '{"skip": true}\n'),
+        (".agentic/some-other-log.jsonl", '{"line": 1}\n'),
+    ],
+)
+def test_agentic_disposable_set_does_not_block_removal(tmp_path, rel_path, content):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-disposable", "worktree-agent-disposable", push=False)
+    dest = wt / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content)
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (ancestor-of-base)", f"{rel_path} should be disposable: {result[str(wt)]}"
+    assert str(wt) not in worktree_paths(repo)
+
+
+@pytest.mark.parametrize(
+    "rel_path,content",
+    [
+        (".agentic/plan.md", "plan\n"),
+        (".agentic/plans/roadmap.md", "plan\n"),
+        (".agentic/learnings.md", "learnings\n"),
+        (".agentic/decisions.md", "decisions\n"),
+        (".agentic/qa.md", "qa\n"),
+        (".agentic/findings-2026.md", "findings\n"),
+        (".agentic/memory.md", "memory\n"),
+        (".agentic/context.md", "context\n"),
+        (".agentic/_wrap.md", "wrap\n"),
+        (".agentic/tracker.yml", "tracker: {}\n"),
+        (".agentic/branch-archive/notes.txt", "archive\n"),
+        # Fail-safe default: an UNANTICIPATED new file under .agentic/ that
+        # matches neither the disposable nor an explicitly-named protected
+        # pattern must still block - this is the whole point of the
+        # inverted-inside-.agentic polarity (a new file blocks, never
+        # silently vanishes).
+        (".agentic/some-brand-new-thing.txt", "unanticipated\n"),
+    ],
+)
+def test_agentic_protected_set_still_blocks_removal(tmp_path, rel_path, content):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-protected", "worktree-agent-protected", push=False)
+    dest = wt / rel_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content)
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), f"{rel_path} should still block: {result[str(wt)]}"
+    assert str(wt) in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 14e. (round-4) Telemetry salvage: `.agentic/events.jsonl` is copied into
+#      the PRIMARY repo's `.agentic/reaped-telemetry/<branch>-<ts>.jsonl`
+#      BEFORE the worktree is removed, and the copy is verified non-empty.
+# --------------------------------------------------------------------------
+
+
+def test_salvage_success_copies_telemetry_before_removal(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-salvage-ok"
+    wt = add_worktree(repo, ".claude/worktrees/agent-salvage-ok", branch, push=False)
+    (wt / ".agentic").mkdir()
+    payload = '{"event": "session-end", "tokens": 1234}\n'
+    (wt / ".agentic" / "events.jsonl").write_text(payload)
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (ancestor-of-base)"
+    assert str(wt) not in worktree_paths(repo)
+
+    salvage_dir = repo / ".agentic" / "reaped-telemetry"
+    salvaged_files = sorted(salvage_dir.glob(f"{branch}-*.jsonl"))
+    assert len(salvaged_files) == 1, f"expected exactly one salvaged file, found {salvaged_files}"
+    assert salvaged_files[0].stat().st_size > 0
+    assert salvaged_files[0].read_text() == payload
+    assert "salvaged=1" in summary_line(proc.stdout)
+
+
+def test_salvage_skipped_cleanly_under_dry_run_but_reported(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-salvage-dry"
+    wt = add_worktree(repo, ".claude/worktrees/agent-salvage-dry", branch, push=False)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "x"}\n')
+
+    proc = run_reap(repo, dry_run=True)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (ancestor-of-base)"
+    # Dry run: nothing actually salvaged or removed.
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "reaped-telemetry").exists()
+    assert "salvaged=0" in summary_line(proc.stdout)
+    assert "1 .agentic/events.jsonl file(s) would be salvaged" in proc.stdout
+
+
+def test_reaped_telemetry_dir_is_covered_by_existing_gitignore(tmp_path):
+    """Round-4 requirement: `.agentic/reaped-telemetry/` needs no new
+    `.gitignore` carve-out - the existing `.agentic/*`-style umbrella
+    already covers any new top-level entry under `.agentic/`."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    salvage_dir = repo / ".agentic" / "reaped-telemetry"
+    salvage_dir.mkdir(parents=True)
+    (salvage_dir / "some-branch-20260101T000000Z.jsonl").write_text('{"x": 1}\n')
+
+    check = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "-q", str(salvage_dir / "some-branch-20260101T000000Z.jsonl")],
+        capture_output=True,
+        text=True,
+    )
+    assert check.returncode == 0, "reaped-telemetry content must already be covered by the existing .agentic ignore rule"
+
+
+# --------------------------------------------------------------------------
+# 14f. (round-4) Salvage FAILURE must block removal entirely - never a
+#      silent deletion of the telemetry the salvage step was trying to
+#      preserve. Forces a real failure (an unwritable destination
+#      directory in the PRIMARY repo), not a mock.
+# --------------------------------------------------------------------------
+
+
+def test_salvage_failure_blocks_removal_and_reports(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-salvage-fail"
+    wt = add_worktree(repo, ".claude/worktrees/agent-salvage-fail", branch, push=False)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "will-not-survive-a-bug"}\n')
+
+    # Force the salvage destination to be uncreatable: make the PRIMARY
+    # repo's own .agentic/ directory read-only so
+    # mkdir(".agentic/reaped-telemetry") raises OSError.
+    primary_agentic = repo / ".agentic"
+    primary_agentic.mkdir(exist_ok=True)
+    os.chmod(primary_agentic, 0o555)
+    try:
+        proc = run_reap(repo, dry_run=False)
+        assert proc.returncode == 0, proc.stderr
+        result = outcomes(proc.stdout)
+        assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), result[str(wt)]
+        assert "salvage-failed" in result[str(wt)]
+        assert str(wt) in worktree_paths(repo), "a failed salvage must NEVER become a silent deletion"
+        assert "WARNING: telemetry salvage failed" in proc.stderr
+        assert "worktree NOT removed" in proc.stderr
+    finally:
+        os.chmod(primary_agentic, 0o755)
+
+
+# --------------------------------------------------------------------------
 # 15. (round-3 operator decision) DEFAULT mode treats generated adapter
 #     output and the round-2 ephemeral set as DISPOSABLE - it does NOT
 #     block removal, even though it would have under round-2's fail-safe
@@ -642,6 +835,36 @@ def test_strict_ignored_restores_round2_allowlist_behavior(tmp_path):
     assert strict_nm_proc.returncode == 0, strict_nm_proc.stderr
     strict_nm_result = outcomes(strict_nm_proc.stdout)
     assert strict_nm_result[str(wt2)] == "REMOVE (ancestor-of-base)"
+
+
+# --------------------------------------------------------------------------
+# 15c. (round-4 requirement: --strict-ignored semantics UNCHANGED) The
+#      round-4 `.agentic/` disposable set is a DEFAULT-mode-only bypass -
+#      under --strict-ignored, `.agentic/events.jsonl` still blocks
+#      exactly like round 2 (it is not on the ephemeral allowlist).
+# --------------------------------------------------------------------------
+
+
+def test_strict_ignored_leaves_agentic_events_jsonl_blocking_unchanged(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-strict-agentic", "worktree-agent-strict-agentic", push=False)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "x"}\n')
+
+    # Default mode (round 4): events.jsonl-only content is disposable now.
+    default_proc = run_reap(repo, dry_run=True)
+    assert default_proc.returncode == 0, default_proc.stderr
+    default_result = outcomes(default_proc.stdout)
+    assert default_result[str(wt)] == "REMOVE (ancestor-of-base)"
+
+    # --strict-ignored: unchanged from round 2 - blocks, since
+    # .agentic/events.jsonl is not on the ephemeral allowlist.
+    strict_proc = run_reap(repo, dry_run=True, extra=["--strict-ignored"])
+    assert strict_proc.returncode == 0, strict_proc.stderr
+    strict_result = outcomes(strict_proc.stdout)
+    assert strict_result[str(wt)].startswith("SKIP_PROTECTED_CONTENT")
+    assert ".agentic/events.jsonl" in strict_result[str(wt)]
 
 
 # --------------------------------------------------------------------------
