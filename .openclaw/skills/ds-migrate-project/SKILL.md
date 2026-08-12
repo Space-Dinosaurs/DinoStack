@@ -91,6 +91,15 @@ ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-v
 
 **`apply`'s manifest-not-found case is the one exception to this table:** it returns 0 (not 2), by deliberate silent-fail discipline documented in the `bin/ds-migrate` module docstring (`Failure modes: silent-fail discipline; never throws to caller`) - a caller that needs to distinguish "applied successfully" from "manifest was unresolvable" cannot do so from `apply`'s exit code alone and must instead check the actual postcondition (e.g. does `.gitignore` now contain the expected umbrella and negation lines - see `content/commands/ds-init-project.md` Step 9 for the concrete pattern). `check` and `diff` do not share this exception; both return 2 for an unresolvable manifest, same as a parse error.
 
+## `self_repo_exempt` status
+
+`ds-migrate check`, `diff`, and `apply` all print a `"status": "self_repo_exempt"` JSON value (exit code 0, same as `"ok"`) when `--project-root` (or `cwd`, when unset) resolves to the dinostack/agentic-engineering methodology source repo itself - checked against the enclosing git repository root, so this also fires from any subdirectory of the self-repo - rather than a scaffolding consumer (see `_is_self_repo` in `bin/ds-migrate`). This is a distinct, terminal outcome from `"ok"` and `"drift"`:
+
+- `check`/`diff` report `self_repo_exempt` and stop; there is no drift to report and no diff to show, since consumer-manifest scaffolding is not a meaningful operation against the methodology's own source.
+- `apply` no-ops entirely (prints why on stdout, writes nothing) - the self-repo's own `.agentic/` gitignore rule is a deliberate, negation-free categorical `.agentic/*` (root AGENTS.md: "DinoStack does not commit its own `.agentic/` runtime files"), and layering the manifest's consumer negations on top of it would silently start tracking the methodology's own runtime state.
+
+The exit-code table above is unaffected: `self_repo_exempt` always returns 0, same row as `check`'s `"ok"` no-drift case.
+
 ## Notes
 
 - AGENTS.md is never modified by `--apply`. Only `--include-destructive` can touch AGENTS.md, and only when the manifest's `markers:` section contains instructions for it.

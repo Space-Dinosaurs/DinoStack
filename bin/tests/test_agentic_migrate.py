@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2788,6 +2789,13 @@ class TestSelfRepoExemption(unittest.TestCase):
         (project / "content" / "sections").mkdir(parents=True)
         (project / "scripts").mkdir(parents=True)
         (project / "bin").mkdir(parents=True)
+        # A tracked file inside sections/ so `git worktree add` actually
+        # materializes the directory - git does not track empty dirs, and
+        # an empty content/sections/ would silently vanish from a real
+        # worktree checkout (see test_real_worktree_of_self_repo_is_still_self_repo).
+        (project / "content" / "sections" / "01-placeholder.md").write_text(
+            "# placeholder\n"
+        )
         (project / "content" / "project-scaffolding.yml").write_text(
             "scaffolding_version: 1\ngitignore: []\nfiles: []\n"
         )
@@ -2893,19 +2901,73 @@ class TestSelfRepoExemption(unittest.TestCase):
         self.assertIn("!.agentic/config.json", gi)
 
     def test_real_worktree_of_self_repo_is_still_self_repo(self):
-        """A git worktree of the self-repo (a separate directory that is
-        still a real git working tree, distinct from the primary checkout)
-        must still be recognized - the predicate is purely about files
-        present under project_root, independent of how that directory
-        relates to any other git working tree."""
+        """A REAL `git worktree add` checkout of the self-repo tree (a
+        separate directory linked to the same repository, distinct from the
+        primary checkout) must still be recognized - the predicate is purely
+        about files present under project_root, independent of how that
+        directory relates to any other git working tree."""
         tmp = tempfile.mkdtemp()
-        # A worktree-like tree: full structural marker set, its own git
-        # working tree, under a directory name that gives no hint at all.
-        project = self._make_self_repo_tree(tmp, dirname="agent-worktree-xyz789")
-        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        primary = self._make_self_repo_tree(tmp, dirname="primary-checkout")
+        subprocess.run(
+            ["git", "add", "-A"], cwd=str(primary), check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "initial"], cwd=str(primary), check=True
+        )
+        worktree = Path(tmp) / "agent-worktree-xyz789"
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", "wt-branch", str(worktree)],
+            cwd=str(primary),
+            check=True,
+        )
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(worktree)])
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         out = json.loads(result.stdout)
         self.assertEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_manifest_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `content/project-scaffolding.yml`
+        alone from an otherwise-complete self-repo tree and confirm
+        detection fails toward ordinary consumer (drift), not self-repo
+        exemption. This is the marker the docstring's failure-direction
+        argument rests on - a real consumer structurally cannot ship it."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-manifest")
+        (project / "content" / "project-scaffolding.yml").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_sections_dir_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `content/sections/` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-sections")
+        shutil.rmtree(project / "content" / "sections")
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_build_all_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `scripts/build-all.sh` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-build-all")
+        (project / "scripts" / "build-all.sh").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_ds_migrate_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `bin/ds-migrate` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-ds-migrate")
+        (project / "bin" / "ds-migrate").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
 
 
 if __name__ == "__main__":

@@ -835,6 +835,42 @@ def _resolve_manifest_path(args: argparse.Namespace) -> Path | None:
 # Self-repo (methodology source) exemption
 # ---------------------------------------------------------------------------
 
+def _resolve_self_repo_check_root(project_root: Path) -> Path:
+    """Resolve the enclosing git repository root of `project_root` for the
+    self-repo structural-marker check below, so a SUBDIRECTORY of the
+    self-repo (e.g. a session or `ds-migrate` invocation started in
+    `docs/`, or Activation preflight Step 6a running with no
+    `--project-root` from a cwd inside the self-repo) is still recognized
+    as self-repo rather than falling through to consumer scaffolding and
+    writing `.agentic/*` negations into a tracked subdirectory `.gitignore`.
+
+    Falls back to `project_root` unchanged when it is not inside a git
+    working tree at all (no `git` on PATH, or `git rev-parse` fails) -
+    preserves prior behavior for a non-git `project_root` exactly as
+    before this resolution step existed. This function only affects WHICH
+    directory the four self-repo markers are checked against; it never
+    changes where a consumer's `.gitignore` or scaffolded files are
+    written - the caller still applies against the original
+    `project_root`, and this exemption check runs before any of that
+    write path executes.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            top = result.stdout.strip()
+            if top:
+                return Path(top)
+    except Exception:
+        pass
+    return project_root
+
+
 def _is_self_repo(project_root: Path) -> bool:
     """True if `project_root` IS the agentic-engineering/dinostack methodology
     source repo, as opposed to a project that has adopted it (a "consumer").
@@ -870,13 +906,35 @@ def _is_self_repo(project_root: Path) -> bool:
     through to ordinary consumer scaffolding, i.e. detection fails toward
     the pre-existing (consumer) behavior on ambiguity, never toward
     incorrectly skipping a real user's scaffolding.
+
+    The four markers are checked against `project_root`'s ENCLOSING git
+    repository root (via `_resolve_self_repo_check_root`), not necessarily
+    `project_root` itself - so a subdirectory of the self-repo (e.g.
+    `docs/`) is still recognized. This upward walk stops at the first git
+    root found and never climbs past it, so a monorepo vendoring DinoStack
+    at e.g. `vendor/DinoStack/` with `project_root` at the monorepo's own
+    top level is unaffected: the monorepo's git root IS the monorepo root
+    (vendoring a subtree does not nest a second git repo), and the four
+    markers are checked there, not against the vendored subtree - a
+    monorepo root lacking its own copy of these markers still (correctly)
+    reports as a consumer.
+
+    Known non-issue: `is_file()`/`is_dir()` follow symlinks, so a scratch
+    directory holding four symlinks pointing at the real self-repo's
+    markers would also classify as self-repo. No shipped install produces
+    that shape (a real clone, fork, or `git worktree add` checkout
+    materializes real files/directories, never a hand-built symlink farm),
+    so this is documented here rather than resolved with symlink-detection
+    logic that would add complexity for a scenario nothing actually
+    produces.
     """
     try:
+        root = _resolve_self_repo_check_root(project_root)
         return (
-            (project_root / "content" / "project-scaffolding.yml").is_file()
-            and (project_root / "scripts" / "build-all.sh").is_file()
-            and (project_root / "content" / "sections").is_dir()
-            and (project_root / "bin" / "ds-migrate").is_file()
+            (root / "content" / "project-scaffolding.yml").is_file()
+            and (root / "scripts" / "build-all.sh").is_file()
+            and (root / "content" / "sections").is_dir()
+            and (root / "bin" / "ds-migrate").is_file()
         )
     except Exception:
         return False
