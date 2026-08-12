@@ -980,7 +980,7 @@ After risk has been classified, if the current ticket is Elevated, snapshot any 
 3. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md` exists and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `$AE_PROJECT_DIR/.agentic/qa.md` to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
 4. If risk is Elevated and `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
 
-The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `$AE_PROJECT_DIR/.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path is gitignored under the existing `$AE_PROJECT_DIR/.agentic/` umbrella; no `$AE_PROJECT_DIR/.gitignore` change is needed.
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `$AE_PROJECT_DIR/.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path matches manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 ### On-resume Brief migration (qa_criteria backfill)
 
@@ -1330,7 +1330,7 @@ Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the
 }
 ```
 
-`$AE_PROJECT_DIR/.agentic/tracker-states.json` is a runtime cache, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+`$AE_PROJECT_DIR/.agentic/tracker-states.json` is a runtime cache, matching manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
 
 **Validate.** For each of the 6 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
 
@@ -1989,7 +1989,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Tracker append is a single line per `original_task_id`; the file is created if absent (`$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
+Tracker append is a single line per `original_task_id`; the file is created if absent (`$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced`, matching manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). Minor-only divergences are NOT surfaced inline. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
@@ -2852,7 +2852,7 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
 fi
 ```
 
-`$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl` is append-only and gitignored under the existing `$AE_PROJECT_DIR/.agentic/` umbrella (machine-local; no `$AE_PROJECT_DIR/.gitignore` change needed). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
+`$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl` is append-only and matches manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's `$AE_PROJECT_DIR/.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
 **QA Evidence section (append to PR body after `gh pr create` - Case B only).**
 
