@@ -9,7 +9,11 @@
 # Public API: ./bin/tests/test_agentic_base_sync.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp, awk.
+# Upstream deps: bash, git, mktemp, awk, python3, bin/ds-reap-worktrees (case
+#                18 exercises bin/agentic-base-sync's worktree-reaper
+#                advisory note, which shells out to `python3
+#                bin/ds-reap-worktrees --count-only` - both are load-bearing
+#                for that case, not merely for the tool under test).
 #
 # Downstream consumers: bin-tests CI job (glob-picked-up test_*.sh).
 #
@@ -18,7 +22,11 @@
 #                every failure, not just the first). All fixtures live under
 #                a temporary directory; the real repo is never touched.
 #
-# Performance: < 10 s wall time (pure git + shell, no network).
+# Performance: ~12.7 s wall time (pure git + shell, no network) - measured via
+#              `time bash bin/tests/test_agentic_base_sync.sh`; this figure
+#              was already stale (previously cited as "< 10 s") before this
+#              ticket, and case 18's `python3` subprocess is a small
+#              additional contributor, not the whole gap.
 #
 # Regression coverage: see plan-base-branch-sync.md cases 1-14 (11 and 14
 #                       revised per round-3 Skeptic correction - see inline
@@ -556,6 +564,34 @@ EOF
   OUT="$(HOME="$FAKE_HOME" "$TOOL" "$C/repo" base 2>&1)"; RC=$?
   _assert_eq "case17: exit 0" "0" "$RC"
   _assert_not_contains "case17: advisory note ABSENT (snapshot already current)" "$OUT" "ds-base-sync:"
+}
+
+echo "=== Case 18 (round-6): worktree-reaper --count-only advisory note ACTUALLY EMITS when the synced repo has a non-root worktree ==="
+# Case 17 above passes vacuously for the worktree-advisory leg specifically:
+# its fixture repo has zero non-root worktrees, so _ds_reap_nonroot is
+# always 0 and the note branch is never exercised - nothing in the
+# existing suite actually drives a nonzero non-root count through
+# bin/ds-reap-worktrees --count-only and asserts the note text. This case
+# closes that gap by adding one extra worktree to $C/repo before syncing.
+{
+  C="$TMP_ROOT/case18"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance18"
+  git -C "$C/repo" worktree add -q "$C/repo/wt-extra" -b worktree-case18-extra >/dev/null
+
+  # ds-base-sync resolves REPO_DIR via `pwd -P` (symlink-resolved), so the
+  # path in its printed note can differ from the literal $C/repo (e.g. a
+  # /var -> /private/var symlink on macOS) - match against the SAME
+  # resolved path, not the literal one.
+  RESOLVED_REPO="$(cd "$C/repo" && pwd -P)"
+
+  OUT="$("$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case18: exit 0" "0" "$RC"
+  _assert_contains "case18: breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_contains "case18: worktree-reaper advisory note present with correct non-root count" "$OUT" \
+    "ds-base-sync: 1 non-root git worktree(s) in $RESOLVED_REPO - consider \`/ds-cleanup-worktrees\`"
+
+  git -C "$C/repo" worktree remove "$C/repo/wt-extra" 2>/dev/null || true
 }
 
 echo "=== Locale robustness note (Finding N2 / LC_ALL=C) ==="

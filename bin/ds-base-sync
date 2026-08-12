@@ -29,10 +29,41 @@
 #     the DS-54 invariant forbids a passive/automatic trigger from
 #     auto-rewiring a live session's hooks; only an explicit `--fix` (ds-doctor)
 #     or an adapter install.sh run may do that.
+#     Second advisory note (worktree-reaper automatic trigger): after the
+#     hooks-staleness note above, unconditionally runs
+#     `bin/ds-reap-worktrees --repo <repo> --count-only` against <repo>
+#     ITSELF (not the operator's DinoStack checkout - this one is
+#     project-scoped, since the worktrees accumulating are <repo>'s own) and,
+#     when the non-root worktree count is nonzero, prints a one-line note
+#     prefixed "ds-base-sync: ". This is the same "one guaranteed post-merge
+#     trigger point" rationale as the hooks-staleness note - the reaper's own
+#     automatic session-start nudge (hooks/session-start-wrap.sh) only fires
+#     at a brand-new session's first tool call, never mid-session or at merge
+#     time, so this closes the same class of dogfooding gap for worktree
+#     accumulation that DS-54 closed for hooks staleness. ADVISORY ONLY:
+#     `--count-only` never removes anything and never touches the network in
+#     any way - actual removal remains operator-invoked
+#     (`/ds-cleanup-worktrees` or a bare `ds-reap-worktrees` with no
+#     --dry-run). round-2 Skeptic Major 4/5 correction: the FIRST-round
+#     implementation used `--dry-run --no-gh`, which still performed full
+#     per-entry evaluation including one `git ls-remote` round-trip per
+#     worktree - measured 14.94s against this repo's live 38-worktree
+#     checkout on 2026-08-11 (this section previously, and wrongly, claimed
+#     "typically sub-second"). `--count-only` needs nothing beyond a count,
+#     so it does a SINGLE `git worktree list --porcelain` call and nothing
+#     else - measured 55ms against the same checkout at 37 worktrees on
+#     2026-08-11 via `time python3 bin/ds-reap-worktrees --repo <repo>
+#     --count-only`. Matches the DS-54 note's own "silent when there is
+#     nothing to report" contract: suppressed whenever the non-root count
+#     (parsed `entries=N` minus 1, from ds-reap-worktrees' own summary line)
+#     is 0 - a repo with no non-root worktrees has nothing actionable to
+#     surface here.
 #
 # Upstream deps: scripts/lib/base-branch-sync.sh, bash, git,
 #                hooks/lib/hooks-staleness-core.sh (advisory note only;
-#                missing/failing is silently skipped, never fatal).
+#                missing/failing is silently skipped, never fatal),
+#                bin/ds-reap-worktrees (advisory note only; missing/failing
+#                is silently skipped, never fatal).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
 #                       (repo-relative invocation), content/rules/
@@ -50,10 +81,20 @@
 #   - The hooks-staleness advisory note never affects the exit code: a
 #     missing hooks-staleness-core.sh, or any error running it, is silently
 #     swallowed (stderr redirected, `|| true`).
+#   - The worktree-reaper advisory note likewise never affects the exit
+#     code: a missing bin/ds-reap-worktrees, or any error running it
+#     (including a non-git <repo> or a repo with zero worktree entries), is
+#     silently swallowed (stderr redirected, `|| true`).
 #
 # Performance: standard - see scripts/lib/base-branch-sync.sh. The staleness
 #              note adds one bash subprocess, sub-50ms on a warm cache (see
-#              hooks-staleness-core.sh's own perf note).
+#              hooks-staleness-core.sh's own perf note). The worktree-reaper
+#              note adds one python3 subprocess doing a SINGLE `git worktree
+#              list --porcelain` call and nothing else (`--count-only`, no
+#              network, no per-entry git calls) - measured 55ms against this
+#              repo's live 37-worktree checkout on 2026-08-11; see the
+#              Public API comment block above for the pre-fix figure this
+#              replaces.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -128,6 +169,35 @@ if [ -f "$_ds_hooks_staleness_core" ]; then
   _ds_staleness_note="$(bash "$_ds_hooks_staleness_core" 2>/dev/null || true)"
   if [ -n "$_ds_staleness_note" ]; then
     echo "ds-base-sync: $_ds_staleness_note"
+  fi
+fi
+
+# --- Worktree-reaper advisory: automatic --count-only report (non-blocking) ---
+# Scoped to <repo> ITSELF (the project whose base branch was just synced),
+# unlike the hooks-staleness note above which is scoped to the operator's
+# own DinoStack checkout. Always --count-only (round-2 Skeptic Major 4):
+# zero network calls, zero per-entry `git` calls beyond the single
+# `git worktree list --porcelain` --count-only itself needs - this call
+# site only ever needed a COUNT, and v1's `--dry-run --no-gh` full-mode
+# invocation measured 14.94s against the live checkout because --no-gh
+# suppressed `gh` but NOT `git ls-remote`, one network round-trip per
+# entry. Never removes anything and never shells out to gh or the network
+# in any mode. See the Public API comment block above for the full
+# rationale.
+_ds_reap_worktrees="$SCRIPT_DIR/ds-reap-worktrees"
+if [ -f "$_ds_reap_worktrees" ]; then
+  # `--count-only` prints exactly one line: "ds-reap-worktrees: mode=count-only
+  # entries=N" (N includes the main worktree). Matches the DS-54 hooks-
+  # staleness note's own "silent when there is nothing to report" contract:
+  # suppressed when the non-root count (N-1) is 0 - a bare main-worktree
+  # repo has nothing actionable to surface here.
+  _ds_reap_note="$(python3 "$_ds_reap_worktrees" --repo "$REPO_DIR" --count-only 2>/dev/null || true)"
+  if [[ "$_ds_reap_note" =~ entries=([0-9]+) ]]; then
+    _ds_reap_total="${BASH_REMATCH[1]}"
+    _ds_reap_nonroot=$((_ds_reap_total - 1))
+    if [ "$_ds_reap_nonroot" -gt 0 ]; then
+      echo "ds-base-sync: ${_ds_reap_nonroot} non-root git worktree(s) in $REPO_DIR - consider \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees --explain\` for a dry-run report)."
+    fi
   fi
 fi
 
