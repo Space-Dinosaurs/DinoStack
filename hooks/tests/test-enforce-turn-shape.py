@@ -2393,20 +2393,20 @@ check(
 )
 
 # y8. CHARACTERIZATION (DS-157 round 2, Skeptic Major 1's demonstrated
-# latent hard-block path) - NOT a claim this ticket fixes the mechanism,
-# only that it is pinned so a future change surfaces it deliberately
-# rather than by accident. When a genuine `stoppage`+`completion` turn's
-# body ALSO contains a (correctly-kept) continuing-work veto phrase
-# ("CI running on #640" inside its own Waiting: line), losing the
-# `completion` warrant flips `stoppage_sole` True, routing the turn onto
-# _execution_prose_flag's STRICTER sole-stoppage branch - which then
-# BLOCKS the State:/Running:/Blocked: lines the general branch would have
-# permitted. This mechanism pre-exists on main for the original 3 DS-156
-# phrases too (any of them matching inside a dependency mention has the
-# same effect); DS-157 widens the trigger vocabulary but does not
-# introduce the mechanism itself, and fixing the sole-stoppage/general
-# branch routing interaction is out of this ticket's scope (Major 1's fix
-# is the phrase-set narrowing above, not this routing predicate).
+# latent hard-block path; RE-DERIVED DS-158). When a genuine
+# `stoppage`+`completion` turn's body ALSO contains a (correctly-kept)
+# continuing-work veto phrase ("CI running on #640" inside its own
+# Waiting: line), losing the `completion` warrant flips `stoppage_sole`
+# True, routing the turn onto _execution_prose_flag's sole-stoppage
+# branch. Before DS-158 this branch was fence-blind AND recognized ONLY
+# Waiting: lines, so it BLOCKED the well-formed State:/Running:/Blocked:
+# lines the general branch would have permitted - documented then as a
+# latent, out-of-scope mechanism. DS-158 widens the sole-stoppage branch
+# to also permit well-formed State:/Running:/Blocked: slot lines (the
+# same "here is my status and here is what I'm blocked on" fix as
+# elsewhere in this ticket), which resolves this exact latent mechanism
+# as a side effect: this turn is now well-formed on the sole-stoppage
+# branch too, so it stays QUIET.
 y8_msg = (
     "Conductor\n"
     "State: work complete.\n"
@@ -2428,11 +2428,10 @@ check(
     _y8_stoppage_sole is True,
 )
 check(
-    "y8c. the sole-stoppage branch then BLOCKS the State:/Running:/"
-    "Blocked: lines the general branch would have permitted - latent, "
-    "pre-existing mechanism, not introduced by this ticket, pinned here "
-    "so a future change to it is deliberate",
-    _mod._execution_prose_flag(y8_msg, _y8_warrants) is not None,
+    "y8c. DS-158: the sole-stoppage branch now PERMITS the well-formed "
+    "State:/Running:/Blocked: lines too, resolving the formerly-latent "
+    "hard-block as a side effect of the sole-stoppage widening",
+    _mod._execution_prose_flag(y8_msg, _y8_warrants) is None,
 )
 
 # y9. REGRESSION (DS-157 round 3, Skeptic Major): the "in progress"
@@ -2601,6 +2600,126 @@ check(
     "_identity_line_trailing_completion (already covered by the "
     "leading-declaration path)",
     _mod._identity_line_trailing_completion("Done.") is False,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158: two operator-reported false positives on the execution-prose
+# check, plus the discriminator's regression coverage.
+# ---------------------------------------------------------------------------
+
+# ds158-a. FALSE POSITIVE A (operator report): identity line + well-formed
+# State:/Running:/Blocked: slot lines + one genuine multi-sentence
+# answer/explanation paragraph + a completion warrant -> was BLOCKING
+# pre-fix, must be ADVISORY (downgraded) post-fix, never QUIET (the
+# unrecognized content is still flagged, just not as a hard block).
+ds158_a_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    "The reason the guard misfires here is that the status-region prose "
+    "classifier treats the entire body as the status region regardless "
+    "of warrant type. Any explanatory paragraph placed there trips the "
+    "unrecognized-line check even though it is genuinely part of the "
+    "answer the operator asked for, which is exactly the false positive "
+    "this fix addresses.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_a_msg))
+check(
+    "ds158-a. status slot lines + a genuine multi-sentence explanation "
+    "paragraph, completion warrant -> ADVISORY (downgraded), not BLOCKING",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+check(
+    "ds158-a2. same fixture is NOT blocking",
+    not is_blocking(rc, out),
+)
+
+# ds158-b. FALSE POSITIVE B (operator report): a Waiting: line combined
+# with plain, well-formed State:/Running:/Blocked: lines -> was BLOCKING
+# pre-fix via the sole-stoppage branch's Waiting:-only requirement, must
+# be QUIET post-fix.
+ds158_b_msg = (
+    IDENTITY_OK + "\n"
+    "State: implementing unit 2.\n"
+    "Running: unit 2 build.\n"
+    "Blocked: none.\n"
+    "Waiting: operator sign-off on the plan.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_b_msg))
+check(
+    "ds158-b. sole-stoppage turn, Waiting: line + well-formed status slot "
+    "lines -> QUIET",
+    is_quiet(rc, out),
+)
+
+# ds158-c. sole-stoppage branch still BLOCKS a genuinely unrecognized line
+# (not a slot line, not a Waiting: line) alongside a Waiting: line -
+# proves the widening in ds158-b is scoped to recognized slot lines, not
+# a blanket pass.
+ds158_c_msg = (
+    IDENTITY_OK + "\n"
+    "State: implementing unit 2.\n"
+    "Some free-floating narrative aside that is not a recognized slot.\n"
+    "Waiting: operator sign-off on the plan.\n"
+)
+rc, out, err = run_hook(make_payload(ds158_c_msg))
+check(
+    "ds158-c. sole-stoppage turn, Waiting: + status slot + one genuinely "
+    "unrecognized line -> still BLOCKING",
+    is_blocking(rc, out, "sole-stoppage"),
+)
+
+# ds158-d. narrative-creep MUST still BLOCK: re-confirms s5c-b's verdict
+# directly against the new tuple-returning _execution_prose_flag, proving
+# the discriminator does not make everything advisory. Same fixture as
+# s5c-b above.
+ds158_d_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "Merged the fix for the turn-shape gate regression into main.\n"
+    + _nlines(7, prefix="Also did thing")
+)
+rc, out, err = run_hook(make_payload(ds158_d_msg))
+check(
+    "ds158-d. narrative-creep (many short templated pings) -> still "
+    "BLOCKING, not downgraded",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+check(
+    "ds158-d2. narrative-creep finding is NOT tagged 'downgraded to "
+    "advisory'",
+    "downgraded to advisory" not in parse_output(out).get("reason", ""),
+)
+
+# ds158-e. _is_answer_shaped_prose unit coverage: a single well-formed,
+# reasonably long sentence is NOT answer-shaped (the multi-sentence floor
+# is load-bearing - see ds156-e above, the live regression this guards).
+check(
+    "ds158-e1. a single 12-word sentence is NOT answer-shaped (fails the "
+    "multi-sentence floor)",
+    _mod._is_answer_shaped_prose(
+        "One more thing worth mentioning here that is not a status slot."
+    )
+    is False,
+)
+check(
+    "ds158-e2. two short templated sentences (well under the "
+    "words-per-sentence average) are NOT answer-shaped",
+    _mod._is_answer_shaped_prose("Also did thing 1. Also did thing 2.") is False,
+)
+check(
+    "ds158-e3. two genuinely developed sentences (over the "
+    "words-per-sentence average) ARE answer-shaped",
+    _mod._is_answer_shaped_prose(
+        "This is a genuinely developed explanatory sentence with real "
+        "content in it. Here is a second one that also carries real "
+        "explanatory weight and detail."
+    )
+    is True,
+)
+check(
+    "ds158-e4. empty text is NOT answer-shaped",
+    _mod._is_answer_shaped_prose("") is False,
 )
 
 # ---------------------------------------------------------------------------
