@@ -299,7 +299,7 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 3 rules into the tool's native rule format (from `content/rules/`)
 3. Copy or symlink the 39 reference docs (from `content/references/`)
-4. Convert the 26 commands into the tool's command format (from `content/commands/`)
+4. Convert the 27 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions
 7. Update root `README.md` with the new adapter
