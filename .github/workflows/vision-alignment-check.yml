@@ -12,6 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Check North Star alignment section on methodology-affecting PRs
+        id: alignment-check
         run: |
           PR_NUMBER="${{ github.event.pull_request.number }}"
           FILES="$(gh pr view "$PR_NUMBER" --json files -q '.files[].path')"
@@ -26,6 +27,8 @@ jobs:
                 ;;
             esac
           done <<< "$FILES"
+
+          echo "triggered=$TRIGGERED" >> "$GITHUB_OUTPUT"
 
           if [ "$TRIGGERED" != "true" ]; then
             echo "OK: no methodology-affecting paths changed - vision-alignment section not required."
@@ -47,3 +50,7 @@ jobs:
           fi
 
           echo "OK: North Star alignment section present."
+      - name: Reminder - route methodology-shaping work through /ds-update-agentic-engineering
+        if: always() && steps.alignment-check.outputs.triggered == 'true'
+        run: |
+          echo "::notice::This PR touches methodology-shaping paths. If this work was ad hoc rather than ticket-driven, confirm it was routed through /ds-update-agentic-engineering (git-sync, vision-alignment review, explicit human approval before commit). Ticket-driven work is expected to satisfy this via the Skeptic's step 3.6 instead. This notice is informational only and cannot verify which path was actually taken."
