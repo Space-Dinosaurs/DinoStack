@@ -1676,7 +1676,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: apply the **task-state fold** (`content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
+Before spawning each worker: apply the **task-state fold** (`content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off), and `ticket_id` (the ticket this unit belongs to - the Phase 9 Model: attribution read scopes on it).
 
 After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Append an output-only entry to `.agentic/tasks.jsonl` with these output fields and **no `status` field** - an output append is never a claim and never a status transition (`content/references/task-state-file.md` §Task-state fold). "Status remains `in_progress`" is a statement about what the fold reports for this task until Skeptic sign-off or final determination, **not an instruction to re-emit the field**: re-emitting `status: in_progress` here would make this append a fresh ownership claim under the fold's state machine, letting a dispossessed session (rows 14/15) reclaim ownership merely by returning its engineer's outputs.
 
@@ -1704,7 +1704,7 @@ git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_sl
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`), `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off), and `ticket_id` (the ticket this unit belongs to - the Phase 9 Model: attribution read scopes on it).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
@@ -2606,7 +2606,7 @@ Closes [[TICKET_PREFIX]-NNN]([JIRA_BASE_URL]/browse/[TICKET_PREFIX]-NNN)
 
 #### If TRACKER is `none`
 
-Omit the tracker reference block entirely. The PR body will have only Summary and Test plan, and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
+Omit the tracker reference block entirely. The PR body will have only Summary, Test plan, and the Developer/Model attribution lines (each appended only when its value is known), and the PR title should omit the `[TICKET_PREFIX]-NNN:` prefix.
 
 ---
 
@@ -2622,6 +2622,24 @@ Run:
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
 DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
 if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+
+# Engineer model for the PR Model: attribution line (DS-166). Source-of-truth is
+# .agentic/tasks.jsonl, NOT a conductor-held variable: author_model is the durable record
+# appended on the Phase 5 ownership claim, recorded on BOTH claim sites - the sequential
+# single-engineer claim (:1674, which writes a claim record to tasks.jsonl whenever the plan
+# is multi-unit - single-unit plans never create the file) and the fan-out per-unit claim
+# (:1702, which appends to tasks.jsonl) - each also carrying ticket_id so this read can scope
+# by ticket, so the read survives context loss and a resumed session (mirrors how DEVELOPER
+# re-resolves from ds-identity at this point). Dedupe distinct non-null values so a multi-unit
+# PR lists every model that contributed; the line is omitted (like Developer) when task state
+# is absent, author_model is null (model unknown / routing off), or ticket_id is empty
+# (null-ticket projects). The pipeline records no per-task harness slug - author_model is the
+# only model identifier - so the attribution line is Model: carrying the model id(s).
+ENGINEER_MODEL=$(jq -sr --arg t "$TICKET_ID" '
+  [.[] | select(.ticket_id == $t and .assigned_agent == "engineer"
+    and .author_model != null and (.status == "in_progress" or .status == "done"))
+    | .author_model]
+  | unique | join(", ")' .agentic/tasks.jsonl 2>/dev/null || true)
 
 # UNIT_IS_BEHAVIOR_VISIBLE: true only when QA ran+passed, evidence URLs exist, AND risk class is
 # not security/auth/crypto/payments/Elevated-correctness (derived in-context from Phase 2/3
@@ -2669,6 +2687,7 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 - [ ] [step 2]
 PRBODY
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "\nModel: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
@@ -2693,8 +2712,9 @@ else
 - [ ] [step 1]
 - [ ] [step 2]
 PRBODY
-  # Append Developer: line when identity is confirmed (survives --squash via PR body).
+  # Append Developer:/Model: attribution lines when identity/model are known (survives --squash via PR body).
   [ -n "$DEVELOPER" ] && printf "\nDeveloper: %s\n" "$DEVELOPER" >> "$PR_BODY_FILE"
+  [ -n "$ENGINEER_MODEL" ] && printf "\nModel: %s\n" "$ENGINEER_MODEL" >> "$PR_BODY_FILE"
 
   gh pr create \
     --repo [GH_REPO] \
