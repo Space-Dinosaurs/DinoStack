@@ -107,7 +107,7 @@ cd DinoStack
 bash .claude/install.sh
 ```
 
-For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot), see the install instructions in each adapter's README.
+For other tools (Cursor, Codex, Gemini, Kimi Code CLI, OpenCode, Pi coding agent, Pi oh-my-pi, Hermes, OpenClaw, VS Code Copilot), see the install instructions in each adapter's README.
 
 ## Multiple profiles
 
@@ -281,7 +281,7 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned intent-layer files (`docs/overview/vision.md`) capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. The files are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 
@@ -334,7 +334,7 @@ ds-identity init <handle> --scope project   # writes <repo>/.agentic/identity.ym
 ds-identity confirm --scope project          # confirm a provisional project identity
 ```
 
-The project file is gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - it is per-developer and never committed. The global identity is unchanged.
+The project file is gitignored by default under the `.agentic/*` umbrella that `/ds-init-project` Step 9 applies via `ds-migrate apply` against `content/project-scaffolding.yml` - it carries no `!.agentic/identity.yml` negation, so it is per-developer and never committed. The global identity is unchanged.
 
 ### Precedence
 
@@ -399,6 +399,15 @@ DinoStack/
 - `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo
+- `~/DinoStack/docs/slides/autonomy-slides.html` - the conductor's default to act rather than ask
+- `~/DinoStack/docs/slides/cross-session-resume-slides.html` - long-running loops that survive rate limits and session exits
+- `~/DinoStack/docs/slides/learnings-pipeline-slides.html` - how session knowledge becomes durable committed learnings
+- `~/DinoStack/docs/slides/orchestration-planner-slides.html` - the orchestration-planner agent that decomposes goals into units
+- `~/DinoStack/docs/slides/parallel-fanout-slides.html` - parallel engineer fan-out and the Skeptic-gated join
+- `~/DinoStack/docs/slides/planning-tier-slides.html` - the tiered Brief/Plan promotion gate
+- `~/DinoStack/docs/slides/profiles-slides.html` - risk profiles that tune how aggressively work is reviewed
+- `~/DinoStack/docs/slides/risk-classification-slides.html` - signal-based risk tiers that drive delegation choices
+- `~/DinoStack/docs/slides/worktree-lifecycle-slides.html` - isolation-by-default worktrees and cleanup rules
 
 Full inventory of rules, agents, commands, and config toggles: see [docs/components.md](docs/components.md).
 
@@ -419,7 +428,7 @@ The framework is a safety rail, not a complete boundary. The deny list and Skept
 
 ## Naming
 
-DinoStack is the product; `dinostack` is the package it ships. The `dinostack` name appears throughout the internals - the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands - and stays stable so existing installs keep working.
+DinoStack is the product; `dinostack` is the package it ships. The `dinostack` name appears throughout the internals - the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/ds-*` commands (each with a permanent `agentic-*` CLI compat alias) - and stays stable so existing installs keep working.
 
 ## Contributing
 

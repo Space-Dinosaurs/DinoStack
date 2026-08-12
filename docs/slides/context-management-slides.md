@@ -278,7 +278,7 @@ Session naming (<code>-n myproject</code>) and resumption (<code>-r</code>) are 
 1. **`/ds-init-project`** seeds baseline context for a repo
 2. You work a focused session - one clear goal
 3. Heavy lifting is delegated so the main thread stays clean
-4. **`/ds-wrap`** commits learnings into AGENTS.md and `_wrap.md`; `wrap-ticket` compounds MEMORY.md per ticket
+4. **`/ds-wrap`** pushes `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` verbatim onto a `chore/knowledge-*` branch - never AGENTS.md; `wrap-ticket` compounds MEMORY.md per ticket
 5. **Same cwd** next time - Claude Code reads the same memory and AGENTS.md automatically
 6. Next session starts with richer AGENTS.md, fuller MEMORY.md, sharper defaults
 7. Repeat - each loop is a step up, not a reset

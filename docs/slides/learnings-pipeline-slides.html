@@ -472,6 +472,8 @@ hr {
 " lang="C" class="highlight" data-marpit-pagination="3" style="--paginate:true;--class:highlight;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="9">
 <h2 id="the-two-feeders">The two feeders</h2>
+
+<p>Capture starts in flight: four write-capable roles (<code>engineer</code>, <code>adr-generator</code>, <code>product-discovery</code>, <code>release-orchestrator</code>) append learnings the moment they occur via <code>ds-learning-shard append --session-key &lt;SESSION_KEY&gt;</code> - the key arrives in every spawn brief - into the external store <code>~/.agentic/learnings-shards/</code>. Shards drain at <code>/ds-implement-ticket</code> Phase 11e and at the activation-preflight rollup; <code>content/references/learnings-capture-instruction.md</code> governs which roles append vs declare <code>learnings_candidate[]</code>.</p>
 <div class="columns">
 <div class="card">
 <strong>learning-extractor</strong><br />
@@ -1170,19 +1172,21 @@ hr {
 ;" data-marpit-pagination-total="9">
 <h2 id="where-learnings-land">Where learnings land</h2>
 
-<p>Three distinct knowledge stores - each with a different writer and lifecycle:</p>
+<p>Four distinct knowledge stores - each with a different writer and lifecycle:</p>
 <ul>
+<li><strong><code>~/.agentic/learnings-shards/</code></strong> - in-flight capture buffer, external to the repo. Written by <code>ds-learning-shard append</code> from the four capture roles the moment a learning occurs. Never committed itself; drained at <code>/ds-implement-ticket</code> Phase 11e and by the activation-preflight rollup.</li>
 <li><strong><code>.agentic/learnings.md</code></strong> - primary destination. Committed to git. Written by <code>learning-extractor</code> (LRN) and <code>learnings-agent</code> (LRN + KNW). Teammates inherit it on pull after merge.</li>
 <li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Written by <code>learnings-agent</code> (at most one entry per invocation, when the event is project-affecting - not a later promotion) and, as of DS-90, by <code>/ds-wrap</code> Part B (staging-drain promotion, capped 3/run).</li>
 <li><strong><code>.agentic/memory.md</code></strong> - deferred-wrap daemon staging only, written exclusively by <code>/ds-wrap-deferred</code>. Gitignored. NOT auto-injected. NOT the same as root <code>MEMORY.md</code>; drained into it by the next synchronous <code>/ds-wrap</code>.</li>
 </ul>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>ds-learning-shard (4 roles) ──&gt; shard entry ──&gt; ~/.agentic/learnings-shards/ (external; drained at Phase 11e + preflight rollup)
+learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; KNW/LRN entry ──&gt; .agentic/learnings.md (always)
 learnings-agent    ──&gt; project-affecting? ──&gt; MEMORY.md (same invocation, at most 1 entry)
 </code></pre>
 <div class="callout">
-Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
+Four stores, four writers, four audiences. The shard buffer is the only external one - it feeds the durable stores through a classified drain, never directly. Mixing the durable stores corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
