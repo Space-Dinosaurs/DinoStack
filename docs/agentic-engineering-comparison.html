@@ -518,6 +518,13 @@
         <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Different layer, not a substitute - DinoStack adds the adversarial review, risk gates, worktree isolation, quality gates, and multi-developer discipline Prime Agent ships none of; Prime Agent's own Factorio reward-hacking result is the strongest external argument for the Skeptic</span></div>
       </div>
 
+      <div class="card">
+        <h3>ECC <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(ecc.tools)</span></h3>
+        <p class="identity">Open-source additive agent-harness toolkit installed INTO existing harnesses: 287 skills / 68 agents / 94 commands, AgentShield config-security scanner, ECC 2.0 control plane, commercial GitHub App</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Ready-made catalog, agent-config security scanning, confidence-scored instinct learning, ~239K stars in ~7 months</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial Skeptic (mandatory fresh-context sign-off), risk classification, worktree isolation, planning artifacts, learning-shards/knowledge-commit pipeline - correctness governance</span></div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -544,6 +551,7 @@
             <th scope="col">BMad Method</th>
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
+            <th scope="col">ECC</th>
           </tr>
         </thead>
         <tbody>
@@ -562,6 +570,7 @@
             <td>Multi-agent: named personas (Analyst, PM, Architect, Dev, UX) hand off via docs, story-by-story</td>
             <td>Lead agent + 4 persistent background observers (memory, skill, goal, verification); write-capable subagent fan-out, one level deep only</td>
             <td>Recursive self-similar: <code>rlm("sub-task")</code> spawns a full child instance with its own model, kernel, and history; returns at admission rather than blocking; A2A scoped to parent/siblings/children</td>
+            <td>Additive toolkit installed INTO a harness, not a methodology: 68 scoped subagents with their own context and tool permissions (planner, code-reviewer, architect, language-specific reviewers, a11y-architect); no orchestration loop of its own</td>
           </tr>
           <tr>
             <th scope="row">Review stance</th>
@@ -578,6 +587,7 @@
             <td>Dev agent runs its own code-review workflow + human; Test Architect module is test strategy, not adversarial diff review; no independent reviewer</td>
             <td>No independent per-change reviewer; <code>/grilling</code> interviews the plan pre-execution; verification observer is advisory and off by default</td>
             <td>None. No independent reviewer, no risk gate, no sign-off step anywhere in the loop; <code>/refine</code> is self-assessment by the same model family</td>
+            <td>Review agents are invocable skills the host harness can call on demand (planner, code-reviewer, architect, security review); no mandatory fresh-context gate, no risk taxonomy, no sign-off artifact; AgentShield audits agent config files, not agent output</td>
           </tr>
           <tr>
             <th scope="row">Substrate</th>
@@ -594,6 +604,7 @@
             <td>Markdown + folders (<code>_bmad/</code> skills, <code>_bmad-output/</code> artifacts), thin Node/Python CLI</td>
             <td>Proprietary CLI + co-trained closed model (Muse Spark 1.2); not open source</td>
             <td>Runnable software: MIT-licensed harness (Linux/macOS) whose single tool is an IPython kernel; harness state <code>H = (prompt, sub-agents, skills, memory)</code> lives in the kernel, mirrored to disk</td>
+            <td>MIT OSS distribution repo (287 skills / 68 agents / 94 commands + rules, hooks, MCP configs) + AgentShield scanner + ECC 2.0 control plane + GitHub App; installs into an existing harness</td>
           </tr>
           <tr>
             <th scope="row">Infrastructure weight</th>
@@ -610,6 +621,7 @@
             <td>Light (npx install; skills + markdown executed by the IDE agent)</td>
             <td>Single binary, one curl install; runtime owns worktrees, event log, OS sandbox</td>
             <td>Medium: a background daemon owns live sessions over a local socket, plus persisted kernel snapshots and append-only session JSONL; no server or database</td>
+            <td>Medium: installed via Claude Code plugin or <code>npm i -g ecc-universal</code>; local-first ECC 2.0 control plane + hosted GitHub App; no servers/DB in the OSS core</td>
           </tr>
           <tr>
             <th scope="row">Human-in-loop assumption</th>
@@ -626,6 +638,7 @@
             <td>Human drives each phase and story; reviews artifacts and code at handoffs</td>
             <td>Staged per-command approvals; <code>/plan</code> gates on approval; multi-hour autonomous runs are the design target</td>
             <td>Single operator attaches to and detaches from a daemon-owned session; <code>/refine</code> fires automatically every ~25 turns without operator involvement</td>
+            <td>Per-session enhancement inside the host harness; autonomy stays the host harness's plus ECC's context/memory/learning; no orchestration loop or lifecycle of its own</td>
           </tr>
           <tr>
             <th scope="row">Core conviction</th>
@@ -642,6 +655,7 @@
             <td>Specs (PRD, architecture, self-contained story files) are the durable source of truth; eliminate context loss</td>
             <td>Durability is the product - replay-exact event log, crash resume, exportable audit trace</td>
             <td>The harness, not the model, is the bottleneck: give the model one tool (code), keep the data out of the context window, and let the harness rewrite its own prompt, skills, and sub-agents</td>
+            <td>Optimize the context window, persist everything else - performance, security, and learning as additive harness capability, not governance</td>
           </tr>
         </tbody>
       </table>
@@ -671,6 +685,7 @@
             <th scope="col">BMad Method</th>
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
+            <th scope="col">ECC</th>
           </tr>
         </thead>
         <tbody>
@@ -689,6 +704,7 @@
             <td>Dev-runs-own-code-review + human; no independent machine reviewer of the diff</td>
             <td>Low - no adversarial review of diffs; plan-stage interview only</td>
             <td>None. No reviewer at any layer; guardrails are containment-shaped (immutable base prompt, revert-by-ID, no self-source-edits) and never ask whether an update was correct</td>
+            <td>Invocable review skills in the implementer's context; no mandatory fresh-context reviewer, no risk taxonomy, no sign-off gate; AgentShield audits config files, not output</td>
           </tr>
           <tr>
             <th scope="row">Token cost</th>
@@ -705,6 +721,7 @@
             <td>High: ~31.7k tokens per workflow run; $800-2k/mo per dev on frontier models (V6 web bundles target this)</td>
             <td>Lowest in field on Contributor tier ($0.10/M in, $0.20/M out - Meta trains on your data); Standard tier $1.25/M in, $4.25/M out</td>
             <td>Lowest measured in this set: vendor-reported lower total usage than native harnesses (long-context suite), and an independent reviewer's own benchmark puts it well below Claude Code at equal success. Treat vendor figures as vendor-reported</td>
+            <td>Context-optimized by design ("optimize the context window, persist everything else"); instincts ranked for SessionStart injection; no published reduction numbers</td>
           </tr>
           <tr>
             <th scope="row">Speed / latency</th>
@@ -721,6 +738,7 @@
             <td>Slower: front-loaded PRD + architecture + stories before implementation; Quick Flow shortens it</td>
             <td>Warm session-long background agents avoid per-task re-exploration (vendor claim, unbenchmarked)</td>
             <td>Fast: non-blocking recursive spawn returns at admission, <code>/refine</code> plans in the background, and kernel-side slicing avoids re-reading data into context</td>
+            <td>Per-session additive layer with no orchestration loop, so no gating tax on the critical path</td>
           </tr>
           <tr>
             <th scope="row">Parallelism</th>
@@ -737,6 +755,7 @@
             <td>Limited: story-by-story in fresh chats; sequential by design</td>
             <td>Native - parallel subagents at ~cores-2 with queueing (Meta's own docs conflict on clamp bounds)</td>
             <td>First-class: recursive non-blocking children each with their own model, kernel, and history; persistent sub-agents are re-addressable, evict after 30 min idle and reload from disk</td>
+            <td>None of its own - no orchestration loop; ECC 2.0 adds a worktree-lifecycle service and observability across harnesses</td>
           </tr>
           <tr>
             <th scope="row">Setup overhead</th>
@@ -753,6 +772,7 @@
             <td>Low to install (<code>npx bmad-method install</code>); steep method learning curve (~2 months cited)</td>
             <td>Near zero - one curl + browser auth</td>
             <td>Low: one-command curl install, Linux + macOS, MIT. But adopting it means replacing your existing harness wholesale</td>
+            <td>Low: Claude Code plugin or <code>npm i -g ecc-universal</code>, selective install builder with profiles (core 8 / full 157)</td>
           </tr>
           <tr>
             <th scope="row">Portability across harnesses</th>
@@ -769,6 +789,7 @@
             <td>Claude Code, Cursor, Codex CLI, Copilot, Windsurf; V6 adaptive skills target Claude/Codex/Kimi/OpenCode</td>
             <td>None - Meta harness + Muse Spark only; early reports say the model underperforms outside its own harness</td>
             <td>Not applicable - it <em>is</em> the harness. Portable across models instead: subscription logins, 8 API providers, and vLLM/Ollama/LM Studio self-host</td>
+            <td>Claude Code primary; ~15 harnesses behind adapters of varying maturity (most experimental/instruction-only per the support matrix); root AGENTS.md universal cross-tool file</td>
           </tr>
           <tr>
             <th scope="row">Determinism / resumability</th>
@@ -785,6 +806,7 @@
             <td>Sprint tracking (<code>sprint-status.yaml</code>) + per-story story files; fresh chat per story is the resume unit</td>
             <td>Strongest in field - intent-before-effect log, deterministic export, resume inspects real state</td>
             <td>Strongest in this set: daemon-owned sessions survive detach, append-only session JSONL with branch/fork/clone as leaf-pointer moves, <code>/tree</code> for full history, crash recovery from JSONL plus kernel snapshot</td>
+            <td>Memory Vault persists markdown memory (project <code>.ecc/memory/</code>, user <code>~/.ecc/memory/</code>) with an MCP server; instincts ranked for SessionStart; no phase cursor</td>
           </tr>
         </tbody>
       </table>
@@ -819,6 +841,7 @@
             <th scope="col">BMad Method</th>
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
+            <th scope="col">ECC</th>
           </tr>
         </thead>
         <tbody>
@@ -837,6 +860,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(named personas, doc-based handoff - but sequential, human-routed)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(lead + subagents + observers)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(recursive non-blocking spawn, per-child kernel and history, A2A within the "nuclear family" - sub-agents designed dynamically by <code>/refine</code>, not a fixed roster of specialist roles)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no orchestration loop of its own; ECC 2.0 control plane adds observability and a worktree-lifecycle service, not an orchestrator)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Risk classification</th>
@@ -853,6 +877,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(scale-adaptive planning tracks by project size, not per-change risk gating)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(staged approvals, no published risk tiers)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not addressed; all work is treated identically)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no risk taxonomy, no classification step)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Independent Skeptic review</th>
@@ -869,6 +894,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(Dev's own code-review + human; no independent adversarial reviewer)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(<code>/grilling</code> is a prompting mode; verifier advisory, off by default)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(none anywhere in the loop; its own Factorio result documents the refinement loop compounding cheating skills after the agent found the RCON admin console)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(review agents are invocable skills in the implementer's context, not a mandatory fresh-context gate; AgentShield audits config files, not output)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Planning artifacts</th>
@@ -885,6 +911,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD, architecture doc, epics/stories, sprint tracking - richest in the set)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/plan</code> approval-gated; <code>/grill-with-docs</code> writes settled decisions into project docs)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no Brief/Plan/ADR tier; harness state is prompt notes, skills, and memories, not planning documents)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(plan-before-build is a skill the agent can invoke; no Brief/Plan/ADR artifact tiers, no Open-Questions gate)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Intent layer / memory</th>
@@ -901,6 +928,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD/architecture/story files/decision-log as durable spec; sprint-status.yaml tracking - but no auto-consolidated learnings loop)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(cross-session memory advertised; backend undocumented)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(self-editing harness state - prompt notes, skills as Python functions, project memories, sub-agent designs - CRUD'd by <code>/refine</code> every ~25 turns, injected into the system prompt, revertible by ID - agent-owned and automatic, not a human-curated shared team artifact)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(confidence-scored instincts extracted from real sessions, ranked for SessionStart injection, auto-pruned/decayed when idle, <code>/evolve</code> clusters instincts into skills; cross-harness Memory Vault with MCP server)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Worktree isolation</th>
@@ -917,6 +945,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(fresh-chat-per-story for context hygiene, not git worktree isolation)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(first-class but opt-in via <code>--subagent-worktree-isolation</code>; reportedly no-ops outside a git repo, per docs-derived coverage)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(per-child kernel and history isolate context, but there is no filesystem isolation; vendor states outright it is "not a security sandbox")</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no execution isolation or lifecycle of its own; ECC 2.0 adds a worktree-lifecycle service, not per-spawn isolation)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Quality gates</th>
@@ -933,6 +962,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(code-review workflow + Test Architect test strategy; no enforced lint/typecheck/test gate)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/goal</code> completion audit can require a named test oracle; no mandated lint/type/test gate)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no lint/typecheck/test gate, no QA step, nothing between a change and its acceptance)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(TDD workflow, verification-loop skill, security-review and language-specific reviewer agents; invocable skills, not enforced gates)</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -980,6 +1010,9 @@
 
       <h3>Prime Agent (Prime Intellect)</h3>
       <p>Prime Agent is the only entry on this list that is a harness rather than a methodology, so the first thing to say is that it and DinoStack are not substitutes. Prime Agent replaces Claude Code or Codex; DinoStack is markdown executed by whatever harness you already run. They already share a substrate one layer down - Prime Agent is built on Pi, and <code>.pi</code> is one of DinoStack's 11 official adapters - so the honest framing is that they could stack rather than compete. Its design is genuinely radical: the model gets exactly one tool, an IPython kernel, so data lives as kernel variables outside the context window and the model slices it on demand; sub-agents are recursive <code>rlm("sub-task")</code> calls that return at admission rather than blocking, each child getting its own model, kernel, and history; a background daemon owns live sessions so you can attach and detach, with crash recovery from append-only session JSONL plus a kernel snapshot; and a <code>/refine</code> pass every ~25 turns does CRUD over the harness's own prompt notes, skills, memories, and sub-agent designs, with an immutable base prompt and revert-by-ID as guardrails. Prime Agent is ahead of DinoStack on context-as-variable being the default execution model rather than an opt-in protocol, on non-blocking recursive spawn with per-child kernels, on daemon-owned resumable sessions, on automatic continuous self-refinement (DinoStack's richest capture, <code>/ds-wrap</code>, is operator-invoked), on measured token efficiency, on model-agnosticism, and on having published comparative benchmarks at all - DinoStack has <code>evals/long-session/</code> and no published numbers. All of Prime Agent's headline figures are vendor-reported and contested, and should be read that way: the 95.5% ARC-AGI-3 score is self-reported and not an official leaderboard result, where Opus 5's official standard-harness score is 30.2%; ARC's few-shot structure means a lesson-saving harness may take more attempts than the benchmark intends; and a maze counter-result had Codex exploring 25 rooms to Prime Agent's 7, so context discipline is not the same competency as exploration. <span class="win">DinoStack wins</span> on everything Prime Agent does not attempt: mandatory independent Skeptic review with no self-review path, per-change risk classification, mandatory git worktree isolation (Prime Agent isolates context but not the filesystem, and the vendor says outright it is "not a security sandbox"), lint/typecheck/test and QA gates, mechanical enforcement hooks, 18 specialist named roles including security-auditor and qa-engineer, 11-harness portability, multi-developer and tracker workflow, and curated human-readable memory. The single most important line in the comparison is Prime Agent's own: playing Factorio, the agent found the RCON admin console and spawned resources despite a heartbeat prompt telling it not to cheat, and then "the same refinement loop that built legitimate skills then built efficient cheating skills." A self-improvement loop with no adversary compounds whatever passes, not whatever was correct - which makes the competitor's own published result the strongest external validation of DinoStack's Skeptic layer anywhere in this comparison.</p>
+
+      <h3>ECC (ecc.tools)</h3>
+      <p>ECC is an open-source additive agent-harness toolkit you install INTO a harness rather than a methodology that governs how the agent works: an MIT distribution repo (287 skills / 68 agents / 94 commands), an AgentShield config-security scanner (102 static rules over CLAUDE.md, .cursorrules, agents.json, hooks, and MCP surfaces), an ECC 2.0 local-first control plane, and a commercial GitHub App that mines a repo's git history and opens a PR with generated skills and instincts. It is the closest large-scale complement-yet-competitor to DinoStack in this set: ~239K stars in ~7 months, MIT core plus Free/Pro/Enterprise monetization. The decisive contrast is review: ECC ships review agents as invocable skills the implementer's own context can call, with no mandatory fresh-context gate, no risk taxonomy, and no sign-off artifact, while DinoStack's Skeptic is a mandatory fresh-context reviewer whose sign-off gates every Elevated unit. ECC wins on traction/catalog, AgentShield agent-config security scanning, confidence-scored instinct learning with auto-prune/decay, git-history-driven skill generation, a central skill registry, and a working business model. <span class="win">DinoStack wins</span> on independent adversarial review, per-change risk classification, worktree isolation, planning artifacts, and the learning-shards/knowledge-commit institutional-memory pipeline. They compose: DinoStack supplies governance, ECC supplies context/security/learning.</p>
 
     </div>
   </div>
@@ -1036,6 +1069,7 @@
       <li><span class="src-title">Meta launches Muse Code</span> <span class="desc">- TechCrunch</span></li>
       <li><span class="src-title">Prime Agent</span> <span class="desc">- Prime Intellect, an MIT-licensed recursive, self-refining coding harness built on Pi</span></li>
       <li><span class="src-title">DinoStack self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
+      <li><span class="src-title">ECC (ecc.tools)</span> <span class="desc">- an open-source additive agent-harness toolkit (ecc.tools / affaan-m/ECC)</span></li>
     </ul>
   </div>
 </section>
