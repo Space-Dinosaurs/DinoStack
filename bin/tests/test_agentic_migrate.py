@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2766,6 +2767,207 @@ class TestApplyFailedShardTimestampDedupAndResolution(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
         text = self._shard_text(project)
         self.assertNotIn("RESOLVED", text)
+
+
+class TestSelfRepoExemption(unittest.TestCase):
+    """The dinostack/agentic-engineering methodology source repo must never
+    have consumer scaffolding (the manifest's `.agentic/*` umbrella +
+    negation set) applied to itself - it ships a deliberate, negation-free
+    categorical `.agentic/*` ignore (root AGENTS.md), and layering the
+    manifest's negations on top would silently start tracking the
+    methodology's own runtime state (the reproduced defect this fix closes).
+
+    Detection (`_is_self_repo` in bin/ds-migrate) is structural, not
+    name- or path-based: presence of `content/project-scaffolding.yml`,
+    `scripts/build-all.sh`, `content/sections/`, and `bin/ds-migrate`, all
+    relative to `project_root`. These tests build a fake project tree with
+    exactly those markers under an arbitrary directory name (never
+    "DinoStack") to prove the predicate is structural."""
+
+    def _make_self_repo_tree(self, tmp, dirname="not-dinostack-at-all"):
+        project = Path(tmp) / dirname
+        (project / "content" / "sections").mkdir(parents=True)
+        (project / "scripts").mkdir(parents=True)
+        (project / "bin").mkdir(parents=True)
+        # A tracked file inside sections/ so `git worktree add` actually
+        # materializes the directory - git does not track empty dirs, and
+        # an empty content/sections/ would silently vanish from a real
+        # worktree checkout (see test_real_worktree_of_self_repo_is_still_self_repo).
+        (project / "content" / "sections" / "01-placeholder.md").write_text(
+            "# placeholder\n"
+        )
+        (project / "content" / "project-scaffolding.yml").write_text(
+            "scaffolding_version: 1\ngitignore: []\nfiles: []\n"
+        )
+        (project / "scripts" / "build-all.sh").write_text("#!/bin/bash\n")
+        (project / "bin" / "ds-migrate").write_text("#!/usr/bin/env python3\n")
+        (project / ".gitignore").write_text(".agentic/*\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(project), check=True)
+        return project
+
+    def test_check_reports_self_repo_exempt_not_drift(self):
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp)
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "self_repo_exempt")
+        self.assertNotEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "ok")
+
+    def test_apply_is_a_noop_and_says_why_on_stdout(self):
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp)
+        gitignore_before = (project / ".gitignore").read_text()
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("self_repo_exempt", result.stdout)
+        gitignore_after = (project / ".gitignore").read_text()
+        self.assertEqual(
+            gitignore_before, gitignore_after,
+            "apply must be a true no-op against a self-repo's .gitignore",
+        )
+        # No .agentic/config.json seeded, no scaffolding_version stamped.
+        self.assertFalse((project / ".agentic" / "config.json").exists())
+
+    def test_apply_dry_run_is_also_a_noop(self):
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp)
+        gitignore_before = (project / ".gitignore").read_text()
+        result = run(
+            ["apply", "--manifest", MANIFEST, "--project-root", str(project), "--dry-run"]
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        gitignore_after = (project / ".gitignore").read_text()
+        self.assertEqual(gitignore_before, gitignore_after)
+
+    def test_diff_reports_self_repo_exempt(self):
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp)
+        result = run(["diff", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertIn("self_repo_exempt", result.stdout)
+
+    def test_partial_marker_set_falls_through_to_consumer_behavior(self):
+        """Failure direction check: a tree with only SOME of the four
+        structural markers (e.g. a partial checkout missing bin/ds-migrate)
+        must be treated as an ordinary consumer, not misdetected as
+        self-repo - detection fails toward the pre-existing consumer
+        behavior on ambiguity, never toward skipping a real user's
+        scaffolding."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "partial-checkout"
+        (project / "content" / "sections").mkdir(parents=True)
+        (project / "scripts").mkdir(parents=True)
+        (project / "content" / "project-scaffolding.yml").write_text(
+            "scaffolding_version: 1\ngitignore: []\nfiles: []\n"
+        )
+        (project / "scripts" / "build-all.sh").write_text("#!/bin/bash\n")
+        # Deliberately no bin/ds-migrate under project_root.
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        (project / ".gitignore").write_text("")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+
+    def test_consumer_with_unrelated_content_dir_is_not_misdetected(self):
+        """A real consumer that happens to have its own unrelated
+        content/sections/ and scripts/build-all.sh (but not the manifest
+        itself, and not bin/ds-migrate) must still get normal consumer
+        scaffolding - proves the predicate requires the FULL marker set,
+        not any single one."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "consumer-with-content"
+        (project / "content" / "sections").mkdir(parents=True)
+        (project / "scripts").mkdir(parents=True)
+        (project / "scripts" / "build-all.sh").write_text("# unrelated build script\n")
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        (project / ".gitignore").write_text("")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        gi = (project / ".gitignore").read_text()
+        self.assertIn(".agentic/*", gi)
+        self.assertIn("!.agentic/config.json", gi)
+
+    def test_real_worktree_of_self_repo_is_still_self_repo(self):
+        """A REAL `git worktree add` checkout of the self-repo tree (a
+        separate directory linked to the same repository, distinct from the
+        primary checkout) must still be recognized - the predicate is purely
+        about files present under project_root, independent of how that
+        directory relates to any other git working tree."""
+        tmp = tempfile.mkdtemp()
+        primary = self._make_self_repo_tree(tmp, dirname="primary-checkout")
+        subprocess.run(
+            ["git", "add", "-A"], cwd=str(primary), check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "initial"], cwd=str(primary), check=True
+        )
+        worktree = Path(tmp) / "agent-worktree-xyz789"
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", "wt-branch", str(worktree)],
+            cwd=str(primary),
+            check=True,
+        )
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(worktree)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_manifest_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `content/project-scaffolding.yml`
+        alone from an otherwise-complete self-repo tree and confirm
+        detection fails toward ordinary consumer (drift), not self-repo
+        exemption. This is the marker the docstring's failure-direction
+        argument rests on - a real consumer structurally cannot ship it."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-manifest")
+        (project / "content" / "project-scaffolding.yml").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_sections_dir_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `content/sections/` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-sections")
+        shutil.rmtree(project / "content" / "sections")
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_build_all_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `scripts/build-all.sh` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-build-all")
+        (project / "scripts" / "build-all.sh").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
+
+    def test_missing_ds_migrate_marker_falls_through_to_drift(self):
+        """Negative marker test: drop `bin/ds-migrate` alone."""
+        tmp = tempfile.mkdtemp()
+        project = self._make_self_repo_tree(tmp, dirname="missing-ds-migrate")
+        (project / "bin" / "ds-migrate").unlink()
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertNotEqual(out["status"], "self_repo_exempt")
 
 
 if __name__ == "__main__":
