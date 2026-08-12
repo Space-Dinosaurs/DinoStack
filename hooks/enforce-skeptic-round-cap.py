@@ -53,7 +53,53 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          extracts a stable token from the range (the branch/PR-like ref
          when one is present, else the base SHA) instead of hashing the
          full raw text - see that function's docstring for the exact
-         precedence and the one documented residual collision case.
+         precedence and the one documented residual collision case (also
+         restated at the end of this paragraph group).
+
+         **Three further fixes, found by re-measuring rather than
+         re-reading the round-3 fix, after round 3's own Minor-2 fix
+         (bounding `_WHAT_TO_REVIEW_RE`) turned out to have disabled the
+         cap entirely:**
+         (c) Round 3 bounded `_WHAT_TO_REVIEW_RE` to stop the captured
+         "What to review" body at the next bold-labeled section header,
+         reasoning that a future template might place per-companion text
+         after the Worker-output section. A realistic pasted Worker
+         output routinely contains its OWN bold-labeled lines (e.g. a
+         constant "Worker output below." sentence immediately followed by
+         a "**Summary:**" line) - the bound's lookahead matched on that
+         FIRST internal bold line and truncated every round's captured
+         body down to the same constant prefix, so all rounds hashed
+         identically and coalesced onto round 1's cached ALLOW forever
+         (measured: 5 sequential rounds, round_count frozen at 1, ALLOW
+         every time - total, silent disablement of the round cap).
+         `_WHAT_TO_REVIEW_RE` is now unbounded again (the round-2 form);
+         see the regex's own comment for why the bound is not coming
+         back without a reproduction of the hypothetical it defended
+         against.
+         (d) `_DIFF_RANGE_RE` is `^`-anchored and its ref charclass
+         excludes backticks, so a realistic backtick-wrapped diff-range
+         value (a spawn brief rendering the command as inline code, e.g.
+         "`git diff 1232779c..b7a596d9`") fell through to "return raw
+         text unchanged," leaving the SHA-range instability fix (b)
+         unfixed on this common form (measured: 4 rounds with a changing
+         head SHA inside backticks produced 4 separate state files and
+         ALLOWed round 4). `_normalize_diff_identity()` now strips
+         surrounding backticks before matching.
+         (e) On an empty bolded field with nothing after the closing bold
+         marker (e.g. "- **Diff under review:**" with no trailing text),
+         the closing-bold-markers portion of `_DIFF_UNDER_REVIEW_RE`
+         could backtrack to consume only one of the two closing asterisks
+         and still match overall, and the identity capture group (a bare
+         non-whitespace character class, before this fix) then captured
+         the single leftover asterisk as a valid one-character
+         "identity" - every unit with this
+         defect collided onto the SAME shared `*`-keyed counter, so
+         malformed spawns on unrelated units produced a false DENY on an
+         unrelated unit's legitimate spawn. The capture group's first
+         character now excludes both whitespace and the asterisk itself,
+         so that case yields no capture at all
+         (correctly falls through to fail-open) instead of a collidable
+         one-character key.
 
          Decision algorithm (see `_decide()`):
            - round_count is the number of Skeptic rounds already recorded
@@ -149,11 +195,20 @@ Failure modes:
       subagent_type != "skeptic": fail-open (exit 0), no enforcement.
     - `cwd` absent from payload: fail-open (exit 0) - the hook cannot
       determine where to persist state.
-    - No "Diff under review:" line found in the spawn prompt (unit identity
-      unextractable): fail-open (exit 0), no state written. This never
-      falls back to a weaker key (e.g. the conductor's own branch) that
-      could collide across unrelated units - see the CRITICAL fix note at
-      the top of this docstring.
+    - The "Diff under review:" line is absent, malformed (e.g. missing
+      the colon), or ambiguous (two or more occurrences in the same field
+      carrying DIFFERING values): unit identity unextractable, fail-open
+      (exit 0), no state written. This never falls back to a weaker key
+      (e.g. the conductor's own branch) that could collide across
+      unrelated units - see the CRITICAL fix note at the top of this
+      docstring.
+    - Known residual, not a fail-open case: two DIFFERENT units both
+      expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
+      SHA range with no branch or PR token anywhere in the value - key
+      off the SAME base-SHA token (fix (b) above) and therefore share one
+      round counter. This is a real, accepted collision, not a
+      hypothetical - see `_normalize_diff_identity()`'s docstring
+      strategy 3 for why the base is chosen over refusing to key at all.
     - State file present but unparsable JSON: treated as absent (round 0,
       no decision, no unresolved_critical) - a corrupt state file must
       never turn into a permanent block.
@@ -205,21 +260,40 @@ _MAX_KEY_LEN = 80
 # match confined to a single line - `\s*` previously crossed the newline
 # after an EMPTY field and captured the next line (e.g. the pasted Worker
 # output under "What to review:") as the identity instead of failing open.
+# The capture group's first character is `[^\s*]` (never a bare `\S`,
+# which also matches `*`): on an empty bolded field with no trailing text
+# (e.g. "- **Diff under review:**" with nothing after the closing bold
+# marker), the preceding `\*{0,2}:\*{0,2}` can backtrack to consume only
+# one of the two closing asterisks so the overall match still succeeds -
+# `\S` would then capture the single leftover `*` as a one-character
+# "identity", sanitizing to the literal key `*`. Every unit with an empty
+# bolded field collided onto that one shared counter, so three malformed
+# spawns on unrelated units produced a false DENY on a fourth, unrelated
+# unit. Excluding `*` from the capture's first character means that
+# leftover-asterisk case yields no capture at all (correctly falls
+# through to fail-open) instead of a collidable one-character key.
 _DIFF_UNDER_REVIEW_RE = re.compile(
-    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*(\S[^\n]*)$"
+    r"(?im)^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*([^\s*][^\n]*)$"
 )
-# Bounds the captured "What to review" body to the Worker output itself -
-# stops at the next bold-labeled section header (e.g. "**Resolved issues
-# preflight:**") when one follows, rather than swallowing everything to
-# end-of-prompt. Keeps round-fingerprint coalescing (see
-# `_round_fingerprint()`) working even if a future template places
-# per-companion text (e.g. a differing Adversarial brief) after the
-# Worker-output section instead of before it, as the shipped
-# `ds-skeptic.md` ordering does today - see MINOR 2 in the round-cap
-# review.
-_WHAT_TO_REVIEW_RE = re.compile(
-    r"(?is)what to review:?\**\s*(.*?)(?=\n[ \t]*\*\*[A-Za-z][^\n*]*:\*\*|\Z)"
-)
+# Captures everything from "What to review:" to end-of-prompt, deliberately
+# UNBOUNDED. A prior draft tried bounding this to stop at the next
+# bold-labeled section header (e.g. "**Resolved issues preflight:**"),
+# reasoning that a future template might place per-companion text after the
+# Worker-output section. That bound was reverted: a realistic pasted
+# Worker-output body routinely CONTAINS its own bold-labeled lines (e.g.
+# "**What to review:** Worker output below." followed by "**Summary:**
+# ..." inside the pasted output itself), so the bound's lookahead matched
+# on the FIRST such line and truncated the captured body down to the
+# constant intro sentence on every round - measured: 5 sequential rounds
+# with genuinely different Worker output all produced the same truncated
+# body, hashed to the same fingerprint, and coalesced onto round 1's
+# cached ALLOW forever (round_count stayed frozen at 1 across all 5). The
+# hypothetical the bound guarded against (a future template reordering
+# per-companion text after the Worker-output section) has no evidence of
+# ever occurring; the failure it caused - total, silent disablement of the
+# round cap - is measured and severe. Do not re-add a bound here without a
+# reproduction of the hypothetical it defends against.
+_WHAT_TO_REVIEW_RE = re.compile(r"(?is)what to review:?\**\s*(.*)")
 # Matches a git diff-range expression ANCHORED at the start of the
 # (already stripped) "Diff under review" value - e.g.
 # "git diff origin/main...feature/foo" or a bare "abc1234..def5678" - used
@@ -299,6 +373,15 @@ def _normalize_diff_identity(raw: str) -> str:
          for those forms.
     """
     text = raw.strip()
+    # Strip surrounding backticks (a realistic spawn-brief line renders the
+    # command as inline code, e.g. "`git diff 1232779c..b7a596d9`") before
+    # anchoring `_DIFF_RANGE_RE` - the regex is `^`-anchored and its ref
+    # charclass excludes backticks, so a backticked value fell through to
+    # "return raw text unchanged" (strategy 4) and the SHA-range
+    # instability this function exists to fix was unfixed on this common
+    # form. Measured: 4 rounds with a changing head SHA inside backticks
+    # produced 4 separate state files and ALLOWed round 4.
+    text = text.strip("`").strip()
     match = _DIFF_RANGE_RE.match(text)
     if not match:
         return text

@@ -62,15 +62,33 @@ Test groups:
                                                          asterisk-bullet, bold-with-bullet, and bold-no-bullet
                                                          "Diff under review" forms all produce state - not just
                                                          the numbered form the original tests happened to use.
- 22. test_round_stability_across_sha_range_rounds     - MAJOR 2 regression: a `git diff <base>..<head>` identity
-                                                         resolves to ONE key across 4 sequential rework rounds
-                                                         (changing head SHA, same base) and actually DENIES at
-                                                         round 4, instead of minting a fresh key every round.
+ 22. test_round_stability_across_sha_range_rounds     - MAJOR 2 regression, extended (round-4 FIX 5) to the
+                                                         bold-no-bullet and backticked-bold-bullet forms: a
+                                                         `git diff <base>..<head>` identity resolves to ONE key
+                                                         across 4 sequential rework rounds (changing head SHA,
+                                                         same base) and actually DENIES at round 4, in every
+                                                         real spawn-line shape - not just the numbered non-bold
+                                                         form the round-3 version covered.
  23. test_diff_under_review_edge_cases_failopen       - MAJOR 1 + MAJOR 3 combined: absent field, malformed
                                                          (missing colon), field present twice with differing
                                                          values, empty value + blank line + prose (the literal
                                                          MAJOR 3 defect), and a value reflowed onto the next
                                                          line all allow and write NO state.
+ 24. test_empty_bolded_diff_field_failopen            - round-4 FIX 3 regression: an empty bolded "Diff under
+                                                         review" field (a real, literal, unfilled spawn-brief
+                                                         line) fails open with no state written, instead of
+                                                         capturing the leftover `*` as a collidable
+                                                         one-character identity shared by every unit with the
+                                                         same defect.
+ 25. test_realistic_worker_output_with_internal_bold_headers_not_coalesced -
+                                                         round-4 FIX 1 regression: a realistic pasted Worker
+                                                         output containing its own bold-labeled lines (e.g.
+                                                         "**Summary:**"), using the literal `ds-skeptic.md`
+                                                         template shape (Worker output followed by a fixed
+                                                         "**Resolved issues preflight:**" section), produces a
+                                                         DISTINCT fingerprint per round and round_count advances
+                                                         normally - not the round-3 bounded regex's silent
+                                                         coalescing of every round onto round 1's cached ALLOW.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -696,47 +714,190 @@ def test_diff_under_review_format_matrix():
             assert state["round_count"] == 1, f"{label} form: unexpected state {state}"
 
 
+# SHA-range "Diff under review" line templates the round-stability test
+# below is parametrized over. `numbered` is the original (already-working)
+# form; `bold_no_bullet` and `backticked_bold_bullet` are the forms
+# introduced by the round-3 fix (FIX 2) - `backticked_bold_bullet` is
+# copied verbatim from a realistic spawn-brief line (this ticket's own
+# "## Base" section used the identical
+# "- **Diff under review:** `git diff 1232779c..b7a596d9`" shape), the
+# exact form that fell through `_DIFF_RANGE_RE`'s `^`-anchor before the
+# backtick-strip fix because the ref charclass excludes backticks.
+_SHA_RANGE_LINE_FORMS = {
+    "numbered": "6. Diff under review: git diff {base}..{head}",
+    "bold_no_bullet": "**Diff under review:** git diff {base}..{head}",
+    "backticked_bold_bullet": "- **Diff under review:** `git diff {base}..{head}`",
+}
+
+
 def test_round_stability_across_sha_range_rounds():
-    """MAJOR 2 regression: a `git diff <base-sha>..<changing-head-sha>`
-    identity (the form the Skeptic sign-off contract's own `Reviewed:
-    <base-sha>..<head-sha>` shape mirrors) must resolve to ONE key across
-    sequential rework rounds and actually DENY at round 4 - pre-fix, each
-    round's new head SHA minted its own state file and the cap never
-    engaged (measured: round 4 ALLOWed, 4 separate state files)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        base_sha = "a" * 40
-        heads = ["b" * 40, "c" * 40, "d" * 40, "e" * 40]
-        expected_path = (
-            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(base_sha)}.json"
-        )
+    """MAJOR 2 regression, extended to the bold and backticked forms
+    (FIX 5): a `git diff <base-sha>..<changing-head-sha>` identity (the
+    form the Skeptic sign-off contract's own `Reviewed: <base-sha>..
+    <head-sha>` shape mirrors) must resolve to ONE key across sequential
+    rework rounds and actually DENY at round 4, in EVERY real spawn-line
+    shape - not just the numbered non-bold form the round-3 regression
+    test happened to cover, which never exercised the backticked form
+    FIX 2 fixes."""
+    for label, template in _SHA_RANGE_LINE_FORMS.items():
+        with tempfile.TemporaryDirectory() as tmp:
+            base_sha = "a" * 40
+            heads = ["b" * 40, "c" * 40, "d" * 40, "e" * 40]
+            expected_path = (
+                Path(tmp)
+                / ".agentic"
+                / f"skeptic-round-{_unit_key_for_raw_identity(base_sha)}.json"
+            )
 
-        for i, head in enumerate(heads[:3], start=1):
-            diff_line = f"6. Diff under review: git diff {base_sha}..{head}"
+            for i, head in enumerate(heads[:3], start=1):
+                diff_line = template.format(base=base_sha, head=head)
+                rc, parsed = _run_hook(
+                    _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
+                )
+                assert not _is_denied(parsed), f"{label} round {i} unexpectedly denied: {parsed}"
+                assert expected_path.exists(), (
+                    f"{label}: all rounds of the SAME unit must resolve to the "
+                    f"base-SHA-keyed state file"
+                )
+                state = json.loads(expected_path.read_text())
+                assert state["round_count"] == i, (
+                    f"{label}: base..head SHA range must resolve to ONE stable "
+                    f"key across rounds - got round_count={state['round_count']} at round {i}"
+                )
+
+            # 4th round (yet another new head SHA) must DENY - proves the cap
+            # actually engages instead of minting a fresh key every round.
+            diff_line = template.format(base=base_sha, head=heads[3])
             rc, parsed = _run_hook(
-                _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
+                _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
             )
+            assert _is_denied(parsed), f"{label}: round 4 of a SHA-range-keyed unit must be denied at the cap"
+
+            state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+            assert len(state_files) == 1, (
+                f"{label}: expected exactly ONE state file across all 4 rounds, "
+                f"got {[p.name for p in state_files]}"
+            )
+
+
+def test_empty_bolded_diff_field_failopen():
+    """FIX 3 regression: an empty bolded "Diff under review" field (a
+    real, literal spawn-brief line - e.g. a conductor pastes the item-6
+    template line from `content/commands/ds-skeptic.md` bolded but never
+    fills it in) must fail open with NO state written, not capture the
+    single leftover `*` character as a one-character identity. Pre-fix,
+    `\\*{0,2}:\\*{0,2}` backtracked to consume only one of the two closing
+    asterisks, and the bare `\\S` capture then matched the remaining `*`
+    as a valid one-character identity - every unit with this defect
+    collided onto the SAME shared `*`-keyed counter, so unrelated units'
+    malformed spawns produced a false DENY on an unrelated unit's
+    legitimate spawn."""
+    empty_field_lines = [
+        "- **Diff under review:**",
+        "**Diff under review:**",
+        "- **Diff under review:** ",
+    ]
+    for line in empty_field_lines:
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, line, what_to_review="worker output round 1")
+            )
+            assert rc == 0
+            assert not _is_denied(parsed), f"{line!r} must allow: {parsed}"
+            assert not (Path(tmp) / ".agentic").exists(), (
+                f"{line!r} must fail open with NO state written, but a state "
+                f"file (or `.agentic/`) was created - likely captured the "
+                f"leftover '*' as a one-character identity"
+            )
+
+
+# Literal "What to review:" / "**Resolved issues preflight:**" section
+# shape copied verbatim from `content/commands/ds-skeptic.md` Step 2's
+# spawn-prompt template - the real ordering: pasted Worker output first,
+# then a fixed "**Resolved issues preflight:**" section. A realistic
+# Worker output routinely contains its OWN bold-labeled lines (e.g. a
+# "**Summary:**" section), which is exactly what triggered the round-3
+# bounded-regex bug (FIX 1): the bound's lookahead matched on the FIRST
+# such internal bold line and truncated every round's captured body down
+# to the same short prefix.
+def _realistic_skeptic_prompt(diff_line: str, worker_output: str) -> str:
+    lines = [
+        "## Global-context inputs",
+        "1. Architect plan: n/a - Trivial",
+        diff_line,
+        "",
+        f"**What to review:** {worker_output}",
+        "",
+        "**Resolved issues preflight:**",
+        "- Round 1: \"No prior rounds. This is round 1.\"",
+    ]
+    return "\n".join(lines)
+
+
+def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
+    """FIX 1 regression: a realistic pasted Worker output that itself
+    contains bold-labeled lines (e.g. "**Summary:**") must NOT truncate
+    the fingerprinted body down to a constant prefix across rounds. Using
+    the real `ds-skeptic.md` template shape (Worker output immediately
+    followed by a fixed "**Resolved issues preflight:**" section), rounds
+    1-3 each carrying genuinely different Worker output must produce 3
+    DISTINCT fingerprints and round_count must advance every round
+    (1, 2, 3), and a 4th round with yet another distinct Worker output
+    must DENY at the cap. Pre-fix (bounded `_WHAT_TO_REVIEW_RE`), the
+    lookahead matched the first internal bold line and every round's
+    captured body reduced to the same short prefix, coalescing every
+    round onto round 1's cached ALLOW forever (measured: round_count
+    frozen at 1 across 5 real sequential spawns, never denying)."""
+    diff_line = "6. Diff under review: git diff origin/main...feature/round-cap-test"
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(1, 4):
+            # The constant intro line ("Worker output below.") before the
+            # varying content is deliberate - it reproduces the exact
+            # measured shape of the round-3 defect: a bounded regex
+            # truncates the captured body at the FIRST internal bold
+            # header, which sits right after this constant sentence in
+            # every round, so only the (identical) intro text survives
+            # into the fingerprint regardless of what actually changed.
+            worker_output = (
+                "Worker output below.\n"
+                f"**Summary:** round {i} changed function foo_{i}() to handle "
+                f"edge case {i}."
+            )
+            prompt = _realistic_skeptic_prompt(diff_line, worker_output)
+            payload = {
+                "tool_name": "Agent",
+                "cwd": tmp,
+                "tool_input": {
+                    "subagent_type": "skeptic",
+                    "description": "review",
+                    "prompt": prompt,
+                },
+            }
+            rc, parsed = _run_hook(payload)
             assert not _is_denied(parsed), f"round {i} unexpectedly denied: {parsed}"
-            assert expected_path.exists(), (
-                "all rounds of the SAME unit must resolve to the base-SHA-keyed state file"
-            )
-            state = json.loads(expected_path.read_text())
+            state = _read_state(tmp, "feature/round-cap-test")
             assert state["round_count"] == i, (
-                f"MAJOR 2 regression: base..head SHA range must resolve to ONE stable "
-                f"key across rounds - got round_count={state['round_count']} at round {i}"
+                f"FIX 1 regression: round {i}'s distinct Worker output must "
+                f"advance round_count to {i} - got {state['round_count']} "
+                f"(coalesced with a prior round's fingerprint)"
             )
 
-        # 4th round (yet another new head SHA) must DENY - proves the cap
-        # actually engages instead of minting a fresh key every round.
-        diff_line = f"6. Diff under review: git diff {base_sha}..{heads[3]}"
-        rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
-        )
-        assert _is_denied(parsed), "round 4 of a SHA-range-keyed unit must be denied at the cap"
-
-        state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
-        assert len(state_files) == 1, (
-            f"expected exactly ONE state file across all 4 rounds, got {[p.name for p in state_files]}"
-        )
+        # Round 4's genuinely new Worker output must be denied at the cap -
+        # proves round_count actually advanced past 3 rather than
+        # coalescing forever on round 1's cached ALLOW.
+        worker_output = "Worker output below.\n**Summary:** round 4 final cleanup."
+        prompt = _realistic_skeptic_prompt(diff_line, worker_output)
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmp,
+            "tool_input": {
+                "subagent_type": "skeptic",
+                "description": "review",
+                "prompt": prompt,
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert _is_denied(parsed), "round 4 of a genuinely-advancing unit must be denied at the cap"
 
 
 def test_diff_under_review_edge_cases_failopen():
