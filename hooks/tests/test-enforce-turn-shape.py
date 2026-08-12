@@ -2733,7 +2733,7 @@ check(
 # passes the discriminator.
 # ---------------------------------------------------------------------------
 
-_creep8_lines = ["Also did thing {}.".format(i) for i in range(1, 8)]
+_creep8_lines = ["Also did thing {}.".format(i) for i in range(1, 9)]
 _pad_lines = [
     "This is a genuinely developed explanatory sentence with real "
     "content in it, written the way a real conductor answer to a real "
@@ -2837,16 +2837,17 @@ check(
     _mod._is_answer_shaped_prose(["- Fixed the bug", "- Added a test"]) is False,
 )
 
+_ds158_h1_text = (
+    "Two things changed in this pass: the sentence splitter no "
+    "longer treats a colon as a boundary, and bullet items now "
+    "count on their own regardless of punctuation. Both fixes are "
+    "covered by new regression fixtures."
+)
 check(
     "ds158-h1. a colon-led clause inside a genuine 2-sentence answer "
     "does not inflate the unit count (colon is no longer a unit "
     "boundary)",
-    _mod._is_answer_shaped_prose(
-        "Two things changed in this pass: the sentence splitter no "
-        "longer treats a colon as a boundary, and bullet items now "
-        "count on their own regardless of punctuation. Both fixes are "
-        "covered by new regression fixtures."
-    )
+    _mod._is_answer_shaped_prose(_ds158_h1_text)
     is True,
 )
 check(
@@ -2901,6 +2902,139 @@ rc, out, err = run_hook(make_payload(ds158_i_msg))
 check(
     "ds158-i. realistic bullet-list answer beside status slots -> "
     "ADVISORY (downgraded), hook-level end-to-end pin",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 3 (Skeptic Major): the round-2 discriminator REGRESSED
+# three realistic shapes from DOWNGRADE to BLOCK - a first sentence
+# ending in "no." (masked as an abbreviation, merging it into the next
+# sentence and dropping the unit count below the floor), a first
+# sentence ending in a version number ("3.11.") or a plain count
+# ("174.") (the old digit lookbehind suppressed the boundary after ANY
+# digit-final token, not just inside a decimal). Confirmed via
+# `git stash` against cd5b0666: all three collapsed to 1 unit there
+# (shaped=False); a "negative" control (same shape, no digit/no-token
+# involved) correctly split into 2 units and stayed shaped=True at BOTH
+# commits - proving the regression was specific to "no."/digits, not a
+# general break.
+# ---------------------------------------------------------------------------
+
+_ds158_j_no = (
+    "The answer is no. We are not proceeding with that approach for "
+    "the current release, given the regression risk it carries."
+)
+_ds158_j_version = (
+    "We upgraded the dependency to version 3.11. The regression is "
+    "confirmed fixed on that release after a full suite re-run."
+)
+_ds158_j_count = (
+    "The measured value came out to 174. That confirms the earlier "
+    "estimate was accurate to within the expected margin of error."
+)
+_ds158_j_control = (
+    "The answer is negative. We are not proceeding with that approach "
+    "for the current release, given the regression risk it carries."
+)
+
+check(
+    "ds158-j1. first sentence ends in 'no.' -> answer-shaped (round-3 "
+    "regression fix: 'no' removed from the abbreviation mask)",
+    _mod._is_answer_shaped_prose(_ds158_j_no) is True,
+)
+check(
+    "ds158-j2. first sentence ends in a version number ('3.11.') -> "
+    "answer-shaped (round-3 regression fix: digit lookbehind removed "
+    "from the split regex)",
+    _mod._is_answer_shaped_prose(_ds158_j_version) is True,
+)
+check(
+    "ds158-j3. first sentence ends in a plain count ('174.') -> "
+    "answer-shaped (same digit-lookbehind regression fix)",
+    _mod._is_answer_shaped_prose(_ds158_j_count) is True,
+)
+check(
+    "ds158-j4. control: same shape with 'negative' instead of 'no' -> "
+    "answer-shaped at both round 2 and round 3 (proves the regression "
+    "was specific to the digit/'no.' handling, not a general split "
+    "failure)",
+    _mod._is_answer_shaped_prose(_ds158_j_control) is True,
+)
+
+# ds158-j5. Hook-level end-to-end pin for one of the round-3 regression
+# shapes (version number), beside status slots with a completion warrant.
+ds158_j5_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    + _ds158_j_version + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_j5_msg))
+check(
+    "ds158-j5. version-number-ending sentence beside status slots -> "
+    "ADVISORY (downgraded), hook-level end-to-end pin",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ds158-j6. decimal number MID-sentence (not at a sentence boundary)
+# still does not spuriously split - "3.11" between two words never
+# produces a stray unit at the internal decimal point (the \s+
+# requirement alone prevents this, since no whitespace follows the
+# internal dot).
+check(
+    "ds158-j6. a mid-sentence decimal ('bumped from 3.10 to 3.11 to') "
+    "does not spuriously split at the internal decimal point",
+    len(
+        _mod._answer_prose_units(
+            ["Bumped the dependency from 3.10 to 3.11 to fix the bug."]
+        )
+    )
+    == 1,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 3 (Skeptic Minor 2): a blank line must break contiguity
+# too, not just a recognized slot/Waiting: line or a fence boundary.
+# Pre-fix, `_execution_prose_flag`'s general branch `continue`d on a
+# blank line without flushing `current_block`, so creep8 + a blank line
+# + pad was still ONE block and its combined average could downgrade -
+# even though a blank line is the canonical markdown paragraph/block
+# separator and every prose statement of the contiguity rule lists it.
+# ---------------------------------------------------------------------------
+
+ds158_k_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_k_msg))
+check(
+    "ds158-k. creep8 + BLANK LINE + pad -> still BLOCKING (blank line "
+    "breaks contiguity, Skeptic Minor 2 - creep8 must be classified "
+    "independently from the pad paragraph that follows the blank line)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# ds158-k2. CONTRAST: two genuinely separate, blank-line-separated
+# paragraphs that are BOTH independently answer-shaped still downgrade -
+# the blank-line boundary is a free tightening, not a new false positive.
+# Paragraph 1 is the full 3-line pad block (3 units, well over
+# threshold); paragraph 2 reuses ds158-h1's colon-led 2-sentence answer
+# (2 units, over threshold) - each block independently clears the
+# discriminator on its own.
+ds158_k2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_pad_lines) + "\n"
+    + "\n"
+    + _ds158_h1_text + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_k2_msg))
+check(
+    "ds158-k2. two blank-line-separated paragraphs, EACH independently "
+    "answer-shaped -> DOWNGRADE (blank-line boundary is a free "
+    "tightening, not a new false positive)",
     is_advisory(rc, out, "downgraded to advisory"),
 )
 

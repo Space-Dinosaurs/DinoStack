@@ -250,9 +250,9 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158) that checks the
                     unrecognized lines reads as answer-shaped prose per
                     `_is_answer_shaped_prose`, in which case it downgrades
                     to ADVISORY instead - classified PER block (a
-                    recognized slot/Waiting: line or a fence boundary
-                    breaks contiguity), never as one flattened union of
-                    the whole status region, so a single developed
+                    recognized slot/Waiting: line, a fence boundary, or a
+                    blank line breaks contiguity), never as one flattened
+                    union of the whole status region, so a single developed
                     paragraph cannot launder an unrelated, non-adjacent
                     narrative-creep sprawl elsewhere in the same turn.
                   On BOTH branches, the identity line at position 1 is
@@ -1473,29 +1473,49 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
 _ANSWER_PROSE_MIN_SENTENCES = 2
 _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE = 8
 
-# DS-158 round 2 (Skeptic-mandated residual-false-positive fix): the
-# original _is_answer_shaped_prose reused _SENTENCE_BOUNDARY_RE, which
-# splits on `.`/`!`/`:` - the trailing `:` alone made every colon-led
-# clause ("What changed:", "Two things:") count as a spurious unit
-# boundary, and an un-guarded `.` split also broke on "e.g."/"i.e." and
-# decimal/version numbers ("3.10"), each inflating the unit count and
-# sinking the words-per-unit average below threshold on ordinary answer
-# prose. This regex intentionally does NOT split on `:` at all, and does
-# not split on a `.`/`!` immediately adjacent to a digit (version
-# numbers) - it is deliberately NOT the same regex
-# _identity_line_trailing_completion uses, which has a different,
-# narrower domain (the single-line identity line only) and must keep
-# matching `:` there (unchanged, not touched by this fix).
-_ANSWER_SENTENCE_SPLIT_RE = re.compile(r"(?<!\d)[.!](?!\d)\s+")
+# DS-158 round 2 (Skeptic-mandated residual-false-positive fix); round 3
+# (Skeptic Major - the round-2 version of this regex REGRESSED three
+# realistic shapes from DOWNGRADE to BLOCK: a sentence ending in "no.", a
+# version number ("3.11."), and a plain count ("174."), because
+# `(?<!\d)[.!](?!\d)\s+` suppressed the boundary after ANY digit-final
+# token, not just inside a genuine decimal. A decimal point ("3.11") is
+# already safe WITHOUT a digit lookbehind at all: `\s+` after the match
+# already requires literal whitespace, and the internal dot in "3.11" is
+# followed immediately by a digit, never whitespace, so it can never
+# match this pattern regardless. The lookbehind was therefore not
+# guarding decimals - it was suppressing every sentence-ending period
+# that happens to follow a digit, which is exactly the regression. Fixed
+# by dropping the digit lookarounds entirely, matching the Skeptic's
+# "anchor the digit guard to a digit on BOTH sides" note: the `\s+`
+# requirement already IS that both-sides anchor in practice, since a
+# digit-then-digit decimal point is never followed by whitespace).
+#
+# The original _is_answer_shaped_prose reused _SENTENCE_BOUNDARY_RE,
+# which splits on `.`/`!`/`:` - the trailing `:` alone made every
+# colon-led clause ("What changed:", "Two things:") count as a spurious
+# unit boundary, inflating the unit count and sinking the words-per-unit
+# average below threshold on ordinary answer prose. This regex
+# intentionally does NOT split on `:` at all - it is deliberately NOT the
+# same regex _identity_line_trailing_completion uses, which has a
+# different, narrower domain (the single-line identity line only) and
+# must keep matching `:` there (unchanged, not touched by this fix).
+_ANSWER_SENTENCE_SPLIT_RE = re.compile(r"[.!]\s+")
 
 # Common abbreviations whose internal `.` must not be treated as a
-# sentence boundary (measured false-positive cause, DS-158 round 2):
+# sentence boundary (measured false-positive cause, DS-158 round 2).
 # "e.g." / "i.e." are the two reported in the residual-false-positive
-# measurement; the rest are the same closed, narrow style of addition
-# this module already uses for similarly-scoped fixes (see
-# _BARE_TRAILING_COMPLETION_RE's docstring for the pattern).
+# measurement, and the only two ever actually measured - narrowed to
+# exactly those two in round 3 (Skeptic Major) after "no." (a common
+# English word, not an abbreviation) masked a genuine sentence-ending
+# period and regressed a realistic answer shape from DOWNGRADE to BLOCK.
+# "st"/"fig"/"mr"/"mrs"/"dr" were the same un-measured over-widening and
+# do not belong in a conductor-turn corpus either - removed with it.
+# "etc"/"vs"/"approx" are retained: none of them end an English sentence
+# on their own (unlike "no"), so they carry none of the same regression
+# risk, but if a future measurement finds otherwise, narrow this list
+# the same way.
 _ANSWER_ABBREVIATION_RE = re.compile(
-    r"\b(?:e\.g|i\.e|etc|vs|approx|no|fig|mr|mrs|dr|st)\.", re.IGNORECASE
+    r"\b(?:e\.g|i\.e|etc|vs|approx)\.", re.IGNORECASE
 )
 
 
@@ -1614,8 +1634,9 @@ def _execution_prose_flag(text: str, warrants: dict):
         itself answer-shaped prose per _is_answer_shaped_prose (DS-158
         round 2, Skeptic Major 1: classified PER contiguous block, never
         as one flattened union of the whole status region - a recognized
-        slot/Waiting: line or a fence boundary breaks contiguity between
-        blocks) - a real explanatory paragraph, not a stray label or a
+        slot/Waiting: line, a fence boundary, OR (DS-158 round 3, Skeptic
+        Minor 2) a blank line breaks contiguity between blocks) - a real
+        explanatory paragraph, not a stray label or a
         sprawl of short status pings. This closes a laundering bypass the
         original union-based version had: one developed paragraph
         anywhere in the region could otherwise downgrade an arbitrarily
@@ -1666,9 +1687,11 @@ def _execution_prose_flag(text: str, warrants: dict):
     # DS-158 round 2 (Skeptic Major 1 - laundering bypass fix): unrecognized
     # lines are grouped into CONTIGUOUS blocks, not flattened into one
     # whole-region union. A recognized line (a Waiting: line, or a
-    # well-formed status slot line) or a fenced line BREAKS contiguity -
-    # it ends the current block, since it is not itself part of the
-    # unrecognized content. Each block is then classified INDEPENDENTLY;
+    # well-formed status slot line), a fenced line, or (DS-158 round 3,
+    # Skeptic Minor 2) a blank line BREAKS contiguity - it ends the
+    # current block, since it is not itself part of the unrecognized
+    # content, and a blank line is the canonical markdown block
+    # separator. Each block is then classified INDEPENDENTLY;
     # the finding downgrades to advisory only when EVERY block is
     # answer-shaped prose, and stays BLOCKING the moment any single block
     # fails the discriminator. This matches
@@ -1689,6 +1712,18 @@ def _execution_prose_flag(text: str, warrants: dict):
                 current_block = []
             continue
         if not line.strip():
+            # DS-158 round 3 (Skeptic Minor 2): a blank line is the
+            # canonical markdown block separator and must break
+            # contiguity too, not just a recognized slot/Waiting: line or
+            # a fence boundary - every prose statement of this rule
+            # (module docstring, content/references/conductor-turn-format.md
+            # §4/§9) already lists it that way. Free tightening: two
+            # genuinely separate, blank-line-separated paragraphs still
+            # each pass the discriminator independently when they are
+            # each individually answer-shaped.
+            if current_block:
+                blocks.append(current_block)
+                current_block = []
             continue
         if _WAITING_LINE_RE.match(line):
             if current_block:
