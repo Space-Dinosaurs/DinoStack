@@ -1422,7 +1422,7 @@ fields. When isolation is required, the conductor creates the worktree manually 
 """
 
 
-def resource_map(name: str, inventory_hash: str) -> dict[str, object]:
+def resource_map(name: str) -> dict[str, object]:
     if name == "dinostack":
         resources = {
             "METHODOLOGY.md": {"path": "METHODOLOGY.md", "type": "file"},
@@ -1449,7 +1449,6 @@ def resource_map(name: str, inventory_hash: str) -> dict[str, object]:
             "workflow": {"path": f"resources/{command.removeprefix('content/')}", "type": "file"},
         }
     return {
-        "compatibility_inventory_sha256": inventory_hash,
         "resources": resources,
         "schema_version": 1,
         "skill": name,
@@ -1642,9 +1641,8 @@ def render_tree(
     staging: Path,
     ownership_marker: dict[str, object],
 ) -> None:
-    compatibility = load_compatibility(repo)
+    load_compatibility(repo)
     records, by_source = current_inventory(repo)
-    inventory_hash = sha256(canonical_json(compatibility))
     docs = {doc.source: doc.text for doc in documents(repo)}
     (staging / ROOT_MARKER).write_bytes(canonical_json(ownership_marker))
     core = staging / "dinostack"
@@ -1657,7 +1655,7 @@ def render_tree(
     )
     (core / "SKILL.md").write_text(frontmatter(repo, "dinostack") + preamble("dinostack") + core_body, encoding="utf-8")
     (core / "METHODOLOGY.md").write_text(methodology, encoding="utf-8")
-    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("dinostack", inventory_hash)))
+    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("dinostack")))
     (core / ".dinostack-skill.json").write_bytes(canonical_json(marker("dinostack")))
 
     target_paths = {
@@ -1680,7 +1678,7 @@ def render_tree(
         skill.mkdir()
         body = transform(docs[source], by_source[source], repo)
         (skill / "SKILL.md").write_text(frontmatter(repo, name) + preamble(name) + body, encoding="utf-8")
-        (skill / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map(name, inventory_hash)))
+        (skill / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map(name)))
         (skill / ".dinostack-skill.json").write_bytes(canonical_json(marker(name)))
         safe_link(skill / "resources", "../dinostack")
 
