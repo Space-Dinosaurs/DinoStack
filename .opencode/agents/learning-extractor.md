@@ -141,11 +141,11 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "learnings_written": ["LRN-YYYYMMDD-XXX: <finding-title>", ...],
-  "learning_ids": ["LRN-YYYYMMDD-XXX", ...],
+  "learnings_written": ["capped at 5 items: 'LRN-YYYYMMDD-XXX: <finding-title>'", ...],
+  "learning_ids": ["capped at 5 items: 'LRN-YYYYMMDD-XXX'", ...],
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": [": appended N entries", ...],
-  "skipped_reason": null
+  "writer_actions": ["capped at 5 items: '<file path>: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance"
 }
 ```
 

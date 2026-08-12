@@ -267,69 +267,106 @@ now `bin/tests/fixtures/agent_return_contract/expected_violations_snapshot.json`
 every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 `test_expected_violations_snapshot_matches_reality`. See
 `bin/tests/generate_agent_return_contract_snapshot.py` for the deliberate,
-reviewed update procedure (never a silent one-command refresh). Per-shape
-summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
+reviewed update procedure (never a silent one-command refresh).
 
-- **Shape 1** (tag every `###` field): `product-discovery.md` - not yet
-  migrated. `architect.md`, `debugger.md`, `investigator.md`,
-  `orchestration-planner.md`, and `security-auditor.md` are now fully
-  migrated and compliant: every `###` field is tagged
-  `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
-  "never omit any section" rule was deleted from each file's own Rules
-  section (where one existed), and each file's status/narration fields
-  (no decision or blocker payload under the attention test above) are
-  folded into a single `### Notes [ADVISORY]` block, present only when
-  non-empty.
-  `investigator.md` also gained a `coverage: complete | partial | blocked`
-  enum field; `security-auditor.md` gained a
+**The migration is complete as of the final unit (2026-08-11).** Every
+`SHAPE_ASSIGNMENTS` file has zero violations in the current snapshot -
+`test_fully_compliant_files_are_exactly_the_snapshot_empty_set` asserts
+this directly against `SHAPE_ASSIGNMENTS`, not a hand-enumerated list, so
+a future new agent file lands in the "compliant now" set automatically as
+soon as it is both shape-assigned and genuinely compliant. Per-shape
+summary:
+
+- **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
+  `investigator.md`, `orchestration-planner.md`, `security-auditor.md`,
+  and `product-discovery.md` are all fully migrated and compliant: every
+  `###` field is tagged `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`,
+  the boilerplate "never omit any section" rule was deleted from each
+  file's own Rules section (where one existed), and each file's
+  status/narration fields (no decision or blocker payload under the
+  attention test above) are folded into a single `### Notes [ADVISORY]`
+  block, present only when non-empty. `investigator.md` also gained a
+  `coverage: complete | partial | blocked` enum field;
+  `security-auditor.md` gained a
   `dependency_scan: clean | cves_found | not_run` enum field.
+  `product-discovery.md`'s two `## Output templates` field headers
+  (`vision.md`/`requirements.md`) each carry an explicit
+  `[MECHANICAL, cap: <N> chars]` tag (final unit) - the file-artifact
+  templates themselves are unbounded by design (the operator edits the
+  staged proposal freely), but the header tag satisfies the shape's own
+  structural obligation the same way every other Shape-1 field does.
   `dependency-auditor.md` and `perf-analyst.md` migrated OUT of Shape 1
   entirely (Unit 4); `qa-engineer.md` migrated OUT of Shape 1 entirely
   (Unit 3) - see Shape 2 below.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
-  `learnings-agent.md`, `wrap-ticket.md` have a real structured return
-  (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
-  heading) but are not yet migrated to this shape's enum/cap obligation.
-  `engineer.md` now carries FOUR genuine violations, not one - round 6's
-  Major-1 fix (a bare type declaration is not itself a bound) correctly
-  re-flags `task_id` (`<string or null>`) and `branch_name` (`<string, or
-  null>`), and round 6's Major-2 fix (schema/doc-pointer form deleted
-  outright) correctly re-flags `learnings_candidate`, alongside the
-  pre-existing `pr_description_body` gap. Round 5's `files_modified.path`
-  (`<repo-relative path>`) fix stands unchanged - it is a genuine
-  bounded-by-nature value literal and is still not flagged.
+  `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md`,
+  `dependency-auditor.md`, `perf-analyst.md`, and `qa-engineer.md` are
+  all fully migrated and compliant. `engineer.md` (final unit) closed its
+  last four gaps: `task_id`/`branch_name` now use the nullable-type
+  placeholder form (`<id, or null>`/`<name, or null>`);
+  `pr_description_body` carries an explicit `capped at 2000 chars`
+  true-adjacent numeric cap (the architect plan's assigned bound -
+  decision-relevant PR body content read by a human reviewer, needing
+  headroom but not a changelog); `learnings_candidate` carries an
+  explicit `capped at 5 items` cap matching the canonical 5-entry cap in
+  `learnings-capture-instruction.md`, replacing the now-deleted
+  schema/doc-pointer form it previously (and incorrectly) passed through.
+  `files_modified.path` (`<repo-relative path>`) remains a genuine
+  bounded-by-nature value literal, unflagged. `learning-extractor.md` and
+  `learnings-agent.md` (final unit) each closed their four gaps
+  identically: `learnings_written[]`/`learning_ids[]`/`writer_actions[]`
+  each carry an inline `capped at 5 items` cap (matching each file's own
+  "cap at 5 entries per run/message" prose), and `skipped_reason` now
+  declares its closed enum directly as the field's own illustrative
+  value (`null | "zero-substance"`, matching the pipe-list-as-value
+  convention already used by `qa-engineer.md`'s `server_status`/`auth`
+  fields) rather than showing only one concrete literal per example
+  block - only the FIRST fenced return block in the `### N. Return`
+  section is checked, so the second ("if nothing was captured") block
+  keeps its concrete illustrative form unchanged. `wrap-ticket.md` (final
+  unit) closed all eight gaps the same way: `memory_md_appends`
+  (`capped at 3 items`), `decisions_md_appends` (`capped at 2 items`),
+  `writer_actions` (`capped at 6 items`), and `cluster_results`
+  (`capped at 5 items`) each carry an inline numeric cap;
+  `context_md_recent_focus_addition` and `size_advisory` each carry an
+  explicit `capped at 500 chars`/one-line-marker bound;
+  `skipped_reason` declares `null | "zero-substance" |
+  "wrap-lock-contention"` as its own value (the three reasons the agent
+  itself emits - `"trivial-no-brief"` is set by the conductor before
+  wrap-ticket is even spawned and is deliberately excluded from the
+  agent's own schema); `resolved_paths`'s two nested leaves each use the
+  unquoted `<path, or null>` nullable-type placeholder form (JSON-string
+  quoting around a `<...>` placeholder defeats the bracket-anchored bound
+  forms - `dependency-auditor.md`'s `<path>`/`<count>` fields were
+  already unquoted for this reason; `wrap-ticket.md`'s nested leaves
+  needed the same fix).
   `adr-drift-detector.md`, `dependency-auditor.md`, and `perf-analyst.md`
-  (Unit 4) are now fully migrated and compliant: each writes its full
-  human-readable report to a `.agentic/audit-reports/` file via a Bash
-  heredoc and returns only a small, fully enum/cap-tagged pointer JSON
-  object - zero violations in the current snapshot for all three.
-  `qa-engineer.md` (Unit 3) is now fully migrated and compliant: it
-  writes its full human-readable report and a screenshot-evidence JSON
-  file to `/tmp/qa-reports/` (not `.agentic/qa-reports/` - this agent
-  always runs `isolation: "worktree"`, and a `.agentic/`-scoped write
-  would be sealed inside the throwaway worktree and never seen again;
-  `/tmp/` is host-level and shared across worktree checkouts) via a Bash
-  heredoc and returns only a small, fully enum/cap-tagged pointer JSON
-  object (`result`, `criteria[]`, `blocking_count`, `blocking_issues[]`,
-  `server_status`, `auth`, `screenshot_evidence_json_path`,
-  `report_path`, `notes`) - zero violations in the current snapshot.
-- **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
-  compliant - Unit 1 added one narrow, additive cap declaration on
-  finding-description length (300 chars) to the Calibration section,
-  without altering, retagging, or restructuring any of its six
-  conductor-validated Sign-off format lines. `goal-condition-evaluator.md`
-  was previously claimed
-  COMPLIANT NOW; round 5's `check_shape3` fix (now inspects every fenced
-  block in the section, not just the first) found it genuinely
-  non-compliant - its second template's Evidence value
-  (`"evaluator-error: <reason>"`) declares no bound. Its third template's
-  `BLOCKED` line, initially also flagged as "not a `Label: value` line",
-  is a round-5 over-strictness artifact corrected in round 6: a bare
-  closed-enum-shaped status token standing alone is a legitimate Shape-3
-  line (see "Shape 3" above) and is no longer flagged. Its Evidence-value
-  gap remains genuine and unmigrated - Unit 1 scoped `skeptic.md` only.
+  (Unit 4) write their full human-readable report to a
+  `.agentic/audit-reports/` file via a Bash heredoc and return only a
+  small, fully enum/cap-tagged pointer JSON object. `qa-engineer.md`
+  (Unit 3) writes its full human-readable report and a
+  screenshot-evidence JSON file to `/tmp/qa-reports/` (not
+  `.agentic/qa-reports/` - this agent always runs `isolation: "worktree"`,
+  and a `.agentic/`-scoped write would be sealed inside the throwaway
+  worktree and never seen again; `/tmp/` is host-level and shared across
+  worktree checkouts) via a Bash heredoc and returns only a small, fully
+  enum/cap-tagged pointer JSON object (`result`, `criteria[]`,
+  `blocking_count`, `blocking_issues[]`, `server_status`, `auth`,
+  `screenshot_evidence_json_path`, `report_path`, `notes`).
+- **Shape 3** (fixed literal-line template): `skeptic.md` and
+  `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
+  Unit 1 added one narrow, additive cap declaration on finding-description
+  length (300 chars) to the Calibration section, without altering,
+  retagging, or restructuring any of its six conductor-validated Sign-off
+  format lines. `goal-condition-evaluator.md` (final unit): its second
+  template's Evidence value is now `"evaluator-error: <one-line reason>"`
+  - the one-line marker form (`SHAPE2_ONE_LINE_RE`, reused as-is by Shape
+  3) - closing the genuine gap round 5's `check_shape3` fix (inspects
+  every fenced block in the section, not just the first) found. Its third
+  template's bare `BLOCKED` line is a legitimate bare closed-enum-shaped
+  status token (see "Shape 3" above) and was never actually a violation.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
-  is now fully compliant, zero violations (Unit 4 narrowed fix) - its
+  is fully compliant, zero violations (Unit 4 narrowed fix) - its
   previously-flagged `<message>` placeholder in the commit-listing lines
   under "What shipped" (appears twice) now carries an explicit cap,
   closing out the last of the three genuine violations from the prior

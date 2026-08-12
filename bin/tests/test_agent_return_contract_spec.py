@@ -1553,72 +1553,27 @@ def test_shape2_missing_enum_and_cap_is_flagged():
     assert any("declares no cap" in v for v in violations)
 
 
-def test_shape2_engineer_is_not_yet_migrated():
-    """engineer.md is NOT compliant now (round-4 M1 fix): the
-    SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption that previously manufactured
-    its compliant-now status is deleted, so pr_description_body's missing
-    cap is a real, genuine violation - independently confirmed by name
-    below, not merely 'the file has some violations'.
+def test_shape2_engineer_is_now_compliant():
+    """Final unit of the DS return-contract migration (2026-08-11) closes
+    engineer.md's last four violations: `task_id` and `branch_name` now use
+    the nullable-type placeholder form (`<id, or null>` / `<name, or null>`
+    - both TYPE words drawn from `_SHAPE_TYPE_WORDS`, not the deleted
+    'string' entry); `pr_description_body` carries an explicit
+    'capped at 2000 chars' true-adjacent numeric cap (the architect plan's
+    assigned bound - decision-relevant PR body content needs headroom but
+    not a changelog); `learnings_candidate` carries an explicit
+    'capped at 5 items' true-adjacent numeric cap (matching the canonical
+    5-entry cap in learnings-capture-instruction.md) rather than relying on
+    the now-deleted schema/doc-pointer form.
 
-    This also independently VERIFIES (rather than merely asserting, as the
-    pre-round-4 docstring did) that raw_output's 'truncated to 4000 chars'
-    bound is correctly recognized despite being nested inside the
-    quality_gate_results object - the M3 recursion fix walks into that
-    container instead of treating it as an unconditionally-bounded
-    structural field.
-
-    Round-5: files_modified.path (`<repo-relative path>`) must NOT be
-    flagged - it is a recognized bounded-by-nature form (round-5
-    over-strictness fix); prior to that fix, files_modified was flagged
-    SOLELY because of the 'path' leaf.
-
-    Round-6 Major-1/Major-2 fixes REVERSE two round-5 over-strictness
-    corrections that were themselves wrong: `task_id: <string or null>`
-    and `branch_name: <string, or null>` matched the round-5 nullable-type
-    form purely because 'string' was in the type vocabulary - a type
-    declaration is not a bound, so both are genuinely unbounded and are
-    now correctly flagged again (round-6 Major-1). `learnings_candidate`
-    was passing via the now-deleted schema/doc-pointer form (round-6
-    Major-2) and is now also correctly flagged - see the comment above
-    SHAPE_BOUNDED_VALUE_LITERALS for why that form was deleted rather than
-    narrowed."""
+    This also continues to VERIFY that raw_output's 'truncated to 4000
+    chars' bound is correctly recognized despite being nested inside the
+    quality_gate_results object, and that files_modified.path
+    (`<repo-relative path>`) is correctly recognized as a bounded-by-nature
+    value literal - neither regressed by this round's edits."""
     path = AGENTS_DIR / "engineer.md"
     violations = check_contract(path.read_text(), "engineer.md")
-    assert violations, (
-        "engineer.md is listed in NOT_YET_MIGRATED but its Shape-2 checker "
-        "found it fully compliant"
-    )
-    assert any("pr_description_body" in v for v in violations), violations
-    assert not any("raw_output" in v for v in violations), (
-        "raw_output declares an explicit 'truncated to 4000 chars' bound "
-        f"nested inside quality_gate_results - it must not be flagged: {violations}"
-    )
-    assert not any("files_modified" in v for v in violations), (
-        f"files_modified.path is '<repo-relative path>', a bounded-by-nature "
-        f"value literal - it must not be flagged: {violations}"
-    )
-    assert any("task_id" in v for v in violations), (
-        "task_id is '<string or null>' - a bare type declaration with no "
-        f"bound - it must be flagged (round-6 Major-1): {violations}"
-    )
-    assert any("branch_name" in v for v in violations), (
-        "branch_name is '<string, or null>' - a bare type declaration with "
-        f"no bound - it must be flagged (round-6 Major-1): {violations}"
-    )
-    assert any("learnings_candidate" in v for v in violations), (
-        "learnings_candidate previously passed only via the now-deleted "
-        f"schema/doc-pointer form - it must be flagged (round-6 Major-2): {violations}"
-    )
-    assert violations == [
-        "engineer.md: field 'task_id' is capable of open-ended or "
-        "repeated content but declares no cap or one-line marker",
-        "engineer.md: field 'branch_name' is capable of open-ended or "
-        "repeated content but declares no cap or one-line marker",
-        "engineer.md: field 'pr_description_body' is capable of open-ended "
-        "or repeated content but declares no cap or one-line marker",
-        "engineer.md: field 'learnings_candidate' is capable of open-ended "
-        "or repeated content but declares no cap or one-line marker",
-    ], violations
+    assert violations == [], violations
 
 
 # --- Shape 3 fixture tests ---
@@ -1636,30 +1591,26 @@ def test_shape3_missing_bound_is_flagged():
     assert violations, "expected a violation for an unbounded Evidence value"
 
 
-def test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated():
+def test_shape3_goal_condition_evaluator_is_now_compliant():
     """Round-5 Minor fix: check_shape3 previously inspected only
     blocks[0] - goal-condition-evaluator.md has THREE fenced return
     templates (the two-line success/failure form, the evaluator-error
     escape hatch, and the no-confirmed-sign-off escape hatch), and the
-    second's Evidence value ('"evaluator-error: <reason>"') carries an
-    unbounded placeholder that was never inspected before this fix.
-    goal-condition-evaluator.md is therefore RECLASSIFIED here from
-    'compliant now' to genuinely non-compliant - it was never actually
-    fully compliant, only under-checked.
+    second's Evidence value ('"evaluator-error: <reason>"') carried an
+    unbounded placeholder that was never inspected before that fix.
 
     Round-6 Minor fix: the third block's bare 'BLOCKED' line (no colon)
-    is NO LONGER flagged - it is a legitimate bare closed-enum-shaped
-    status token (SHAPE3_BARE_STATUS_TOKEN_RE), and flagging it was gate
-    over-strictness, not a real gap. Only the genuine Evidence-value
-    violation remains."""
+    is NOT flagged - it is a legitimate bare closed-enum-shaped
+    status token (SHAPE3_BARE_STATUS_TOKEN_RE).
+
+    Final unit of the DS return-contract migration (2026-08-11) closes the
+    remaining genuine gap: the second block's Evidence value is now
+    '"evaluator-error: <one-line reason>"' - the one-line marker form
+    (SHAPE2_ONE_LINE_RE, reused as-is by Shape 3) - so
+    goal-condition-evaluator.md is now fully Shape-3 compliant."""
     path = AGENTS_DIR / "goal-condition-evaluator.md"
     violations = check_contract(path.read_text(), "goal-condition-evaluator.md")
-    assert violations == [
-        "goal-condition-evaluator.md: Shape-3 line 'Evidence:' (block 2) "
-        'value \'"evaluator-error: <reason>"\' is neither a closed enum, '
-        "a bare count, nor bounded to one line by its own placeholder "
-        "text",
-    ], violations
+    assert violations == [], violations
 
 
 def test_shape3_skeptic_is_now_compliant():
@@ -1944,40 +1895,138 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
     project's actual 'compliant now' set. As of round 5 this was the
     EMPTY set - goal-condition-evaluator.md, the only remaining
     candidate, was reclassified to genuinely non-compliant by the
-    check_shape3 all-blocks fix (see
-    test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated).
-    Unit 1 of the DS return-contract migration (2026-08-11) grew this set
-    by six: architect.md, debugger.md, investigator.md,
-    orchestration-planner.md, security-auditor.md, skeptic.md - each
-    migrated to its shape's tagging/enum/cap obligation with the boilerplate
-    "never omit any section" rule deleted from its own Rules section (where
-    present) and folded ADVISORY content moved into a single `Notes` block.
-    Unit 4 (same migration) grew it by four more: dependency-auditor.md,
-    perf-analyst.md, and adr-drift-detector.md each retired a free-prose
-    report shape for the pointer-JSON Shape 2 return (report written to
-    .agentic/audit-reports/ via Bash heredoc - none of the three has a
-    Write/Edit grant); release-orchestrator.md added an explicit cap to
-    its three previously-unbounded Shape-4 placeholders. Unit 3 (same
-    migration) grew it by one more: qa-engineer.md moved from Shape 1 to
-    Shape 2, retiring its 6-near-duplicate free-prose report shape for
-    the pointer-JSON Shape 2 return (report + screenshot-evidence JSON
-    written to /tmp/qa-reports/ via Bash heredoc, deliberately not
-    .agentic/qa-reports/ since this agent always runs isolation:
-    "worktree" - no Write/Edit grant; SHAPE_ASSIGNMENTS updated to 2 in
-    the same change). A future
-    migration legitimately grows this set further; this test exists so
-    that growth is asserted explicitly rather than assumed."""
+    check_shape3 all-blocks fix. Unit 1 of the DS return-contract
+    migration (2026-08-11) grew this set by six: architect.md, debugger.md,
+    investigator.md, orchestration-planner.md, security-auditor.md,
+    skeptic.md - each migrated to its shape's tagging/enum/cap obligation
+    with the boilerplate "never omit any section" rule deleted from its own
+    Rules section (where present) and folded ADVISORY content moved into a
+    single `Notes` block. Unit 4 (same migration) grew it by four more:
+    dependency-auditor.md, perf-analyst.md, and adr-drift-detector.md each
+    retired a free-prose report shape for the pointer-JSON Shape 2 return
+    (report written to .agentic/audit-reports/ via Bash heredoc - none of
+    the three has a Write/Edit grant); release-orchestrator.md added an
+    explicit cap to its three previously-unbounded Shape-4 placeholders.
+    Unit 3 (same migration) grew it by one more: qa-engineer.md moved from
+    Shape 1 to Shape 2. The final unit of the migration (2026-08-11) closes
+    the remaining six files: engineer.md, goal-condition-evaluator.md,
+    learning-extractor.md, learnings-agent.md, product-discovery.md, and
+    wrap-ticket.md each cleared their last cap/enum/tag gaps. The
+    'compliant now' set is therefore now every SHAPE_ASSIGNMENTS file - the
+    migration is complete, and this test now asserts that directly against
+    SHAPE_ASSIGNMENTS rather than a hand-enumerated growing list, so a
+    future new agent file lands in this set automatically as soon as it is
+    both shape-assigned and genuinely compliant, with no list to remember
+    to extend."""
     compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
-    assert compliant_now == {
-        "architect.md",
-        "debugger.md",
-        "investigator.md",
-        "orchestration-planner.md",
-        "security-auditor.md",
-        "skeptic.md",
-        "dependency-auditor.md",
-        "perf-analyst.md",
-        "adr-drift-detector.md",
-        "release-orchestrator.md",
-        "qa-engineer.md",
-    }, f"unexpected 'compliant now' set: {sorted(compliant_now)}"
+    assert compliant_now == set(SHAPE_ASSIGNMENTS), (
+        f"unexpected 'compliant now' set: {sorted(compliant_now)} vs "
+        f"SHAPE_ASSIGNMENTS: {sorted(SHAPE_ASSIGNMENTS)}"
+    )
+
+
+# --- Final unit, Part B: two regression pins, accepted debt on the merged
+# Unit 3 PR. See content/references/subagent-return-contract.md's Unit 3
+# summary (qa-engineer.md) for the background this pins. ---
+
+# Generalized, not hardcoded to qa-engineer.md - matches any agent file
+# whose OWN prose asserts it always runs isolation: "worktree" (the exact
+# phrasing qa-engineer.md uses twice, both independently confirmed by
+# _find above). A future worktree-isolated writer is covered automatically
+# as soon as its own file states this, with no list to remember to extend.
+WORKTREE_MANDATORY_MARKER_RE = re.compile(
+    r'always runs\s*`?isolation:\s*"worktree"`?', re.IGNORECASE
+)
+# A Bash heredoc write target assigned to a repo-relative '.agentic/...'
+# path - either a shell variable assignment ('X_PATH=".agentic/foo"') or a
+# bare 'mkdir -p .agentic/foo' - inside a mandated-isolation agent's own
+# Bash block. Absolute paths ('/tmp/...') never match this pattern.
+REPO_RELATIVE_AGENTIC_WRITE_RE = re.compile(
+    r'(?:="|mkdir -p )(\.agentic/\S*)'
+)
+
+
+def test_worktree_mandatory_agents_write_artifacts_to_absolute_paths():
+    """Regression pin (final unit, Part B, pin 1) - accepted debt on the
+    merged Unit 3 PR: reverting every '/tmp/qa-reports' back to
+    '.agentic/qa-reports' in qa-engineer.md currently left all ~1251
+    bin/tests green, because nothing asserted that a mandatorily
+    worktree-isolated agent must write its machine-consumed artifacts to
+    an ABSOLUTE path rather than a repo-relative one - '.agentic/' is
+    gitignored and independent per worktree checkout, so a write there is
+    sealed inside the throwaway worktree and never seen again once it is
+    removed (qa-engineer.md's own rationale, content/agents/qa-engineer.md
+    §Report structure). This test discovers the mandated set from each
+    file's OWN prose (WORKTREE_MANDATORY_MARKER_RE) rather than a
+    hand-maintained list, so it generalizes to any future agent that gains
+    a mandatory isolation: "worktree" requirement, not only qa-engineer.md.
+
+    Mutation-proven: reverting qa-engineer.md's two '/tmp/qa-reports'
+    occurrences back to '.agentic/qa-reports' (the exact regression this
+    pin targets) turns this test RED; restoring them turns it GREEN. See
+    the four-observation report in the PR description for the live
+    RED/GREEN transcript."""
+    mandated_files = [
+        p for p in sorted(AGENTS_DIR.glob("*.md"))
+        if WORKTREE_MANDATORY_MARKER_RE.search(p.read_text())
+    ]
+    assert mandated_files, (
+        "expected at least one agent file whose own prose asserts "
+        "mandatory isolation: \"worktree\" (qa-engineer.md as of this "
+        "writing) - zero found; WORKTREE_MANDATORY_MARKER_RE may have "
+        "drifted from the live prose it is meant to match"
+    )
+    violations = []
+    for p in mandated_files:
+        text = p.read_text()
+        for block in _extract_fenced_blocks(text):
+            _lang, content = block
+            for m in REPO_RELATIVE_AGENTIC_WRITE_RE.finditer(content):
+                violations.append(
+                    f"{p.name}: writes machine-consumed artifact to "
+                    f"repo-relative '{m.group(1)}' despite this file's own "
+                    "prose asserting mandatory isolation: \"worktree\" - "
+                    "use an absolute path (e.g. /tmp/...) instead"
+                )
+    assert violations == [], violations
+
+
+def test_screenshot_evidence_json_path_producer_consumer_coupling():
+    """Regression pin (final unit, Part B, pin 2) - accepted debt on the
+    merged Unit 3 PR: nothing ties qa-engineer.md's emitted
+    `screenshot_evidence_json_path` field name to
+    content/commands/ds-implement-ticket.md Phase 8.5's reader of that
+    same field; a rename on either side yields dead evidence links with
+    nothing red. This pin asserts the exact field-name literal is present
+    in both the producer (qa-engineer.md's pointer-return schema) and the
+    consumer (ds-implement-ticket.md's Phase 8.5 QA screenshot evidence
+    capture step) - a rename on either side, without the matching rename
+    on the other, turns this test RED.
+
+    Mutation-proven: renaming the field in qa-engineer.md's schema line
+    (`screenshot_evidence_json_path: <path>`) alone, or renaming it in
+    ds-implement-ticket.md's Phase 8.5 read alone, each independently
+    turns this test RED; restoring either turns it GREEN. See the
+    four-observation report in the PR description for the live
+    RED/GREEN transcript."""
+    field_name = "screenshot_evidence_json_path"
+    producer_text = (AGENTS_DIR / "qa-engineer.md").read_text()
+    consumer_path = (
+        REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+    )
+    consumer_text = consumer_path.read_text()
+    assert f"{field_name}: <path>" in producer_text, (
+        f"qa-engineer.md no longer declares the '{field_name}' field in "
+        "its pointer-return schema - the producer side of this coupling "
+        "is broken"
+    )
+    assert field_name in consumer_text, (
+        f"ds-implement-ticket.md no longer references '{field_name}' - "
+        "the consumer side of this coupling is broken (Phase 8.5's QA "
+        "screenshot evidence read)"
+    )
+    assert "Phase 8.5" in consumer_text, (
+        "ds-implement-ticket.md's Phase 8.5 heading is gone or renamed - "
+        "re-anchor this pin's consumer-side check to wherever the "
+        "screenshot-evidence read step now lives"
+    )

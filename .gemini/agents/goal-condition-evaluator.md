@@ -93,7 +93,7 @@ On failure to determine confidently (read error, ambiguous condition, tool unava
 
 ```
 GOAL_MET: false
-Evidence: "evaluator-error: <reason>"
+Evidence: "evaluator-error: <one-line reason>"
 ```
 
 This fails closed - never guess `true`.
