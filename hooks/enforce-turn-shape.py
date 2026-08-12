@@ -1503,20 +1503,22 @@ _ANSWER_SENTENCE_SPLIT_RE = re.compile(r"[.!]\s+")
 
 # Common abbreviations whose internal `.` must not be treated as a
 # sentence boundary (measured false-positive cause, DS-158 round 2).
-# "e.g." / "i.e." are the two reported in the residual-false-positive
-# measurement, and the only two ever actually measured - narrowed to
-# exactly those two in round 3 (Skeptic Major) after "no." (a common
-# English word, not an abbreviation) masked a genuine sentence-ending
-# period and regressed a realistic answer shape from DOWNGRADE to BLOCK.
-# "st"/"fig"/"mr"/"mrs"/"dr" were the same un-measured over-widening and
-# do not belong in a conductor-turn corpus either - removed with it.
-# "etc"/"vs"/"approx" are retained: none of them end an English sentence
-# on their own (unlike "no"), so they carry none of the same regression
-# risk, but if a future measurement finds otherwise, narrow this list
-# the same way.
-_ANSWER_ABBREVIATION_RE = re.compile(
-    r"\b(?:e\.g|i\.e|etc|vs|approx)\.", re.IGNORECASE
-)
+# "e.g." / "i.e." are the only two ever actually measured, and (round 4,
+# Skeptic Minor) the only two retained. Round 3 already removed
+# "no"/"st"/"fig"/"mr"/"mrs"/"dr" after "no." (a common English word, not
+# an abbreviation) masked a genuine sentence-ending period and regressed
+# a realistic answer shape from DOWNGRADE to BLOCK - but round 3's own
+# comment claimed the remaining "etc"/"vs"/"approx" were safe because
+# "none of them end an English sentence on their own (unlike 'no')".
+# That claim was FALSE for "etc.", which routinely ends a sentence
+# ("...lint, typecheck, tests, etc. Everything else was already green.")
+# - measured (round 4) to reproduce the identical residual: the trailing
+# period is masked, the sentence merges with the next one, the unit
+# count drops below the floor, and the finding BLOCKS a genuine answer.
+# "vs"/"approx" are removed with it on the same reasoning, since neither
+# was ever independently measured either - narrowing to exactly the two
+# tokens this module has actual evidence for.
+_ANSWER_ABBREVIATION_RE = re.compile(r"\b(?:e\.g|i\.e)\.", re.IGNORECASE)
 
 
 def _answer_prose_units(lines) -> list:

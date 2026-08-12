@@ -3039,6 +3039,43 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# DS-158 round 4 (Skeptic Minor): "etc" remained in
+# _ANSWER_ABBREVIATION_RE and the round-3 comment justifying it claimed
+# none of the retained entries "end an English sentence on their own
+# (unlike 'no')" - false for "etc.", which routinely does. This is a
+# RESIDUAL (identical BLOCK at 05fe944d, cd5b0666, and main), not a
+# round-3 regression.
+# ---------------------------------------------------------------------------
+
+_ds158_l_etc = (
+    "We covered lint, typecheck, tests, etc. Everything else was "
+    "already green before this change ever landed."
+)
+check(
+    "ds158-l1. a sentence ending in 'etc.' followed by a second "
+    "sentence is answer-shaped ('etc' removed from the abbreviation "
+    "mask, Skeptic round-4 Minor)",
+    _mod._is_answer_shaped_prose(_ds158_l_etc) is True,
+)
+
+# ds158-l2. Hook-level end-to-end pin, the Skeptic's exact measured
+# sentence beside status slots.
+ds158_l2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    + _ds158_l_etc + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_l2_msg))
+check(
+    "ds158-l2. 'etc.'-ending sentence beside status slots -> ADVISORY "
+    "(downgraded), hook-level end-to-end pin (was BLOCKING before this "
+    "fix)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
