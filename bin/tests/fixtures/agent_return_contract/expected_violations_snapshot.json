@@ -31,10 +31,7 @@
     "product-discovery.md: field 'vision.md (one screen, narrative)' has no [MECHANICAL] or [ADVISORY] tag",
     "product-discovery.md: field 'requirements.md (scoped, checkable)' has no [MECHANICAL] or [ADVISORY] tag"
   ],
-  "qa-engineer.md": [
-    "qa-engineer.md: field '1. [Criterion description]' has no [MECHANICAL] or [ADVISORY] tag",
-    "qa-engineer.md: field '2. [Next criterion]' has no [MECHANICAL] or [ADVISORY] tag"
-  ],
+  "qa-engineer.md": [],
   "release-orchestrator.md": [],
   "security-auditor.md": [],
   "skeptic.md": [],
