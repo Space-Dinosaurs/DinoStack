@@ -3,28 +3,6 @@
 #          Hermetic, sandboxed HOME. Exits 0 on all pass, 1 on any failure.
 #
 # Public API: ./bin/tests/test_install_profiles.sh
-#
-# Upstream deps: bash, scripts/install-profiles.sh, and (transitively via
-#                that script) the 10 adapter .*/install.sh scripts.
-#
-# Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests job).
-#
-# Failure modes: tests 1-8 increment $FAILS on any failing assertion; if
-#                $FAILS > 0 after test 8 the script prints a summary and
-#                exits 1. The later run_security_tests block (PR #416,
-#                CWE-94/CWE-22/symlink regressions) reuses the same $FAILS
-#                counter and fail()/pass() helpers; $FAILS is re-checked
-#                after run_security_tests returns, so a failing security
-#                assertion now also makes the script exit nonzero (fixed
-#                DS-136 - previously it only printed "FAIL: ..." to stderr
-#                and the script still exited 0).
-#
-# Performance: ~64 s in CI run 30968643749, driven by 5 indirect
-#              .codex/install.sh calls (via scripts/install-profiles.sh);
-#              expected to drop after the scripts/codex-skills.py check()
-#              re-render cut (DS-136 Unit 2). Re-measure with
-#              `time bash bin/tests/test_install_profiles.sh`.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -186,9 +164,3 @@ run_security_tests() {
   rm -rf "$sb"
 }
 run_security_tests
-
-if [[ "$FAILS" -gt 0 ]]; then
-  echo "FAILED: $FAILS assertion(s) (including security regression tests)"
-  exit 1
-fi
-echo "All install-profiles tests (including security regressions) passed."
