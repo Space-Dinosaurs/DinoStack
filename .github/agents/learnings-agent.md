@@ -197,12 +197,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "learnings_written": ["LRN-20260613-001: <title>", "KNW-20260613-001: <title>", ...],
-  "learning_ids": ["LRN-20260613-001", "KNW-20260613-001", ...],
+  "learnings_written": ["capped at 5 items: 'LRN-20260613-001: <title>'", ...],
+  "learning_ids": ["capped at 5 items: 'LRN-20260613-001'", ...],
   "memory_md_appended": true | false,
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": [".agentic/learnings.md: appended N entries", ...],
-  "skipped_reason": null
+  "writer_actions": ["capped at 5 items: '.agentic/learnings.md: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance"
 }
 ```
 

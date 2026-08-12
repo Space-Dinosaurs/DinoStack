@@ -157,7 +157,7 @@ Write the three files to `docs/overview/_proposed/` (`vision.md`, `requirements.
 
 Both templates open with the staged-proposal banner. Keep it verbatim on every pass, light or full - it is the operator-owned boundary made visible inside the file itself, so a reader who opens the draft directly (without the conversation) still knows it is not canonical and not yet ratified.
 
-### vision.md (one screen, narrative)
+### vision.md (one screen, narrative) [MECHANICAL, cap: 2000 chars]
 
 ```markdown
 # [Product / Feature] Vision
@@ -180,7 +180,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 [What this deliberately does not do. Naming non-goals is half of vision.]
 ```
 
-### requirements.md (scoped, checkable)
+### requirements.md (scoped, checkable) [MECHANICAL, cap: 3000 chars]
 
 ```markdown
 # [Product / Feature] Requirements

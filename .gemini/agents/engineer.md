@@ -97,7 +97,7 @@ Schema (YAML shown; equivalent JSON is acceptable):
 
 ```yaml
 status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
-task_id: <string or null>            # echoed from execution contract; null on single-unit
+task_id: <id, or null>                # echoed from execution contract; null on single-unit
 files_modified:
   - path: <repo-relative path>
     change: created | modified | deleted | renamed
@@ -110,11 +110,11 @@ quality_gate_results:
   raw_output: |
     <truncated to 4000 chars; tail-wins on truncation>
 commit_sha: <full 40-char SHA, or null if no commit was made>
-branch_name: <string, or null>
+branch_name: <name, or null>
 pr_description_body: |
-  <markdown body suitable for the PR; conductor may wrap with title/footer>
-learnings_candidate: []  # optional; entry shape, enum and cap are defined in
-                         # references/learnings-capture-instruction.md
+  <markdown body suitable for the PR, capped at 2000 chars; conductor may wrap with title/footer>
+learnings_candidate: []  # optional, capped at 5 items; entry shape, enum and
+                         # cap are defined in references/learnings-capture-instruction.md
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -151,7 +151,7 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "commit_sha": { "type": ["string", "null"] },
     "branch_name": { "type": ["string", "null"] },
-    "pr_description_body": { "type": "string" }
+    "pr_description_body": { "type": "string", "maxLength": 2000 }
   }
 }
 ```

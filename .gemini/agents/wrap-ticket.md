@@ -237,17 +237,17 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "memory_md_appends": ["<entry text>", ...],
-  "decisions_md_appends": ["<entry text>", ...],
-  "context_md_recent_focus_addition": "<paragraph text or null>",
+  "memory_md_appends": ["capped at 3 items: '<entry text>'", ...],
+  "decisions_md_appends": ["capped at 2 items: '<entry text>'", ...],
+  "context_md_recent_focus_addition": "<paragraph text, capped at 500 chars, or null>",
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": ["<file path>: appended <N> entries", ...],
-  "skipped_reason": null,
-  "size_advisory": null,
-  "cluster_results": [{"domain": "<slug>", "exampleNote": "<sentence>"}],
+  "writer_actions": ["capped at 6 items: '<file path>: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance" | "wrap-lock-contention",
+  "size_advisory": "<one-line advisory text, or null>",
+  "cluster_results": ["capped at 5 items: {domain: <slug>, exampleNote: <one-line sentence>}", ...],
   "resolved_paths": {
-    "memory_md": "MEMORY.md",
-    "decisions_md": "<Step-4-resolved path, e.g. decisions.md or docs/adr/001-foo.md>"
+    "memory_md": <path, or null>
+    "decisions_md": <path, or null>
   }
 }
 ```
