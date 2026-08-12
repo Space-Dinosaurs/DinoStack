@@ -2161,24 +2161,30 @@ The following failures were identified and fix attempts were made in earlier ite
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
-**QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
+**QA screenshot evidence capture (PASS exit only).** qa-engineer's return text carries only a small pointer object (`result`, `criteria[]`, `blocking_count`, `blocking_issues[]`, `server_status`, `auth`, `screenshot_evidence_json_path`, `report_path`, `notes`) - it does not embed the screenshot evidence inline. On clean PASS exit, read the `screenshot_evidence_json_path` field from that pointer object and load the JSON file at that path. **Binding.** Assign the pointer object's `screenshot_evidence_json_path` field value into the `SCREENSHOT_JSON_PATH` shell variable before running the block below - never inline the returned path directly into the `if`/`cat` commands, since a returned path containing `$(...)` or backticks would otherwise be evaluated by the shell:
 
-```
-Look for a fenced block whose info string is exactly `qa-screenshots-json`, regardless of whether
-the fence character is backticks (```) or tildes (~~~). Either of the following forms is valid:
-
-  ```qa-screenshots-json
-  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
-  ```
-
-  ~~~qa-screenshots-json
-  [{"path": "...", "description": "...", "criterion_id": "...", "result": "..."}]
-  ~~~
-
-Match by the info string `qa-screenshots-json`; do not require a specific fence character.
+```bash
+# $SCREENSHOT_JSON_PATH must be ASSIGNED from the pointer object's
+# screenshot_evidence_json_path field (e.g. SCREENSHOT_JSON_PATH="<value>"), never
+# inlined directly - `${SCREENSHOT_JSON_PATH:-}` guards against `set -u` aborting when
+# the field was absent from the pointer object.
+if [ -n "${SCREENSHOT_JSON_PATH:-}" ] && [ -f "$SCREENSHOT_JSON_PATH" ]; then
+  SCREENSHOTS_RAW=$(cat "$SCREENSHOT_JSON_PATH")
+else
+  SCREENSHOTS_RAW='[]'
+fi
 ```
 
-Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
+Parse `SCREENSHOTS_RAW` into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects - method-specific runs carry additional keys per qa-engineer.md's per-method JSON extensions, ignored here). Retain only entries where `result == "PASS"` on overall PASS. If `screenshot_evidence_json_path` is absent from the pointer object, or the file at that path is missing, or its content is malformed/fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error - this preserves the prior inline-parse's `[]`-on-absent-or-malformed fallback behavior, now applied to a missing/malformed file instead of a missing/malformed inline block. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
+
+**Report/screenshot-JSON cleanup (every terminal QA outcome, not PASS-only).** qa-engineer writes its report and screenshot-evidence JSON to `/tmp/qa-reports/` (per `content/agents/qa-engineer.md` §Report structure), which is never cleaned up by qa-engineer itself - those files must outlive its worktree so the conductor and the QA regressions curator can read them. Once this iteration's `screenshot_evidence_json_path` has been consumed above (whatever the outcome), and once `report_path` has been consumed (either now, on a PASS/terminal exit with no pending regressions-curator read, or after the QA regressions curator step below on a FAIL that fires it), delete both files. `QA_REPORT_PATH` here is the pointer object's `report_path` field, assigned the same way `SCREENSHOT_JSON_PATH` is above - never inlined:
+
+```bash
+rm -f "${SCREENSHOT_JSON_PATH:-}" 2>/dev/null || true
+rm -f "${QA_REPORT_PATH:-}" 2>/dev/null || true
+```
+
+Guard with `|| true` so this never blocks the loop. Do not delete `QA_REPORT_PATH` before the QA regressions curator step has had a chance to read it on a FAIL iteration - run this cleanup after that step (or immediately, on iterations/outcomes where the curator does not fire).
 
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
@@ -2191,7 +2197,7 @@ Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, c
 At Phase 6b clean exit, if any iteration of this Phase 6b loop involved a QA FAIL (i.e., `qa_failures_log` was non-empty at any point before the final PASS), spawn a qa-regressions-curator subagent. **Note:** `qa-regressions-curator` does not yet exist as a named agent; use `general-purpose` agent type (Tier 1, fire-and-forget) until the named agent is formally added. Mirrors the Phase 6 findings curator pattern (see "Findings curator (loop exit)" above).
 
 **Brief:**
-- Input: the qa-engineer's last FAIL report containing the `## Regression draft (for .agentic/qa-regressions.md)` block (verbatim), any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`.agentic/qa-regressions.md`).
+- Input: the `## Regression draft (for .agentic/qa-regressions.md)` block (verbatim) from the last FAIL iteration's qa-engineer report - it lives in the written report file at `report_path` (the pointer object's `report_path` field), not the return text itself; read the file at that path before the "Report/screenshot-JSON cleanup" step above deletes it. Also include any fix-engineer documented-exception block from the QA-fix iteration, the `ticket_id`, and the curated index path (`.agentic/qa-regressions.md`).
 - The curator computes the dedupe key `(surface, claim)` from each draft entry: lowercase the `Surface` and `What broke` values, collapse whitespace runs to a single space, strip leading/trailing whitespace, concatenate with a `|` separator.
 - Dedupe rule: if a matching `(surface, claim)` key already exists in `.agentic/qa-regressions.md`, skip the write for that entry.
 - The curator is the sole writer of `.agentic/qa-regressions.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
