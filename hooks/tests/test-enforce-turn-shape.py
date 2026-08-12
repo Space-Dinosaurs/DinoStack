@@ -2723,6 +2723,188 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# DS-158 round 2 (Skeptic Major 1 - laundering bypass; residual
+# false-positive rate). Round 1's _is_answer_shaped_prose classified the
+# WHOLE status region as one joined blob, so a single developed paragraph
+# anywhere in the region could downgrade an arbitrarily large,
+# NON-ADJACENT narrative-creep sprawl riding alongside it. Round 2
+# classifies PER CONTIGUOUS BLOCK instead (a recognized slot/Waiting:
+# line, or a fence, breaks contiguity) and blocks unless EVERY block
+# passes the discriminator.
+# ---------------------------------------------------------------------------
+
+_creep8_lines = ["Also did thing {}.".format(i) for i in range(1, 8)]
+_pad_lines = [
+    "This is a genuinely developed explanatory sentence with real "
+    "content in it, written the way a real conductor answer to a real "
+    "operator question would actually read, at real length.",
+    "Here is a second one that also carries real explanatory weight "
+    "and detail, deliberately long enough that its own average pulls "
+    "a mixed contiguous block above the answer-shaped threshold.",
+    "And a third one, for the same reason, so the combined contiguous "
+    "block's average genuinely clears the discriminator on its own "
+    "arithmetic merits rather than by a hand-tuned coincidence.",
+]
+
+# ds158-f. THE LAUNDERING BYPASS FIXTURE (Skeptic Major 1's exact repro
+# shape): creep8 (narrative-creep, fails the discriminator alone) plus a
+# genuine answer-shaped pad paragraph, separated by a recognized State:
+# line - two DIFFERENT, NON-CONTIGUOUS blocks. Round 1 flattened both
+# into one union and the pad's high word average laundered the creep8
+# block to advisory; round 2 classifies each block independently, so the
+# creep8 block alone still fails and the whole finding stays BLOCKING.
+ds158_f_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "State: unrelated status update.\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_f_msg))
+check(
+    "ds158-f. non-contiguous creep8 + State: + pad -> still BLOCKING "
+    "(laundering bypass closed, Skeptic Major 1)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# ds158-f2. CONTRAST: the SAME creep8 + pad content, but CONTIGUOUS (no
+# recognized line splitting them into two blocks) - this is genuinely
+# ONE block by the spec's own "contiguous block" language, and its
+# combined average legitimately clears the discriminator. This is NOT a
+# laundering bypass - unlike ds158-f, there is no separate, non-adjacent
+# narrative-creep block riding along; it is one literal contiguous run
+# of text.
+ds158_f2_msg = (
+    IDENTITY_COMPLETE + "\n"
+    + "\n".join(_creep8_lines) + "\n"
+    + "\n".join(_pad_lines) + "\n"
+)
+rc, out, err = run_hook(make_payload(ds158_f2_msg))
+check(
+    "ds158-f2. contiguous creep8 + pad (one literal block) -> DOWNGRADE "
+    "(contrast case: this is not laundering, it is one genuine block)",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ds158-f3. Direct unit-level pin of the per-block boolean itself:
+# _is_answer_shaped_prose(creep8 alone) is False (fails on its own),
+# proving ds158-f's BLOCK verdict traces to the creep8 block failing
+# independently, not to some other mechanism.
+check(
+    "ds158-f3. creep8 alone is NOT answer-shaped (the block that must "
+    "fail independently in ds158-f)",
+    _mod._is_answer_shaped_prose(_creep8_lines) is False,
+)
+
+# ---------------------------------------------------------------------------
+# DS-158 round 2: residual-false-positive fix. The round-1 discriminator
+# reused _SENTENCE_BOUNDARY_RE (splits on `.`/`!`/`:`), so a colon-led
+# clause, "e.g."/"i.e.", or a decimal/version number each inflated the
+# unit count and sank the average below threshold; and a bullet/numbered
+# list item with no terminal punctuation collapsed an entire list into
+# ONE unit, failing the multi-unit floor even though bullets are the most
+# common conductor answer shape. Round 2 fixes both - see
+# _answer_prose_units / _ANSWER_SENTENCE_SPLIT_RE / _ANSWER_ABBREVIATION_RE.
+# ---------------------------------------------------------------------------
+
+check(
+    "ds158-g1. a 3-item bullet list with NO terminal punctuation is "
+    "answer-shaped (each bullet is its own unit)",
+    _mod._is_answer_shaped_prose(
+        [
+            "- Rewrote the discriminator to stop splitting on colons",
+            "- Added abbreviation masking for e.g. and i.e.",
+            "- Treated each bullet item as its own answer unit",
+        ]
+    )
+    is True,
+)
+check(
+    "ds158-g2. a 3-item NUMBERED list with no terminal punctuation is "
+    "answer-shaped (numbered items are recognized the same as bullets)",
+    _mod._is_answer_shaped_prose(
+        [
+            "1. Rewrote the discriminator to stop splitting on colons",
+            "2. Added abbreviation masking for e.g. and i.e.",
+            "3. Treated each bullet item as its own answer unit",
+        ]
+    )
+    is True,
+)
+check(
+    "ds158-g3. a genuinely short 2-item bullet list stays NOT "
+    "answer-shaped (disclosed residual - low word count per item, not a "
+    "regression: see conductor-turn-format.md's residual list)",
+    _mod._is_answer_shaped_prose(["- Fixed the bug", "- Added a test"]) is False,
+)
+
+check(
+    "ds158-h1. a colon-led clause inside a genuine 2-sentence answer "
+    "does not inflate the unit count (colon is no longer a unit "
+    "boundary)",
+    _mod._is_answer_shaped_prose(
+        "Two things changed in this pass: the sentence splitter no "
+        "longer treats a colon as a boundary, and bullet items now "
+        "count on their own regardless of punctuation. Both fixes are "
+        "covered by new regression fixtures."
+    )
+    is True,
+)
+check(
+    "ds158-h2. 'e.g.' inside a genuine 2-sentence answer does not "
+    "inflate the unit count (abbreviation masking)",
+    _mod._is_answer_shaped_prose(
+        "We considered a few mitigations, e.g. rate limiting and "
+        "request coalescing, and settled on coalescing because it "
+        "needed no client changes. The rollout is staged behind a "
+        "feature flag."
+    )
+    is True,
+)
+check(
+    "ds158-h3. 'i.e.' inside a genuine 2-sentence answer does not "
+    "inflate the unit count (abbreviation masking)",
+    _mod._is_answer_shaped_prose(
+        "The fix only touches the general branch, i.e. the "
+        "sole-stoppage branch is untouched by this change and keeps "
+        "its existing shape. Both branches share the same length bound "
+        "on the identity line."
+    )
+    is True,
+)
+check(
+    "ds158-h4. a version number ('3.10 to 3.11') does not split as a "
+    "sentence boundary",
+    _mod._is_answer_shaped_prose(
+        "Bumped the dependency from 3.10 to 3.11 to pick up the "
+        "upstream fix for the regression we were chasing. Reran the "
+        "full suite afterward to confirm nothing else broke."
+    )
+    is True,
+)
+
+# ds158-i. Hook-level regression pin (not just the unit-level function):
+# a realistic bullet-list answer beside status slots, no other warrant
+# complication, downgrades end-to-end through _execution_prose_flag and
+# main().
+ds158_i_msg = (
+    IDENTITY_COMPLETE + "\n"
+    "State: implementing.\n"
+    "Running: none.\n"
+    "Blocked: none.\n"
+    "- Rewrote the sentence-boundary regex so it no longer splits on a "
+    "colon, which was inflating the unit count on ordinary explanatory "
+    "answers\n"
+    "- Added abbreviation masking so e.g. and i.e. no longer count as "
+    "sentence boundaries either\n"
+)
+rc, out, err = run_hook(make_payload(ds158_i_msg))
+check(
+    "ds158-i. realistic bullet-list answer beside status slots -> "
+    "ADVISORY (downgraded), hook-level end-to-end pin",
+    is_advisory(rc, out, "downgraded to advisory"),
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
