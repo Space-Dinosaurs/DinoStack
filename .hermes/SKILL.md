@@ -1954,11 +1954,11 @@ setting up projects, managing dependencies, writing scripts, or any task
 that involves reading, writing, or reasoning about code and systems.
 ```
 
-### Command files carry the same field
+### Command files use the same trigger principle
 
-Command files express the trigger as a "When to use" field. Every command file
-should answer "use when X, Y, or Z holds" before it explains what the command
-does. Reference example (`content/commands/ds-update-agentic-engineering.md`):
+Where a command file needs a trigger, express it as a "When to use" field. Every
+command file should answer "use when X, Y, or Z holds" before it explains what
+the command does. Reference example (`content/commands/ds-update-agentic-engineering.md`):
 
 ```
 **When to use - use whenever ANY of these hold:**
@@ -2022,10 +2022,12 @@ consumers, Failure modes, Performance).
 file with a complete manifest.
 
 A new command is not done when its file is written. It must also be wired in:
-registered in `bin/ds-help`, listed in `content/SKILL.md` (Commands section),
-and covered by the docs update check in `content/commands/ds-update-agentic-engineering.md`
-Step 3.5. The two principles above apply to the command's description during
-that wiring.
+registered in `bin/ds-help` (the full command inventory), and covered by the
+docs update check in `content/commands/ds-update-agentic-engineering.md`
+Step 3.5. `content/SKILL.md`'s Commands section is a curated subset - only a few
+commands warrant prominent placement there, so add a command to it only when
+that is the case. The two principles above apply to the command's description
+during that wiring.
 
 ---
 
@@ -14363,7 +14365,7 @@ The audit reuses the same telemetry the two siblings read - it is a new read pat
 
 The audit subagent reads three telemetry sources, plus one optional supplementary source if present:
 
-1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`/`spawn_complete` (with `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
+1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`, `spawn_complete` (the conductor-emitted `spawn_complete` variant carries `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`; the hook-emitted variant carries none of the model/status/calibration fields by design - see Model axis), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
 2. `.agentic/session-log/*.jsonl` - per-session rollups: `ts`, `developer_id`, `session_uuid`, `project_slug`, `branch`, and `data.by_agent`.
 3. `~/.agentic/session-log/*.jsonl` - the global cross-project mirror of the same per-session schema.
 4. `.agentic/.enforcement-fires.jsonl` - OPTIONAL supplementary: the guardrail deny/advisory fire log written by `hooks/lib/enforcement_log.py`. Repo-wide cumulative, NOT session-scoped - any tally from it must state that scope. Consult it only for guardrail-fire failure modes; never treat it as a per-session count.
@@ -14407,7 +14409,7 @@ You are categorizing failure modes in an operator's own AI-assistant sessions, p
 
 Data sources and what each contains:
 
-1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`/`spawn_complete` (with `data.model`, `data.status`, `data.session_uuid`, Skeptic calibration fields `findings_count`/`iteration`/`signed_off`), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
+1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`, `spawn_complete` (the conductor-emitted `spawn_complete` variant carries `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`; the hook-emitted variant carries none of the model/status/calibration fields by design - see Model axis), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
 2. `.agentic/session-log/*.jsonl` - per-session rollups: `ts`, `developer_id`, `session_uuid`, `project_slug`, `branch`, `data.by_agent`.
 3. `~/.agentic/session-log/*.jsonl` - global cross-project mirror, same schema.
 4. `.agentic/.enforcement-fires.jsonl` - OPTIONAL, only if present: guardrail deny/advisory log. REPO-WIDE cumulative, not session-scoped - any tally from it must state that scope explicitly.
@@ -21999,7 +22001,7 @@ Out of scope (direct Edit/Write is fine; normal Trivial/Elevated tiers apply):
 
 Note: `.claude/skills/dinostack/**` files are symlinks into `content/` - editing them is functionally editing `content/`, so they remain IN scope via the `content/**` rule above. This is a clarification, not a separate scope.
 
-**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions, bad/good example-pair seeding, and the module-manifest header. New commands must also be registered in `bin/ds-help` and listed in `content/SKILL.md` (Commands section).
+**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions, bad/good example-pair seeding, and the module-manifest header. New commands must be registered in `bin/ds-help` (the full command inventory); `content/SKILL.md`'s Commands section is a curated subset, so list a command there only when it warrants prominent placement.
 
 ## Step 0a - Directory gate (run before Step 0)
 

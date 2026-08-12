@@ -57,7 +57,7 @@ The audit reuses the same telemetry the two siblings read - it is a new read pat
 
 The audit subagent reads three telemetry sources, plus one optional supplementary source if present:
 
-1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`/`spawn_complete` (with `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
+1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`, `spawn_complete` (the conductor-emitted `spawn_complete` variant carries `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`; the hook-emitted variant carries none of the model/status/calibration fields by design - see Model axis), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
 2. `.agentic/session-log/*.jsonl` - per-session rollups: `ts`, `developer_id`, `session_uuid`, `project_slug`, `branch`, and `data.by_agent`.
 3. `~/.agentic/session-log/*.jsonl` - the global cross-project mirror of the same per-session schema.
 4. `.agentic/.enforcement-fires.jsonl` - OPTIONAL supplementary: the guardrail deny/advisory fire log written by `hooks/lib/enforcement_log.py`. Repo-wide cumulative, NOT session-scoped - any tally from it must state that scope. Consult it only for guardrail-fire failure modes; never treat it as a per-session count.
@@ -101,7 +101,7 @@ You are categorizing failure modes in an operator's own AI-assistant sessions, p
 
 Data sources and what each contains:
 
-1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`/`spawn_complete` (with `data.model`, `data.status`, `data.session_uuid`, Skeptic calibration fields `findings_count`/`iteration`/`signed_off`), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
+1. `.agentic/events.jsonl` - orchestration-boundary telemetry: `spawn_start`, `spawn_complete` (the conductor-emitted `spawn_complete` variant carries `data.model`, `data.status`, `data.session_uuid`, and Skeptic calibration fields `findings_count`/`iteration`/`signed_off`; the hook-emitted variant carries none of the model/status/calibration fields by design - see Model axis), `session_total`, `tool_failure_workaround` (`data.tool`, `data.domain_tag`, `data.note`), `tracker_writeback`, `meta_review_complete`. Full schemas: `content/references/events-log.md`.
 2. `.agentic/session-log/*.jsonl` - per-session rollups: `ts`, `developer_id`, `session_uuid`, `project_slug`, `branch`, `data.by_agent`.
 3. `~/.agentic/session-log/*.jsonl` - global cross-project mirror, same schema.
 4. `.agentic/.enforcement-fires.jsonl` - OPTIONAL, only if present: guardrail deny/advisory log. REPO-WIDE cumulative, not session-scoped - any tally from it must state that scope explicitly.

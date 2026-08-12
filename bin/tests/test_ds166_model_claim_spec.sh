@@ -12,7 +12,11 @@
 #          sequential-multi-unit PRs while the round-1 comment falsely claimed the site
 #          "writes nothing to disk." A prose edit that removes ticket_id from either
 #          claim site (re-opening the inert-line bug), drops the jq's ticket scoping, or
-#          removes the Model: printf fails here.
+#          removes the Model: printf fails here. The jq-scoping pin is block-specific:
+#          it extracts the ENGINEER_MODEL jq block from the content file rather than
+#          grep-ing the whole file, because '.ticket_id == $t' also appears in unrelated
+#          jq (ds-implement-ticket.md:1048/2825/2834) and a whole-file grep would stay
+#          green if only the ENGINEER_MODEL jq lost its scoping.
 #
 # Public API: ./bin/tests/test_ds166_model_claim_spec.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -78,9 +82,25 @@ else
 fi
 
 # --- Prose-pin: ENGINEER_MODEL jq scopes on ticket_id; Model: printf survives ---
-grep -qF '.ticket_id == $t' "$DIT" \
-  && _pass "ENGINEER_MODEL jq scopes on .ticket_id == \$t" \
-  || _fail "ENGINEER_MODEL jq no longer scopes on .ticket_id == \$t"
+# Extract the ENGINEER_MODEL jq block from the content file itself (from the
+# ENGINEER_MODEL=$(jq assignment to the terminating '| unique | join(", ")' line)
+# and assert BOTH its ticket scoping and its engineer filter survive. A whole-file
+# grep for '.ticket_id == $t' would NOT trip on a scoping removal - that string
+# also appears in pre-existing jq at ds-implement-ticket.md:1048/2825/2834
+# (ticket-rework ledger / loop-state reads) - so the pin must be block-specific.
+JQ_START="$(grep -nF 'ENGINEER_MODEL=$(jq' "$DIT" | head -1 | cut -d: -f1)"
+JQ_END="$(grep -nF '| unique | join(", ")' "$DIT" | head -1 | cut -d: -f1)"
+if [ -z "$JQ_START" ] || [ -z "$JQ_END" ] || [ "$JQ_START" -gt "$JQ_END" ]; then
+  _fail "ENGINEER_MODEL jq block not locatable in $DIT (start line '$JQ_START', end line '$JQ_END')"
+else
+  ENGINEER_MODEL_BLOCK="$(sed -n "${JQ_START},${JQ_END}p" "$DIT")"
+  printf '%s' "$ENGINEER_MODEL_BLOCK" | grep -qF '.ticket_id == $t' \
+    && _pass "ENGINEER_MODEL jq block scopes on .ticket_id == \$t" \
+    || _fail "ENGINEER_MODEL jq block no longer scopes on .ticket_id == \$t (whole-file grep would miss this - .ticket_id == \$t survives at :1048/2825/2834)"
+  printf '%s' "$ENGINEER_MODEL_BLOCK" | grep -qF 'assigned_agent == "engineer"' \
+    && _pass "ENGINEER_MODEL jq block filters on assigned_agent == \"engineer\"" \
+    || _fail "ENGINEER_MODEL jq block no longer filters on assigned_agent == \"engineer\""
+fi
 grep -qF 'printf "\nModel: %s\n" "$ENGINEER_MODEL"' "$DIT" \
   && _pass "Model: printf form present" \
   || _fail "Model: printf form missing"
