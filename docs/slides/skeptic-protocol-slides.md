@@ -274,7 +274,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
   .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
-- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes** before escalating to the human
+- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes**. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. Inside Phase 6 specifically, the ship branch requires operator approval today.
 - **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
