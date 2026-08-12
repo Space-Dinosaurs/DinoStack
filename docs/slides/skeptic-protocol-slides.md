@@ -274,7 +274,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
   .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
-- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes**. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. Inside Phase 6 specifically, the ship branch requires operator approval today.
+- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes**. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. The round count is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` (denies a 4th Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller, when the spawn prompt's "Diff under review" line is present and unambiguous (fails open with no state written otherwise); known residual: two units both expressed as a bare `git diff <same-base>..<head>` SHA range share one counter. The Critical-never-ships rule inside it is conductor-attested, not independently verified. Phase 6's own step text does not yet describe the ship branch.
 - **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies

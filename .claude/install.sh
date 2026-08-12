@@ -898,6 +898,15 @@ upsert_hook(
 ENFORCE_BG_CMD = f"python3 {hooks_root}/hooks/enforce-background-spawn.py"
 ENFORCE_SINGULARITY_CMD = f"python3 {hooks_root}/hooks/enforce-orchestrator-singularity.py"
 ENFORCE_TIER_CMD = f"python3 {hooks_root}/hooks/enforce-tier.py"
+# Uses a GUARDED command string (like enforce-turn-shape.py, unlike its
+# bare-`python3 {path}` siblings above): `python3 <missing path>` exits 2
+# (BLOCKING on PreToolUse), so if this file were ever removed while the
+# registration survives in the operator's settings.json, every Skeptic
+# spawn would silently deny until hand-fixed. The guard prevents that.
+ENFORCE_SKEPTIC_ROUND_CAP_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-skeptic-round-cap.py && "
+    f"python3 {hooks_root}/hooks/enforce-skeptic-round-cap.py || exit 0"
+)
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -940,6 +949,20 @@ for spawn_matcher in ("Task", "Agent"):
         "enforce-tier.py",
         {"type": "command", "command": ENFORCE_TIER_CMD, "timeout": 5},
         f"PreToolUse({spawn_matcher}) tier-enforcement hook",
+    )
+
+    # Mechanically enforces the ad-hoc Skeptic round-budget policy
+    # (content/sections/05-qa-gate.md §Re-route limits): denies a 4th
+    # Skeptic round for the same unit unless the conductor has recorded an
+    # explicit ship or escalate decision in the per-unit
+    # .agentic/skeptic-round-*.json state file. Fires only on
+    # subagent_type == "skeptic"; fail-open on any error (missing git repo,
+    # unparsable state, write failure).
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-skeptic-round-cap.py",
+        {"type": "command", "command": ENFORCE_SKEPTIC_ROUND_CAP_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) skeptic-round-cap enforcement hook",
     )
 
     # Emits a spawn_start telemetry event to .agentic/events.jsonl on every
