@@ -753,116 +753,49 @@ def init_project_text() -> str:
     return INIT_PROJECT_PATH.read_text(encoding="utf-8")
 
 
-def _step9_fenced_block(text: str) -> str:
-    # Scope every anchor/position assertion below to the Step 9 gitignore
-    # fenced block itself, not the whole file. A file-wide str.index() is
-    # sound only as long as every anchor is unique across the entire
-    # document; Step 11 (prose row 8) adds a second, later
-    # ".agentic/tracker.yml" mention, so scoping here is what keeps this
-    # test non-vacuous against that addition (Minor 2, r3 changelog).
-    marker = "# Agentic engineering runtime artifacts"
-    idx = text.index(marker)
-    fence_start = text.rfind("```", 0, idx)
-    fence_end = text.index("```", idx)
-    return text[fence_start:fence_end]
-
-
-def test_tracker_yml_ignore_line_between_anchors(init_project_text):
-    # Position assertion: `.agentic/tracker.yml` must sit strictly between
-    # the two anchor lines, inside the ignore-pattern run of the fenced
-    # block. This fails both if the line is dropped entirely AND if it is
-    # re-placed under the "# Tracked (explicitly NOT ignored):" comment
-    # block, where it would misleadingly read as one of the tracked files.
-    block = _step9_fenced_block(init_project_text)
-    compression_idx = block.index(".agentic/compression-state.json")
-    tracker_states_idx = block.index(".agentic/tracker-states.json")
-    assert compression_idx < tracker_states_idx, (
-        "anchor ordering assumption violated: .agentic/compression-state.json "
-        "must precede .agentic/tracker-states.json"
+def test_tracker_yml_ignored_by_default_no_negation(init_project_text):
+    # Round 3 rework (fix/shipped-gitignore-umbrella-gaps): Step 9 no longer
+    # hand-enumerates `.agentic/tracker.yml` as an ignore line at all - it
+    # delegates the whole `.agentic/` gitignore portion to `ds-migrate apply`
+    # against content/project-scaffolding.yml (default-deny umbrella). The
+    # DS-74 consumer-protection concern this test class originally guarded
+    # ("the ignore rule must land before the .agentic/tracker.yml overlay
+    # file itself exists anywhere") is now satisfied structurally: any path
+    # under `.agentic/` with no explicit `!.agentic/<file>` negation in the
+    # manifest is ignored by construction, with no enumeration step required.
+    # This test asserts the other half of that invariant directly against
+    # the manifest: tracker.yml (per-operator local tracker config, may carry
+    # an operator's own account ID) must NOT be negated.
+    manifest_text = (REPO_ROOT / "content" / "project-scaffolding.yml").read_text(
+        encoding="utf-8"
     )
-    tracker_yml_idx = block.index(".agentic/tracker.yml")
-    assert compression_idx < tracker_yml_idx < tracker_states_idx, (
-        ".agentic/tracker.yml must occur strictly between "
-        ".agentic/compression-state.json and .agentic/tracker-states.json "
-        "in the Step 9 gitignore block - this is the consumer-protection "
-        "line that must land before the .agentic/tracker.yml overlay file "
-        "itself exists anywhere (DS-74)"
+    assert '"!.agentic/tracker.yml"' not in manifest_text, (
+        ".agentic/tracker.yml must stay ignored by default (no negation) - "
+        "it is per-operator local tracker config that may carry an "
+        "operator's own account ID, and must never be committed"
     )
-    tracked_comment_idx = block.index(
-        "# Tracked (explicitly NOT ignored):"
+    # Step 9 must actually delegate to ds-migrate apply for this to hold in
+    # practice, not just in the manifest - covered by
+    # TestInitProjectStep9SingleSourced.test_step9_delegates_to_ds_migrate_apply
+    # in bin/tests/test_agentic_migrate.py; re-asserted here narrowly so this
+    # file does not depend on that one for its own non-vacuousness.
+    #
+    # MAJOR 1 (round 4): anchored on the fenced executable block, not a bare
+    # substring-in-section check. A bare `"ds-migrate apply" in section`
+    # check stayed green even with the executable block replaced by
+    # `echo 'nothing to do'`, because the substring survives in incidental
+    # prose mentions elsewhere in the section - see the sibling fix and
+    # mutation proof in bin/tests/test_agentic_migrate.py.
+    section_start = init_project_text.index("### 9. Create `.gitignore`")
+    section_end = init_project_text.index("\n### 10.", section_start)
+    section = init_project_text[section_start:section_end]
+    fences = re.findall(r"```\n(.*?)```", section, re.DOTALL)
+    executable_fences = [f for f in fences if f.strip().startswith("ds-migrate apply")]
+    assert len(executable_fences) == 1, (
+        "Step 9 must contain exactly one fenced block whose content IS the "
+        "literal `ds-migrate apply` invocation; found "
+        f"{len(executable_fences)}."
     )
-    assert tracker_yml_idx < tracked_comment_idx, (
-        ".agentic/tracker.yml must appear BEFORE the "
-        "'# Tracked (explicitly NOT ignored):' comment block - placed after "
-        "it, the line would misleadingly read as one of the tracked files "
-        "rather than an ignored one"
-    )
-
-
-def _step9_enumeration_paragraph(text: str) -> str:
-    marker = "since none of the"
-    idx = text.index(marker)
-    # The enumeration paragraph is a single unbroken line in the source
-    # (no internal newlines); isolate it by line boundaries around the
-    # marker so the paragraph-scoped assertions below are non-vacuous
-    # against the rest of the file.
-    line_start = text.rfind("\n", 0, idx) + 1
-    line_end = text.find("\n", idx)
-    if line_end == -1:
-        line_end = len(text)
-    return text[line_start:line_end]
-
-
-def test_step9_enumeration_names_tracker_yml(init_project_text):
-    paragraph = _step9_enumeration_paragraph(init_project_text)
-    assert "`tracker-states.json`" in paragraph, (
-        "sanity check: the Step 9 enumeration paragraph anchor must be "
-        "present"
-    )
-    assert (
-        "per-operator local tracker config; never committed"
-        in paragraph
-    ), (
-        "the Step 9 enumeration paragraph must name tracker.yml explicitly "
-        "('per-operator local tracker config; never committed'), not just "
-        "update the count word"
-    )
-
-
-# Word forms for the plausible ignore-pattern-line-count range. Extend this
-# map (never re-pin a literal count word) if the block legitimately grows
-# past 20 lines.
-_NUMBER_WORDS = {
-    10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
-    15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
-    19: "nineteen", 20: "twenty",
-}
-
-
-def test_step9_enumeration_count_word_matches_actual_line_count(init_project_text):
-    # Derived, not pinned (Minor 1, r3 changelog): parse the actual number
-    # of `.agentic/...` ignore-pattern lines in the fenced block and assert
-    # the enumeration paragraph's count word matches THAT number - a future
-    # 17th ignore line added without updating the prose now fails this
-    # assertion instead of silently passing against a stale literal.
-    block = _step9_fenced_block(init_project_text)
-    ignore_lines = [
-        line for line in block.splitlines()
-        if re.match(r"^\.agentic/", line.strip())
-    ]
-    count = len(ignore_lines)
-    assert count in _NUMBER_WORDS, (
-        f"ignore-pattern-line count {count} is outside the mapped word range; "
-        "extend _NUMBER_WORDS"
-    )
-    expected_word = _NUMBER_WORDS[count]
-    paragraph = _step9_enumeration_paragraph(init_project_text)
-    assert f"since none of the {expected_word} lines above them" in paragraph, (
-        f"the Step 9 enumeration paragraph's count word must match the actual "
-        f"count of ignore-pattern lines in the fenced block ({count} -> "
-        f"'{expected_word}'); paragraph: {paragraph!r}"
-    )
-
 
 # ---------------------------------------------------------------------------
 # PR2 prose assertions (DS-74): the .agentic/tracker.yml overlay merge rule,

@@ -164,7 +164,7 @@ qa-engineer preflight: blocking
 
 ## Cache schema
 
-File: `.agentic/.capability-cache.json` (gitignored under the `.agentic/` umbrella).
+File: `.agentic/.capability-cache.json` (matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)).
 
 ```json
 {

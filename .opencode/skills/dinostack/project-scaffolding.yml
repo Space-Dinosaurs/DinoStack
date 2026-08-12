@@ -14,15 +14,55 @@
 #              never carried a matching negation, so a repo that adopted the
 #              .agentic/* umbrella via ds-migrate (rather than /ds-init-project)
 #              silently ignored all three.
+#          v6: adds !.agentic/phase0-classifiers.yml and
+#              !.agentic/deferred-work.jsonl negations, closing a divergence
+#              between the two adoption paths caught by
+#              bin/tests/test_agentic_migrate.py's
+#              test_negation_set_matches_tracked_outcome: both files are
+#              tracked by /ds-init-project Step 9 (phase0-classifiers.yml is
+#              executable-code-equivalent and deliberately committed;
+#              deferred-work.jsonl is a durable cross-teammate backlog, same
+#              shape as skill-candidates.md) but this manifest's umbrella
+#              ignored both with no negation, so a repo adopted via ds-migrate
+#              silently ignored files a repo scaffolded via /ds-init-project
+#              commits by default.
+#          v7: /ds-init-project Step 9 is inverted from a default-allow
+#              denylist to a default-deny umbrella (same shape as this
+#              manifest) and now literally runs `ds-migrate apply` against
+#              THIS file instead of hand-copying a second gitignore block -
+#              the two adoption routes share one source from this version
+#              forward and can no longer diverge by construction. Adds
+#              !.agentic/presets.yml: per-path review of files newly exposed
+#              by the inversion (see content/commands/ds-init-project.md
+#              Step 9's "Deliberately excluded" paragraph for the full list
+#              and rationale) found presets.yml is the one that should be
+#              tracked - its schema (agent/tier/brief_prefix, see
+#              content/references/spawn-presets.md) carries no model handles
+#              or other private data, unlike .agentic/tier-map.yml and
+#              .agentic/role-models.yml (both hold concrete model names/IDs
+#              and stay ignored, un-negated, for that reason) - and a
+#              project-local .agentic/presets.yml is exactly the kind of
+#              shared, team-visible project override this manifest already
+#              tracks .agentic/config.json for. /ds-init-project deliberately
+#              does NOT seed .agentic/presets.yml (only ~/.agentic/presets.yml,
+#              the user-global library - see Step 6d); the negation here only
+#              makes a project-local presets.yml committable if and when an
+#              operator chooses to author one, it does not create the file.
 # Public API: read by bin/ds-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
+#             Also read directly by /ds-init-project Step 9, which invokes
+#             `ds-migrate apply` against this manifest as its sole mechanism
+#             for the `.agentic/` portion of a fresh project's .gitignore -
+#             this file is the single source of truth for BOTH adoption
+#             routes as of v7.
 # Upstream: none (this is the canonical source)
 # Downstream: bin/ds-migrate, content/sections/01-activation-preflight.md (Step 6),
-#             content/commands/ds-migrate-project.md
+#             content/commands/ds-migrate-project.md,
+#             content/commands/ds-init-project.md (Step 9, as of v7)
 # Failure modes: if malformed or missing, ds-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 5
+scaffolding_version: 7
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
@@ -46,6 +86,12 @@ gitignore:
     purpose: "committed: tool-agnostic deploy runbook shared across operators"
   - pattern: "!.agentic/tracking.md"
     purpose: "committed: tool-agnostic tracker config shared across operators"
+  - pattern: "!.agentic/phase0-classifiers.yml"
+    purpose: "committed: executable-code-equivalent Phase 0 classifiers, same as /ds-init-project Step 9"
+  - pattern: "!.agentic/deferred-work.jsonl"
+    purpose: "committed: durable cross-teammate deferred-work backlog, same as /ds-init-project Step 9"
+  - pattern: "!.agentic/presets.yml"
+    purpose: "committed: project-local spawn-preset overrides (agent/tier/brief_prefix only - no model handles, unlike tier-map.yml/role-models.yml)"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
