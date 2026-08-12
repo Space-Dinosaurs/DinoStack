@@ -3392,6 +3392,63 @@ check(
     _mod._volume_flag(mb2_creep_msg, _mb2_creep_warrants) is not None,
 )
 
+# mb1-len / mb2-len (Skeptic Major 1). A SINGLE arbitrarily long
+# narrative line prefixed "## " or wrapped in "| ... |" must NOT pass
+# with no block and no advisory - it is a length violation, closed the
+# same way an over-length State:/Running:/Blocked: slot line already
+# is: BLOCKING immediately, not silently recognized as exempt
+# structure. Pre-Skeptic-Major-1-fix this passed completely invisibly
+# (neither the structural check nor the line-count volume check ever
+# saw it, since it was one recognized/skipped line).
+_giant_narrative = (
+    "This is a genuinely long narrative paragraph disguised as "
+    "recognized markup. " * 18
+).strip()
+assert len(_giant_narrative) > _mod.STATUS_LINE_MAX_CHARS
+
+mb1_len_msg = IDENTITY_COMPLETE + "\n## " + _giant_narrative + "\n"
+rc, out, err = run_hook(make_payload(mb1_len_msg))
+check(
+    "mb1-len. general branch: an over-length markdown HEADING line "
+    "BLOCKS on length, exactly like an over-length slot line does "
+    "(real-corpus-adjacent stress case, general branch)",
+    is_blocking(rc, out, "markdown heading/table row is"),
+)
+
+mb2_len_msg = IDENTITY_COMPLETE + "\n| " + _giant_narrative + " |\n"
+rc, out, err = run_hook(make_payload(mb2_len_msg))
+check(
+    "mb2-len. general branch: an over-length markdown TABLE ROW "
+    "BLOCKS on length, exactly like an over-length slot line does",
+    is_blocking(rc, out, "markdown heading/table row is"),
+)
+
+mb2_len_sole_msg = (
+    IDENTITY_OK + "\n"
+    "Waiting: engineer - unit 3.\n"
+    "| " + _giant_narrative + " |\n"
+)
+rc, out, err = run_hook(make_payload(mb2_len_sole_msg))
+check(
+    "mb2-len-sole. sole-stoppage branch: an over-length markdown TABLE "
+    "ROW also BLOCKS on length (the length bound applies on BOTH "
+    "branches, mirroring the slot-line length check)",
+    is_blocking(rc, out, "sole-stoppage"),
+)
+
+# mb1-len2/mb2-len2. Reference control: an over-length State: slot line
+# already blocked before this fix - direct comparison proving the new
+# heading/table length check now produces the SAME verdict class on the
+# same input shape (both BLOCK on a length-violation finding), not a
+# coincidentally-similar but different code path.
+mb_slot_len_msg = IDENTITY_COMPLETE + "\nState: " + _giant_narrative + "\n"
+rc, out, err = run_hook(make_payload(mb_slot_len_msg))
+check(
+    "mb-slot-len (reference). an over-length State: slot line BLOCKS "
+    "on length - unchanged reference point for mb1-len/mb2-len above",
+    is_blocking(rc, out, "status slot line is"),
+)
+
 # mb3. Real-corpus turn_0093 shape: a sole-stoppage turn (a "Waiting:"
 # line is the ONLY warrant) followed by a genuine two-sentence
 # explanatory paragraph. Pre-fix: the sole-stoppage branch had NO

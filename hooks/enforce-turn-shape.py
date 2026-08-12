@@ -711,21 +711,42 @@ _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
 # average-words evidence another block needs to downgrade.
 #
 # Can a creep author defeat this by formatting narrative pings as
-# headings or a table? Only partially, and the residual is bounded the
-# same way an unbounded sprawl of State:/Running:/Blocked: slot lines
-# already is today: a recognized line is skipped by this STRUCTURAL
-# shape check (_execution_prose_flag) but is NOT exempted from the
-# separate CHARGE model (_turn_charge/_volume_flag) below - every
-# heading and table row still charges 1 status-region line there
-# (neither pattern is referenced anywhere in _turn_charge), so an
-# unbounded sprawl of heading- or table-formatted content still trips
-# the existing ADVISORY turn-volume check at BASE_BODY_BUDGET, exactly
-# as an unbounded sprawl of slot lines already does. This is a
-# deliberate, disclosed limit (mirrors the module docstring's "Named
-# accepted limits" list), not a claim that recognition closes narrative
-# creep formatted as a table/heading outright - it moves that shape from
-# BLOCKING to the pre-existing ADVISORY volume backstop, same posture
-# the fixed-set slot-line vocabulary already has.
+# headings or a table? Two distinct axes, both now bounded, and it is
+# important not to overstate what closes each one (Skeptic Major 1/2,
+# original bound claim measured false - see below):
+#
+#   1. LENGTH (a single arbitrarily long line prefixed "## " or wrapped
+#      in "| ... |"). This is bounded DIRECTLY by _STATUS_LINE_MAX_CHARS
+#      at the recognition site itself, in _execution_prose_flag - a
+#      recognized heading/table row over STATUS_LINE_MAX_CHARS is NOT
+#      treated as exempt structure at all; it is a length violation and
+#      BLOCKS immediately, exactly the same way an over-length
+#      State:/Running:/Blocked: slot line already does. Measured before
+#      this bound existed: a 1,406-character single line prefixed "## "
+#      or wrapped in "| ... |" produced NO block and NO advisory finding
+#      at all (the volume check's LINE-COUNT model never saw it, since
+#      it was one recognized, skipped line) - the exact gap DS-156's
+#      STATUS_LINE_MAX_CHARS bound on the identity line was built to
+#      close, reopened by this fix's own two-character prefix. Closed.
+#   2. VOLUME (many separate SHORT recognized heading/table lines, each
+#      individually within STATUS_LINE_MAX_CHARS). A well-formed-length
+#      recognized line is skipped by this STRUCTURAL shape check
+#      (_execution_prose_flag) but is NOT exempted from the separate
+#      CHARGE model (_turn_charge/_volume_flag) below - every such line
+#      still charges 1 status-region line there (neither pattern is
+#      referenced anywhere in _turn_charge), so an unbounded SPRAWL of
+#      short heading- or table-formatted lines still trips the existing
+#      ADVISORY turn-volume check at BASE_BODY_BUDGET (see
+#      hooks/tests/test-enforce-turn-shape.py's mb1-creep/mb2-creep).
+#      This axis is a LINE-COUNT budget only - it does not, and never
+#      did, bound the CONTENT LENGTH of an individual line; axis 1 above
+#      is what closes that. Recognition is also NOT a fixed label
+#      vocabulary the way State:/Running:/Blocked: is - a well-formed-
+#      length heading/table row's CONTENT remains as unbounded as a
+#      well-formed-length slot line's content already is (bounded SHAPE
+#      and LENGTH, never MEANING, the same limitation the Known
+#      uncovered shapes table in conductor-turn-format.md already
+#      discloses for slot lines).
 _MARKDOWN_HEADING_RE = re.compile(r"^ {0,3}#{1,6}[ \t]+\S")
 _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 
@@ -1811,6 +1832,12 @@ def _execution_prose_flag(text: str, warrants: dict):
                 _break_block()
                 continue
             if _MARKDOWN_HEADING_RE.match(line) or _TABLE_ROW_RE.match(line):
+                if len(stripped) > STATUS_LINE_MAX_CHARS:
+                    return (
+                        "execution turn (sole-stoppage): markdown heading/"
+                        "table row is {} characters, over the "
+                        "{}-character limit"
+                    ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
                 _break_block()
                 continue
             current_block.append(line)
@@ -1913,8 +1940,19 @@ def _execution_prose_flag(text: str, warrants: dict):
             # markdown heading or table row is recognized structure, same
             # posture as a slot/Waiting: line - it breaks contiguity and
             # is skipped, never folded into a block's word/unit count.
+            # Skeptic Major 1: length-bounded the SAME way a slot line
+            # is, closing the gap where an arbitrarily long narrative
+            # line prefixed "## " or wrapped in "| ... |" passed with no
+            # block and no advisory - over STATUS_LINE_MAX_CHARS it is a
+            # length violation and BLOCKS, exactly like an over-length
+            # slot line does, rather than being silently recognized.
             # See _MARKDOWN_HEADING_RE/_TABLE_ROW_RE above for the
             # "can a creep author defeat this" analysis and its bound.
+            if len(stripped) > STATUS_LINE_MAX_CHARS:
+                return (
+                    "execution turn: markdown heading/table row is {} "
+                    "characters, over the {}-character limit"
+                ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
             if current_block:
                 blocks.append(current_block)
                 current_block = []
