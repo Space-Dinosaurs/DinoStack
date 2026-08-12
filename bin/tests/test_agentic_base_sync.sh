@@ -9,7 +9,11 @@
 # Public API: ./bin/tests/test_agentic_base_sync.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp, awk.
+# Upstream deps: bash, git, mktemp, awk, python3, bin/ds-reap-worktrees (case
+#                18 exercises bin/agentic-base-sync's worktree-reaper
+#                advisory note, which shells out to `python3
+#                bin/ds-reap-worktrees --count-only` - both are load-bearing
+#                for that case, not merely for the tool under test).
 #
 # Downstream consumers: bin-tests CI job (glob-picked-up test_*.sh).
 #
@@ -18,7 +22,11 @@
 #                every failure, not just the first). All fixtures live under
 #                a temporary directory; the real repo is never touched.
 #
-# Performance: < 10 s wall time (pure git + shell, no network).
+# Performance: ~12.7 s wall time (pure git + shell, no network) - measured via
+#              `time bash bin/tests/test_agentic_base_sync.sh`; this figure
+#              was already stale (previously cited as "< 10 s") before this
+#              ticket, and case 18's `python3` subprocess is a small
+#              additional contributor, not the whole gap.
 #
 # Regression coverage: see plan-base-branch-sync.md cases 1-14 (11 and 14
 #                       revised per round-3 Skeptic correction - see inline

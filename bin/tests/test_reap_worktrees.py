@@ -126,13 +126,18 @@ def run_reap(
     extra=None,
     cwd: Path = None,
     gh_dir: Path = None,
+    git_dir: Path = None,
 ):
     """`gh_dir`, when given, is prepended onto PATH (round-6: `gh_dir` is
     normally the output of `_fake_gh_dir` below) so `_gh_available()`
     resolves a real, present, authenticated `gh` without any actual
     network/API dependency - required for any `--archive-unproven`
     scenario now that it refuses to run in degraded gh mode (Skeptic
-    Major 2)."""
+    Major 2). `git_dir`, when given (normally the output of
+    `_fake_git_dir_remove_fails` below), is prepended ahead of `gh_dir` so a
+    stub `git` that intercepts only `git worktree remove` (passing every
+    other invocation through to the real binary) can force a removal
+    failure deterministically."""
     cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--base", base, "--explain"]
     if dry_run:
         cmd.append("--dry-run")
@@ -143,30 +148,82 @@ def run_reap(
     if extra:
         cmd += extra
     env = None
-    if gh_dir is not None:
+    prepend_dirs = [d for d in (git_dir, gh_dir) if d is not None]
+    if prepend_dirs:
         env = dict(os.environ)
-        env["PATH"] = f"{gh_dir}{os.pathsep}{env.get('PATH', '')}"
+        prefix = os.pathsep.join(str(d) for d in prepend_dirs)
+        env["PATH"] = f"{prefix}{os.pathsep}{env.get('PATH', '')}"
     return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None, env=env)
 
 
-def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "") -> Path:
-    """Round-6: a directory containing a stub `gh` executable answering
-    `gh auth status` with success and `gh pr view <branch> --json state
-    -q .state` with `pr_state` (empty stdout = no PR found, matching a real
-    `gh pr view` on a branch with no PR). Zero real network/API dependency -
-    used only by scenarios that need `--archive-unproven` to actually run,
-    since it now refuses in degraded gh mode (see `--archive-unproven`
-    requires PR evidence)."""
+def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "", pr_list_fails: bool = False) -> Path:
+    """Round-6 (extended by the round-N Major fix): a directory containing
+    a stub `gh` executable answering `gh auth status` with success and
+    `gh pr list --head <branch> --state all --json number,state --limit 1`
+    per `pr_list_fails`/`pr_state`:
+
+      - `pr_list_fails=True`: the `pr list` invocation exits nonzero (a
+        stderr message, no stdout) - simulates a transient query failure
+        (rate limit, auth hiccup, network blip) that is DISTINCT from "no
+        PR exists" - see `_pr_state`'s own docstring for why this must
+        never be collapsed into a `pr_state="NONE"` reading. `gh auth
+        status` still succeeds, matching the real-world shape of the bug:
+        the PROCESS-level gh-availability gate cannot see this, only a
+        PER-ENTRY query can fail this way.
+      - `pr_state` non-empty: returns a single-row JSON array
+        `[{"number": 1, "state": "<pr_state>"}]`, matching a real `gh pr
+        list` for a branch with exactly one PR in that state.
+      - `pr_state` empty (default) and `pr_list_fails=False`: returns `[]`,
+        matching a real `gh pr list` for a branch with no PR at all.
+
+    Zero real network/API dependency in any case - used only by scenarios
+    that need `--archive-unproven` to actually run, since it refuses in
+    degraded gh mode (see `--archive-unproven requires PR evidence`)."""
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir(exist_ok=True)
     gh = bin_dir / "gh"
+    if pr_list_fails:
+        pr_list_body = 'echo "gh: API rate limit exceeded" >&2; exit 1'
+    elif pr_state:
+        pr_list_body = f"echo '[{{\"number\": 1, \"state\": \"{pr_state}\"}}]'; exit 0"
+    else:
+        pr_list_body = "echo '[]'; exit 0"
     gh.write_text(
         "#!/usr/bin/env bash\n"
         'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi\n'
-        f'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo "{pr_state}"; exit 0; fi\n'
+        f'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then {pr_list_body}; fi\n'
         "exit 1\n"
     )
     gh.chmod(0o755)
+    return bin_dir
+
+
+def _fake_git_dir_remove_fails(tmp_path: Path) -> Path:
+    """Round-N Minor (a) regression coverage: a directory containing a stub
+    `git` that intercepts ONLY a `worktree remove` invocation (anywhere in
+    its argv, so it matches regardless of a preceding `-C <repo>`) and
+    fails it deterministically, passing every other invocation through to
+    the REAL `git` binary (resolved once, at generation time, via
+    `shutil.which` - so the stub's own `exec` call can never recurse into
+    itself even though its directory is prepended onto PATH ahead of the
+    real `git`)."""
+    real_git = shutil.which("git")
+    assert real_git, "real `git` must be on PATH to build this stub"
+    bin_dir = tmp_path / "fakegitbin"
+    bin_dir.mkdir(exist_ok=True)
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'args=("$@")\n'
+        'for i in "${!args[@]}"; do\n'
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "remove" ]; then\n'
+        '    echo "fatal: simulated worktree remove failure" >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        "done\n"
+        f'exec "{real_git}" "$@"\n'
+    )
+    git_stub.chmod(0o755)
     return bin_dir
 
 
@@ -237,7 +294,13 @@ def test_unpushed_branch_with_unique_commits_is_unproven(tmp_path):
     # correctly degrades this same leg to "not_checked" -> the more
     # generic SKIP_AMBIGUOUS_NO_PR fallback instead - both are SKIP_UNPROVEN
     # on display, but this scenario is testing the ls-remote leg itself).
-    proc = run_reap(repo, dry_run=False, no_gh=False)
+    # gh_dir pins the PR-state leg to a deterministic, genuine "no PR"
+    # answer (round-N fix): without it, this scenario's outcome depends on
+    # whether the machine running the suite happens to have a real,
+    # authenticated `gh` on PATH - and, if so, on that `gh pr list` call
+    # failing (this is not a real GitHub repo) now correctly resolving to
+    # `SKIP_PR_QUERY_ERROR` rather than being silently swallowed as before.
+    proc = run_reap(repo, dry_run=False, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_NOT_PUSHED)"
@@ -1386,3 +1449,149 @@ def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
         f"restored SHA {restored_sha} does not match the original {original_sha} - "
         "a bundle file merely existing is not proof of a working restore path"
     )
+
+
+# --------------------------------------------------------------------------
+# 26. (round-N MAJOR fix) A transient `gh pr list` QUERY FAILURE is a
+#     distinct fact from "no PR exists" and must NEVER be archived, even
+#     with --archive-unproven set. Pre-fix, `_pr_state` collapsed a query
+#     failure into `pr_state="NONE"`, which - combined with a genuinely
+#     pushed branch (so `ls_remote_status="pushed"` is also inconclusive) -
+#     fell through to the generic `SKIP_AMBIGUOUS_NO_PR` disposition, which
+#     IS on `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`. A worktree behind a REAL
+#     OPEN PR whose query merely hit a transient failure on this one run
+#     would therefore be silently bundled and removed. `gh auth status`
+#     succeeds in this scenario (process-level gh availability is fine) -
+#     only the per-branch `gh pr list` call fails, which is exactly the
+#     shape the process-level `--no-gh`/degraded-mode refusal cannot see.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_never_archives_pr_query_error_entry(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-prqerr", "worktree-agent-prqerr", push=True)
+    (wt / "extra.txt").write_text("unique work behind what would be a live OPEN PR\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", "worktree-agent-prqerr")
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path, pr_list_fails=True),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PR_QUERY_ERROR"), result[str(wt)]
+    # Never archived, never removed.
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+    counts = bucket_counts(summary_line(proc.stdout))
+    assert counts.get("archived-and-removed", 0) == 0
+    assert counts.get("removed", 0) == 0
+
+
+def test_pr_query_error_visible_without_archive_flag_too(tmp_path):
+    """The reclassification is not gated on --archive-unproven - a plain
+    run must also report the query failure visibly (never a silent
+    mode=live / SKIP_UNPROVEN read that hides the ambiguity from the
+    operator)."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-prqerr2", "worktree-agent-prqerr2", push=True)
+    (wt / "extra.txt").write_text("unique work - not merely an ancestor-of-base branch\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", "worktree-agent-prqerr2")
+
+    proc = run_reap(repo, dry_run=False, no_gh=False, gh_dir=_fake_gh_dir(tmp_path, pr_list_fails=True))
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PR_QUERY_ERROR"), result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert "skipped-pr-query-error=1" in summary_line(proc.stdout)
+
+
+# --------------------------------------------------------------------------
+# 27. (round-N Minor b) `SKIP_LS_REMOTE_ERROR`'s exclusion from the archive
+#     whitelist was previously pinned only by the doc's own claim, never by
+#     a test forcing the ACTUAL disposition. Corrupts the `origin` remote
+#     URL so `git ls-remote` genuinely errors (not merely "not_pushed").
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_never_archives_ls_remote_error_entry(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-lsrerr", "worktree-agent-lsrerr", push=False)
+    (wt / "extra.txt").write_text("unique unpushed work\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "does-not-exist.git"))
+
+    proc = run_reap(repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)", result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+    counts = bucket_counts(summary_line(proc.stdout))
+    assert counts.get("archived-and-removed", 0) == 0
+
+
+# --------------------------------------------------------------------------
+# 28. (round-N Minor c) `salvage_would`, under `--dry-run --archive-unproven`,
+#     must count telemetry sitting in BOTH the plain REMOVE bucket AND the
+#     archive-eligible SKIP_UNPROVEN bucket - the docstring claims the two
+#     removal paths are unified, so a dry-run preview must not systematically
+#     undercount by ignoring telemetry that would be salvaged via the archive
+#     path.
+# --------------------------------------------------------------------------
+
+
+def test_dry_run_salvage_would_counts_archive_candidates_too(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-dry-salvage-parity"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-dry-salvage-parity", branch)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "would-be-salvaged"}\n')
+
+    proc = run_reap(
+        repo, dry_run=True, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "1 .agentic/events.jsonl file(s) would be salvaged" in proc.stdout, proc.stdout
+    # Real run confirms the same file is genuinely salvageable via the
+    # archive path (parity, not merely a matching count by coincidence).
+    real_proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert real_proc.returncode == 0, real_proc.stderr
+    assert "salvaged=1" in summary_line(real_proc.stdout)
+
+
+# --------------------------------------------------------------------------
+# 29. (round-N Minor a) `SKIP_REMOVE_FAILED` had zero coverage - deleting
+#     BOTH `r["outcome"] = "SKIP_REMOVE_FAILED"` assignments left the whole
+#     suite green. This forces a REAL `git worktree remove` failure via a
+#     `git` stub that intercepts only that one subcommand.
+# --------------------------------------------------------------------------
+
+
+def test_remove_failure_reclassifies_to_skip_remove_failed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-rmfail", "worktree-agent-rmfail", push=False)
+    # No unique commits - ancestor-of-base -> ELIGIBLE/REMOVE under normal
+    # evidence resolution, so the ONLY thing standing between this entry
+    # and a successful removal is the stubbed `git worktree remove` failure.
+
+    proc = run_reap(repo, dry_run=False, git_dir=_fake_git_dir_remove_fails(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_REMOVE_FAILED"), result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    counts = bucket_counts(summary_line(proc.stdout))
+    assert counts.get("skipped-remove-failed", 0) == 1
+    assert counts.get("removed", 0) == 0
+    assert "WARNING: failed to remove" in proc.stderr

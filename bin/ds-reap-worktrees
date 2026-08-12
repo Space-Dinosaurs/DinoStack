@@ -98,9 +98,20 @@ Gate order, first match wins, ALL must clear for REMOVE:
      never-pushed branch with unique commits, or a CLOSED PR, both resolve
      `SKIP_*` (never `ELIGIBLE`) under this model - NOT sufficient alone,
      unlike v1's bespoke predicate.
-`ELIGIBLE` from `disposition_for`, with no protected-content offenders, is
-the only path to `REMOVE`. Every other outcome is reported, never a
-force-delete on an inconclusive read.
+  9. PR-QUERY-FAILURE OVERRIDE (round-N Major fix) -> a `gh` PR-state query
+     that could not be answered at all (nonzero exit, unparseable JSON, or
+     a timeout - see `_pr_state`'s docstring) is a DISTINCT fact from "no
+     PR exists" and must never be collapsed into it. When such a failure
+     occurred AND the resulting disposition is exactly `SKIP_NOT_PUSHED` or
+     `SKIP_AMBIGUOUS_NO_PR` - the two dispositions `--archive-unproven`'s
+     whitelist below would otherwise treat as fully resolved - the entry is
+     reclassified to its own `SKIP_PR_QUERY_ERROR` outcome, never
+     `SKIP_UNPROVEN`, so it is excluded from that whitelist by
+     construction, not merely by an unlisted `reason` value. Mirrors the
+     `SKIP_LS_REMOTE_ERROR` precedent for the ls-remote leg.
+`ELIGIBLE` from `disposition_for`, with no protected-content offenders and
+no unresolved PR-query failure, is the only path to `REMOVE`. Every other
+outcome is reported, never a force-delete on an inconclusive read.
 
 Telemetry salvage (round-4 requirement, non-`--dry-run` only; round-6
 correction: applies identically on BOTH removal paths): immediately
@@ -159,6 +170,19 @@ EVERY entry's PR-state leg to inconclusive, which would otherwise make
 `--archive-unproven` therefore REFUSES to run at all (prints an error to
 stderr and exits 1, doing no work) whenever gh evidence is unavailable or
 degraded; it never silently downgrades to a more permissive archive pass.
+That process-level refusal covers total `gh` unavailability (missing,
+unauthenticated, `--no-gh`), but NOT a transient PER-ENTRY query failure -
+`gh auth status` can succeed while a single `gh pr list` call for one
+specific branch still errors (rate limit, network blip). Round-N Major fix:
+such a failure is a distinct fact from "no PR exists" (see `_pr_state`'s
+docstring) and, when it would otherwise leave an entry resolved to exactly
+`SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR`, `evaluate_entry` reclassifies
+it to its own `SKIP_PR_QUERY_ERROR` outcome (Removal predicate gate 9,
+above) - a bucket that is never `SKIP_UNPROVEN` at all, so it is excluded
+from `_ARCHIVABLE_UNPROVEN_DISPOSITIONS` by construction, not merely by an
+unlisted `reason` value. Without this, a worktree behind a genuinely OPEN
+PR whose query happened to fail on this run would be indistinguishable from
+a genuinely-unprovable branch and could be silently archived and removed.
 For every entry that clears the whitelist (already clean, unlocked, past
 the age floor, not self, not protected-content, past the gh-evidence
 refusal check - i.e. the ONLY thing blocking it is exactly one of the two
@@ -263,7 +287,13 @@ Public API (CLI):
                           (`--no-gh`, or `gh` missing/unauthenticated/
                           erroring) - archiving without PR evidence could
                           not reliably distinguish a genuinely-unprovable
-                          branch from one behind an open PR.
+                          branch from one behind an open PR. A PER-ENTRY
+                          `gh pr list` query failure (auth fine, this one
+                          call errored/timed out/rate-limited) is also
+                          never archived: such an entry is reclassified to
+                          `SKIP_PR_QUERY_ERROR` before this whitelist check
+                          ever runs (Removal predicate gate 9), so it is
+                          never `SKIP_UNPROVEN` in the first place.
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -351,6 +381,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import json
 import re
 import shutil
 import subprocess
@@ -472,10 +503,14 @@ _IGNORED_ALLOWLIST_PATTERNS = (".DS_Store", "*.log")
 #: mean "the branch content itself is the ONLY unresolved question":
 #: `SKIP_NOT_PUSHED` (branch never reached origin at all) and
 #: `SKIP_AMBIGUOUS_NO_PR` (every evidence source was inconclusive - no PR,
-#: no merge evidence, no subsumption proof). See the module docstring's
-#: "Archiving unproven branches" section for the full rationale, including
-#: why `--archive-unproven` additionally refuses to run in degraded gh
-#: mode rather than relying on this whitelist alone.
+#: no merge evidence, no subsumption proof) - PROVIDED the PR-state query
+#: that helped produce that disposition actually succeeded (see
+#: `evaluate_entry`'s gate 9 / `SKIP_PR_QUERY_ERROR`: a per-entry `gh pr
+#: list` failure reclassifies the entry to a bucket that is never
+#: `SKIP_UNPROVEN` at all, so this whitelist never even sees it). See the
+#: module docstring's "Archiving unproven branches" section for the full
+#: rationale, including why `--archive-unproven` additionally refuses to
+#: run in degraded gh mode rather than relying on this whitelist alone.
 _ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
     {
         Disposition.SKIP_NOT_PUSHED.value,
@@ -636,17 +671,52 @@ def _gh_available(repo: str, no_gh: bool) -> bool:
     return proc.returncode == 0
 
 
-def _pr_state(repo: str, branch: str) -> Optional[str]:
-    """Returns "OPEN" | "MERGED" | "CLOSED" | None (no PR / gh error / timeout)."""
+def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
+    """Returns `(state, query_errored)`.
+
+    `state` is one of `"OPEN"` | `"MERGED"` | `"CLOSED"` | `"NONE"` |
+    `"not_checked"` - the same vocabulary `DispositionFacts.pr_state`
+    already documents. `query_errored` is True ONLY when the query itself
+    could not be answered (nonzero exit, unparseable/unexpected JSON, or a
+    network timeout) - this is a DISTINCT fact from `state == "NONE"` (a
+    genuine, successfully-confirmed absence of any PR for this branch) and
+    callers MUST NEVER collapse the two, or a transient `gh` failure
+    (rate limit, auth hiccup, network blip) on a branch that actually has
+    an OPEN PR becomes indistinguishable from a branch that was never
+    opened at all - the exact ambiguity that let `--archive-unproven`
+    silently archive-and-remove a worktree behind a live PR (see the
+    module docstring's "Archiving unproven branches" section).
+
+    Uses `gh pr list --head <branch> --state all --json number,state`
+    rather than `gh pr view <branch>` - `gh pr view` exits nonzero
+    IDENTICALLY for "no PR exists for this branch" and for a genuine query
+    failure, which is exactly the ambiguity this function exists to
+    resolve. `gh pr list` exits 0 and returns `[]` on a genuine no-PR
+    branch, so any nonzero exit or unparseable/malformed JSON here is
+    unambiguous evidence of a QUERY failure, never proof of absence.
+    `--state all` is required - the command's own default is open-only,
+    which would silently misreport a MERGED/CLOSED PR as "no PR".
+    """
     proc = _run(
-        ["gh", "pr", "view", branch, "--json", "state", "-q", ".state"],
+        ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state", "--limit", "1"],
         cwd=repo,
         timeout=_NETWORK_TIMEOUT_SECONDS,
     )
     if proc.returncode != 0:
-        return None
-    val = proc.stdout.strip()
-    return val or None
+        return "not_checked", True
+    try:
+        rows = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return "not_checked", True
+    if not isinstance(rows, list):
+        return "not_checked", True
+    if not rows:
+        return "NONE", False
+    first = rows[0]
+    state = first.get("state") if isinstance(first, dict) else None
+    if not state or not isinstance(state, str):
+        return "not_checked", True
+    return state.upper(), False
 
 
 def _is_self_worktree(entry_path: str) -> bool:
@@ -857,20 +927,28 @@ def _build_facts(
     base_ref: str,
     gh_ok: bool,
     allow_network: bool,
-) -> DispositionFacts:
+) -> Tuple[DispositionFacts, bool]:
+    """Returns `(facts, pr_query_errored)`. `pr_query_errored` is True only
+    when `_pr_state` could not answer the PR-state query at all - see that
+    function's own docstring for why this must never be folded into
+    `facts.pr_state == "NONE"` (the shared `worktree_model.py` vocabulary
+    has no slot for "the query itself failed", so that distinction is
+    carried as a separate fact here and resolved by the caller, never
+    inside `disposition_for`).
+    """
     merge_evidence = "not_checked"
     ls_remote_status = "not_checked"
     pr_state = "not_checked"
+    pr_query_errored = False
 
     if entry.branch is not None:
         merge_evidence = "merged" if _is_ancestor(repo, entry.branch, base_ref) else "unmerged"
         if allow_network:
             ls_remote_status = _ls_remote_status(repo, entry.branch)
         if gh_ok:
-            raw = _pr_state(repo, entry.branch)
-            pr_state = raw if raw else "NONE"
+            pr_state, pr_query_errored = _pr_state(repo, entry.branch)
 
-    return DispositionFacts(
+    facts = DispositionFacts(
         dirty_status=dirty_status,
         head_reachable="not_checked",
         ls_remote_status=ls_remote_status,
@@ -878,6 +956,7 @@ def _build_facts(
         content_subsumption="not_checked",
         pr_state=pr_state,
     )
+    return facts, pr_query_errored
 
 
 def _display_reason(facts: DispositionFacts) -> str:
@@ -904,7 +983,8 @@ def evaluate_entry(
 ) -> Dict:
     """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
     SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
-    SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT, SKIP_UNPROVEN, REMOVE.
+    SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT, SKIP_PR_QUERY_ERROR,
+    SKIP_UNPROVEN, REMOVE.
     """
     base = {"path": entry.path, "branch": entry.branch, "class": wt_class.value}
 
@@ -929,7 +1009,7 @@ def evaluate_entry(
         return {**base, "outcome": "SKIP_TOO_YOUNG"}
 
     dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored)
-    facts = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
+    facts, pr_query_errored = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
     disposition = disposition_for(entry, wt_class, facts)
 
     if disposition is Disposition.SKIP_LOCKED:
@@ -942,6 +1022,28 @@ def evaluate_entry(
         return {**base, "outcome": "SKIP_DIRTY"}
     if ignored_offenders:
         return {**base, "outcome": "SKIP_PROTECTED_CONTENT", "offenders": ignored_offenders[:5]}
+    # MAJOR fix: a transient `gh` PR-query FAILURE is a distinct fact from
+    # "no PR exists" (see `_pr_state`'s docstring). `disposition_for` has no
+    # way to see `pr_query_errored` - it only sees `facts.pr_state`, which
+    # this tool sets to "not_checked" on a query failure, identical to what
+    # it would be with `gh` fully unavailable. That is fine EXCEPT when the
+    # resulting disposition is one this tool's own `--archive-unproven`
+    # whitelist (`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`) would later treat as
+    # "the branch content itself is the ONLY unresolved question" -
+    # `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR`. A query failure on
+    # EITHER of those means the branch evidence is not actually fully
+    # resolved (there may be a live OPEN PR the query simply could not see),
+    # so this reclassifies to its OWN outcome bucket - never `SKIP_UNPROVEN`
+    # - which is therefore excluded from the archive whitelist by
+    # construction, not merely by an unlisted `reason` value. Mirrors the
+    # `SKIP_LS_REMOTE_ERROR` precedent: a query failure is never silently
+    # treated as proof of anything.
+    if pr_query_errored and disposition in (Disposition.SKIP_NOT_PUSHED, Disposition.SKIP_AMBIGUOUS_NO_PR):
+        return {
+            **base,
+            "outcome": "SKIP_PR_QUERY_ERROR",
+            "reason": f"gh pr query failed (would-be {disposition.value})",
+        }
     if disposition is Disposition.ELIGIBLE:
         return {**base, "outcome": "REMOVE", "reason": _display_reason(facts)}
     return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
@@ -982,6 +1084,7 @@ _ALL_OUTCOMES = (
     "SKIP_LOCKED",
     "SKIP_DIRTY",
     "SKIP_PROTECTED_CONTENT",
+    "SKIP_PR_QUERY_ERROR",
     "SKIP_UNPROVEN",
     "SKIP_REMOVE_FAILED",
     "ARCHIVED_AND_REMOVED",
@@ -1220,6 +1323,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         else:
             # --dry-run: create nothing, report the would-be count only.
             archive_would = sum(1 for r in unproven_results if r.get("branch"))
+            # Minor fix: `salvage_would` above was computed ONLY over
+            # `remove_results` (the plain REMOVE bucket), before this
+            # archive-unproven block even runs - so telemetry sitting in an
+            # archive-eligible entry was never counted, contradicting the
+            # "both paths run the same salvage-then-remove sequence"
+            # docstring parity claim. Add the archive candidates' own
+            # salvageable count so a `--dry-run --archive-unproven` NOTE is
+            # not systematically undercounted.
+            salvage_would += sum(1 for r in unproven_results if _worktree_has_salvageable_telemetry(r["path"]))
 
     # Unlock any directory-missing locked entries so the admin-prune pass
     # below can reclaim them (the sole permitted unlock case - see the
