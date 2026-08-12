@@ -5,12 +5,17 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          the session-start prune script, the Standing authorizations section
          (the enumerated set of routine-hygiene operations pre-authorized for
          every session, satisfying a harness confirm-first carve-out), the
-         local-branch prune block, and the Round-N rework mechanic (the
+         local-branch prune block, the Round-N rework mechanic (the
          conductor-side SHA-push recovery procedure and failure-mode table for
          landing a same-approach fix commit on an already-open PR's branch;
          the literal `create_commands` branching forms live in
          content/commands/ds-implement-ticket.md's canonical definition site,
-         not here - see the Round-N rework mechanic section itself).
+         not here - see the Round-N rework mechanic section itself), and the
+         Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
+         (the process-discipline trigger for cleaning up an isolation
+         worktree spawned outside the ticket flow, where Phase 8's own
+         automatic cleanup never fires - closing the single largest
+         confirmed source of orphaned worktrees observed in this repo).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -29,11 +34,20 @@ Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
 Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
-                      /ds-cleanup-worktrees command; /ds-implement-ticket lifecycle
-                      cleanup; every /ds-implement-ticket fix-pass spawn site that
-                      re-seeds an engineer worktree against an already-open PR's
-                      branch (Phase 6/6b Skeptic and QA fix passes, Phase 7
-                      quality-gate fix passes) via the Round-N rework mechanic.
+                      /ds-cleanup-worktrees command (and its executable
+                      predicate implementation, bin/ds-reap-worktrees);
+                      /ds-implement-ticket lifecycle cleanup (Phase 8's
+                      hardened locked-unlock-retry-then-ledger cleanup
+                      block); every /ds-implement-ticket fix-pass spawn site
+                      that re-seeds an engineer worktree against an
+                      already-open PR's branch (Phase 6/6b Skeptic and QA fix
+                      passes, Phase 7 quality-gate fix passes) via the Round-N
+                      rework mechanic; every ad-hoc isolation-worktree spawn
+                      outside `/ds-implement-ticket` (the Ad-hoc worktree
+                      cleanup obligation section); bin/ds-base-sync's
+                      dry-run advisory note and hooks/session-start-wrap.sh's
+                      SessionStart worktree-count nudge (both backstops for
+                      this obligation, never a substitute for it).
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -45,7 +59,10 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                section. A locked-but-dir-missing worktree admin entry survives
                a bare `git worktree prune` - the isolation-cleanup and
                session-start-prune paths both unlock before pruning to
-               reclaim it.
+               reclaim it. The Ad-hoc worktree cleanup obligation is process
+               discipline, not a structural guarantee - a crashed session or
+               a forgotten cleanup still relies on the session-start prune,
+               bin/ds-branch-prune, and bin/ds-reap-worktrees backstops.
 
 Performance: Standard.
 -->
@@ -163,6 +180,16 @@ else
   echo "WARNING: ds-branch-prune not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local branch prune skipped this session." >&2
 fi
 ```
+
+## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
+
+`/ds-implement-ticket` Phase 8's own cleanup block (§Isolation worktree cleanup commands above) only fires on that command's own success path - after a push succeeds on the ticket flow. Any `isolation:"worktree"` spawn made OUTSIDE that flow (an ad-hoc Worker per `AGENTS.md` §Workflow, a scratch investigation spawn, a one-off fix not run through `/ds-implement-ticket`) has no equivalent automatic trigger and is the single largest confirmed source of orphaned worktrees in practice - measured against this repo's own history, branches like `worktree-agent-<id>` (default-named, never renamed) and abandoned rework rounds (`ds-round8`..`ds-round12`, `work-round7`, `fix-gigi-round5` - legacy remnants that predate the round-N rework mechanic below and would not recur under it) accounted for the majority of accumulated non-root worktrees.
+
+**Obligation:** whenever the conductor spawns an ad-hoc `isolation:"worktree"` Worker outside `/ds-implement-ticket`, it is responsible for cleaning up that worktree itself once the branch is pushed, the work is abandoned, or the session concludes - by running the same self-scoped pattern in §Isolation worktree cleanup commands above, immediately, rather than assuming any later automatic pass will catch it. This is a standing authorization (§Standing authorizations above already covers the removal itself); the obligation here is the TRIGGER - do it at the natural completion point of the ad-hoc spawn, not "eventually."
+
+**Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
+
+**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-reap-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, or surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
 ## Guardrail: never force-override the harness lock
 

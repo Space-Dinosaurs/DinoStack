@@ -332,6 +332,28 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 
 ---
 
+## Ad-hoc cleanup obligation + the automatic reaper
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+`/ds-implement-ticket` Phase 8's own cleanup only fires on that command's own success path. Any ad-hoc `isolation: "worktree"` spawn outside it is on the conductor: clean it up at the natural completion point, not "eventually."
+
+`bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - dirty, locked-present, and unproven branches are always reported, never removed:
+
+- Removable only when clean, unlocked, AND the branch is gone from origin, its PR is MERGED/CLOSED, or it's an ancestor of the base ref
+- `--dry-run` is report-only; two passive triggers use it automatically - `ds-base-sync`'s post-merge advisory note, and a SessionStart nudge past a small worktree-count threshold
+- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees` invocation
+
+<div class="callout">
+Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Isolated. Pruned. Clean.

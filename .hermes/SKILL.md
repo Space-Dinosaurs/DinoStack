@@ -1153,7 +1153,10 @@ When spawning `qa-engineer`, include:
 Purpose: Full reference for the post-merge local base-branch sync procedure -
          the `ds-base-sync` CLI contract, the underlying
          `ae_base_branch_sync` bash function, the divergence diagnostic
-         format, recovery guidance, and the two call sites that invoke it.
+         format, recovery guidance, the two call sites that invoke it, and
+         the two unconditional post-sync advisory notes (DS-54 hooks-
+         staleness, worktree-reaper) it prints - never blocking, never
+         mutating.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/commands/ds-implement-ticket.md Phase 12 (unconditional
@@ -1161,7 +1164,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md Conductor preflight step 6
             (session-start sync call).
 
-Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh.
+Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh,
+               bin/ds-reap-worktrees (worktree-reaper advisory note only).
 
 Downstream consumers: /ds-implement-ticket Phase 12; the conductor session-
                       start preflight in content/rules/conventions.md.
@@ -1262,6 +1266,14 @@ ds-base-sync: dinostack: hooks are not yet snapshotted - a bare 'git pull' can s
 ```
 
 (or the equivalent `half_applied`/`stale_but_stable` message - see `hooks/lib/hooks-staleness-core.sh`). This line is absent when the classifier finds nothing to report (the common case - snapshot already current), and its presence or absence never changes the exit code documented above. It is read-only: `bin/ds-base-sync` never calls `sync_hooks_snapshot` itself, satisfying the DS-54 invariant that a passive/automatic trigger (this call runs unconditionally at `/ds-implement-ticket` Phase 12, not on operator request) may never auto-rewire a live session's hooks - only an explicit `ds-doctor --fix` or an adapter `install.sh` run does that.
+
+**Worktree-reaper advisory line (unconditional, AFTER the hooks-staleness line, never affects exit code).** After the hooks-staleness advisory above, the CLI wrapper unconditionally runs `bin/ds-reap-worktrees --repo <repo> --dry-run --no-gh` against `<repo>` ITSELF (unlike the hooks-staleness note, which is always scoped to the operator's own DinoStack checkout regardless of `<repo>` - the worktree reaper is scoped to the project whose base branch was just synced, since that project's worktrees are what would be accumulating). When `ds-reap-worktrees` exists, its one-line summary is printed, prefixed `ds-base-sync: `:
+
+```
+ds-base-sync: ds-reap-worktrees: base=origin/main mode=degraded (gh unavailable), dry-run entries=6 removed=4 skipped-dirty=1 skipped-locked=1 skipped-unproven=0 pruned-admin=0
+```
+
+Only the tool's first stdout line is surfaced here - any additional `NOTE:` lines the tool prints (e.g. the degraded-mode explanation) are operator-review detail, not advisory-note material. Like the hooks-staleness line, this is `--dry-run`-only (never removes anything) and `--no-gh` (never shells out to `gh`, keeping the call fast and free of any `gh` auth-state dependency - this can only under-report removability, never over-report it). A missing `bin/ds-reap-worktrees`, or any error running it, is silently swallowed and the line is simply absent - same fail-open contract as the hooks-staleness advisory. It is ALSO absent whenever the summary's own `entries=N` field shows `N` at 0 or 1 - a repo with no non-root worktrees (just the main one, or a bare/nonexistent one) has nothing actionable to report, matching the hooks-staleness line's own "silent when there is nothing to report" contract rather than always printing a summary that says "nothing found."
 
 **Structural rule.** `ref-locked-elsewhere` is reachable ONLY from the HEAD-elsewhere path - it requires `<base-branch>` to be checked out in a worktree OTHER than `<repo>`, a condition that cannot exist when `<repo>` itself has `<base-branch>` checked out (the HEAD-on-base path), so it is never emitted there. `refused-unknown` is NOT the symmetric opposite: it is reachable from BOTH paths - from HEAD-on-base as the generic "unrecognized git refusal" catch-all, and from HEAD-elsewhere when the post-refusal rev-list counts come back empty (`origin/<base-branch>` absent post-fetch, e.g. a `--single-branch` clone) - a state where "checked out in another worktree" cannot be confirmed, so `ref-locked-elsewhere` is correctly withheld in favor of `refused-unknown`. Each path computes and returns its own terminal status; there is no shared post-refusal code path between the two.
 
@@ -8085,12 +8097,17 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          the session-start prune script, the Standing authorizations section
          (the enumerated set of routine-hygiene operations pre-authorized for
          every session, satisfying a harness confirm-first carve-out), the
-         local-branch prune block, and the Round-N rework mechanic (the
+         local-branch prune block, the Round-N rework mechanic (the
          conductor-side SHA-push recovery procedure and failure-mode table for
          landing a same-approach fix commit on an already-open PR's branch;
          the literal `create_commands` branching forms live in
          content/commands/ds-implement-ticket.md's canonical definition site,
-         not here - see the Round-N rework mechanic section itself).
+         not here - see the Round-N rework mechanic section itself), and the
+         Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
+         (the process-discipline trigger for cleaning up an isolation
+         worktree spawned outside the ticket flow, where Phase 8's own
+         automatic cleanup never fires - closing the single largest
+         confirmed source of orphaned worktrees observed in this repo).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -8109,11 +8126,20 @@ Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
 Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
-                      /ds-cleanup-worktrees command; /ds-implement-ticket lifecycle
-                      cleanup; every /ds-implement-ticket fix-pass spawn site that
-                      re-seeds an engineer worktree against an already-open PR's
-                      branch (Phase 6/6b Skeptic and QA fix passes, Phase 7
-                      quality-gate fix passes) via the Round-N rework mechanic.
+                      /ds-cleanup-worktrees command (and its executable
+                      predicate implementation, bin/ds-reap-worktrees);
+                      /ds-implement-ticket lifecycle cleanup (Phase 8's
+                      hardened locked-unlock-retry-then-ledger cleanup
+                      block); every /ds-implement-ticket fix-pass spawn site
+                      that re-seeds an engineer worktree against an
+                      already-open PR's branch (Phase 6/6b Skeptic and QA fix
+                      passes, Phase 7 quality-gate fix passes) via the Round-N
+                      rework mechanic; every ad-hoc isolation-worktree spawn
+                      outside `/ds-implement-ticket` (the Ad-hoc worktree
+                      cleanup obligation section); bin/ds-base-sync's
+                      dry-run advisory note and hooks/session-start-wrap.sh's
+                      SessionStart worktree-count nudge (both backstops for
+                      this obligation, never a substitute for it).
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -8125,7 +8151,10 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                section. A locked-but-dir-missing worktree admin entry survives
                a bare `git worktree prune` - the isolation-cleanup and
                session-start-prune paths both unlock before pruning to
-               reclaim it.
+               reclaim it. The Ad-hoc worktree cleanup obligation is process
+               discipline, not a structural guarantee - a crashed session or
+               a forgotten cleanup still relies on the session-start prune,
+               bin/ds-branch-prune, and bin/ds-reap-worktrees backstops.
 
 Performance: Standard.
 -->
@@ -8243,6 +8272,16 @@ else
   echo "WARNING: ds-branch-prune not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local branch prune skipped this session." >&2
 fi
 ```
+
+## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
+
+`/ds-implement-ticket` Phase 8's own cleanup block (§Isolation worktree cleanup commands above) only fires on that command's own success path - after a push succeeds on the ticket flow. Any `isolation:"worktree"` spawn made OUTSIDE that flow (an ad-hoc Worker per `AGENTS.md` §Workflow, a scratch investigation spawn, a one-off fix not run through `/ds-implement-ticket`) has no equivalent automatic trigger and is the single largest confirmed source of orphaned worktrees in practice - measured against this repo's own history, branches like `worktree-agent-<id>` (default-named, never renamed) and abandoned rework rounds (`ds-round8`..`ds-round12`, `work-round7`, `fix-gigi-round5` - legacy remnants that predate the round-N rework mechanic below and would not recur under it) accounted for the majority of accumulated non-root worktrees.
+
+**Obligation:** whenever the conductor spawns an ad-hoc `isolation:"worktree"` Worker outside `/ds-implement-ticket`, it is responsible for cleaning up that worktree itself once the branch is pushed, the work is abandoned, or the session concludes - by running the same self-scoped pattern in §Isolation worktree cleanup commands above, immediately, rather than assuming any later automatic pass will catch it. This is a standing authorization (§Standing authorizations above already covers the removal itself); the obligation here is the TRIGGER - do it at the natural completion point of the ad-hoc spawn, not "eventually."
+
+**Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
+
+**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-reap-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, or surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
 ## Guardrail: never force-override the harness lock
 
@@ -13459,6 +13498,8 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
 
 Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
+`bin/ds-reap-worktrees` is an executable, machine-invocable form of the same classification-and-removal idea as Steps 2-4 below, so the check can also run non-interactively (the `ds-base-sync` advisory dry-run note and the SessionStart worktree-count nudge both invoke it in `--dry-run` mode, report-only). Its removal predicate is DELIBERATELY MORE PERMISSIVE than Steps 3/4's `disposition_for`-based prose in two ways - a branch gone from origin, and a CLOSED (not just MERGED) PR, both count as sufficient evidence - because it removes ONLY the worktree, never the branch (see its own module docstring for the full rationale); it is not a byte-for-byte substitute for the manual steps. Run `ds-reap-worktrees --explain` for a full per-worktree breakdown, or omit `--dry-run` to actually remove.
+
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
 ## Execution model
@@ -17118,14 +17159,45 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
   WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
   if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
-      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
-      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      # Attempt 1: plain remove.
+      REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
+      REMOVE_RC=$?
+      if [ "$REMOVE_RC" -ne 0 ] && git -C "$REPO" worktree list --porcelain \
+          | awk -v p="$WORKTREE_PATH" '/^worktree /{w=$2} /^locked/{if(w==p) found=1} /^$/{w=""} END{exit !found}'; then
+        # Attempt 2: the worktree is still locked by the harness (agent may
+        # have just finished) - unlock then force-remove. Never do this for
+        # any OTHER failure reason (dirty tree, permission error, etc.) -
+        # only the confirmed-locked case.
+        git -C "$REPO" worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
+        REMOVE_STDERR=$(git -C "$REPO" worktree remove -f -f "$WORKTREE_PATH" 2>&1)
+        REMOVE_RC=$?
+      fi
+      if [ "$REMOVE_RC" -eq 0 ]; then
+        git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+        echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      else
+        # Never discard stderr on a persisting failure - surface it AND
+        # append a persisted skip record so the orphaned worktree is
+        # visible in a later session (previously this failure was silently
+        # swallowed by `2>/dev/null || true`, which is exactly how
+        # isolation worktrees from failed cleanups accumulated invisibly).
+        echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
+        mkdir -p "$REPO/.agentic" 2>/dev/null || true
+        SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        python3 -c "
+import json, sys
+rec = {'ts': sys.argv[1], 'branch': sys.argv[2], 'path': sys.argv[3], 'stderr': sys.argv[4]}
+with open(sys.argv[5], 'a') as f:
+    f.write(json.dumps(rec) + chr(10))
+" "$SKIP_TS" "$BRANCH_NAME" "$WORKTREE_PATH" "$REMOVE_STDERR" "$REPO/.agentic/worktree-cleanup-skips.jsonl" 2>/dev/null || true
+      fi
     else
       echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
     fi
   fi
 fi
+# Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
+# a remove failure is reported (stderr + the ledger above), never fatal.
 # --- End isolation worktree cleanup ---
 ```
 

@@ -2397,14 +2397,45 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
   WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
   if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
-      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
-      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
-      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      # Attempt 1: plain remove.
+      REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
+      REMOVE_RC=$?
+      if [ "$REMOVE_RC" -ne 0 ] && git -C "$REPO" worktree list --porcelain \
+          | awk -v p="$WORKTREE_PATH" '/^worktree /{w=$2} /^locked/{if(w==p) found=1} /^$/{w=""} END{exit !found}'; then
+        # Attempt 2: the worktree is still locked by the harness (agent may
+        # have just finished) - unlock then force-remove. Never do this for
+        # any OTHER failure reason (dirty tree, permission error, etc.) -
+        # only the confirmed-locked case.
+        git -C "$REPO" worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
+        REMOVE_STDERR=$(git -C "$REPO" worktree remove -f -f "$WORKTREE_PATH" 2>&1)
+        REMOVE_RC=$?
+      fi
+      if [ "$REMOVE_RC" -eq 0 ]; then
+        git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+        echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+      else
+        # Never discard stderr on a persisting failure - surface it AND
+        # append a persisted skip record so the orphaned worktree is
+        # visible in a later session (previously this failure was silently
+        # swallowed by `2>/dev/null || true`, which is exactly how
+        # isolation worktrees from failed cleanups accumulated invisibly).
+        echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
+        mkdir -p "$REPO/.agentic" 2>/dev/null || true
+        SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        python3 -c "
+import json, sys
+rec = {'ts': sys.argv[1], 'branch': sys.argv[2], 'path': sys.argv[3], 'stderr': sys.argv[4]}
+with open(sys.argv[5], 'a') as f:
+    f.write(json.dumps(rec) + chr(10))
+" "$SKIP_TS" "$BRANCH_NAME" "$WORKTREE_PATH" "$REMOVE_STDERR" "$REPO/.agentic/worktree-cleanup-skips.jsonl" 2>/dev/null || true
+      fi
     else
       echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
     fi
   fi
 fi
+# Soft-fail: this entire block never blocks Phase 8 regardless of outcome -
+# a remove failure is reported (stderr + the ledger above), never fatal.
 # --- End isolation worktree cleanup ---
 ```
 

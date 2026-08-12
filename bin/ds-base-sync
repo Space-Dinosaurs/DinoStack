@@ -29,10 +29,35 @@
 #     the DS-54 invariant forbids a passive/automatic trigger from
 #     auto-rewiring a live session's hooks; only an explicit `--fix` (ds-doctor)
 #     or an adapter install.sh run may do that.
+#     Second advisory note (worktree-reaper automatic trigger): after the
+#     hooks-staleness note above, unconditionally runs
+#     `bin/ds-reap-worktrees --repo <repo> --dry-run --no-gh` against <repo>
+#     ITSELF (not the operator's DinoStack checkout - this one is
+#     project-scoped, since the worktrees accumulating are <repo>'s own) and
+#     prints its one-line summary, prefixed "ds-base-sync: ". This is the
+#     same "one guaranteed post-merge trigger point" rationale as the
+#     hooks-staleness note - the reaper's own automatic session-start nudge
+#     (hooks/session-start-wrap.sh) only fires at a brand-new session's first
+#     tool call, never mid-session or at merge time, so this closes the same
+#     class of dogfooding gap for worktree accumulation that DS-54 closed for
+#     hooks staleness. ADVISORY ONLY: always --dry-run, never removes
+#     anything - actual removal remains operator-invoked (`/ds-cleanup-worktrees`
+#     or a bare `ds-reap-worktrees` with no --dry-run). --no-gh is passed
+#     deliberately (never shells out to `gh` from this unconditional,
+#     non-interactive call site - keeps the note fast and free of any gh
+#     auth-state dependency); this can only under-report removability
+#     (PR-state evidence unavailable), never over-report it. Matches the
+#     DS-54 note's own "silent when there is nothing to report" contract:
+#     suppressed whenever `entries=0` or `entries=1 ` (bare main worktree,
+#     nothing else to report) appears in ds-reap-worktrees' own summary
+#     line - a repo with no non-root worktrees has nothing actionable to
+#     surface here.
 #
 # Upstream deps: scripts/lib/base-branch-sync.sh, bash, git,
 #                hooks/lib/hooks-staleness-core.sh (advisory note only;
-#                missing/failing is silently skipped, never fatal).
+#                missing/failing is silently skipped, never fatal),
+#                bin/ds-reap-worktrees (advisory note only; missing/failing
+#                is silently skipped, never fatal).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
 #                       (repo-relative invocation), content/rules/
@@ -50,10 +75,18 @@
 #   - The hooks-staleness advisory note never affects the exit code: a
 #     missing hooks-staleness-core.sh, or any error running it, is silently
 #     swallowed (stderr redirected, `|| true`).
+#   - The worktree-reaper advisory note likewise never affects the exit
+#     code: a missing bin/ds-reap-worktrees, or any error running it
+#     (including a non-git <repo> or a repo with zero worktree entries), is
+#     silently swallowed (stderr redirected, `|| true`).
 #
 # Performance: standard - see scripts/lib/base-branch-sync.sh. The staleness
 #              note adds one bash subprocess, sub-50ms on a warm cache (see
-#              hooks-staleness-core.sh's own perf note).
+#              hooks-staleness-core.sh's own perf note). The worktree-reaper
+#              note adds one python3 subprocess performing a `git worktree
+#              list` plus, per non-main entry, a `git status --porcelain` +
+#              `git ls-remote` + `git merge-base --is-ancestor` - bounded by
+#              <repo>'s own worktree count, typically sub-second.
 # ---------------------------------------------------------------------------
 
 set -u
@@ -128,6 +161,35 @@ if [ -f "$_ds_hooks_staleness_core" ]; then
   _ds_staleness_note="$(bash "$_ds_hooks_staleness_core" 2>/dev/null || true)"
   if [ -n "$_ds_staleness_note" ]; then
     echo "ds-base-sync: $_ds_staleness_note"
+  fi
+fi
+
+# --- Worktree-reaper advisory: automatic dry-run report (non-blocking) ---
+# Scoped to <repo> ITSELF (the project whose base branch was just synced),
+# unlike the hooks-staleness note above which is scoped to the operator's
+# own DinoStack checkout. Always --dry-run --no-gh; never removes anything
+# and never shells out to gh. See the Public API comment block above for
+# the full rationale.
+_ds_reap_worktrees="$SCRIPT_DIR/ds-reap-worktrees"
+if [ -f "$_ds_reap_worktrees" ]; then
+  # Only the one-line summary (the tool's first stdout line) is surfaced
+  # here - the optional per-mode NOTE lines are operator-review detail, not
+  # advisory-note material; an operator who wants the full breakdown runs
+  # `ds-reap-worktrees --explain` or `/ds-cleanup-worktrees` directly.
+  # Matches the DS-54 hooks-staleness note's own "silent when there is
+  # nothing to report" contract: suppressed unless `entries=N` shows N>1
+  # (i.e. at least one non-root worktree exists) - a bare main-worktree
+  # repo has nothing actionable to surface here.
+  _ds_reap_note="$(python3 "$_ds_reap_worktrees" --repo "$REPO_DIR" --dry-run --no-gh 2>/dev/null | head -n1 || true)"
+  if [ -n "$_ds_reap_note" ]; then
+    case "$_ds_reap_note" in
+      *"entries=0"*|*"entries=1 "*)
+        : # nothing but (at most) the main worktree - silent, no advisory
+        ;;
+      *)
+        echo "ds-base-sync: $_ds_reap_note"
+        ;;
+    esac
   fi
 fi
 

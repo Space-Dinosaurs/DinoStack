@@ -4,6 +4,8 @@
 
 Clean up stale git worktrees and local branches in the current repository. Covers both worktree removal and local branch prune - see `content/references/worktree-lifecycle.md` §Branch prune for the canonical branch-prune command block.
 
+`bin/ds-reap-worktrees` is an executable, machine-invocable form of the same classification-and-removal idea as Steps 2-4 below, so the check can also run non-interactively (the `ds-base-sync` advisory dry-run note and the SessionStart worktree-count nudge both invoke it in `--dry-run` mode, report-only). Its removal predicate is DELIBERATELY MORE PERMISSIVE than Steps 3/4's `disposition_for`-based prose in two ways - a branch gone from origin, and a CLOSED (not just MERGED) PR, both count as sufficient evidence - because it removes ONLY the worktree, never the branch (see its own module docstring for the full rationale); it is not a byte-for-byte substitute for the manual steps. Run `ds-reap-worktrees --explain` for a full per-worktree breakdown, or omit `--dry-run` to actually remove.
+
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
 ## Execution model
