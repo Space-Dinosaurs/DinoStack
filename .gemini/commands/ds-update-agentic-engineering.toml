@@ -39,7 +39,7 @@ Out of scope (direct Edit/Write is fine; normal Trivial/Elevated tiers apply):
 
 Note: `.claude/skills/dinostack/**` files are symlinks into `content/` - editing them is functionally editing `content/`, so they remain IN scope via the `content/**` rule above. This is a clarification, not a separate scope.
 
-**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions, bad/good example-pair seeding, and the module-manifest header. New commands must also be registered in `bin/ds-help` and listed in `content/SKILL.md` (Commands section).
+**Command authoring:** when a Step 1 edit adds or rewrites a command file (`content/commands/*.md`), follow `content/references/command-authoring.md` - trigger-keyword "When to use" descriptions, bad/good example-pair seeding, and the module-manifest header. New commands must be registered in `bin/ds-help` (the full command inventory); `content/SKILL.md`'s Commands section is a curated subset, so list a command there only when it warrants prominent placement.
 
 ## Step 0a - Directory gate (run before Step 0)
 
