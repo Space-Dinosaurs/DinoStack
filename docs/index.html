@@ -1142,7 +1142,7 @@
 
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Turn-shape guard</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156, not uniformly advisory: the structural check on a non-Answer turn's shape can block the stop; the phrasing check on Answer-turn prose remains advisory-only and only logs.</p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule. Not uniformly advisory: the structural check on a non-Answer turn's shape can still block the stop, but DS-158/DS-159 walked it back so it no longer blocks legitimate multi-paragraph or plain-prose conductor answers - those findings downgrade to advisory. The phrasing check on Answer-turn prose remains advisory-only and only logs.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code> (absent key resolves to on)</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>turn_shape_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_TURN_SHAPE_GUARD_DISABLE=1</code></p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn off the turn-shape guard&rdquo;</span></p>
@@ -1160,7 +1160,7 @@
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Guard kill-switches</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Per-session env vars that disable individual enforcement hooks or silence activation output.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AE_WORKTREE_READ_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AE_WORKTREE_READ_GUARD_DISABLE</code> / <code>AE_ABDICATION_GUARD_DISABLE</code> / <code>AE_TURN_SHAPE_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> in-session - <code>export &lt;VAR&gt;=1</code> before launching</p>
   </div>
 
@@ -1277,7 +1277,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/dinostack/references/)</h3></div>
+    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (canonical: ~/.claude/skills/dinostack/references/; human-readable mirrors: docs/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -1288,6 +1288,9 @@
       <div class="node node-protocol">doc-sync-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">evidence-on-disk.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">learnings-capture-instruction.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">handoff-evaluation.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">tracker-writeback.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">subagent-return-contract.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="cross-harness-teams.md" target="_blank" rel="noopener">cross-harness-teams.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="role-model-routing.md" target="_blank" rel="noopener">role-model-routing.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="skill-candidates.md" target="_blank" rel="noopener">skill-candidates.md</a> <span class="load-badge on-demand">on demand</span></div>
@@ -1303,7 +1306,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section">
-  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/dinostack/references/</h3></div>
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the four canonical spec files in ~/DinoStack/.claude/skills/dinostack/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -1887,6 +1890,9 @@
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
         </ul>
       </div>
+      <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
+        <strong>Telemetry.</strong> The Stop hook and the spawn-telemetry hooks (<code>hooks/pre-tool-use-spawn-emit.js</code>, <code>hooks/subagent-stop-spawn-emit.js</code>) append telemetry events to <code>.agentic/events.jsonl</code> - including a deterministic <code>spawn_complete</code> on subagent completion via the SubagentStop hook and the per-developer session-log. <a href="events-log-telemetry.md" style="color: var(--cyan);">events-log-telemetry.md</a> is current on the details.
+      </div>
       <div class="rel-card" style="margin-top: 12px;">
         <h4>Memory Types</h4>
         <ul>
@@ -2008,7 +2014,7 @@
         <h4 style="color: var(--violet);">What it produces (4 outputs)</h4>
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
-          <li><strong>MEMORY.md entries (max 3/run)</strong> - stable facts: architecture decisions, conventions, persistent gotchas, written directly to root <code>MEMORY.md</code></li>
+          <li><strong>MEMORY.md entries (max 3/run)</strong> - stable facts: architecture decisions, conventions, persistent gotchas, drained into root <code>MEMORY.md</code> from the <code>.agentic/memory.md</code> staging area. /ds-wrap is not root MEMORY.md's ongoing writer - the three knowledge files are owned by <code>wrap-ticket</code> (Phase 11b), <code>learnings-agent</code>, and <code>learning-extractor</code>; /ds-wrap only bootstrap-stub-seeds root MEMORY.md and ships the knowledge-file commit below</li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
           <li><strong>knowledge-file commit (Part G)</strong> - a pushed <code>chore(knowledge):</code> branch carrying verbatim copies of any changed <code>MEMORY.md</code>, <code>decisions.md</code>, or <code>.agentic/learnings.md</code>, with a ready-to-paste <code>gh pr create</code> line - never opened automatically. Part G skips, per file, anything <code>/ds-implement-ticket</code> Phase 11e already committed onto a ticket PR branch; it still covers ticket sessions where Phase 11e did not run or did not ship (toggle off, no PR opened, push rejected)</li>
         </ul>
@@ -2206,6 +2212,7 @@
           <li><strong>Base branch resolution:</strong> prefer an explicit <code>BASE_BRANCH:</code> declaration in <code>AGENTS.md</code>, else <code>develop</code>, else <code>development</code>; if neither exists you are prompted to use <code>main</code> (falling back to <code>master</code>) or set up a develop-based workflow.</li>
           <li><strong>Branch naming:</strong> <code>feature/&lt;name&gt;</code>, <code>fix/&lt;name&gt;</code>, <code>chore/&lt;name&gt;</code>.</li>
           <li><strong>Commit each fix immediately.</strong> Never accumulate uncommitted changes. After each validated fix: create branch, commit, PR, merge, pull - then start the next fix.</li>
+          <li><strong>Repo hygiene tooling:</strong> <code>bin/ds-branch-prune</code> prunes squash-merged local branches via a squash-aware subsumption predicate; <code>bin/ds-base-sync</code> fast-forwards the local base branch after a merge without a checkout.</li>
         </ul>
       </div>
     </div>
