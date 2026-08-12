@@ -577,6 +577,16 @@ class CodexSkillGenerationTests(unittest.TestCase):
             "qa-gate.md",
             "agent-team.md",
             "subagent-protocol.md",
+            # DS-return-contract Unit 3 (dc5233e4): both files gained the
+            # identical descriptive clause "since this agent always runs
+            # isolation: \"worktree\"" explaining WHY qa-engineer's report
+            # writes go to /tmp instead of .agentic/ - a fact citation about
+            # existing qa-engineer behavior, not an executable instruction
+            # telling an agent how to construct a spawn call. Inert
+            # reference-doc prose; no kernel-side executable counterpart to
+            # restore it to.
+            "subagent-return-contract.md",
+            "conductor-operating-rules.md",
         }
         pattern = re.compile(r"\bisolation\s*:|run_in_background")
         offenders: list[str] = []
