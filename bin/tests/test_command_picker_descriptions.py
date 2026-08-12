@@ -89,10 +89,10 @@ def _generated_body(name: str) -> str:
     return dst.read_text()
 
 
-def test_all_25_commands_present():
+def test_all_26_commands_present():
     """Sanity check on the fixture set itself, not the gate's own subject."""
     names = _all_command_names()
-    assert len(names) == 25, f"Expected 25 commands, found {len(names)}: {names}"
+    assert len(names) == 26, f"Expected 26 commands, found {len(names)}: {names}"
 
 
 def test_frontmatter_block_at_byte_zero():

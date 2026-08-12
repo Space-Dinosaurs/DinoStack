@@ -231,7 +231,7 @@ content/
   rules/        3 rule files (module-manifest, code-standards, conventions)
   references/   38 reference docs (agent-team, base-branch-sync, skeptic-protocol,
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
-  commands/     25 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
+  commands/     26 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 
@@ -299,7 +299,7 @@ Pull-before-edit is especially important here. This repo sees active refactors -
 1. Create `.<toolname>/` matching the tool's config directory convention
 2. Convert the 3 rules into the tool's native rule format (from `content/rules/`)
 3. Copy or symlink the 38 reference docs (from `content/references/`)
-4. Convert the 25 commands into the tool's command format (from `content/commands/`)
+4. Convert the 26 commands into the tool's command format (from `content/commands/`)
 5. Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)
 6. Write `.<toolname>/README.md` with setup instructions
 7. Update root `README.md` with the new adapter
