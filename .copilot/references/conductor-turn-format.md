@@ -25,6 +25,25 @@ Everything else - agent spawned, agent returned, phase advanced, unit merged, CI
 
 A conductor turn reports on **this session's work only**. Do not mention other concurrent sessions, other tickets, or unrelated in-flight work - the operator is tracking those elsewhere and a cross-session mention adds cost without adding a decision. Do not include rationale unless a decision surfaced in the *same* turn depends on it; rationale for past decisions belongs in the PR body, the plan artifact, or a memory file (see §5, bullet 3).
 
+## Self-discovered defects
+
+This is a THIRD axis, distinct from both mechanisms in §1: Rule A governs the shape of a turn that gets written, Rule B governs whether a turn gets written at all, and this rule governs what happens to a defect you notice yourself mid-task, before either question is reached. A defect you discover while doing the work is not a report item - it is work. Fix it in the same turn, under normal risk classification, and state the resolution in one line if it needs stating at all.
+
+Proportionality ("too small to be worth a cycle") is not a valid reason to defer. If the fix is small enough to describe, it is small enough to do - describing it costs the operator more attention than doing it costs you. Filing a follow-up ticket for something you could have fixed yourself is the same defect with extra steps.
+
+The only legitimate reasons to surface an unfixed issue are the ones that already stop work elsewhere in this methodology: it is genuinely out of scope for the task at hand, it requires an operator decision, or it is structurally blocked. Name which one. "Easy to lose track of" is not one of them.
+
+**Forbidden turn-ending shape: naming a spotted issue you chose not to fix, absent one of those three reasons.**
+
+```
+REJECTED: "One loose end I deliberately left: X isn't listed in the manifest.
+Genuinely minor, but it's the kind of thing that's easy to lose track of
+once the session closes."
+
+CORRECT: fix X in the same turn; if it's worth a line at all -
+"Added X to the manifest."
+```
+
 ## Warrant-bound shape (Rule A)
 
 Which of the four warrants fired (§2) determines the turn's shape, not just whether a turn happens at all. Bind on the Answer warrant first: **Answer always wins the shape question**, regardless of what else co-fires. A turn carrying the Answer warrant is an **Answer turn**, even if a Decision, Stoppage, or Completion warrant also fired on the same turn. A turn with no Answer warrant but at least one of Decision/Stoppage/Completion present is an **execution turn**. A turn with none of the four warrants present is neither shape: per Rule B (§2) it should not have been written at all, and §9's hook contract routes it to `_status_only_flag` rather than to either shape check - see §9's classification-order bullet for the full three-way gate.
