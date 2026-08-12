@@ -257,7 +257,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (38 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (39 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
@@ -271,6 +271,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Cross-harness agent teams - `ds-team` CLI, team.yml schema, cross-harness dispatch and collection
 - Evidence-on-disk - spill/sketch/rehydrate protocol for large worker tool outputs
 - Learnings capture instruction - what counts as a learning, the in-flight `ds-learning-shard append` path for the four roles it belongs to (`engineer`, `adr-generator`, `product-discovery`, `release-orchestrator`), and the `learnings_candidate[]` digest field for the three roles whose return contract declares it
+- Command & skill authoring - trigger-keyword descriptions (always injected, so enumerate when to fire) and bad/good example-pair seeding to encode taste
 
 **Agents** (18) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket

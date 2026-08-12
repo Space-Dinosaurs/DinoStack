@@ -170,6 +170,12 @@ Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds
   contract declares that field, and its canonical definition; read when acting as any
   subagent role.
 
+- **references/command-authoring.md** - authoring discipline for commands, skills, and
+  agent definitions: trigger-keyword descriptions (always injected into context even when
+  unused, so enumerate when to fire, not behavior) and bad/good example-pair seeding to
+  encode taste; read when authoring or editing a command file, skill definition, or agent
+  definition.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
