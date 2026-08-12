@@ -127,7 +127,7 @@ for existing in "$COMMANDS_DST"/*.md; do
   fi
 done
 
-# project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter
+# project-scaffolding.yml and templates/: hardlink so ds-migrate can resolve from adapter
 CURSOR_DIR="$REPO_DIR/.cursor"
 hardlink_from_content "$CONTENT/project-scaffolding.yml" "$CURSOR_DIR/project-scaffolding.yml"
 mkdir -p "$CURSOR_DIR/templates/.agentic"

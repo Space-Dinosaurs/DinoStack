@@ -6,12 +6,12 @@ agent: build
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-Pull the latest agentic-engineering (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Use this when you want to update an existing install to the current `main`, or when setting up agentic-engineering for the first time inside a Claude Code session.
+Pull the latest dinostack (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Use this when you want to update an existing install to the current `main`, or when setting up dinostack for the first time inside a Claude Code session.
 
 **Distinct from `/ds-update-agentic-engineering`** (shared prefix, opposite direction): `/ds-update` pulls the methodology *down* from upstream and reinstalls; `/ds-update-agentic-engineering` pushes methodology *edits up* to upstream.
 
 **Distinct from related commands:**
-- `/ds-init-project` - scaffolds a project's `AGENTS.md` hierarchy; this command installs or updates the agentic-engineering tool itself.
+- `/ds-init-project` - scaffolds a project's `AGENTS.md` hierarchy; this command installs or updates the dinostack tool itself.
 - `update.sh` (shell TUI) - the non-agent interactive updater; this command provides the same capability through a guided agent flow.
 
 ## Step 0 - Detect install state and route
@@ -74,7 +74,7 @@ Display names use the same `DISPLAY_NAMES` map as `update.js`:
 
 ```
 { claude: "Claude", codex: "Codex", cursor: "Cursor", gemini: "Gemini",
-  opencode: "OpenCode", kimi: "Kimi", omp: "Pi" }
+  openclaw: "OpenClaw", opencode: "OpenCode", kimi: "Kimi", omp: "Pi" }
 ```
 
 For adapter names not in the map, apply the generic capitalizer: strip the leading `.`, then capitalize the first character and lowercase the rest (e.g. `.hermes` -> `Hermes`, `.pi` -> `Pi`).
@@ -91,7 +91,7 @@ Ask for activation mode (`opt-in` / `opt-out`, default from saved config or `opt
 
 ### 1c - Developer identity
 
-Run `agentic-identity show --scope effective` to check the current identity state:
+Run `ds-identity show --scope effective` to check the current identity state:
 
 - **Confirmed identity found:** "Identity: `<handle>` (confirmed). Keep or change? [Enter = keep]"
 - **Provisional identity found:** "Identity: `<handle>` (provisional - not yet confirmed). Options: (c)onfirm as-is, (e)dit handle, (s)kip. [c]"
@@ -102,9 +102,11 @@ Run `agentic-identity show --scope effective` to check the current identity stat
 
 Resolve to either a handle (pass `--identity=<handle>` to install.sh in Step 4) or skip (pass `--no-identity`).
 
-## Step 2 - Git safety (UPDATE-FLOW only)
+## Step 2 - Git preview (UPDATE-FLOW only, informational)
 
 Skip this step for FRESH-CLONE-FLOW.
+
+This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `ds-update` at Step 4**, not here - `ds-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
 
 **2a - Fetch:**
 ```bash
@@ -112,39 +114,15 @@ git -C "$AE_REPO_DIR" fetch origin
 ```
 If fetch fails, stop and report the error. Network issues are surfaced verbatim.
 
-**2b - Branch check (hard block):**
+**2b - Preview info (for the Step 3 display only):**
 ```bash
 CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
-```
-If `CURRENT_BRANCH != "main"`, **hard-block** with:
-
-> "Cannot pull: the repo at `<AE_REPO_DIR>` is on branch `<CURRENT_BRANCH>`, not `main`. Running `git pull --ff-only origin main` on a non-main branch can silently fast-forward it into a broken state. Check out `main` and re-run: `git -C \"<AE_REPO_DIR>\" checkout main`"
-
-Do NOT offer a Y/N prompt. Do NOT proceed.
-
-**2c - Dirty tree check:**
-
-```bash
-DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
-```
-If non-empty, **stop** (no auto-stash) with:
-
-> "Cannot pull: the repo at `<AE_REPO_DIR>` has uncommitted changes. Commit, stash, or discard them first, then re-run."
-
-Show the `git status --porcelain` output.
-
-(A `CHURN_ALLOWLIST` carve-out lived here between #390 and DS-129, allow-listing a tracked root `MEMORY.md` that DinoStack's memory pipeline rewrote locally. DS-129 untracked root `MEMORY.md` in this repo, so the file the carve-out existed for can no longer appear in `git status --porcelain` - it was removed wholesale rather than left dead. If another tracked file develops the same locally-churned-but-curated-in-git pattern, reintroduce the mechanism then rather than resurrecting this dead code speculatively.)
-
-**2d - Divergence check:**
-```bash
 COUNTS="$(git -C "$AE_REPO_DIR" rev-list --left-right --count HEAD...origin/main)"
 LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
 REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
+DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
-- Local ahead only: note it ("local has N commits not on origin") but proceed.
-- Remote ahead only: expected; proceed.
-- Both ahead (diverged): stop. "Local and origin have diverged (N local commits, M origin commits). Resolve manually before re-running."
-- Neither ahead: note "already up to date" and proceed (will still re-run adapters).
+Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `ds-update` is the actual gate.
 
 ## Step 3 - Confirm plan
 
@@ -152,7 +130,7 @@ Before executing any side effects, show the user exactly what will run. Example:
 
 ```
 Plan:
-  Flow: UPDATE (repo: /Users/you/agentic-engineering)
+  Flow: UPDATE (repo: /Users/you/dinostack)
   Branch: main (clean, origin/main is N commit(s) ahead)
 
   Commands to run:
@@ -174,28 +152,9 @@ This explicit confirmation is what authorizes the side-effecting Step 4 as a con
 
 ### UPDATE-FLOW
 
-**4a - Pull:**
+Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `ds-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/ds-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
 
-```bash
-OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
-git -C "$AE_REPO_DIR" pull --ff-only origin main
-PULL_STATUS=$?
-NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
-```
-
-On non-zero `PULL_STATUS`: stop and show the error verbatim. Do not proceed to adapter installs.
-
-**4a-2 - Hook-change note:**
-```bash
-HOOK_CHANGES="$(git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- hooks/)"
-```
-If `HOOK_CHANGES` is non-empty, print the following informational note (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`) before continuing to 4b. This is informational only, not an actionable warning - Step 4c below re-runs `install.sh` for every selected adapter, which refreshes this machine's local hook snapshot as part of this flow.
-
-> note: this update changed files under hooks/. A bare git pull no longer changes a running session's hooks (they load from a session-stable snapshot, not the checkout) - but this flow also runs the install step, which refreshes this checkout's SHARED hook snapshot in place. So any OTHER Claude Code session already open against this checkout will pick up the changed hooks on its next tool call. If that matters, have those sessions /exit and restart once this update finishes. Changed: `<comma-joined HOOK_CHANGES>`
-
-If `HOOK_CHANGES` is empty, skip silently and continue to 4b.
-
-**4b - Detect `--identity` flag support** (after pull, not before, so the check reflects the newly pulled install.sh):
+**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `ds-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
 ```bash
 INSTALL_SH="$AE_REPO_DIR/.claude/install.sh"
 if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
@@ -206,15 +165,61 @@ fi
 ```
 If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
 
-Note: `.claude/install.sh` is used as a proxy for all adapters in this repo - all adapters track the same install.sh template, so the flag presence in `.claude/install.sh` is a reliable indicator for the full set. If a selected non-Claude adapter's installer predates the flag (e.g., an older pinned fork), that single install invocation may warn or fail but will not corrupt other adapters' state.
+**4b - Delegate to `ds-update`:**
 
-**4c - Run adapters (fail-fast):**
-
-For each selected adapter in the resolved list:
 ```bash
-bash "$AE_REPO_DIR/<adapter>/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+# ADAPTERS_CSV: comma-joined SELECTED_ADAPTERS from Step 1a.
+# Only pass --identity/--no-identity when IDENTITY_SUPPORTED=1 (from 4a).
+ds-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
+UPDATE_STATUS=$?
 ```
-On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters.
+
+`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `ds-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `ds-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
+
+On non-zero `UPDATE_STATUS`: stop and show `ds-update`'s stdout/stderr verbatim. `ds-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (fail-soft - every selected adapter is attempted, and the names and exit codes of all that failed are listed together at the end). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
+
+If `ds-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `ds-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
+
+```bash
+CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  echo "error: must be on 'main' to update (currently on '$CURRENT_BRANCH'). Run: git -C $AE_REPO_DIR checkout main"
+  exit 1
+fi
+
+DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
+if [[ -n "$DIRTY" ]]; then
+  echo "error: working tree has uncommitted changes; commit or stash first:"
+  echo "$DIRTY"
+  exit 1
+fi
+
+git -C "$AE_REPO_DIR" pull --ff-only origin main
+FAILED_ADAPTERS=()
+# Run each selected adapter's install.sh (fail-soft: every adapter is
+# attempted even after an earlier one fails, and all failures are reported
+# together below). Deliberately asymmetric with the FRESH-CLONE-FLOW loop
+# below, which is fail-fast: a partially-installed brand-new clone is worse
+# than a partially-refreshed existing install, so a fresh clone stops on the
+# first failure instead of leaving some adapters wired and others not.
+for adapter in "${SELECTED_ADAPTERS[@]}"; do
+  bash "$AE_REPO_DIR/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+  ADAPTER_STATUS=$?
+  if [[ "$ADAPTER_STATUS" -ne 0 ]]; then
+    FAILED_ADAPTERS+=("${adapter}/install.sh (exit ${ADAPTER_STATUS})")
+  fi
+done
+if [[ "${#FAILED_ADAPTERS[@]}" -gt 0 ]]; then
+  echo "error: the following adapters failed to install:"
+  for f in "${FAILED_ADAPTERS[@]}"; do
+    echo "  $f"
+  done
+  exit 1
+fi
+```
+A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `ds-update` enforces both internally) - never skip these two checks on the fallback path.
+
+Note "ds-update not found on PATH; ran the fallback sequence directly. Open a new shell so `ds-update` is available next time."
 
 ### FRESH-CLONE-FLOW
 
@@ -238,7 +243,7 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
      echo "HTTPS clone failed (repo may be private); trying SSH..."
      if ! git clone "$SSH_URL" "$DEST"; then
        echo "Both HTTPS and SSH clone failed. If the repo is private, ensure SSH access is configured."
-       # STOP - report failure
+       exit 1
      fi
    fi
    ```
@@ -246,7 +251,7 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
 
 **4c - Run adapters (same loop as UPDATE-FLOW):**
 
-After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW Step 4c. Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed.
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `ds-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `ds-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `ds-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
 
 bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
 
@@ -262,7 +267,11 @@ fi
 # Run each selected adapter's install.sh (fail-fast)
 for adapter in "${SELECTED_ADAPTERS[@]}"; do
   bash "$DEST/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
-  # On non-zero exit: stop immediately, report which adapter failed and its exit code.
+  ADAPTER_STATUS=$?
+  if [[ "$ADAPTER_STATUS" -ne 0 ]]; then
+    echo "error: adapter '$adapter' install failed with exit code $ADAPTER_STATUS"
+    exit 1
+  fi
 done
 ```
 
@@ -273,17 +282,17 @@ On non-zero exit from any adapter: stop immediately, report which adapter failed
 After adapters are installed, run a read-only health check to surface any configuration or wiring issues:
 
 ```bash
-agentic-doctor
+ds-doctor
 ```
 
-`agentic-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `agentic-doctor` not found on PATH; open a new shell and run `agentic-doctor` manually."
+`ds-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `ds-doctor` not found on PATH; open a new shell and run `ds-doctor` manually."
 
 Parse the exit code and output:
 
 - **Exit 0 (no findings):** print `Health: OK`
-- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run agentic-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
+- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run ds-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
 
-Print the full `agentic-doctor` output below the summary line so the user can see what was found.
+Print the full `ds-doctor` output below the summary line so the user can see what was found.
 
 ## Step 6 - Persist config and report
 
@@ -339,10 +348,10 @@ Done.
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
-  Health: OK  (or "N issue(s) - run agentic-doctor --fix to converge")
+  Health: OK  (or "N issue(s) - run ds-doctor --fix to converge")
 
 Next steps:
   - Run /ds-status to verify the install is active in this project.
-  - Run agentic-identity show to confirm your developer identity.
+  - Run ds-identity show --scope effective to confirm your developer identity.
   - Open a new shell if adapters added shell integrations.
 ```

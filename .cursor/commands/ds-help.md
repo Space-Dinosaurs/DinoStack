@@ -1,16 +1,16 @@
 # /ds-help
 
-Static, zero-token command reference for the agentic-engineering skill.
+Static, zero-token command reference for the dinostack skill.
 Prints every slash command with a one-line description, grouped by intent,
 plus usage patterns for inspecting, deliberately invoking, and tuning the
 skill. Writes nothing. Always exits 0.
 
-Implementation: `bin/agentic-help` (Python 3 stdlib).
+Implementation: `bin/ds-help` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-help
+ds-help
 ```
 
 No subcommands, no flags. The help text is a compile-time constant; the

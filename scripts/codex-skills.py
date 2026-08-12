@@ -8,8 +8,12 @@ Public API: ``build --repo ROOT [--output DIR]``, ``check --repo ROOT``,
             --repo ROOT`` for translating stdin through the workflow contract.
 
 Upstream deps: canonical content/SKILL.md, content/sections, three canonical
-               command bodies, .codex/skill-frontmatter, and the reviewed
-               .codex/skill-compatibility.yml inventory. Standard library only.
+               command bodies, content/rules/conventions.md and
+               content/rules/code-standards.md (hard-read by
+               reachability_corpus() - 4 PARAGRAPH_RULES anchors target
+               content/rules/conventions.md exclusively), .codex/skill-frontmatter,
+               and the reviewed .codex/skill-compatibility.yml inventory.
+               Standard library only.
 
 Downstream consumers: .codex/build.sh, scripts/check-codex-skill-sync.sh, CI,
                       scripts/test/test_codex_skills.py, and the repo-owned
@@ -20,7 +24,13 @@ Failure modes: refuses symlinked/special generated roots, unmatched source
                occurrences, invalid frontmatter, escaping resources, or drift.
                Check is read-only. A canonical-output build replaces only its
                owned generated tree; an arbitrary-output build also creates or atomically replaces
-               .agentic/codex-skill-root-ownership.json.
+               .agentic/codex-skill-root-ownership.json. A PARAGRAPH_RULES
+               anchor that matches zero times anywhere in
+               reachability_corpus() (assert_paragraph_rules_reachable(),
+               called from current_inventory()) aborts build, check, AND
+               inventory alike with a SkillError naming the unmatched
+               pattern(s) - current_inventory() is the common choke point
+               all three subcommands share.
 
 Performance: linear in canonical source and generated-tree size.
 """
@@ -49,7 +59,7 @@ ROOT_REGISTRY_MAGIC = "DINOSTACK_CODEX_SKILL_ROOT_OWNERSHIP"
 ROOT_REGISTRY = Path(".agentic/codex-skill-root-ownership.json")
 CODEX_CONTEXT_PATH = "~/.codex/projects/[hash]/context.md"
 CONTEXT_WRITER_MIGRATION = "context-writer-migration"
-SKILLS = ("agentic-engineering", "brief", "wrap", "implement-ticket")
+SKILLS = ("dinostack", "brief", "wrap", "implement-ticket")
 WORKFLOWS = {
     "brief": "content/commands/ds-brief.md",
     "wrap": "content/commands/ds-wrap.md",
@@ -73,7 +83,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -83,7 +93,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -96,7 +106,7 @@ Claude hook payload fields and Claude Task behavior do not apply on Codex.
 SIMPLIFY_CONTRACT = (
     "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` "
     "(load that section, dispatch the named cleanup role with "
-    "`$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the "
+    "`$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the "
     "required narrow Skeptic review)"
 )
 CODEX_BACKGROUND_COMMAND_CONTRACT = (
@@ -179,7 +189,7 @@ def workflow_resolution(name: str) -> tuple[str, str, str]:
     native_skill = NATIVE_COMMAND_SKILLS.get(name)
     if native_skill:
         return f"${native_skill}", "native-skill", native_skill
-    if name == "agentic-engineering":
+    if name == "dinostack":
         return f"${name}", "native-skill", name
     if name == "simplify":
         return (
@@ -189,7 +199,7 @@ def workflow_resolution(name: str) -> tuple[str, str, str]:
         )
     return (
         f"manual workflow '{name}' via "
-        f"`$AE_REPO_DIR/bin/agentic-codex-dispatch command {name}`",
+        f"`$AE_REPO_DIR/bin/ds-codex-dispatch command {name}`",
         "manual-command-resource",
         f"content/commands/{name}.md",
     )
@@ -275,36 +285,54 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
     return re.sub(pattern, replacement, text)
 
 
-def add_codex_stop_hook_occurrences(
-    doc: Document,
-    found: list[Occurrence],
-    occupied: list[tuple[int, int]],
-) -> None:
-    paragraph_rules = (
+# Module-level so the pattern list has a single canonical identity shared by
+# both the matcher (add_codex_stop_hook_occurrences, below) and the
+# unmatched-rule assertion (assert_paragraph_rules_reachable). Each entry is
+# (anchor_regex, generated_override_text); the anchor regex targets a
+# specific paragraph opener in the canonical (Claude) prose that describes
+# Stop-hook/writer behavior the current Codex Stop hook does not (yet)
+# implement. If a canonical prose edit changes an anchored opener's exact
+# text, the corresponding pattern here silently stops matching and the
+# Codex-specific override vanishes - re.finditer has no built-in "this
+# pattern matched nothing" signal. assert_paragraph_rules_reachable() closes
+# that gap: every rule here must match at least once somewhere across
+# reachability_corpus() - NOT "every document any rule could conceivably
+# target": that corpus is specifically assembled_methodology() +
+# WORKFLOWS.values() + content/rules/conventions.md +
+# content/rules/code-standards.md, and deliberately excludes content/SKILL.md
+# even though content/SKILL.md IS part of the real generation corpus
+# (current_inventory()'s documents() scans it). No PARAGRAPH_RULES anchor
+# currently targets content/SKILL.md-only text, so this is not live drift,
+# but it is a documented limitation: a future rule anchored solely in
+# content/SKILL.md would fail this assertion spuriously (fails safe, not
+# silent - a false alarm forces investigation rather than a missed one) until
+# reachability_corpus() is extended to include it. See reachability_corpus()'s
+# own docstring for why neither real generation-facing scan
+# (current_inventory()'s documents(), render_runtime_guidance()'s
+# $AGENTS_RAW) is itself a valid scope for this assertion.
+PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
-            r"\*\*Writer scope: the conductor is the primary writer of `\.agentic/events\.jsonl`\.\*\*"
+            r"\*\*Writer scope: `\.agentic/events\.jsonl` has four writers\*\*"
             r".*?(?=\n\n)",
             (
-                "**Writer scope: the conductor is the primary writer of "
-                "`$AE_PROJECT_DIR/.agentic/events.jsonl`.** The current Codex Stop hook writes "
-                f"session continuity only to `{CODEX_CONTEXT_PATH}`. It does not append "
-                "`session_total` events or mirror project-local orchestration state. The "
-                "project-local writer migration is deferred to "
-                f"`{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
+                "**Writer scope (Codex runtime boundary).** "
+                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the "
+                "conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex "
+                f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "
+                "append `session_total` events, run the spawn-telemetry hooks, or mirror "
+                "project-local orchestration state. The project-local writer migration is "
+                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
             ),
         ),
-        (
-            r"\*\*Session context\*\* is auto-written by the Stop hook.*?(?=\n\n)",
-            (
-                "**Session context.** The current Codex Stop hook writes lightweight session "
-                f"continuity to `{CODEX_CONTEXT_PATH}` after each Stop event. Project-local "
-                "`$AE_PROJECT_DIR/.agentic/context.md` is richer output written intentionally "
-                f"by `$wrap`; automatic project-local writing is deferred to "
-                f"`{CONTEXT_WRITER_MIGRATION}`. Update root `MEMORY.md` when stable facts were "
-                "learned. Close the session cleanly so the current Codex Stop hook can finish "
-                "its hashed global continuity write."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery, verified against the true reachability
+        # corpus - not just current_inventory()'s narrower scan): the
+        # "**Session context** is auto-written by the Stop hook" rule previously
+        # here was DELETED, not fixed - genuinely obsolete, not reworded. It
+        # described a pre-redesign context.md write model (Stop hook writing
+        # context.md directly); that model is superseded by the "context.md is
+        # now a DERIVED ROLLUP" paragraph (rule below, still matches). Confirmed
+        # absent from assembled methodology, all 3 WORKFLOWS.values() command
+        # files, and both content/rules/*.md files.
         (
             r"\*\*Session context\.\*\* \*\*The read contract is unchanged:.*?(?=\n\n)",
             (
@@ -337,17 +365,10 @@ def add_codex_stop_hook_occurrences(
                 f"deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-        (
-            r"The Stop hook auto-writes `<cwd>/\.agentic/context\.md`.*?(?=\n\n)",
-            (
-                f"The current Codex Stop hook writes raw continuity to `{CODEX_CONTEXT_PATH}`. "
-                "`$wrap` intentionally writes or merges the richer project-local "
-                "`$AE_PROJECT_DIR/.agentic/context.md`; automatic project-local writing is "
-                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. It is also the ongoing counterpart "
-                "to the project scaffolding workflow and populates AGENTS.md with durable "
-                "decisions, conventions, stack details, and gotchas."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery): the "The Stop hook auto-writes
+        # `<cwd>/.agentic/context.md`" rule previously here was DELETED for the
+        # same reason as the block noted above - genuinely obsolete pre-redesign
+        # text, confirmed absent from the true reachability corpus.
         (
             r"Use when you want a richer context file than the auto-hook provides "
             r"— e\.g\. before handing off complex in-progress work to a future session\.",
@@ -418,15 +439,10 @@ def add_codex_stop_hook_occurrences(
                 f"consume this sentinel; migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-        (
-            r"\*\*Output path \(context\.md\):\*\* `<cwd>/\.agentic/context\.md`\..*?(?=\n\n)",
-            (
-                "**Output path (context.md):** `$AE_PROJECT_DIR/.agentic/context.md`. "
-                "Project-local and written intentionally by `$wrap`. The current Codex Stop "
-                f"hook instead writes `{CODEX_CONTEXT_PATH}`. Automatic project-local writing "
-                f"is deferred to `{CONTEXT_WRITER_MIGRATION}`."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery): the "**Output path (context.md):**"
+        # rule previously here was DELETED for the same reason as the blocks
+        # noted above - genuinely obsolete pre-redesign text, confirmed absent
+        # from the true reachability corpus.
         (
             r"`<cwd>/\.agentic/context\.md` is now a DERIVED ROLLUP:.*?(?=\n\n)",
             (
@@ -471,13 +487,16 @@ def add_codex_stop_hook_occurrences(
             ),
         ),
         (
-            r"\*\*Contract D — Stop hook mirror\.\*\*\n\nThe Stop hook .*?(?=\n\n)",
+            r"\*\*Contract D — Stop hook / SessionEnd hook mirror\.\*\*\n\nThe Claude Code Stop "
+            r"hook .*?(?=\n\n)",
             (
                 "**Contract D - Codex runtime boundary.**\n\n"
                 f"The current Codex Stop hook writes only `{CODEX_CONTEXT_PATH}`. It does not "
-                "mark `loop-state.json` interrupted or mirror `batch-state.json`; stale active "
-                "state is recovered by the existing age-based resume path. Project-local state "
-                f"writer migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
+                "mark `loop-state.json` interrupted or mirror `batch-state.json` (the Claude Code "
+                "Stop hook's per-turn liveness refresh and the separate SessionEnd hook's terminal "
+                "interrupted-mark are both Claude-only); stale active state is recovered by the "
+                "existing age-based resume path. Project-local state writer migration is deferred "
+                f"to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
         (
@@ -490,8 +509,68 @@ def add_codex_stop_hook_occurrences(
                 f"migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-    )
-    for pattern, generated in paragraph_rules:
+)
+
+
+def reachability_corpus(repo: Path) -> str:
+    """Concatenation of assembled_methodology() + WORKFLOWS.values() +
+    content/rules/conventions.md + content/rules/code-standards.md, for
+    assert_paragraph_rules_reachable() ONLY. NOT used for actual generation,
+    and NOT every document a PARAGRAPH_RULES anchor could ever target -
+    notably content/SKILL.md is excluded here even though it IS part of the
+    real generation corpus (current_inventory()'s documents() scans it); no
+    current rule targets content/SKILL.md-only text, but one that did would
+    fail this assertion spuriously until this function is extended (fails
+    safe, not silent). The two real generation-facing scans each cover a
+    different, narrower slice: current_inventory()'s documents() excludes
+    content/rules/conventions.md (several rules' sole target;
+    content/rules/code-standards.md is also excluded but is the sole target
+    of zero current rules) while render_runtime_guidance()'s
+    $AGENTS_RAW (built by .codex/build.sh from the assembled methodology plus
+    both rules files) excludes the WORKFLOWS.values() command files (several
+    OTHER rules' sole target, e.g. content/commands/ds-wrap.md). Neither
+    scan's corpus is a superset of the other, so neither is a valid single
+    scope for "every rule matches somewhere" - and widening either one would
+    change real generated/inventoried output as an unreviewed side effect of
+    a reachability check. This function exists to answer only "does this
+    anchor match ANYTHING, anywhere" in isolation from both real scans."""
+    parts = [assembled_methodology(repo)]
+    parts.extend(read_text(repo / path) for path in WORKFLOWS.values())
+    parts.append(read_text(repo / "content/rules/conventions.md"))
+    parts.append(read_text(repo / "content/rules/code-standards.md"))
+    return "\n\n".join(parts)
+
+
+def assert_paragraph_rules_reachable(repo: Path) -> None:
+    """Fail loudly if any PARAGRAPH_RULES anchor matches zero times anywhere
+    in reachability_corpus(repo). A zero-hit rule means its Codex-specific
+    override has silently stopped applying wherever its target document is
+    actually scanned - almost always because the canonical (Claude) prose it
+    anchors to was reworded and the regex opener here was not updated to
+    match (the CRITICAL this closes: content/sections/09-events-log.md's
+    "Writer scope" paragraph was reworded and .codex/AGENTS.md /
+    .codex/skills/dinostack/METHODOLOGY.md silently reverted to telling
+    Codex agents about hook telemetry Codex does not have)."""
+    corpus = reachability_corpus(repo)
+    unmatched = [pattern for pattern, _ in PARAGRAPH_RULES if not re.search(pattern, corpus, re.S)]
+    if unmatched:
+        previews = "\n".join(f"  - {pattern[:100]!r}" for pattern in unmatched)
+        raise SkillError(
+            f"{len(unmatched)} of {len(PARAGRAPH_RULES)} PARAGRAPH_RULES anchor(s) in "
+            "scripts/codex-skills.py matched ZERO times anywhere in the reachability corpus - "
+            "the canonical prose these anchors target was likely reworded without updating "
+            "the matching regex here, silently reverting the Codex-specific override to "
+            "canonical (Claude-only) text. Update the anchor pattern(s) to the current "
+            "canonical wording:\n" + previews
+        )
+
+
+def add_codex_stop_hook_occurrences(
+    doc: Document,
+    found: list[Occurrence],
+    occupied: list[tuple[int, int]],
+) -> None:
+    for pattern, generated in PARAGRAPH_RULES:
         for match in re.finditer(pattern, doc.text, re.S):
             add_occurrence(
                 found,
@@ -696,9 +775,9 @@ def shell_occurrences(doc: Document, found: list[Occurrence], occupied: list[tup
                     local = segment_match.start(1) + match.start(1)
                     start = body_start + cursor + local
                     if token == "claude":
-                        generated = "$AE_REPO_DIR/bin/agentic-codex-dispatch legacy-cli claude"
-                        mode, target, kind = "shimmed", "bin/agentic-codex-dispatch", "operational"
-                    elif token.startswith("agentic-"):
+                        generated = "$AE_REPO_DIR/bin/ds-codex-dispatch legacy-cli claude"
+                        mode, target, kind = "shimmed", "bin/ds-codex-dispatch", "operational"
+                    elif token.startswith(("agentic-", "ds-")):
                         generated = token
                         mode, target, kind = "repository-owned", f"bin/{token}", "operational"
                     elif token in PATH_BINARIES:
@@ -941,10 +1020,10 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         generated, replacements = re.subn(
             r"Use `?CLAUDE_CODE_SESSION_ID`? and only that variable\s*-\s*"
             r"`?AGENTIC_SESSION_ID`? and `?CLAUDE_SESSION_UUID`? are both empty in a live "
-            r"session \(`?bin/agentic-migrate`? reads them and is already silently degraded as "
+            r"session \(`?bin/ds-migrate`? reads them and is already silently degraded as "
             r"a result\)\.",
             "Use `AE_SESSION_ID` only. It is the Codex session binding derived by passing hook "
-            "JSON to `$AE_REPO_DIR/bin/agentic-codex-session-id`.",
+            "JSON to `$AE_REPO_DIR/bin/ds-codex-session-id`.",
             generated,
             count=1,
         )
@@ -972,7 +1051,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         add_occurrence(
             found, occupied, doc, match.start(), match.end(), "session-variable",
             match.group(0), generated, "operational", "runtime-helper",
-            "bin/agentic-codex-session-id", "codex-harness",
+            "bin/ds-codex-session-id", "codex-harness",
         )
 
     for match in re.finditer(r".*?`run_in_background:\s*true`.*?(?=\n)", doc.text):
@@ -1014,13 +1093,101 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         )
 
     literal_rules = [
-        (r"~/DinoStack/\.claude/skills/agentic-engineering", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),
+        (
+            r"ds-identity resolve-hook --cwd <cwd>",
+            "codex-profile-identity-command",
+            'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
+            'resolve-hook --cwd "$AE_PROJECT_DIR"',
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"The active profile config dir is the first non-empty qualifying value "
+            r"from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, then `CODEX_HOME`; "
+            r"expand a leading `~`, normalize lexically, accept only a path under "
+            r"`\$HOME`, and reject symlinked components\.",
+            "codex-config-binding",
+            "For Codex, use only the already-validated `$AE_CODEX_CONFIG_DIR` "
+            "runtime binding as the active profile config dir; do not re-resolve "
+            "it from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, or `CODEX_HOME`.",
+            "validated-config-path",
+            "runtime-binding",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"it selects the first qualifying profile binding from "
+            r"`AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or "
+            r"`PI_CODING_AGENT_DIR`",
+            "codex-config-binding",
+            "it must use only the already-validated `$AE_CODEX_CONFIG_DIR` "
+            "runtime binding",
+            "validated-config-path",
+            "runtime-binding",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"<active-config-dir>/identity\.yml",
+            "codex-config-path",
+            "$AE_CODEX_CONFIG_DIR/identity.yml",
+            "validated-config-path",
+            "identity-file",
+            "identity.yml",
+            "codex-config-directory",
+        ),
+        (
+            r"pass `--profile-dir <dir>` when the active config dir cannot be "
+            r"derived from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, "
+            r"`CODEX_HOME`, or `PI_CODING_AGENT_DIR`",
+            "codex-profile-identity-command",
+            "always pass `--profile-dir \"$AE_CODEX_CONFIG_DIR\"` for profile "
+            "identity operations",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"  Confirm: ds-identity confirm --scope <scope>\n"
+            r"  Correct: ds-identity init <handle> --force --scope <scope>",
+            "codex-profile-identity-command",
+            "  Confirm (global/project): ds-identity confirm --scope "
+            "<global|project>\n"
+            "  Correct (global/project): ds-identity init <handle> --force "
+            "--scope <global|project>\n"
+            "  Show (profile): ds-identity show --scope profile --profile-dir "
+            "\"$AE_CODEX_CONFIG_DIR\"\n"
+            "  Confirm (profile): ds-identity confirm --scope profile "
+            "--profile-dir \"$AE_CODEX_CONFIG_DIR\"\n"
+            "  Correct (profile): ds-identity init <handle> --force --scope "
+            "profile --profile-dir \"$AE_CODEX_CONFIG_DIR\"",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"For profile scope, the command uses the active config-dir "
+            r"environment automatically; append `--profile-dir <dir>` only when "
+            r"no profile env is available\.",
+            "codex-profile-identity-command",
+            "For profile scope, always pass `--profile-dir "
+            "\"$AE_CODEX_CONFIG_DIR\"` to `show`, `confirm`, `init`, and `auto`.",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (r"~/DinoStack/\.claude/skills/dinostack", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
         (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
-        (r"~?/??\.claude/skills/agentic-engineering", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),
+        (r"~?/??\.claude/skills/dinostack", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
         (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
         (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
         (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
-        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/agentic-codex-session-id", "codex-harness"),
+        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/ds-codex-session-id", "codex-harness"),
     ]
     for pattern, cls, generated, mode, target_kind, target, scope in literal_rules:
         for match in re.finditer(pattern, doc.text):
@@ -1147,6 +1314,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
 
 def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[Occurrence]]]:
+    assert_paragraph_rules_reachable(repo)
     by_source: dict[str, list[Occurrence]] = {}
     for doc in documents(repo):
         by_source[doc.source] = inventory_document(doc, repo)
@@ -1215,7 +1383,7 @@ def frontmatter(repo: Path, name: str) -> str:
 
 
 def preamble(name: str) -> str:
-    workflow = name != "agentic-engineering"
+    workflow = name != "dinostack"
     shared = "resources" if workflow else "."
     return f"""
 <!-- Generated by scripts/codex-skills.py. Do not edit directly. -->
@@ -1226,7 +1394,7 @@ Before executing this skill, resolve the physical directory containing this load
 (follow the installed skill-directory symlink) and bind it as `AE_SKILL_ROOT`. Set
 `AE_CORE_SKILL_ROOT` to `{shared}` beneath that physical root and validate its
 `.dinostack-skill.json` marker has `magic={MAGIC}`, `adapter=codex`,
-`name=agentic-engineering`, and `schema_version={SCHEMA}`. Resolve every logical resource through
+`name=dinostack`, and `schema_version={SCHEMA}`. Resolve every logical resource through
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
@@ -1235,16 +1403,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.
@@ -1254,8 +1422,8 @@ fields. When isolation is required, the conductor creates the worktree manually 
 """
 
 
-def resource_map(name: str, inventory_hash: str) -> dict[str, object]:
-    if name == "agentic-engineering":
+def resource_map(name: str) -> dict[str, object]:
+    if name == "dinostack":
         resources = {
             "METHODOLOGY.md": {"path": "METHODOLOGY.md", "type": "file"},
             "agents": {"path": "agents", "type": "directory"},
@@ -1281,7 +1449,6 @@ def resource_map(name: str, inventory_hash: str) -> dict[str, object]:
             "workflow": {"path": f"resources/{command.removeprefix('content/')}", "type": "file"},
         }
     return {
-        "compatibility_inventory_sha256": inventory_hash,
         "resources": resources,
         "schema_version": 1,
         "skill": name,
@@ -1474,12 +1641,11 @@ def render_tree(
     staging: Path,
     ownership_marker: dict[str, object],
 ) -> None:
-    compatibility = load_compatibility(repo)
+    load_compatibility(repo)
     records, by_source = current_inventory(repo)
-    inventory_hash = sha256(canonical_json(compatibility))
     docs = {doc.source: doc.text for doc in documents(repo)}
     (staging / ROOT_MARKER).write_bytes(canonical_json(ownership_marker))
-    core = staging / "agentic-engineering"
+    core = staging / "dinostack"
     core.mkdir(parents=True)
     core_body = transform(docs["content/SKILL.md"], by_source["content/SKILL.md"], repo)
     methodology = transform(
@@ -1487,10 +1653,10 @@ def render_tree(
         by_source["assembled:METHODOLOGY.md"],
         repo,
     )
-    (core / "SKILL.md").write_text(frontmatter(repo, "agentic-engineering") + preamble("agentic-engineering") + core_body, encoding="utf-8")
+    (core / "SKILL.md").write_text(frontmatter(repo, "dinostack") + preamble("dinostack") + core_body, encoding="utf-8")
     (core / "METHODOLOGY.md").write_text(methodology, encoding="utf-8")
-    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("agentic-engineering", inventory_hash)))
-    (core / ".dinostack-skill.json").write_bytes(canonical_json(marker("agentic-engineering")))
+    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("dinostack")))
+    (core / ".dinostack-skill.json").write_bytes(canonical_json(marker("dinostack")))
 
     target_paths = {
         "rules": repo / "content/rules", "commands": repo / "content/commands",
@@ -1504,7 +1670,7 @@ def render_tree(
         ),
     }
     for rel, target in target_paths.items():
-        final_path = output / "agentic-engineering" / rel
+        final_path = output / "dinostack" / rel
         safe_link(core / rel, os.path.relpath(target, final_path.parent))
 
     for name, source in WORKFLOWS.items():
@@ -1512,9 +1678,9 @@ def render_tree(
         skill.mkdir()
         body = transform(docs[source], by_source[source], repo)
         (skill / "SKILL.md").write_text(frontmatter(repo, name) + preamble(name) + body, encoding="utf-8")
-        (skill / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map(name, inventory_hash)))
+        (skill / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map(name)))
         (skill / ".dinostack-skill.json").write_bytes(canonical_json(marker(name)))
-        safe_link(skill / "resources", "../agentic-engineering")
+        safe_link(skill / "resources", "../dinostack")
 
 
 def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
@@ -1541,7 +1707,7 @@ def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
 
 def validate_resources(root: Path) -> None:
     generated_root = root.resolve(strict=True)
-    repository = (root / "agentic-engineering/bin").resolve(strict=True).parent
+    repository = (root / "dinostack/bin").resolve(strict=True).parent
     for name in SKILLS:
         skill = root / name
         if json.loads((skill / ".dinostack-skill.json").read_text()) != marker(name):

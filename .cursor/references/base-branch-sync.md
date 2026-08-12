@@ -1,8 +1,11 @@
 <!--
 Purpose: Full reference for the post-merge local base-branch sync procedure -
-         the `agentic-base-sync` CLI contract, the underlying
+         the `ds-base-sync` CLI contract, the underlying
          `ae_base_branch_sync` bash function, the divergence diagnostic
-         format, recovery guidance, and the two call sites that invoke it.
+         format, recovery guidance, the two call sites that invoke it, and
+         the two unconditional post-sync advisory notes (DS-54 hooks-
+         staleness, worktree-reaper) it prints - never blocking, never
+         mutating.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/commands/ds-implement-ticket.md Phase 12 (unconditional
@@ -10,7 +13,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md Conductor preflight step 6
             (session-start sync call).
 
-Upstream deps: bin/agentic-base-sync, scripts/lib/base-branch-sync.sh.
+Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh,
+               bin/ds-reap-worktrees (worktree-reaper advisory note only).
 
 Downstream consumers: /ds-implement-ticket Phase 12; the conductor session-
                       start preflight in content/rules/conventions.md.
@@ -25,12 +29,12 @@ Failure modes: Prose + bash reference; does not auto-execute. A stale copy of
 
 ## Purpose
 
-Merging a PR to `BASE_BRANCH` leaves the conductor's (or any session's) local `BASE_BRANCH` ref exactly where it was - nothing in the methodology ever fast-forwards it automatically. Without an explicit sync step, the local checkout drifts one commit further behind per merge until a later `git pull --ff-only` refuses outright and the tree jams. `agentic-base-sync` is the one canonical, testable procedure that closes this gap: it fast-forwards the local `<base-branch>` ref to match `origin/<base-branch>`, and nothing else.
+Merging a PR to `BASE_BRANCH` leaves the conductor's (or any session's) local `BASE_BRANCH` ref exactly where it was - nothing in the methodology ever fast-forwards it automatically. Without an explicit sync step, the local checkout drifts one commit further behind per merge until a later `git pull --ff-only` refuses outright and the tree jams. `ds-base-sync` is the one canonical, testable procedure that closes this gap: it fast-forwards the local `<base-branch>` ref to match `origin/<base-branch>`, and nothing else.
 
 ## CLI contract
 
 ```
-usage: agentic-base-sync <repo> <base-branch>
+usage: ds-base-sync <repo> <base-branch>
 
 Fast-forwards the LOCAL <base-branch> ref in <repo> to match origin/<base-branch>.
 Never merges, rebases, force-pushes, or autostashes.
@@ -62,7 +66,7 @@ conditions on one native code) are never passed through. The wrapper's contract:
      SUCCESSFULLY (exit 0) - only an actual overwrite conflict lands here.
   3  usage / repo-resolution / argument error - includes an empty or missing
      `<repo>` or `<base-branch>` argument, validated BEFORE any git call, printed
-     to stderr, mirrors `agentic-resolve-worktree`.
+     to stderr, mirrors `ds-resolve-worktree`.
   4  inconclusive - sync could not be verified or completed this run, and is NOT
      itself evidence of divergence. Three distinct sub-causes, each printed with
      its own distinct breadcrumb status (never collapsed into one):
@@ -104,21 +108,37 @@ Stdout (always, on any exit): exactly one breadcrumb line, plus zero or more
   [phase: base-sync | status=fetch-failed | branch=<base>]
 ```
 
+**DS-54 advisory line (unconditional, AFTER the breadcrumb, never affects exit code).** After `ae_base_branch_sync` returns - on EVERY invocation, regardless of `<repo>`, `<base-branch>`, or the exit status above - the CLI wrapper (`bin/ds-base-sync`, not the library function) runs `hooks/lib/hooks-staleness-core.sh` from the OPERATOR'S OWN DinoStack checkout (resolved independently of `<repo>` - see [hooks-snapshot dogfooding gap](../../hooks/AGENTS.md) - a merge in ANY project should surface hook-snapshot staleness in the operator's own AE install, not just when `<repo>` happens to be that checkout). When that classifier has a nonempty finding, one additional line is printed, prefixed `ds-base-sync: `:
+
+```
+ds-base-sync: dinostack: hooks are not yet snapshotted - a bare 'git pull' can silently change a live session's hook behavior. Run install.sh to enable the session-stable hooks snapshot.
+```
+
+(or the equivalent `half_applied`/`stale_but_stable` message - see `hooks/lib/hooks-staleness-core.sh`). This line is absent when the classifier finds nothing to report (the common case - snapshot already current), and its presence or absence never changes the exit code documented above. It is read-only: `bin/ds-base-sync` never calls `sync_hooks_snapshot` itself, satisfying the DS-54 invariant that a passive/automatic trigger (this call runs unconditionally at `/ds-implement-ticket` Phase 12, not on operator request) may never auto-rewire a live session's hooks - only an explicit `ds-doctor --fix` or an adapter `install.sh` run does that.
+
+**Worktree-reaper advisory line (unconditional, AFTER the hooks-staleness line, never affects exit code).** After the hooks-staleness advisory above, the CLI wrapper unconditionally runs `bin/ds-reap-worktrees --repo <repo> --count-only` against `<repo>` ITSELF (unlike the hooks-staleness note, which is always scoped to the operator's own DinoStack checkout regardless of `<repo>` - the worktree reaper is scoped to the project whose base branch was just synced, since that project's worktrees are what would be accumulating). `--count-only` (round-2 Skeptic Major 4 - see `bin/ds-reap-worktrees`'s own module docstring for the full rationale) does a SINGLE `git worktree list --porcelain` call and nothing else: no network, no per-entry `git status`/`git ls-remote`/`git merge-base`/`gh` calls. When the parsed non-root count (`entries=N` minus 1) is nonzero, a one-line note is printed, prefixed `ds-base-sync: `:
+
+```
+ds-base-sync: 6 non-root git worktree(s) in <repo> - consider `/ds-cleanup-worktrees` (or `ds-reap-worktrees --explain` for a dry-run report).
+```
+
+This is a raw worktree-count nudge, not a removal forecast - it does not run the removal predicate at all, so it says nothing about how many of those worktrees would actually resolve REMOVE-eligible (operators wanting that run `ds-reap-worktrees --dry-run --explain` or `/ds-cleanup-worktrees` directly). A missing `bin/ds-reap-worktrees`, or any error running it, is silently swallowed and the line is simply absent - same fail-open contract as the hooks-staleness advisory. It is ALSO absent whenever the non-root count is 0 - a repo with no non-root worktrees (just the main one, or a bare/nonexistent one) has nothing actionable to report, matching the hooks-staleness line's own "silent when there is nothing to report" contract. The FIRST-round implementation of this line used `--dry-run --no-gh`, which still performed a full per-entry evaluation including one `git ls-remote` network round-trip per worktree - measured 14.94s against this repo's live 38-worktree checkout; `--count-only` measured 55ms against the same checkout at 37 worktrees (both figures dated 2026-08-11 - see `bin/ds-base-sync`'s own manifest for the exact re-measurement command).
+
 **Structural rule.** `ref-locked-elsewhere` is reachable ONLY from the HEAD-elsewhere path - it requires `<base-branch>` to be checked out in a worktree OTHER than `<repo>`, a condition that cannot exist when `<repo>` itself has `<base-branch>` checked out (the HEAD-on-base path), so it is never emitted there. `refused-unknown` is NOT the symmetric opposite: it is reachable from BOTH paths - from HEAD-on-base as the generic "unrecognized git refusal" catch-all, and from HEAD-elsewhere when the post-refusal rev-list counts come back empty (`origin/<base-branch>` absent post-fetch, e.g. a `--single-branch` clone) - a state where "checked out in another worktree" cannot be confirmed, so `ref-locked-elsewhere` is correctly withheld in favor of `refused-unknown`. Each path computes and returns its own terminal status; there is no shared post-refusal code path between the two.
 
 **Exercising `refused-unknown` in a test or by hand.** Because `refused-unknown` requires a `pull --ff-only` refusal that is neither a dirty-overwrite conflict nor a real divergence, the easiest reliable way to construct it in a scratch clone is to create `.git/index.lock` in the clone before invoking the tool (HEAD on base) - this produces `error: ... Unable to create '.../index.lock': File exists.`, which does not match the dirty-overwrite grep and is not a divergence, landing on `status=refused-unknown` with exit 4. Removing the lock and re-running syncs normally (`status=ff-pulled`, exit 0).
 
 ## Base-branch sync procedure
 
-`bin/agentic-base-sync <repo> <base-branch>` is a thin CLI wrapper (argc/repo-dir/git-repo-ness validation, exit 3 on any such error, mirroring `bin/agentic-resolve-worktree`'s error style) around `ae_base_branch_sync`, defined in `scripts/lib/base-branch-sync.sh`:
+`bin/ds-base-sync <repo> <base-branch>` is a thin CLI wrapper (argc/repo-dir/git-repo-ness validation, exit 3 on any such error, mirroring `bin/ds-resolve-worktree`'s error style) around `ae_base_branch_sync`, defined in `scripts/lib/base-branch-sync.sh`:
 
 ```bash
 ae_base_branch_sync() {
   local repo="$1" base="$2"
   local head err verify_err counts behind ahead
 
-  [ -n "$repo" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
-  [ -n "$base" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$repo" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$base" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
 
   head=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
   # Detached HEAD: rev-parse --abbrev-ref HEAD returns the literal string "HEAD",
@@ -277,7 +297,7 @@ ae_base_branch_sync() {
 }
 ```
 
-`bin/agentic-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `agentic-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"` (which independently re-validates non-empty `$1`/`$2` as its own defense-in-depth precondition), and does `exit $?`. The library function `return`s, never `exit`s; only the CLI wrapper `exit`s.
+`bin/ds-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `ds-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"`, captures its exit status, prints the DS-54 advisory line above if the classifier has a finding, then exits with the CAPTURED status (never the classifier's own exit code - the classifier's status is deliberately never inspected for exit-code purposes, only its stdout). The library function `return`s, never `exit`s; only the CLI wrapper `exit`s. The advisory print happens strictly between the capture and the final `exit`, so it can never change which status is returned.
 
 ## Divergence diagnostic format
 
@@ -307,14 +327,14 @@ The tool never rewrites the shared `<base-branch>` tree on divergence. On `statu
 
 ## Call sites
 
-- **`content/commands/ds-implement-ticket.md` Phase 12 (unconditional tail).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. Invoked via the repo-relative path `$REPO_DIR/bin/agentic-base-sync`, so it works without a PATH re-install. Only fires inside a `/ds-implement-ticket` invocation.
-- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`agentic-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion. Full invocation:
+- **`content/commands/ds-implement-ticket.md` Phase 12 (unconditional tail).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. Invoked via the repo-relative path `$REPO_DIR/bin/ds-base-sync`, so it works without a PATH re-install. Only fires inside a `/ds-implement-ticket` invocation.
+- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`ds-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion. Full invocation:
 
   ```bash
-  if command -v agentic-base-sync >/dev/null 2>&1; then
-    agentic-base-sync "$REPO" "$BASE_BRANCH"
+  if command -v ds-base-sync >/dev/null 2>&1; then
+    ds-base-sync "$REPO" "$BASE_BRANCH"
   else
-    echo "WARNING: agentic-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
+    echo "WARNING: ds-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
   fi
   ```
 

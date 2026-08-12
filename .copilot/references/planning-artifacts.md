@@ -76,10 +76,10 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 **Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
 
-**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
+**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `app/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
 
-- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
-- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
+- Worked example A: a repo with `api/AGENTS.md`, `app/AGENTS.md`, `worker/AGENTS.md`, `infra/AGENTS.md` at depth 1. A unit touching `app/factory/foo.ts` is in the `app` track. A change touching both `app/...` and `api/...` is cross-track and triggers Plan + ADR.
+- Worked example B: a change touching `app/factory/foo.ts` and `app/ui/bar.tsx` is single-track (`app`); the nested `factory/AGENTS.md` does not split the track.
 
 **Other notes:**
 - Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
@@ -228,7 +228,7 @@ The verification gate is non-skippable. **If verification cannot be specified at
 
 ## Product-intent layer (operator-owned)
 
-Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (see `content/agents/engineer.md` §Reading your spawn prompt and required context) - so the intent layer is consulted before shippable work even on an architect-skipped path, not only when a ticket is routed through Architect/Investigator; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
 
 ## `motion_aware` (config key)
 

@@ -5,7 +5,7 @@ tools: [read_file, replace, write_file]
 kind: local
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
 
@@ -32,7 +32,9 @@ Upstream deps: None (no external libraries; only Read/Edit/Write tools).
 
 Downstream consumers: None (append-only writes; wrap-ticket may later read
                       .agentic/learnings.md at Phase 11b for LRN->MEMORY
-                      promotion; KNW->MEMORY promotion also happens at /ds-wrap).
+                      promotion; KNW->MEMORY promotion happens directly here,
+                      in the same invocation, capped at 1/event - not at
+                      /ds-wrap).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -198,12 +200,12 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "learnings_written": ["LRN-20260613-001: <title>", "KNW-20260613-001: <title>", ...],
-  "learning_ids": ["LRN-20260613-001", "KNW-20260613-001", ...],
+  "learnings_written": ["capped at 5 items: 'LRN-20260613-001: <title>'", ...],
+  "learning_ids": ["capped at 5 items: 'LRN-20260613-001'", ...],
   "memory_md_appended": true | false,
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": [".agentic/learnings.md: appended N entries", ...],
-  "skipped_reason": null
+  "writer_actions": ["capped at 5 items: '.agentic/learnings.md: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance"
 }
 ```
 
@@ -251,3 +253,4 @@ The only files you may write are:
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
 - **No subagent spawning.** learnings-agent is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are the terminal writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither - a shard you appended would arrive back as your own input on the next rollup. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.

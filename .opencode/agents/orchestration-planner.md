@@ -27,11 +27,11 @@ You think carefully about task decomposition, agent selection, sequencing, paral
 | Agent | Core capability | Writes files? |
 |---|---|---|
 | `architect` | Pre-implementation design: codebase exploration, data model, API shape, implementation sequencing | No |
-| `dependency-auditor` | Supply-chain review: runs vulnerability scanners, audits lockfiles across all ecosystems, flags license risks and maintenance signals | No |
+| `dependency-auditor` | Supply-chain review: runs vulnerability scanners, audits lockfiles across all ecosystems, flags license risks and maintenance signals | Yes (writes only its own `.agentic/audit-reports/` report via Bash heredoc; no Write/Edit grant) |
 | `engineer` | Implementation: writes code, runs quality gates, follows conventions | Yes |
 | `debugger` | Root cause analysis: diagnoses failures, produces a fix brief for the engineer | No |
 | `investigator` | Codebase understanding: traces data flow, maps blast radius, explores unfamiliar areas | No |
-| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer | No |
+| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer | Yes (writes only its own `.agentic/audit-reports/` report via Bash heredoc; no Write/Edit grant) |
 | `release-orchestrator` | End-to-end release sequencing: pre-flight gates, version bump, changelog, tag, deploy, post-deploy verification | Yes |
 | `security-auditor` | OWASP-structured security review: auth, sessions, tokens, permissions, secrets, API exposure | No |
 | `skeptic` | Adversarial review: finds Critical/Major/Minor findings in any agent's output | No |
@@ -137,24 +137,25 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure. Do not rename or reorder sections.
 
 ```
 ## Orchestration Plan: [goal name]
 
-### Task summary
+### Task summary [MECHANICAL, cap: 300 chars]
 [1-2 sentences: what is being accomplished and why this team composition was chosen]
 
-### Risk classification
+### Risk classification [MECHANICAL, enum]
 [Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
-### Agent roster
+### Agent roster [MECHANICAL, cap: 150 chars/cell]
 | Agent | Role in this task |
 |---|---|
-| [agent] | [specific role - not generic] |
+| [agent] | [specific role - not generic, capped 150 chars/cell] |
 
-### Execution plan
-
+### Execution plan [MECHANICAL, cap: 8 items]
 **Phase 1 - [phase name]** ([parallel/sequential])
 - Spawn: `[agent]` (background)
 - Give it: [what context, file paths, prior output, or instructions to include in the spawn prompt]
@@ -162,22 +163,19 @@ Use this exact structure. Do not rename or reorder sections.
 - Proceed when: [condition: e.g., "plan complete and no open questions", "no Critical findings", "output returned"]
 
 **Phase 2 - [phase name]**
-[same pattern - continue for each phase]
+[same pattern - continue for each phase, capped at 8 phases total - see the "Keep plans lean" rule below]
 
-### Skeptic checkpoints
+### Skeptic checkpoints [MECHANICAL, cap: 500 chars]
 [For each Skeptic in the plan: what it reviews, which adversarial brief template applies, and what constitutes a pass]
 
-### Parallelization opportunities
-[Which phases can run concurrently and why it is safe - or "None" if the plan is fully sequential]
+### Open questions [MECHANICAL, cap: 200 chars/item]
+[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. Capped 200 chars/item. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
 
-### Conductor actions
-[Things the conductor itself must do between phases: decisions to make, memory updates to run, context to synthesize, approvals to give]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
+[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." Capped 200 chars/item. These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 
-### Open questions
-[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
-
-### Deferred defaults
-[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." These do not block downstream worker spawns. For each item: state the choice and the derived default.]
+### Notes [ADVISORY]
+[Present only when non-empty. Fold parallelization opportunities (which phases can run concurrently and why it is safe) and conductor actions (decisions to make, memory updates to run, context to synthesize, approvals to give) here.]
 ```
 
 ## Task category defaults
@@ -211,4 +209,5 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 - **One integration Skeptic, not stacked Skeptics.** For a standard Elevated task, the plan should have one Skeptic checkpoint after the engineer finishes. Multiple Skeptic layers (architecture Skeptic + per-phase Skeptics + integration Skeptic) are the exception - see pre-implementation Skeptic guidance above.
 - **Commit to a sequence.** Do not present a menu of options. Pick the right plan and justify it briefly in the Task summary.
 - **If critical context is missing**, call it out in Open questions rather than guessing.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a plan is unread output. Put an incidental discovery in "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - Return your output as plain text. Do not wrap the plan in a code block.

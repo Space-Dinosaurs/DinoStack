@@ -1,15 +1,15 @@
 ---
-description: "Interactive command to view and change agentic-engineering settings in-session."
+description: "Interactive command to view and change dinostack settings in-session."
 ---
 # /ds-config
 
-Interactive command to view and change agentic-engineering settings in-session.
+Interactive command to view and change dinostack settings in-session.
 Reads the current resolved state, prompts for which setting to change and the
 new value, writes the correct file, and confirms what changed and when it takes
 effect.
 
-Implementation: `bin/agentic-config` (Python 3 stdlib; reuses resolver logic
-from `bin/agentic-status`).
+Implementation: `bin/ds-config` (Python 3 stdlib; reuses resolver logic
+from `bin/ds-status`).
 
 ## Usage
 
@@ -78,7 +78,7 @@ No subcommands or flags. Selection is done interactively.
 When an equivalent config toggle exists (e.g. `abdication_guard_enabled`
 covers `AE_ABDICATION_GUARD_DISABLE`), offer to set that instead.
 
-**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `agentic-tracker`), `team.yml`
+**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `ds-tracker`), `team.yml`
 (v1 deferral), AGENTS.md source-of-truth conflicts across multiple nested files.
 
 ## `mode opt-in` footgun handling
@@ -88,7 +88,7 @@ setting that silently disables the methodology on every project that lacks an
 `agentic-engineering: opt-in` marker in its AGENTS.md - which is most projects.
 This is the opposite of the intent when a user just wants "tighter control".
 
-**Pre-write gate (LLM layer).** Before invoking `bin/agentic-config mode opt-in`,
+**Pre-write gate (LLM layer).** Before invoking `bin/ds-config mode opt-in`,
 warn the user that:
 - `opt-in` mode makes the methodology inactive by default in all repos.
 - Any project without `agentic-engineering: opt-in` in its AGENTS.md will
@@ -101,7 +101,7 @@ Confirm that the user wants to proceed. Only invoke the binary after confirmatio
 Do not run the binary speculatively - the binary writes the file immediately on
 invocation and prints its warning only after the write is committed.
 
-If the user confirms, invoke `bin/agentic-config mode opt-in`. The binary also
+If the user confirms, invoke `bin/ds-config mode opt-in`. The binary also
 prints a post-write reminder listing the affected repos (any repo without an
 opt-in marker), but the LLM-layer gate is the primary safety check.
 
@@ -112,7 +112,7 @@ take effect at the **next session start**. The command confirms this explicitly
 after each write. No restart is required for env kill-switch exports (those apply
 to the current shell session when set before launching Claude).
 
-## Exit codes (bin/agentic-config)
+## Exit codes (bin/ds-config)
 
 - `0` - change applied successfully or operator chose to exit without changes
 - `1` - I/O error (read-only file, permission denied, malformed JSON)

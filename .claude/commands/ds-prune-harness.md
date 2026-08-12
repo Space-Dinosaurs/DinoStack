@@ -2,7 +2,7 @@
 description: "Propose deletions of rules that are not earning their keep."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-prune-harness
 
@@ -26,7 +26,7 @@ Run the Step 0 preflight from `/ds-update-agentic-engineering` verbatim (fetch o
 
 Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
 
-*"You are a Worker agent. Produce a pruning proposal for the agentic-engineering methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
+*"You are a Worker agent. Produce a pruning proposal for the dinostack methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
 - outputs: a pruning proposal document written to `docs/planning/harness-pruning-YYYY-MM-DD.md` (substitute today's date)
 - budget: ~40 tool calls

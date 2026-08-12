@@ -173,6 +173,31 @@ if not ok_fl:
     failed += 1
 print(f"  [{status_fl}] {label_fl}")
 
+# PR #626 Skeptic Major sweep: pin deny_reason's source-count enumeration
+# against the ASSEMBLED string (not source-line grep, which cannot see a
+# string literal wrapped across concatenated source lines - see
+# test-enforce-no-abdication.py's test_six_source_enumeration for the same
+# class of defect in a sibling hook). deny_reason here does not enumerate
+# member names (just "the six default sources"), so this only pins the
+# count, but that is exactly the field this hook can regress on.
+label_six = "deny_reason names six default sources, not five"
+_rc_six, _stdout_six, _ = run_hook(json.dumps(co_equal_ballot()))
+_deny_reason_six = ""
+try:
+    _obj_six = json.loads(_stdout_six)
+    _deny_reason_six = _obj_six.get("hookSpecificOutput", {}).get(
+        "permissionDecisionReason", ""
+    ).lower()
+except Exception:
+    pass
+ok_six = "six default sources" in _deny_reason_six and "five" not in _deny_reason_six
+status_six = "PASS" if ok_six else "FAIL"
+if not ok_six:
+    failed += 1
+print(f"  [{status_six}] {label_six}")
+if not ok_six:
+    print(f"         deny_reason: {_deny_reason_six!r}")
+
 # Skeptic Critical regression: a raising log_fire() must NOT suppress the
 # deny decision. Confirmed failing pre-fix: against a8ded298 (the commit
 # under review), the copied-hook subprocess exits 0 with EMPTY stdout - the
@@ -192,7 +217,7 @@ if not ok_rf:
     print(f"         stdout: {_stdout_rf!r}")
     print(f"         stderr: {_stderr_rf[-500:]!r}")
 
-total_tests = len(cases) + 2
+total_tests = len(cases) + 3
 print()
 if failed == 0:
     print(f"All {total_tests} tests passed.")

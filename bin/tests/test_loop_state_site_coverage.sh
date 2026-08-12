@@ -104,6 +104,48 @@ _count() { # _count <extra-git-grep-flags...> -- pattern
   printf '%s' "$out"
 }
 
+# Pool matching lines across the extracted-content split of $FILE. Gates W1,
+# W2, and W3 scan for loop-state referents that used to live entirely inside
+# content/commands/ds-implement-ticket.md but the progressive-disclosure
+# split has been relocating phase bodies (batch-mode.md, open-goal-loop.md,
+# orchestration-units.md, qa-loop-state.md, handoff-evaluation.md) into
+# content/references/**. A gate body scanning `-- "$FILE"` alone goes blind
+# to a loop-state referent line the moment its phase is extracted. This
+# helper pools all six paths so W1/W2/W3 stay complete across the split.
+# L2 / LOOP_KEY / MARKERS deliberately do NOT use this helper - see FLOOR
+# DESIGN above; widening those floors would collapse per-file floors into a
+# global sum, which bin/tests/test_tasks_jsonl_fold.sh forbids.
+#
+# ZSH HAZARD (see bin/tests/test_tasks_jsonl_fold.sh:64-68 for the sibling
+# incident): a bash `for f in $FILES` on an unquoted word-split variable
+# iterates correctly under bash but NOT under zsh, which does not
+# word-split unquoted parameter expansions - the loop body then runs once
+# on the whole multi-line string as a single (nonexistent) "path", `git
+# grep` returns rc=1 for it, and `|| true` on the OUTER call swallows the
+# failure, silently producing an EMPTY pooled file that gate bodies then
+# read as "no hits" - a vacuous pass, not a loud failure. The heredoc `while
+# read` loop below is immune: `read` always splits on IFS-delimited input
+# lines regardless of shell, under both bash and zsh.
+#
+# Five of the six paths below do not exist yet on most branches - that is
+# fine and deliberate: `git grep ... -- <missing path>` returns rc=1 with no
+# output, so `|| true` makes every partial-merge state safe.
+_pool_loop_state_files() { # $1=outfile, rest = git grep flags/pattern
+  local outfile="$1"; shift
+  : > "$outfile"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git grep "$@" -- "$f" >> "$outfile" 2>/dev/null || true
+  done <<'FILESPEC'
+content/commands/ds-implement-ticket.md
+content/references/batch-mode.md
+content/references/open-goal-loop.md
+content/references/orchestration-units.md
+content/references/qa-loop-state.md
+content/references/handoff-evaluation.md
+FILESPEC
+}
+
 # ---------------------------------------------------------------------------
 # Non-vacuity floors and the marker cap.
 # ---------------------------------------------------------------------------
@@ -149,7 +191,11 @@ echo "--- Gate W1: path-literal operation sites ---"
 # the work completes, and its diagnostic ("post-filter is vacuous") would push
 # an honest engineer to "fix" the pattern and silently disarm W1. L2 does not
 # shrink under repointing, so the floor is safe in both directions.
-git grep -niE 'loop.?state' -- "$FILE" > "$TMP/w1a" 2>/dev/null || true
+#
+# POOLED across the six extracted-content paths - see _pool_loop_state_files
+# above. This is a gate BODY input, not the L2 floor itself (L2 stays scoped
+# to $FILE only).
+_pool_loop_state_files "$TMP/w1a" -niE 'loop.?state'
 W1_STAGE2="$(grep -Eci 'overwrit|write|read|delete|rm -f|jq |atomic|set .?status' "$TMP/w1a" 2>/dev/null || true)"
 [ -n "$W1_STAGE2" ] || W1_STAGE2=0
 if [ "$W1_STAGE2" -ge 40 ]; then
@@ -160,9 +206,10 @@ fi
 
 # GATE BODY runs over L1 - only the FLOOR moved. W1's job is to prove every
 # SURVIVING path literal on an operation line names $LOOP_KEY, and that
-# question is only meaningful over lines that carry the literal.
-git grep -nE 'loop-state\.json' -- "$FILE" 2>/dev/null \
-  | grep -Ei 'overwrit|write|read|delete|rm -f|jq |atomic|set .?status' \
+# question is only meaningful over lines that carry the literal. POOLED
+# across the six extracted-content paths.
+_pool_loop_state_files "$TMP/w1raw" -nE 'loop-state\.json'
+grep -Ei 'overwrit|write|read|delete|rm -f|jq |atomic|set .?status' "$TMP/w1raw" 2>/dev/null \
   | grep -v 'LOOP_KEY' \
   | grep -v 'loop-key: legacy' > "$TMP/w1" 2>/dev/null || true
 if [ -s "$TMP/w1" ]; then
@@ -178,15 +225,19 @@ fi
 # ---------------------------------------------------------------------------
 echo "--- Gate W2: prose-phrased sites ---"
 
-W2_STAGE1="$(_count -ciE 'to loop-state|write loop-state|in loop-state|loop-state file')"
+# POOLED across the six extracted-content paths - see _pool_loop_state_files
+# above. This is a gate BODY input, not one of the L2/LOOP_KEY/MARKERS floors.
+_pool_loop_state_files "$TMP/w2a" -niE 'to loop-state|write loop-state|in loop-state|loop-state file'
+W2_STAGE1="$(grep -c . "$TMP/w2a" 2>/dev/null || true)"
+[ -n "$W2_STAGE1" ] || W2_STAGE1=0
 if [ "${W2_STAGE1:-0}" -ge 3 ]; then
   _pass "W2 stage floor: prose pattern matched $W2_STAGE1 lines (>= 3)"
 else
   _fail "FLOOR FAIL: W2 prose pattern matched ${W2_STAGE1:-0} (<3) - pattern is vacuous. Fix the pattern, do NOT lower the floor."
 fi
 
-git grep -nEi 'to loop-state|write loop-state|in loop-state|loop-state file' -- "$FILE" 2>/dev/null \
-  | grep -v 'loop-state\.json' \
+_pool_loop_state_files "$TMP/w2raw" -nEi 'to loop-state|write loop-state|in loop-state|loop-state file'
+grep -v 'loop-state\.json' "$TMP/w2raw" 2>/dev/null \
   | grep -v 'LOOP_KEY' \
   | grep -v 'loop-key: prose' > "$TMP/w2" 2>/dev/null || true
 if [ -s "$TMP/w2" ]; then
@@ -205,15 +256,19 @@ fi
 # ---------------------------------------------------------------------------
 echo "--- Gate W3: Phase 7 referent-free writes ---"
 
-W3_HITS="$(_count -cE 'write .?last_phase=quality_gate|Write .?last_phase=quality_gate')"
+# POOLED across the six extracted-content paths - see _pool_loop_state_files
+# above. This is a gate BODY input, not one of the L2/LOOP_KEY/MARKERS floors.
+_pool_loop_state_files "$TMP/w3a" -nE 'write .?last_phase=quality_gate|Write .?last_phase=quality_gate'
+W3_HITS="$(grep -c . "$TMP/w3a" 2>/dev/null || true)"
+[ -n "$W3_HITS" ] || W3_HITS=0
 if [ "${W3_HITS:-0}" -ge 6 ]; then
   _pass "W3 stage floor: matched $W3_HITS Phase 7 sites (>= 6)"
 else
   _fail "FLOOR FAIL: W3 matched ${W3_HITS:-0} Phase 7 sites (<6) - pattern disarmed by a rewording. Fix the pattern, do NOT lower the floor."
 fi
 
-git grep -nE 'write .?last_phase=quality_gate|Write .?last_phase=quality_gate' -- "$FILE" 2>/dev/null \
-  | grep -v 'LOOP_KEY' > "$TMP/w3" 2>/dev/null || true
+_pool_loop_state_files "$TMP/w3raw" -nE 'write .?last_phase=quality_gate|Write .?last_phase=quality_gate'
+grep -v 'LOOP_KEY' "$TMP/w3raw" 2>/dev/null > "$TMP/w3" || true
 if [ -s "$TMP/w3" ]; then
   _fail "W3 FAIL - Phase 7 write site(s) with no keyed path:"
   cat "$TMP/w3" >&2
@@ -258,7 +313,7 @@ hooks/session-end-wrap.js
 hooks/tests/test-state-mark.js
 hooks/tests/test-state-mark-multikey.js
 .opencode/plugins/session-context.ts
-bin/agentic-emit
+bin/ds-emit
 bin/tests/test_agentic_emit_loop_key.sh
 bin/tests/test_loop_key_derivation.sh
 bin/tests/test_loop_state_site_coverage.sh
@@ -267,7 +322,6 @@ content/agents/learning-extractor.md
 content/agents/learnings-agent.md
 content/agents/wrap-ticket.md
 content/commands/ds-implement-ticket.md
-content/commands/ds-init-project.md
 content/commands/ds-ticket-triage.md
 content/commands/ds-wrap.md
 content/references/conductor-operating-rules.md

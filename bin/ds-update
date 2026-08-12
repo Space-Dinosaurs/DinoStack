@@ -1,0 +1,930 @@
+#!/usr/bin/env python3
+"""
+Purpose: From-anywhere, non-interactive updater for dinostack
+         (DinoStack). Fetches origin, detects whether adapter sources changed
+         via the same REBUILD_TRIGGERS logic as scripts/update.js, runs the
+         appropriate install.sh scripts, resets the version-check cache, and
+         optionally runs ds-doctor --fix. Designed for CI, cron jobs,
+         shell aliases, and any non-TTY context where scripts/update.js cannot
+         run (because that script requires a TTY for its TUI).
+
+Public API: ds-update [--check] [--no-doctor] [--adapters=a,b,...]
+                           [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+                           [--identity=<handle>|--no-identity]
+             --check        Report how far behind origin/main the local main
+                            branch is, then exit 0. Does NOT pull. Works from
+                            any branch.
+             --no-doctor    Skip the ds-doctor --fix step after update.
+             --adapters=X   Comma-separated list of adapter dirs to refresh
+                            (e.g. --adapters=.claude,.cursor). .claude is
+                            always prepended (LOCKED_ADAPTERS invariant).
+             --mode=X       Forwarded verbatim to each adapter's install.sh
+                            as --mode=X (activation mode).
+             --profile=X    Forwarded verbatim to each adapter's install.sh
+                            as --profile=X (risk profile).
+             --identity=X   Forwarded verbatim to each adapter's install.sh
+                            as --identity=X (developer handle).
+             --no-identity  Forwarded verbatim to each adapter's install.sh
+                            as --no-identity. Mutually exclusive with
+                            --identity (argparse enforces this).
+            All four --mode/--profile/--identity/--no-identity flags are
+            optional passthroughs: when omitted, install.sh runs with no
+            corresponding flag and falls back to its own defaults, exactly
+            as before this option existed. When any of the four IS supplied,
+            the adapter install loop always runs, even if old_head==new_head
+            (already up to date) or _needs_rebuild() is False (no adapter
+            source changed) - a confirmed configuration change must reach
+            install.sh, never silently no-op behind a rebuild-skip early
+            return. An explicit --adapters selection is the same kind of
+            forcing signal even with no --mode/--profile/--identity flag
+            present: it also forces the adapter install loop on both
+            rebuild-skip early returns, since a caller who named a specific
+            adapter set must not have that request silently skipped. See
+            the forced_install check in main().
+            Environment:
+             AGENTIC_CONFIG_PATH  Override path to agentic-engineering-config.json
+                                  (useful for tests; default ~/.agentic/...).
+            Exits:
+             0  success (up-to-date or updated)
+             1  fatal error (not on main / dirty tree / pull failure / adapter
+                failure / git not found / repo not found)
+             2  ds-doctor --fix exited 2 (unfixable health issues)
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
+               subprocess, sys, tempfile, time). Reads
+               ~/.agentic/agentic-engineering-config.json (repo_dir, adapters)
+               and scripts/lib/update-shared.json (SKIP_DIRS, REBUILD_TRIGGERS
+               - single source of truth shared with scripts/update.js and
+               install-all.sh; do not reintroduce a local literal for either).
+               Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
+               bash <adapter>/install.sh, ds-doctor. The ds-doctor --fix
+               subprocess is invoked with cwd pinned to the resolved
+               repo_dir (see _run_doctor) for consistency with this file's
+               other subprocess calls, not because doctor's --fix targets
+               are cwd-sensitive today.
+
+Downstream consumers: end users running from any cwd; CI pipelines; shell
+                      aliases; any non-TTY automation that cannot launch the
+                      interactive scripts/update.js TUI.
+
+Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
+               or adapter install failure. exit 2 when ds-doctor --fix
+               exits 2 (unfixable issues). Cache write (version-check-cache)
+               is non-fatal: failures emit a warning and execution continues.
+               Missing ds-doctor binary: warning, exit 0. Missing repo_dir
+               (does not exist) or repo_dir that is not a directory: warning,
+               exit 0 (see _run_doctor).
+
+Advisory: when a pull changes any file under hooks/, a non-blocking
+          informational note is printed to stderr (_hooks_touched /
+          _build_hooks_note) - a bare pull no longer changes a running
+          session's hooks (they load from a session-stable snapshot, not
+          the checkout), but this update flow also runs the install step,
+          which refreshes this checkout's SHARED hook snapshot in place, so
+          other already-open sessions against this checkout pick up the
+          change on their next tool call. Never blocks the update.
+
+DS-54 dogfooding gap (old_head==new_head path): when nothing new was pulled
+          by THIS invocation (e.g. the operator already ran a bare `git pull`
+          manually before running ds-update), _hooks_touched/_needs_rebuild
+          have no diff to inspect and cannot notice a hooks/ change that
+          landed in an earlier, un-triggered pull. _hooks_snapshot_diverged
+          closes this: it directly compares the live hooks/ source hash
+          against the session-stable snapshot's stored source_hash (reusing
+          hooks_source_paths and compute_hooks_source_hash from
+          scripts/lib/hooks-snapshot.sh - never reimplementing the path
+          list or the hash/exclusion algorithm) and, when they diverge
+          (including when no snapshot has ever been created), forces the
+          full adapter-install loop on the
+          old_head==new_head early-return path - mirroring the existing
+          forced_install pattern for --mode/--profile/--identity/--adapters
+          rather than making the HEAD-diff itself smarter (HEAD is the wrong
+          signal for staleness caused by a pull ds-update never saw). This
+          only fires from a deliberate `ds-update` invocation, never from a
+          bare `git pull` - satisfies the same DS-54 invariant as
+          hooks-snapshot.sh itself. The "no rebuild needed" early-return path
+          needs no equivalent check: hooks/ is itself a REBUILD_TRIGGER, so
+          any pull THIS invocation makes that touches hooks/ already forces
+          the normal rebuild path; and both early-return paths already call
+          `ds-doctor --fix` (see _run_doctor) UNLESS the operator passed
+          `--no-doctor`, and this same DS-54 fix also independently detects
+          and repairs hooks-snapshot staleness there (bin/ds-doctor
+          check_hooks_snapshot_staleness) - so a stale snapshot left by an
+          earlier un-triggered pull is caught there too, whenever
+          --no-doctor is not passed.
+
+          Friction cost (named, not hidden): _hooks_snapshot_diverged
+          compares the LIVE hooks/ source hash on disk, so any operator with
+          UNCOMMITTED local hooks/ edits (dirty working tree under hooks/,
+          bin/ds-identity, or the four in-scope adapters' hook sources) has
+          a live hash that differs from whatever the last sync_hooks_snapshot
+          call captured - i.e. every DinoStack developer actively working on
+          a hook file. Every such `ds-update` run on the old_head==new_head
+          path is forced into the full adapter-install loop, and adapter
+          install.sh runs can themselves generate working-tree changes
+          (regenerated symlinks, cache files). This is the expected
+          trade-off of closing the dogfooding gap, not a bug - --no-doctor
+          does not suppress it (it only skips the separate _run_doctor()
+          step), but a plain `git status` before running ds-update makes
+          the cause visible.
+
+Performance: network-bound (git fetch); rebuild decision and adapter installs
+             add seconds only when adapter sources changed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Adapters always included regardless of config selection.
+# Mirrors LOCKED_ADAPTERS in scripts/update.js.
+LOCKED_ADAPTERS: tuple[str, ...] = (".claude",)
+
+
+def _load_shared_config() -> dict:
+    """Load scripts/lib/update-shared.json - the single source of truth for
+    SKIP_DIRS and REBUILD_TRIGGERS, shared with scripts/update.js and
+    install-all.sh. Do not reintroduce a local literal for either list here.
+
+    Resolved relative to THIS file's own location (not the config-driven
+    repo_dir the updater operates on) - bin/ds-update lives inside the
+    same repo that ships scripts/lib/update-shared.json, so the shared file
+    is always exactly two directories up regardless of which repo the tool
+    is pointed at. Path(__file__).resolve() (not .parent alone) is required:
+    install.sh symlinks this file into ~/.local/bin, and an unresolved
+    __file__ would resolve the shared path against the symlink location
+    instead of the real checkout.
+    """
+    shared_path = Path(__file__).resolve().parent.parent / "scripts" / "lib" / "update-shared.json"
+    try:
+        return json.loads(shared_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"fatal: failed to load shared config at {shared_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+_SHARED_CONFIG = _load_shared_config()
+
+# Dot-dirs under repo root excluded from adapter discovery.
+SKIP_DIRS: frozenset[str] = frozenset(_SHARED_CONFIG["skip_dirs"])
+
+# ---------------------------------------------------------------------------
+# Config resolution
+# ---------------------------------------------------------------------------
+
+
+def _home() -> Path:
+    """Current HOME directory. Re-evaluated each call so tests can override HOME."""
+    return Path(os.path.expanduser("~"))
+
+
+def _config_path() -> Path:
+    override = os.environ.get("AGENTIC_CONFIG_PATH")
+    if override:
+        return Path(override)
+    return _home() / ".agentic" / "agentic-engineering-config.json"
+
+
+def _load_config() -> dict:
+    """Return parsed config dict, or {} on any error."""
+    try:
+        cfg = _config_path()
+        if cfg.is_file():
+            return json.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _load_repo_dir() -> Path:
+    """Resolve repo_dir from config, falling back to ~/DinoStack."""
+    fallback = Path(os.path.realpath(str(_home() / "DinoStack")))
+    try:
+        data = _load_config()
+        if data.get("repo_dir"):
+            raw = Path(str(data["repo_dir"])).expanduser()
+            return Path(os.path.realpath(str(raw)))
+    except Exception:
+        pass
+    return fallback
+
+
+# ---------------------------------------------------------------------------
+# Git helpers
+# ---------------------------------------------------------------------------
+
+
+def _git(repo_dir: Path, *args: str, capture: bool = True) -> tuple[int, str, str]:
+    """Run git -C repo_dir *args. Return (returncode, stdout.strip, stderr.strip)."""
+    cmd = ["git", "-C", str(repo_dir)] + list(args)
+    try:
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE if capture else None,
+            stderr=subprocess.PIPE if capture else None,
+            text=True,
+        )
+        stdout = (result.stdout or "").strip() if capture else ""
+        stderr = (result.stderr or "").strip() if capture else ""
+        return result.returncode, stdout, stderr
+    except FileNotFoundError:
+        return 127, "", "git: command not found"
+    except Exception as exc:
+        return 1, "", str(exc)
+
+
+# ---------------------------------------------------------------------------
+# Adapter discovery
+# ---------------------------------------------------------------------------
+
+
+def _discover_adapters(repo_dir: Path) -> list[str]:
+    """Return sorted list of dot-dirs in repo_dir containing install.sh."""
+    adapters: list[str] = []
+    try:
+        for entry in sorted(repo_dir.iterdir()):
+            name = entry.name
+            if not name.startswith("."):
+                continue
+            if name in SKIP_DIRS:
+                continue
+            if not entry.is_dir():
+                continue
+            if (entry / "install.sh").is_file():
+                adapters.append(name)
+    except Exception:
+        pass
+    adapters.sort(key=lambda s: s.lower())
+    return adapters
+
+
+# ---------------------------------------------------------------------------
+# Rebuild decision
+# ---------------------------------------------------------------------------
+
+# Loaded from scripts/lib/update-shared.json - single source of truth shared
+# with scripts/update.js and install-all.sh. Only the matching ALGORITHM
+# below (needsRebuild/*/build.sh catch-all) is ported by hand and stays
+# language-duplicated (JS vs Python); a cross-language parity test in
+# bin/tests/test_agentic_update.sh covers that algorithm-level drift risk.
+REBUILD_TRIGGERS: tuple[str, ...] = tuple(_SHARED_CONFIG["rebuild_triggers"])
+
+
+def _needs_rebuild(old_head: str, new_head: str, changed_paths: list[str]) -> bool:
+    """Return True if adapter install scripts should run after a pull.
+
+    Ported from scripts/update.js:252-281 (needsRebuild). Keep in sync -
+    REBUILD_TRIGGERS and the */build.sh catch-all are the source of truth there.
+
+    Decision table:
+      old_head empty/falsy -> True  (first install, never skip)
+      old_head == new_head -> False (already up to date)
+      any changed path matches a REBUILD_TRIGGER -> True
+      otherwise -> False (doc-only or unrelated changes)
+    """
+    # Safety case: no prior HEAD means first install - always rebuild.
+    if not old_head:
+        return True
+
+    # No commits pulled - nothing to rebuild.
+    if old_head == new_head:
+        return False
+
+    for p in changed_paths:
+        # Normalise separators (Windows safety) and strip ONE leading slash,
+        # mirroring update.js `replace(/^\//, '')` which removes exactly one
+        # leading slash (not all consecutive, as lstrip would).
+        normalised = re.sub(r'^/', '', p.replace("\\", "/"))
+        for trigger in REBUILD_TRIGGERS:
+            if trigger.endswith("/"):
+                # Directory prefix: match any file under this directory.
+                if normalised.startswith(trigger):
+                    return True
+            elif "/" in trigger:
+                # Exact file path (e.g. 'scripts/build-all.sh').
+                if normalised == trigger:
+                    return True
+            else:
+                # Bare name: any path ending in this filename.
+                # Currently unused but kept for forward compatibility.
+                if normalised == trigger or normalised.endswith("/" + trigger):
+                    return True
+        # Any adapter-local build.sh (e.g. '.cursor/build.sh', '.claude/build.sh').
+        if normalised.endswith("/build.sh") or normalised == "build.sh":
+            return True
+
+    return False
+
+
+def _hooks_touched(changed_paths: list[str]) -> bool:
+    """Return True if any changed path lives under hooks/.
+
+    Ported from scripts/update.js hooksTouched(). Keep in sync - same
+    normalisation as _needs_rebuild (backslash -> forward slash, strip one
+    leading slash) and the same hooks/ prefix test.
+
+    Drives a non-blocking stderr note after a pull: a bare pull no longer
+    changes a running session's hooks (they load from a session-stable
+    snapshot, not the checkout), but this update flow also runs the
+    install step, which refreshes this checkout's SHARED hook snapshot in
+    place, so other already-open sessions against this checkout pick up
+    the change on their next tool call.
+    """
+    for p in changed_paths:
+        normalised = re.sub(r'^/', '', p.replace("\\", "/"))
+        if normalised.startswith("hooks/"):
+            return True
+    return False
+
+
+def _build_hooks_note(changed_paths: list[str]) -> str:
+    """Build the non-blocking hooks/-change informational note (mirrors
+    buildHooksNote() in scripts/update.js). Changed: lists the
+    hooks/-prefixed subset only.
+    """
+    changed_list = ", ".join(
+        p for p in changed_paths
+        if re.sub(r'^/', '', p.replace("\\", "/")).startswith("hooks/")
+    )
+    return (
+        "note: this update changed files under hooks/. A bare git pull no longer changes a "
+        "running session's hooks (they load from a session-stable snapshot, not the checkout) "
+        "- but this flow also runs the install step, which refreshes this checkout's SHARED "
+        "hook snapshot in place. So any OTHER Claude Code session already open against this "
+        "checkout will pick up the changed hooks on its next tool call. If that matters, have "
+        "those sessions /exit and restart once this update finishes. Changed: " + changed_list
+    )
+
+
+# ---------------------------------------------------------------------------
+# DS-54 hooks-snapshot staleness (the old_head==new_head dogfooding gap)
+# ---------------------------------------------------------------------------
+
+
+def _hooks_snapshot_diverged(repo_dir: Path) -> bool:
+    """Return True if the live hooks/ source under repo_dir no longer
+    matches the session-stable snapshot's stored source_hash (DS-54),
+    including when no snapshot has ever been created for this repo_dir.
+
+    Fail-open: any resolution error (missing scripts/lib/hooks-snapshot.sh,
+    a subprocess failure, etc.) returns False rather than forcing an
+    unnecessary adapter-install cycle - matches the fail-open posture of
+    hooks-snapshot.sh and hooks/lib/hooks-staleness-core.sh.
+
+    Deliberately does NOT reuse hooks/lib/hooks-staleness-core.sh directly:
+    that script resolves its own repo_dir via scripts/lib/repo-dir.sh from
+    $HOME/.agentic/agentic-engineering-config.json and ignores the
+    AGENTIC_CONFIG_PATH override _config_path() above honors, which would
+    make this function untestable against an isolated fixture. Instead this
+    calls hooks_snapshot_dir(repo_dir) with the already-resolved repo_dir
+    (the same explicit-argument shape sync_hooks_snapshot itself uses) and
+    reuses BOTH hooks_source_paths (the SOLE path-list function - never a
+    hand-copied argument list; hooks-staleness-core.sh's own
+    stale_but_stable check and sync_hooks_snapshot itself call the same
+    function) and compute_hooks_source_hash (the actual hashing/exclusion
+    function), so the three call sites can never independently drift on
+    what counts as "the hook source".
+
+    scripts/lib/hooks-snapshot.sh is resolved relative to THIS file's own
+    location (Path(__file__).resolve(), matching _load_shared_config's
+    rationale above) - it is a fixed DinoStack tooling asset, not something
+    that exists per-consumer-repo, so it must always come from the real
+    checkout this script itself ships in, not from repo_dir.
+    """
+    snapshot_lib = Path(__file__).resolve().parent.parent / "scripts" / "lib" / "hooks-snapshot.sh"
+    if not snapshot_lib.is_file():
+        return False
+
+    script = (
+        'set -euo pipefail\n'
+        'source "$1"\n'
+        'snapshot_dir="$(hooks_snapshot_dir "$2")"\n'
+        'meta_file="$snapshot_dir/.snapshot-meta.json"\n'
+        'if [[ ! -f "$meta_file" ]]; then\n'
+        '  echo diverged\n'
+        '  exit 0\n'
+        'fi\n'
+        'meta_hash="$(python3 -c "\n'
+        'import json, sys\n'
+        'try:\n'
+        '    with open(sys.argv[1]) as f:\n'
+        '        print(json.load(f).get(\'source_hash\', \'\'))\n'
+        'except Exception:\n'
+        '    print(\'\')\n'
+        '" "$meta_file")"\n'
+        '_diverged_source_paths=()\n'
+        'while IFS= read -r _diverged_source_path; do\n'
+        '  _diverged_source_paths+=("$_diverged_source_path")\n'
+        'done < <(hooks_source_paths "$2")\n'
+        'live_hash="$(compute_hooks_source_hash ${_diverged_source_paths[@]+"${_diverged_source_paths[@]}"})"\n'
+        'if [[ -n "$meta_hash" ]] && [[ "$live_hash" != "$meta_hash" ]]; then\n'
+        '  echo diverged\n'
+        'fi\n'
+    )
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script, "_", str(snapshot_lib), str(repo_dir)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "diverged" in (result.stdout or "")
+
+
+# ---------------------------------------------------------------------------
+# Version-check cache
+# ---------------------------------------------------------------------------
+
+
+def _reset_version_check_cache() -> None:
+    """Write behind_count: 0 to the version-check cache (atomic tmp+rename).
+
+    Mirrors resetVersionCheckCache() in scripts/update.js.
+    Non-fatal: any error is warned, never raised.
+    """
+    try:
+        cache_dir = _home() / ".agentic"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = cache_dir / "version-check-cache.json"
+        payload = json.dumps({"behind_count": 0, "last_fetch_epoch": int(time.time())}) + "\n"
+        fd, tmp_path = tempfile.mkstemp(dir=str(cache_dir), prefix=".version-cache-tmp-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            os.replace(tmp_path, str(cache_path))
+        except Exception as exc:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            print(f"warning: failed to reset version-check cache: {exc}", file=sys.stderr)
+    except Exception as exc:
+        print(f"warning: failed to reset version-check cache: {exc}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-update",
+        description=(
+            "Non-interactive updater for dinostack (DinoStack). "
+            "Fetches origin, detects adapter-source changes, runs install scripts, "
+            "resets the version-check cache, and optionally runs ds-doctor --fix. "
+            "Safe for CI and non-TTY contexts."
+        ),
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "Report how many commits the local main branch is behind origin/main, "
+            "then exit 0. Does NOT pull. Works from any branch."
+        ),
+    )
+    parser.add_argument(
+        "--no-doctor",
+        action="store_true",
+        dest="no_doctor",
+        help="Skip ds-doctor --fix after updating.",
+    )
+    parser.add_argument(
+        "--adapters",
+        default="",
+        help=(
+            "Comma-separated list of adapter dirs to refresh "
+            "(e.g. --adapters=.claude,.cursor). "
+            ".claude is always included (LOCKED_ADAPTERS invariant)."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --mode=<value>.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --profile=<value>.",
+    )
+    identity_group = parser.add_mutually_exclusive_group()
+    identity_group.add_argument(
+        "--identity",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --identity=<handle>.",
+    )
+    identity_group.add_argument(
+        "--no-identity",
+        action="store_true",
+        dest="no_identity",
+        help="Forwarded verbatim to each adapter's install.sh as --no-identity.",
+    )
+    args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Build the passthrough flag list forwarded to every adapter install.sh
+    # invocation (Step 12 below). Empty when none of --mode/--profile/
+    # --identity/--no-identity were supplied - install.sh then falls back to
+    # its own defaults exactly as before this option existed.
+    # ------------------------------------------------------------------
+    install_flags: list[str] = []
+    if args.mode is not None:
+        install_flags.append(f"--mode={args.mode}")
+    if args.profile is not None:
+        install_flags.append(f"--profile={args.profile}")
+    if args.identity is not None:
+        install_flags.append(f"--identity={args.identity}")
+    if args.no_identity:
+        install_flags.append("--no-identity")
+
+    # ------------------------------------------------------------------
+    # Step 2: resolve repo_dir
+    # ------------------------------------------------------------------
+    repo_dir = _load_repo_dir()
+
+    if not repo_dir.exists():
+        cfg = _config_path()
+        print(
+            f"error: repo_dir '{repo_dir}' does not exist. "
+            f"Re-run bootstrap or set repo_dir in {cfg}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    rc, _, _ = _git(repo_dir, "rev-parse", "--git-dir")
+    if rc != 0:
+        cfg = _config_path()
+        print(
+            f"error: '{repo_dir}' is not a git repository. "
+            f"Re-run bootstrap or set repo_dir in {cfg}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 3: fetch origin (quiet)
+    # ------------------------------------------------------------------
+    rc, _, stderr = _git(repo_dir, "fetch", "--quiet", "origin")
+    if rc != 0:
+        print(f"error: 'git fetch origin' failed.\n{stderr}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 4: --check mode (branch-independent, no pull)
+    # ------------------------------------------------------------------
+    if args.check:
+        rc, behind_str, _ = _git(
+            repo_dir, "rev-list", "--count", "refs/heads/main..origin/main"
+        )
+        if rc != 0:
+            # refs/heads/main may not exist yet (no local main branch); graceful fallback
+            print("unable to determine behind count (refs/heads/main not found).")
+            return 0
+        try:
+            behind = int(behind_str)
+        except ValueError:
+            behind = 0
+        if behind == 0:
+            print("Up to date.")
+        else:
+            print(f"{behind} commit(s) behind main.")
+        return 0
+
+    # ------------------------------------------------------------------
+    # Step 5: branch check
+    # ------------------------------------------------------------------
+    rc, current_branch, _ = _git(repo_dir, "branch", "--show-current")
+    if current_branch != "main":
+        print(
+            f"error: must be on 'main' to update (currently on '{current_branch}'). "
+            f"Run: git -C {repo_dir} checkout main",
+            file=sys.stderr,
+        )
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 6: dirty-tree check
+    # ------------------------------------------------------------------
+    rc, porcelain_out, _ = _git(repo_dir, "status", "--porcelain")
+    if porcelain_out:
+        dirty_files = []
+        for line in porcelain_out.splitlines():
+            if not line.strip():
+                continue
+            status = line[:2]
+            file_part = line[3:]
+            # Porcelain v1 renames/copies show "old -> new"; extract just the
+            # new path. Mirrors getDirtyFiles() in scripts/update.js.
+            # Guard len>=2 before indexing status[1]: real porcelain output is
+            # always "XY path" (>=4 chars), but malformed/short lines must not
+            # crash with IndexError.
+            if len(status) >= 2 and (status[0] in ('R', 'C') or status[1] in ('R', 'C')):
+                m = re.match(r'^(.+?) -> (.+)$', file_part)
+                if m:
+                    file_part = m.group(2)
+            dirty_files.append(file_part)
+        print(
+            "error: working tree has uncommitted changes; commit or stash first:",
+            file=sys.stderr,
+        )
+        for f in dirty_files:
+            print(f"  {f}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 7: capture old HEAD
+    # ------------------------------------------------------------------
+    rc, old_head, _ = _git(repo_dir, "rev-parse", "HEAD")
+    if rc != 0:
+        old_head = ""
+
+    # ------------------------------------------------------------------
+    # Step 8: pull
+    # ------------------------------------------------------------------
+    rc, _, pull_stderr = _git(repo_dir, "pull", "--ff-only", "origin", "main")
+    if rc != 0:
+        print(f"error: 'git pull --ff-only origin main' failed.\n{pull_stderr}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 9: capture new HEAD; check if anything changed
+    # ------------------------------------------------------------------
+    rc, new_head, _ = _git(repo_dir, "rev-parse", "HEAD")
+    if rc != 0:
+        new_head = ""
+
+    old_short = old_head[:8] if old_head else "unknown"
+
+    # A non-empty install_flags means the caller confirmed a configuration
+    # change (--mode/--profile/--identity/--no-identity) that must actually
+    # reach install.sh. An explicit --adapters selection is the same kind of
+    # signal - the caller named a specific adapter set they want refreshed,
+    # so a no-op skip would silently ignore that request. Neither rebuild-skip
+    # early return below is allowed to exit 0 without running the adapter
+    # loop when either is true - see bin/tests/test_agentic_update.sh T15/T16
+    # for the regression coverage (both early-return paths: already-up-to-date
+    # and no-rebuild-needed).
+    forced_install = bool(install_flags) or bool(args.adapters.strip())
+
+    # Human-readable reason for the "forcing adapter install" messages below.
+    # install_flags can be empty when the only forcing signal is an explicit
+    # --adapters selection - fall back to describing that instead of joining
+    # an empty list into a blank reason. forced_reason_label names the actual
+    # trigger (a --mode/--profile/--identity config change vs a bare adapter
+    # selection) so the printed message never calls an --adapters-only run
+    # a "config change" when no config flag was supplied.
+    if install_flags:
+        forced_reason = ' '.join(install_flags)
+        forced_reason_label = "a config change was requested"
+    else:
+        forced_reason = f"--adapters={args.adapters.strip()}"
+        forced_reason_label = "an adapter selection was requested"
+
+    if old_head and new_head and old_head == new_head:
+        if forced_install:
+            print(
+                f"Already up to date ({old_short}), but forcing adapter install "
+                f"because {forced_reason_label}: {forced_reason}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
+        # DS-54 dogfooding gap: nothing pulled by THIS invocation, but an
+        # earlier un-triggered pull may have already landed a hooks/ change
+        # this run never saw a diff for. Mirrors the forced_install pattern
+        # above rather than making the HEAD-diff smarter - see the DS-54
+        # module docstring note.
+        if _hooks_snapshot_diverged(repo_dir):
+            print(
+                f"Already up to date ({old_short}), but the local hooks "
+                f"snapshot has drifted from the checkout's hook source "
+                f"(DS-54) - forcing adapter install to refresh it."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
+        print(f"Already up to date ({old_short}).")
+        _reset_version_check_cache()
+        # Skip to doctor
+        if not args.no_doctor:
+            return _run_doctor(repo_dir)
+        return 0
+
+    # ------------------------------------------------------------------
+    # Step 10: compute changed paths
+    # ------------------------------------------------------------------
+    changed_paths: list[str] = []
+    if old_head and new_head and old_head != new_head:
+        rc, diff_out, _ = _git(repo_dir, "diff", "--name-only", old_head, new_head)
+        if rc == 0 and diff_out:
+            changed_paths = [p for p in diff_out.splitlines() if p.strip()]
+
+    # Non-blocking note: print (never block) when the pull touched hooks/.
+    if _hooks_touched(changed_paths):
+        print(_build_hooks_note(changed_paths), file=sys.stderr)
+
+    # Count commits pulled
+    commits_pulled = 0
+    if old_head and new_head and old_head != new_head:
+        rc, count_str, _ = _git(
+            repo_dir, "rev-list", "--count", f"{old_head}..{new_head}"
+        )
+        if rc == 0:
+            try:
+                commits_pulled = int(count_str)
+            except ValueError:
+                commits_pulled = 0
+
+    new_short = new_head[:8] if new_head else "unknown"
+
+    # ------------------------------------------------------------------
+    # Step 11: needsRebuild check + adapter selection
+    # ------------------------------------------------------------------
+    rebuild = _needs_rebuild(old_head, new_head, changed_paths)
+
+    if not rebuild:
+        if forced_install:
+            print(
+                f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
+                f"No adapter source changed, but forcing adapter install because "
+                f"{forced_reason_label}: {forced_reason}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
+        print("No rebuild needed (no adapter source changed).")
+        _reset_version_check_cache()
+        if not args.no_doctor:
+            doctor_rc = _run_doctor(repo_dir)
+            if doctor_rc != 0:
+                return doctor_rc
+        print("Done.")
+        return 0
+
+    # Determine which adapter paths triggered the rebuild
+    triggering_paths = [
+        p for p in changed_paths
+        if _needs_rebuild(old_head, new_head, [p])
+    ]
+    print(
+        f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
+        f"Rebuild triggered by: {', '.join(triggering_paths) or '(unknown)'}."
+    )
+
+    return _run_adapter_installs(repo_dir, args, install_flags)
+
+
+def _run_adapter_installs(
+    repo_dir: Path,
+    args: argparse.Namespace,
+    install_flags: list[str],
+) -> int:
+    """Step 12-14: adapter selection + install + cache reset + doctor.
+
+    Shared by all three callers that must actually run the adapter loop:
+    the normal rebuild-triggered path, and the two forced-install paths
+    (old_head==new_head and not-rebuild) that fire when install_flags is
+    non-empty OR args.adapters is non-empty (an explicit --adapters
+    selection alone also forces the loop, even with no --mode/--profile/
+    --identity flag) - see the Critical-fix comment at the forced_install
+    check above main(). Extracted so none of the three call sites can drift.
+    """
+    # ------------------------------------------------------------------
+    # Step 12: adapter selection + install
+    # ------------------------------------------------------------------
+    config = _load_config()
+
+    if args.adapters.strip():
+        # Explicit --adapters flag
+        user_adapters = [a.strip() for a in args.adapters.split(",") if a.strip()]
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in user_adapters if a not in LOCKED_ADAPTERS
+        ]
+    elif config.get("adapters"):
+        # Config has saved adapter selection
+        saved = config["adapters"]
+        enabled = [a for a, v in saved.items() if v]
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in enabled if a not in LOCKED_ADAPTERS
+        ]
+    else:
+        # No saved selection: default to all discovered adapters
+        discovered = _discover_adapters(repo_dir)
+        print(
+            "note: no saved adapter selection; refreshing all discovered adapters. "
+            "Run ./update.sh to choose a subset."
+        )
+        adapters_to_run = list(LOCKED_ADAPTERS) + [
+            a for a in discovered if a not in LOCKED_ADAPTERS
+        ]
+
+    failures: list[str] = []
+    for adapter in adapters_to_run:
+        install_sh = repo_dir / adapter / "install.sh"
+        if not install_sh.is_file():
+            print(f"warning: {install_sh} not found, skipping.", file=sys.stderr)
+            continue
+        cmd = ["bash", str(install_sh)] + install_flags
+        print(f">>> {' '.join(cmd)}")
+        rc = subprocess.call(cmd, cwd=str(repo_dir))
+        if rc != 0:
+            failures.append(f"{adapter}/install.sh (exit {rc})")
+
+    if failures:
+        print("error: the following adapters failed to install:", file=sys.stderr)
+        for f in failures:
+            print(f"  {f}", file=sys.stderr)
+        return 1
+
+    # ------------------------------------------------------------------
+    # Step 13: write version-check cache
+    # ------------------------------------------------------------------
+    _reset_version_check_cache()
+
+    # ------------------------------------------------------------------
+    # Step 14: doctor
+    # ------------------------------------------------------------------
+    if not args.no_doctor:
+        doctor_rc = _run_doctor(repo_dir)
+        if doctor_rc != 0:
+            return doctor_rc
+
+    print("Done.")
+    return 0
+
+
+def _run_doctor(repo_dir: Path) -> int:
+    """Run ds-doctor --fix, scoped to repo_dir. Return 0 on success, 2 on
+    unfixable, 0 on other errors.
+
+    cwd is pinned to the resolved repo_dir (not inherited from the invoking
+    shell) for consistency with every other subprocess call in this file,
+    which all pass cwd=str(repo_dir) explicitly rather than relying on the
+    ambient shell cwd. This is defense-in-depth, not a fix for an observed
+    defect: ds-doctor's --fix targets (~/.claude/settings.json, ~/.local/bin,
+    <repo_dir>/.git/hooks - all resolved via _load_repo_dir()/_home(), which
+    read ~/.agentic/agentic-engineering-config.json and $HOME, never cwd) are
+    HOME- or config-derived and are not cwd-sensitive today. The sole
+    cwd-dependent read in ds-doctor is the optional role-models.yml probe at
+    bin/ds-doctor:947 (_os.getcwd()), which only fires under --cross-harness
+    (ds-update never passes it) and is read-only (doc.ok/doc.fail/doc.warn,
+    no writes) - this pin is what scopes that probe correctly if
+    --cross-harness is ever wired through in the future.
+    """
+    try:
+        result = subprocess.run(
+            ["ds-doctor", "--fix"],
+            cwd=str(repo_dir),
+            # Inherit stdio so doctor output flows to the terminal
+        )
+        if result.returncode == 2:
+            print(
+                "WARNING: health check found issues that could not be auto-fixed; "
+                "run 'ds-doctor' for details",
+                file=sys.stderr,
+            )
+            return 2
+        if result.returncode != 0:
+            print(
+                f"warning: ds-doctor --fix exited {result.returncode}; "
+                "continuing (non-critical).",
+                file=sys.stderr,
+            )
+    except FileNotFoundError as exc:
+        # subprocess.run() with a missing cwd raises the same exception type
+        # as a missing executable (both ENOENT); disambiguate via .filename
+        # so the message names the actual failure rather than always
+        # blaming a missing ds-doctor binary.
+        if exc.filename == str(repo_dir):
+            print(
+                f"warning: ds-doctor could not run because {repo_dir} does "
+                "not exist; skipping health check.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "warning: ds-doctor not found on PATH; skipping health check.",
+                file=sys.stderr,
+            )
+    except NotADirectoryError:
+        print(
+            f"warning: ds-doctor could not run because {repo_dir} is not a "
+            "directory; skipping health check.",
+            file=sys.stderr,
+        )
+    except Exception as exc:
+        print(f"warning: ds-doctor failed: {exc}; continuing.", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

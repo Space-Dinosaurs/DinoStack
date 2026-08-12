@@ -1,0 +1,1 @@
+../../content/references/subagent-return-contract.md

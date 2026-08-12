@@ -270,7 +270,7 @@ console.log('\n--- AC15: --session-id flag and env-var trap ---');
     'AC15 gate self-check: the pattern catches real reads and ignores prose mentions');
   assert(DEAD_VAR_READ.test('--session-id="$CLAUDE_CODE_SESSION_ID"') === false,
     'AC15 gate self-check: the CORRECT variable is not matched by the dead-var pattern');
-  const invocations = (wrapMd.match(/agentic-wrap-acquire-lock[^\n]*--session-id/g) || []).length;
+  const invocations = (wrapMd.match(/ds-wrap-acquire-lock[^\n]*--session-id/g) || []).length;
   assert(invocations >= 2,
     `AC15: --session-id appears on the SAME LINE as at least 2 acquire invocations (got ${invocations})`);
   assert(wrapMd.indexOf('CLAUDE_CODE_SESSION_ID') !== -1,

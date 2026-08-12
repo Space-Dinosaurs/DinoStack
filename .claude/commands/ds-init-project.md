@@ -2,7 +2,7 @@
 description: "Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-init-project
 
@@ -25,7 +25,7 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
-  > "agentic-engineering is installed in opt-in mode. Activate it for this project? [Y/n]"
+  > "dinostack is installed in opt-in mode. Activate it for this project? [Y/n]"
 
   Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
 
@@ -35,7 +35,7 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
   - On **no**: stop `/ds-init-project` here. Print: "Skipped - no scaffolding written. Rerun `/ds-init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
 
-- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
+- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use dinostack by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
 
 - **If the config file is missing or malformed**: treat as `mode=opt-out` and proceed without prompting (back-compat with pre-feature installs).
 
@@ -57,7 +57,7 @@ config file from here.
 
 - If global mode = opt-out (the default): print, as information only (no prompt):
 
-  > This project will use agentic-engineering automatically (global mode is "opt-out":
+  > This project will use dinostack automatically (global mode is "opt-out":
   > active everywhere unless a project opts out). To turn it OFF for THIS project only,
   > uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of
   > AGENTS.md (the scaffolding writes that section with the marker pre-staged as a comment).
@@ -72,7 +72,7 @@ config file from here.
   "[Y/n]" activation prompt (do not duplicate that prompt - it stays as the single mode
   decision):
 
-  > Global mode is "opt-in": agentic-engineering activates only in projects that
+  > Global mode is "opt-in": dinostack activates only in projects that
   > explicitly opt in. The next question asks whether to opt THIS project in (it writes
   > `agentic-engineering: opt-in` to AGENTS.md if you say yes). To change the global
   > default instead, run `/ds-disable --global` after setup.
@@ -333,7 +333,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just the import pointer line(s) (`@AGENTS.md` and/or `@MEMORY.md`), or neither exists), skip item 0 entirely and proceed to item 1.
 
    **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
-   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is agentic-engineering's canonical project-instructions surface.
+   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is dinostack's canonical project-instructions surface.
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
    - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
@@ -342,7 +342,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - The three-bucket classification above, with the main agent's pre-classification notes.
    - The target `AGENTS.md` structure (from Step 3 template).
    - Instruction to produce three artifacts:
-     1. **Proposed `AGENTS.md`** — the agentic-engineering canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
+     1. **Proposed `AGENTS.md`** — the dinostack canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
      2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
@@ -507,7 +507,7 @@ When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the 
 <!-- BEGIN managed-by-agentic-engineering -->
 ## Activation
 <!--
-  agentic-engineering governs how work is done in this project.
+  dinostack governs how work is done in this project.
   Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
   This project is ACTIVE by default. To turn it off for this project only,
@@ -540,13 +540,13 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
 **`AGENTS.md` template (use for new files):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
-- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
+- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that dinostack governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
 
   **Base block (emitted verbatim in the common case - global mode `opt-out`, no project profile override):**
   ```markdown
   ## Activation
   <!--
-    agentic-engineering governs how work is done in this project.
+    dinostack governs how work is done in this project.
     Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
     This project is ACTIVE by default. To turn it off for this project only,
@@ -568,7 +568,7 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
      ## Activation
      agentic-engineering: opt-in
      <!--
-       agentic-engineering governs how work is done in this project.
+       dinostack governs how work is done in this project.
        Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
        This project is opted in (global mode is opt-in). To turn it off for this
@@ -837,7 +837,7 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 ### 6d. Seed `~/.agentic/presets.yml` (spawn preset library)
 
-If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
+If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `dinostack` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
 
 Resolution order at spawn time (per `content/references/spawn-presets.md`): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
 
@@ -888,6 +888,7 @@ Seed with these documented defaults exactly:
   "motion_aware": false,
   "storybook_version": 7,
   "commit_telemetry": true,
+  "knowledge_commit_on_pr": true,
   "deferred_wrap_daemon": false,
   "deferred_wrap_idle_minutes": 15,
   "deferred_wrap_heartbeat_seconds": 120,
@@ -901,7 +902,8 @@ Seed with these documented defaults exactly:
   "rework_detection": true,
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
-  "turn_shape_guard_enabled": true
+  "turn_shape_guard_enabled": true,
+  "worktree_read_guard_exemptions": []
 }
 ```
 
@@ -918,6 +920,7 @@ Seed with these documented defaults exactly:
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
+- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` onto the ticket's PR branch, checkout-free via a temporary index plus `commit-tree`. Set to `false` to opt out. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/ds-wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/ds-wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; this template sets it). When active, a Stop hook (`hooks/enforce-no-abdication.py`) detects three shapes - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - in the final assistant message and blocks the stop, injecting a directive. Set to `false` to opt out once enabled. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
@@ -926,13 +929,14 @@ Seed with these documented defaults exactly:
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
-- `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` for full semantics.
-- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, an advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding; it never blocks the stop. Set to `false` to opt out. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
+- `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for full semantics.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
+- `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
 
-Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `dinostack` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree, outside any git repo, so no gitignore applies to it), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. If the user later creates that project-local file, it is ignored by default under the `.agentic/*` umbrella Step 9 (below) writes via `ds-migrate apply` against `content/project-scaffolding.yml`, which carries no `!.agentic/role-models.yml` negation; do NOT add one - it may hold private model handles. Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
@@ -1005,56 +1009,30 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
-Regardless of whether `.gitignore` is new or existing: check whether the targeted `.agentic/` runtime-artifact block below is present. If not, append it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+**`.agentic/` gitignore rules: single-sourced from the canonical scaffolding manifest, not hand-copied.** Resolve `ds-migrate` the same way `ds-status` is resolved elsewhere in this file (from PATH first, then the adapter `bin/` install dir) and run:
 
 ```
-# Agentic engineering runtime artifacts (must not be committed).
-# The .agentic/ directory holds BOTH runtime artifacts (runtime-only, gitignored)
-# AND tool-agnostic config files (qa.md, deploy.md, tracking.md)
-# that ARE checked in. The entries below ignore only the runtime artifacts.
-.agentic/loop-state.json
-.agentic/loop-state-*.json
-.agentic/hud/
-.agentic/tasks.jsonl
-.agentic/events.jsonl
-.agentic/context.md
-.agentic/context.d/
-.agentic/_wrap.md
-.agentic/_foreign.md
-.agentic/memory/
-.agentic/memory.md
-.agentic/wrap/
-.agentic/preferences.json
-.agentic/compression-state.json
-.agentic/tracker.yml
-.agentic/tracker-states.json
-# tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
-# machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
-# Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
-# .agentic/tracking.md, .agentic/qa-regressions.md, .agentic/learnings.md,
-# .agentic/config.json, .agentic/team.yml, .agentic/skill-candidates.md -
-# these are tool-agnostic agent config and fix-pattern knowledge that belong
-# in source control.
-# .agentic/session-log/ IS tracked (committed via Phase 8 telemetry commits).
-# Under this denylist these files are tracked by default (nothing above
-# ignores them) - the negations below are not load-bearing here. They exist
-# for the case where a project later adds a broad .agentic/* umbrella ignore
-# (e.g. via agentic-migrate): git .gitignore matching is last-match-wins, so
-# a negation only overrides an umbrella pattern that appears ABOVE it in the
-# file. agentic-migrate inserts new umbrella patterns above any existing
-# negation for this reason - see bin/agentic-migrate _append_gitignore.
-!.agentic/session-log/
-!.agentic/learnings.md
-!.agentic/qa.md
-!.agentic/deploy.md
-!.agentic/tracking.md
-!.agentic/qa-regressions.md
-!.agentic/config.json
-!.agentic/team.yml
-!.agentic/skill-candidates.md
+ds-migrate apply --project-root <project-root>
 ```
 
-The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the sixteen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
+This is the SAME command the migrate-adoption path (`bin/ds-migrate`, driven by `content/project-scaffolding.yml`) runs against an existing project, and the same command Activation preflight Step 6 runs automatically at session start. `/ds-init-project` deliberately reuses it here instead of maintaining a second, hand-copied `.gitignore` block, so the two adoption routes read from one manifest and cannot diverge by construction. See `content/project-scaffolding.yml` for the manifest's version history and per-pattern rationale, and `bin/tests/test_agentic_migrate.py` for the outcome-parity regression gate.
+
+**Verify the post-condition, not just the exit code.** `ds-migrate apply` exits 0 both when it successfully applies the manifest AND when it silently no-ops on an unresolvable manifest (deliberate silent-fail discipline - see the module docstring in `bin/ds-migrate` and `bin/tests/test_agentic_migrate.py`'s `TestManifestNotFound` - so a caller cannot distinguish those two cases from the exit code alone). "At least one negation present" is NOT a sufficient postcondition: a repo already carrying a partial negation set from an earlier adoption (e.g. only `!.agentic/config.json` from a v5-era adoption) satisfies "at least one" even when `apply` no-ops, silently leaving every negation the manifest added since then (`!.agentic/phase0-classifiers.yml`, `!.agentic/deferred-work.jsonl`, `!.agentic/presets.yml`, etc.) missing and the fallback never fires. After running the command above, run `ds-migrate check --project-root <project-root>` and inspect its `"status"` field.
+
+**If `"status"` is `"self_repo_exempt"`, STOP here - this is a terminal, self-contained outcome.** It means `<project-root>` IS the dinostack methodology source repo itself, not a real consumer project (see `content/references/activation-detail.md` Step 6d; `/ds-init-project` should not ordinarily be run against that repo at all). The `self_repo_exempt` JSON carries only `{"status": ..., "reason": ...}` - it has no `gitignore_verification` field, and none is expected. Do not evaluate the `gitignore_verification` clause below against it, and do not fall through to the fallback path: `apply` against a self-repo `project_root` is itself a no-op by design (see Step 9's `ds-migrate apply` description above), so there is nothing to verify and nothing to repair.
+
+For every other case, confirm it reports `"status": "ok"` AND its `gitignore_verification` field (present in the `ok` JSON as of round 11) reads `"behavioral"` - as of round 10 a `"behavioral"` verification asks `git check-ignore` directly whether every manifest-negated path is actually reachable, not just whether the `.gitignore` text is shaped like a recognized pattern, so a `"behavioral"` `ok` is authoritative regardless of which .gitignore spelling produced the current state - for every EXACT-path negation (`!.agentic/config.json`, `!.agentic/qa.md`, etc. - 11 of the manifest's current 13 negation patterns). It has one measured, accepted limit: for the two DIRECTORY-form negations (`!.agentic/session-log/` and its `!.agentic/session-log/**` form), the probe set must synthesize candidate paths when no real file exists yet under that directory, and a defeater keyed to a filename none of the synthesized candidates happens to match can still read `"ok"` (e.g. `.agentic/session-log/nested/` or `.agentic/session-log/dev.*` with no matching file present). Once a real file exists at any name under the directory, that file is itself probed and the check is authoritative for it. This is narrow and self-healing - `session-log/` is append-only, so the next `check` run, once the file exists, catches it - but it means a `"behavioral"` `ok` reported before any file has been written under a directory-form negation does not yet prove that negation's eventual spelling is safe (see `_compute_negations_defeated` in `bin/ds-migrate`). An `ok` with `gitignore_verification: "unavailable"` (no git on PATH, or `project_root` is not a git working tree) is NOT behaviorally verified - it fell back to the pre-round-10 syntactic ordering/bare-form signals and must not be read as authoritative; treat it the same as `check` being unavailable below. If `check` is unavailable for some reason, fall back to reading the resulting `.gitignore` and `content/project-scaffolding.yml`'s current `gitignore:` list (from this same `dinostack` install) by eye, and confirm the file contains the umbrella line `.agentic/*` (or an equivalent umbrella pattern) AND a `!.agentic/<file>` negation line for EVERY `!.agentic/<file>` pattern in the manifest's current `gitignore:` list - not just one. If `check` reports drift, or the umbrella is missing, or even a single manifest negation is missing - regardless of `apply`'s own exit code - treat this exactly like "`ds-migrate` cannot be resolved" below and take the fallback path.
+
+`ds-migrate apply` is:
+- **Default-deny.** It writes a single `.agentic/*` umbrella ignore, then an explicit `!.agentic/<file>` negation for each tracked knowledge file - currently `config.json`, `qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `learnings.md`, `team.yml`, `skill-candidates.md`, `session-log/` (with a second, redundant `session-log/**` negation kept for explicitness - measured: a plain directory negation already recurses into nested files on its own, so the `**` line does not change behavior, but it documents nested-file coverage explicitly rather than relying on an implicit git recursion rule a future reader might not know to assume), `phase0-classifiers.yml`, `deferred-work.jsonl`, and `presets.yml`. Anything under `.agentic/` NOT in that list - including any future runtime artifact nobody has enumerated yet - is ignored by default. This is the safe direction: a newly-added machine-local runtime file needs no `.gitignore` change at all to stay unignored-by-mistake, and the only way to leak one into source control is an explicit negation someone had to add on purpose.
+- **Idempotent and additive.** Safe to run even if `.gitignore` already has some of these lines; it never removes or reorders an existing pattern, except to repair an out-of-order umbrella (an umbrella pattern that landed below an existing negation, which would silently defeat that negation - see `_repair_gitignore_order` in `bin/ds-migrate`) or a pre-existing bare `.agentic/` directory-ignore line (e.g. a repo adopting dinostack into an existing codebase that already hand-wrote `.agentic/` or `.agentic` before adoption - such a line defeats every negation regardless of ordering, because git will not descend into an excluded directory at all; `apply` rewrites it to the `*`-suffixed equivalent - see `_repair_bare_agentic_lines` in `bin/ds-migrate`). This umbrella repair also relocates a single user-authored comment line immediately preceding a misordered umbrella pattern, moving it together with the pattern as one unit so the comment stays directly above what it describes - the only case in which `apply` moves a line that is not itself a gitignore pattern.
+- Also seeds `.agentic/config.json`, `.agentic/learnings.md`, and `.agentic/skill-candidates.md` if they do not already exist (from the manifest's `files:` list) - harmless if earlier steps in this command already created them, since `ds-migrate apply` never overwrites an existing file.
+
+If `ds-migrate` cannot be resolved (e.g. dinostack is not yet installed on this machine) or the post-condition check above fails, fall back to writing the manifest's `gitignore:` pattern list from `content/project-scaffolding.yml` - resolved from this same `dinostack` install (the skill or adapter directory this command file itself was read from; if this command is running at all, that install exists, even when the separate `ds-migrate` executable is unresolvable) - directly into `.gitignore`, in the same order the manifest lists them, with the `.agentic/*` umbrella line first and every `!.agentic/<file>` negation after it.
+
+**Deliberately excluded from the negation set** (i.e. ignored by default under the umbrella, and this is a reviewed decision, not an oversight): `.agentic/tier-map.yml` and `.agentic/role-models.yml` (both map roles to concrete model names/handles that may be private to the operator - see `content/references/role-models.md`); `.agentic/findings.md` (curated Skeptic-finding patterns, documented machine-local in `content/references/conventions-detail.md`); `.agentic/learnings-agent.session` (per-session background-capture tracking state, see `content/references/conductor-operating-rules.md`); `.agentic/codex-skill-root-ownership.json` (a DinoStack-repo-internal build-tool safety registry - not project scaffolding at all, see `scripts/codex-skills.py`); and any `.tmp`/`.bak`/`.lock` sibling of an otherwise-ignored runtime file (e.g. `.agentic/loop-state-<key>.json.tmp`, `.agentic/tasks.jsonl.<ts>.bak`, `.agentic/deferred-work.jsonl.lock`) - a backup or lock file of ephemeral state is itself ephemeral, and the umbrella covers it with no enumeration needed. `.agentic/presets.yml`, by contrast, IS tracked (has a negation): unlike `tier-map.yml`/`role-models.yml`, its schema (`agent`, `tier`, `brief_prefix` - see `content/references/spawn-presets.md`) carries no model handles or other private data, and a project-local `presets.yml` is exactly the kind of shared, team-visible project override this manifest already tracks `config.json` for. This does not change Step 6d above, which still seeds only `~/.agentic/presets.yml` (user-global) and never a project-local one.
+
+`.agentic/.activated` (per-project first-notice sentinel, TTY-gated create-only write, delete to re-arm - documented in `content/commands/ds-status.md` and `content/references/activation-detail.md`) is ignored by default under the umbrella above (no negation for it in the manifest). It is per-clone runtime state, not durable project knowledge: if it were committed, a fresh clone would already have the sentinel present and every teammate's first session would silently skip the first-activation notice the sentinel exists to show them. That is the opposite of the sentinel's purpose, so it is ignored, matching how the ds-migrate adoption path already treats it.
 
 ### 10. Create `docs/` structure
 
@@ -1112,7 +1090,7 @@ TODO: what does a successful outcome look like for users?
 - TODO: explicit exclusions to prevent scope creep
 ```
 
-These files are operator-owned and committed. Architect and Investigator read them when present.
+These files are operator-owned and committed. Architect and Investigator read them when present, and Engineer reads them before implementing (silent no-op when absent).
 
 To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
 
@@ -1120,7 +1098,7 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
-Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `agentic-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
+Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `ds-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
 **11a. Linear setup** (run if tracker = Linear)
 
@@ -1233,12 +1211,12 @@ After all files are processed, print a short summary with three sections:
 **Config readout.** Print the resolved configuration in two blocks, then the pointers.
 
 Block 1 - activation state (reuse the binary; do NOT re-derive resolution):
-  Resolve `agentic-status` from PATH first, then the adapter `bin/` install dir; if
+  Resolve `ds-status` from PATH first, then the adapter `bin/` install dir; if
   neither resolves, skip Block 1 SILENTLY (do not error). When resolvable, run it and
   echo its full output verbatim.
 
 Block 2 - project config toggles (read directly from the just-written file; separate
-data agentic-status does not own). Read `.agentic/config.json` and print:
+data ds-status does not own). Read `.agentic/config.json` and print:
 
 ```
 Project config (.agentic/config.json)
@@ -1275,5 +1253,5 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/ds-implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/ds-init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
-13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
-14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.
+13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context; Engineer reads them before implementing.
+14. *(If global mode from Step 0a was `opt-out`)* This project will use dinostack by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.

@@ -92,7 +92,7 @@ On failure to determine confidently (read error, ambiguous condition, tool unava
 
 ```
 GOAL_MET: false
-Evidence: "evaluator-error: <reason>"
+Evidence: "evaluator-error: <one-line reason>"
 ```
 
 This fails closed - never guess `true`.
@@ -109,6 +109,7 @@ Evidence: "no confirmed Skeptic sign-off - refusing to evaluate goal_condition"
 - **Read-only, always.** Never write, edit, or delete any file. Never run a mutating Bash command.
 - **No subagent spawning.** You are a leaf agent.
 - **No prompts to the user.** This is an automated agent; never ask for input.
+- **No learning capture, and nothing appended to the verdict.** Your output format is exactly two lines and nothing else, so there is no section an incidental discovery could go in. Emit no `learnings_candidate[]` block - the conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - **MUST NOT raise, waive, resolve, or comment on any Skeptic finding.** Findings are entirely out of scope for you.
 - **MUST NOT produce a code-review, security, or quality judgment of any kind.** If asked to do so, refuse and return only the two-line output format above.
 - **Return `BLOCKED` if spawned without confirmed Skeptic sign-off.** Do not attempt to evaluate `goal_condition` in that case.

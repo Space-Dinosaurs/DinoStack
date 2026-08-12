@@ -3,7 +3,7 @@
 # Public API: invoked as `bash .pi/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/agents/,
 #               content/sections/, content/SKILL.md, scripts/build-methodology.sh.
-# Downstream consumers: .pi/skills/agentic-engineering/, .pi/prompts/.
+# Downstream consumers: .pi/skills/dinostack/, .pi/prompts/.
 # Failure modes: exits non-zero on missing inputs or assembly failure. Idempotent;
 #               prunes orphan .pi/prompts/*.md whose source content/commands/*.md
 #               was removed (safe to re-run).
@@ -13,7 +13,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
-SKILL_DST="$REPO_DIR/.pi/skills/agentic-engineering"
+SKILL_DST="$REPO_DIR/.pi/skills/dinostack"
 PROMPTS_DST="$REPO_DIR/.pi/prompts"
 
 # Portable inode helper (macOS uses -f, Linux uses -c)
@@ -52,9 +52,9 @@ bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
 
 ## Pi coding agent usage
 
-Pi discovers this skill from `.pi/skills/agentic-engineering/` for project-local use and from `~/.pi/agent/skills/agentic-engineering/` after global install.
+Pi discovers this skill from `.pi/skills/dinostack/` for project-local use and from `~/.pi/agent/skills/dinostack/` after global install.
 
-- Force-load with `/skill:agentic-engineering` when you want the methodology active immediately.
+- Force-load with `/skill:dinostack` when you want the methodology active immediately.
 - Pi prompt templates in `.pi/prompts/` provide slash-command equivalents for the markdown commands in `content/commands/`.
 - Read `METHODOLOGY.md` at skill load before applying the workflow.
 - Read command details from `commands/<name>.md` when a prompt template asks you to run a command.
@@ -129,10 +129,10 @@ for src in "$CONTENT/commands/"*.md; do
   title_escaped="${title_escaped//\"/\\\"}"
   cat > "$dst" <<PROMPT_EOF
 ---
-description: "Run agentic-engineering command $title_escaped"
+description: "Run dinostack command $title_escaped"
 argument-hint: "[arguments]"
 ---
-Use the /skill:agentic-engineering skill. Load /skill:agentic-engineering, then read commands/$name.md from the loaded agentic-engineering skill directory. Execute that command with these arguments:
+Use the /skill:dinostack skill. Load /skill:dinostack, then read commands/$name.md from the loaded dinostack skill directory. Execute that command with these arguments:
 
 \$ARGUMENTS
 PROMPT_EOF

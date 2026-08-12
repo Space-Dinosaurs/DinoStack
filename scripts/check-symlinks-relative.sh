@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Purpose: Verify the four .claude/skills/agentic-engineering/{agents,commands,
+# Purpose: Verify the four .claude/skills/dinostack/{agents,commands,
 #          references,rules} symlinks are relative in the COMMITTED tree, not
 #          the working tree. Isolation-worktree side effects have intermittently
 #          rewritten these to absolute paths, which resolve fine on the machine
@@ -75,7 +75,7 @@ if [ "$STAGED" -eq 1 ] && [ -n "$REF" ]; then
 fi
 
 REF="${REF:-HEAD}"
-SKILL_DIR=".claude/skills/agentic-engineering"
+SKILL_DIR=".claude/skills/dinostack"
 LINKS="agents commands references rules"
 
 fail=0
@@ -140,9 +140,9 @@ done
 if [ "$fail" -ne 0 ]; then
   echo "" >&2
   if [ "$STAGED" -eq 1 ]; then
-    echo "One or more agentic-engineering skill symlinks are staged as absolutized paths." >&2
+    echo "One or more dinostack skill symlinks are staged as absolutized paths." >&2
   else
-    echo "One or more agentic-engineering skill symlinks are absolutized in $REF." >&2
+    echo "One or more dinostack skill symlinks are absolutized in $REF." >&2
   fi
   echo "Restore them to relative form (e.g. ../../../content/<name>) before merging." >&2
   exit 1

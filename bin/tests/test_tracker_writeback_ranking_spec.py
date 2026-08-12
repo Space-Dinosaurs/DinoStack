@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule
-(content/commands/ds-implement-ticket.md ## Tracker Writeback Helper).
+Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule.
+
+DS split unit 1: the "## Tracker Writeback Helper" block itself moved out of
+content/commands/ds-implement-ticket.md into content/references/tracker-
+writeback.md behind a trigger-pointer. Tests that examine the block's own
+content now read HELPER_PATH; tests that examine content that stayed inline
+(Setup, Phase 2c, Phase 11's own Inputs list) still read CANONICAL_PATH.
 
 Covers:
   - (a) the canonical block contains the pipeline sub-rank prose, the fixed
@@ -98,6 +103,7 @@ Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -105,20 +111,67 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# CANONICAL_PATH still holds content that was NOT moved out of
+# ds-implement-ticket.md (Setup, Phase 2c, Phase 11's own Inputs list) -
+# tests that examine those sections keep reading it. HELPER_PATH is the
+# split destination for the "## Tracker Writeback Helper" block itself
+# (content/references/tracker-writeback.md, DS split unit 1) - tests that
+# examine the block's own content read HELPER_PATH instead.
 CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
-# "## Tracker Writeback Helper" block. .pi/prompts/ds-implement-ticket.md is
-# deliberately excluded - it is a 7-line pointer stub with no such block.
+# "## Tracker Writeback Helper" block, post-split. .cursor/build.sh,
+# .gemini/build.sh, and .copilot/build.sh each hardlink their references/
+# files from content/references/ via `ln` (same-inode ONLY after that
+# build.sh has run locally - git itself does not track hardlinks, so a
+# fresh clone or a git worktree checkout gives content/references/,
+# .cursor/references/, .gemini/references/, and .copilot/references/ four
+# distinct inodes carrying an identical git blob until rebuilt);
+# .codex/references/ files are per-file SYMLINKS into content/references/
+# (git mode 120000) instead. Kept as separate entries because the aliasing
+# mechanism is a build-time property that could change, not because these
+# are 5 independent surfaces - all five entries resolve to a single
+# build-time source (content/references/), so this list asserts over
+# exactly one independent surface.
+# .claude/skills/dinostack/references/ is a symlink DIR (not a
+# per-file symlink) and is deliberately excluded.
 ADAPTER_PATHS = [
-    REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md",
+    HELPER_PATH,
+    REPO_ROOT / ".codex" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".cursor" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".gemini" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".copilot" / "references" / "tracker-writeback.md",
+]
+
+# COMMAND_MIRROR_PATHS below lists 7 paths, but only 6 are independent
+# committed mirrors that no longer carry the "## Tracker Writeback Helper"
+# block itself (it moved out to HELPER_PATH) and must still carry a pointer
+# to it: .codex/commands/ds-implement-ticket.md is a git symlink (mode
+# 120000) resolving to content/commands/ds-implement-ticket.md, the same
+# source CANONICAL_PATH already reads - asserting on it re-checks the
+# source, not an independent copy. So this test asserts over 6 independent
+# committed mirrors plus 1 (redundant but harmless) source-file assertion,
+# not "7 mirrors." check-adapter-sync diffs regenerated-vs-committed content -
+# both operands come from the same build run, so a build regression that
+# drops the pointer produces identical operands and stays green; this
+# assertion tests the property that gate structurally cannot.
+#
+# POINTER_TEXT is anchored on the extraction-site sentence fragment, not the
+# bare "content/references/tracker-writeback.md" path - that path string
+# recurs 8x (14x in .hermes/SKILL.md) across other cross-references inside
+# each mirror's canonical block, so a literal-path anchor cannot go false
+# even when the extraction-site pointer line itself is deleted. Verified
+# unique (exactly 1 occurrence per mirror) before adoption.
+POINTER_TEXT = "Full reference (invocation contract"
+
+COMMAND_MIRROR_PATHS = [
     REPO_ROOT / ".claude" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".codex" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".cursor" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".opencode" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".github" / "prompts" / "ds-implement-ticket.prompt.md",
     REPO_ROOT / ".openclaw" / "skills" / "ds-implement-ticket" / "SKILL.md",
-    REPO_ROOT / ".gemini" / "commands" / "ds-implement-ticket.toml",
     REPO_ROOT / ".hermes" / "SKILL.md",
 ]
 
@@ -154,7 +207,7 @@ def _extract_block(text: str) -> str:
 
 @pytest.fixture(scope="module")
 def canonical_block() -> str:
-    return _extract_block(CANONICAL_PATH.read_text(encoding="utf-8"))
+    return _extract_block(HELPER_PATH.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +477,50 @@ def test_block_byte_identical_across_adapters(canonical_block):
     )
 
 
+def test_command_mirrors_carry_pointer_to_helper_reference():
+    """COMMAND_MIRROR_PATHS enumerates 6 independent committed mirrors plus
+    1 (.codex, a git symlink to the same source CANONICAL_PATH) - see the
+    comment above ADAPTER_PATHS. None of the 7 entries carries the '##
+    Tracker Writeback Helper' block itself post-split - it moved to
+    HELPER_PATH. check-adapter-sync diffs regenerated-vs-committed content,
+    so both operands come from the same build run: a build regression that
+    silently drops the trigger-pointer produces identical operands on both
+    sides and stays green. This assertion tests the property that gate
+    structurally cannot - that the pointer (the literal path string, not
+    just prose naming the helper) actually propagated to every entry in
+    COMMAND_MIRROR_PATHS."""
+    missing = [p for p in COMMAND_MIRROR_PATHS if not p.exists()]
+    assert not missing, f"expected command mirror files missing: {missing}"
+
+    without_pointer = [
+        str(p.relative_to(REPO_ROOT))
+        for p in COMMAND_MIRROR_PATHS
+        if POINTER_TEXT not in p.read_text(encoding="utf-8")
+    ]
+    assert not without_pointer, (
+        f"missing the '{POINTER_TEXT}' pointer literal: {without_pointer}"
+    )
+
+
+def test_helper_block_survives_in_hermes_aggregate(canonical_block):
+    """`.hermes/SKILL.md` re-embeds every content/references/*.md file, each
+    wrapped in `### <name>` (`.hermes/build.sh:100-107`), NOT `## `.
+    `_extract_block` terminates on `## ` and therefore over-runs past this
+    block's end into the alphabetically-next reference doc. Containment is
+    the correct property here, not block-boundary equality.
+
+    FORBIDDEN REPAIRS - do not reach for either instead:
+      1. Deleting this assertion. The block genuinely survives here and that
+         must stay tested.
+      2. Weakening `_extract_block` to also stop on `### `. That function is
+         shared by tests scanning the canonical file and the command mirrors,
+         none of which use `### ` as a delimiter; narrowing its termination
+         condition for one aggregate silently narrows correctness elsewhere.
+    """
+    text = (REPO_ROOT / ".hermes" / "SKILL.md").read_text(encoding="utf-8")
+    assert canonical_block in text
+
+
 # ---------------------------------------------------------------------------
 # (c) spelling heuristic on the canonical block
 # ---------------------------------------------------------------------------
@@ -523,7 +620,7 @@ def test_wrap_part_f_gate_resolves_tracker_state_values():
 
 # ---------------------------------------------------------------------------
 # Tracker-state reconciliation: Gap 1 diagnostic-enrichment mechanism
-# (content/commands/ds-implement-ticket.md ## Tracker Writeback Helper step 5)
+# (content/references/tracker-writeback.md ## Tracker Writeback Helper step 5)
 # ---------------------------------------------------------------------------
 
 def test_canonical_block_step5_diagnostic_runs_after_attempt(canonical_block):
@@ -578,7 +675,7 @@ def test_return_payload_schema_has_new_status_and_diagnostic_field():
 
 
 def test_line_508_failure_logging_has_both_forms():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     failure_logging_lines = [
         l for l in text.splitlines() if l.strip().startswith("**Failure logging:**")
     ]
@@ -600,7 +697,7 @@ def test_phase_2c_warning_updated_without_stale_silently_skipped_claim():
 
 
 def test_phase_11_line_510_notes_qa_transition_unaffected():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 700]
@@ -749,14 +846,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 20 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-two methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-two project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-two-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-two project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-two toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-two methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 22 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [
@@ -785,86 +882,246 @@ def test_toggle_doc_sync_full_eight_site_checklist():
         )
 
 
+# --- Full key-set membership (regression gate for DS-150's 21-key seed) ----
+#
+# The adjacency check above (test_toggle_doc_sync_full_eight_site_checklist)
+# only proves two SPECIFIC keys sit next to each other in each seed file - it
+# says nothing about whether the seed's key SET actually matches what the
+# catalog documents. That is exactly the gap DS-150 fell through: the
+# `worktree_read_guard_exemptions` toggle was added to the
+# '### Project config' catalog bullets and to the doc-count sentences
+# (TOGGLE_COUNT_FILES above already said "twenty-two"), but shipped in only
+# ONE of the two seed sources - a 21-key seed against 22-toggle doc claims -
+# and nothing here caught it.
+#
+# CATALOG_PATH is deliberately a THIRD, independent origin from either seed
+# file: it is prose documentation authored and maintained separately from
+# both content/templates/.agentic/config.json (a bare JSON template file)
+# and the JSON block embedded in content/commands/ds-init-project.md (a
+# markdown command doc). Comparing the two seeds against this catalog - not
+# against each other - means neither seed can "drift in lockstep" with its
+# sibling and still pass: the catalog is the fixed reference point, and if
+# it and a seed disagree, that is asserted by name.
+CATALOG_PATH = REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md"
+TEMPLATE_SEED_PATH = REPO_ROOT / "content" / "templates" / ".agentic" / "config.json"
+INIT_PROJECT_SEED_ANCHOR = "### 6f. Create `.agentic/config.json`"
+
+# Keys present in both seed JSONs that do NOT get their own catalog bullet:
+# `scaffolding_version` is a schema-version marker, not a behavioral toggle,
+# and is documented separately (never in the bullet list). The five
+# `deferred_wrap_*` tuning params are named inline, in one parenthetical,
+# inside the `deferred_wrap_daemon` bullet (risk-config-and-tiers.md:54)
+# rather than getting individual bullets of their own. This set has to be
+# named and small on purpose: any FUTURE key added to a seed without its own
+# catalog bullet must be added here explicitly, in the same PR, or this test
+# fails it as an undocumented extra key - it cannot silently ride along the
+# way `worktree_read_guard_exemptions` almost did in the other direction.
+_SEED_KEYS_WITHOUT_OWN_BULLET = {
+    "scaffolding_version",
+    "deferred_wrap_idle_minutes",
+    "deferred_wrap_heartbeat_seconds",
+    "deferred_wrap_timeout_minutes",
+    "deferred_wrap_inprogress_reclaim_minutes",
+    "deferred_wrap_pending_ttl_days",
+}
+
+
+def _catalog_toggle_keys() -> set:
+    """Parse the '### Project config' catalog bullets in
+    risk-config-and-tiers.md into a set of toggle key names, bounded to the
+    section between that heading and the next heading (so an unrelated
+    bullet list elsewhere in the file, e.g. under 'Graph-derived risk
+    signal', can never be swept in by accident)."""
+    text = CATALOG_PATH.read_text(encoding="utf-8")
+    start = text.index("### Project config")
+    heading_match = re.search(r"\n#{2,4} ", text[start + 1:])
+    end = start + 1 + heading_match.start() if heading_match else len(text)
+    window = text[start:end]
+    keys = set(re.findall(r"^- `([a-zA-Z_][a-zA-Z0-9_]*)`", window, re.MULTILINE))
+    assert keys, "catalog bullet parse returned no keys - anchor or regex is broken"
+    return keys
+
+
+def _fenced_json_object_keys(text: str, anchor: str) -> set:
+    """Extract the top-level key set of the first fenced ```json code block
+    that appears after `anchor` in `text`. Used for the seed JSON embedded
+    inside content/commands/ds-init-project.md, which is markdown prose
+    around a JSON block rather than a standalone JSON file."""
+    anchor_idx = text.index(anchor)
+    fence_start = text.index("```json", anchor_idx)
+    body_start = text.index("\n", fence_start) + 1
+    fence_end = text.index("```", body_start)
+    obj = json.loads(text[body_start:fence_end])
+    return set(obj.keys())
+
+
+def test_toggle_catalog_key_set_matches_both_seed_sources():
+    """Every key the '### Project config' catalog documents (plus the named
+    schema/tuning exemptions) must appear in BOTH seed sources, and neither
+    seed may carry an undocumented extra key. Two independent seed origins
+    are checked separately against the (third, independent) catalog:
+    content/templates/.agentic/config.json (a bare JSON template file) and
+    the JSON block embedded in content/commands/ds-init-project.md (a
+    fenced block inside a markdown command doc) - so a defect in only one
+    of the two seeds is named by file, not masked by comparing the seeds to
+    each other."""
+    catalog_keys = _catalog_toggle_keys()
+    expected_keys = catalog_keys | _SEED_KEYS_WITHOUT_OWN_BULLET
+
+    template_keys = set(json.loads(TEMPLATE_SEED_PATH.read_text(encoding="utf-8")).keys())
+    init_project_keys = _fenced_json_object_keys(
+        (REPO_ROOT / "content" / "commands" / "ds-init-project.md").read_text(encoding="utf-8"),
+        INIT_PROJECT_SEED_ANCHOR,
+    )
+
+    for label, seed_keys, path in (
+        (
+            "content/templates/.agentic/config.json",
+            template_keys,
+            TEMPLATE_SEED_PATH,
+        ),
+        (
+            "content/commands/ds-init-project.md seed JSON block",
+            init_project_keys,
+            REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+        ),
+    ):
+        rel = path.relative_to(REPO_ROOT)
+        missing_from_seed = expected_keys - seed_keys
+        assert not missing_from_seed, (
+            f"{rel}: {label} is missing key(s) the '### Project config' catalog "
+            f"documents: {sorted(missing_from_seed)}"
+        )
+        extra_in_seed = seed_keys - expected_keys
+        assert not extra_in_seed, (
+            f"{rel}: {label} has key(s) not documented in the '### Project config' "
+            f"catalog and not in the named schema/tuning exemption set: "
+            f"{sorted(extra_in_seed)}"
+        )
+
+
 # The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
 # call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
 # content/references/events-log.md in at least FOUR different grammatical
-# forms - "six of the seven", the bare cardinal "the six enforce-*.py
-# hooks", "one of the six consumer hooks", and a decomposed enumeration
-# ("(five hooks) ... (`enforce-planning-artifact-spawn.py`)" that sums to
-# the same total without using the word "six" or "seven" at all - none of
+# forms - "nine of the ten", the bare cardinal "the nine enforce-*.py
+# hooks", "one of the nine consumer hooks", and a decomposed enumeration
+# ("(eight hooks) ... (`enforce-turn-shape.py`)" that sums to
+# the same total without using the word "nine" or "ten" at all - none of
 # which a single-phrasing sweep catches as a set. This is why sites kept
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 8 enforce-*.py hooks post-
-# merge with the sibling turn-shape-hook unit, 7 of them call log_fire,
-# split 5 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
-# and `enforce-turn-shape.py`):
-#   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
-#   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
-#   hooks/AGENTS.md:81  - "N of the M enforce-*.py hooks" (prose)
+# Site inventory (all reference the same fact: 10 enforce-*.py hooks post-
+# merge with the worktree-read-guard unit (DS-150), the turn-shape-hook
+# unit (DS-156), and the skeptic-round-cap unit, 9 of them call log_fire,
+# split 8 deny + 2 allow_advisory - `enforce-turn-shape.py` is the one hook
+# in both subsets, since it logs `"deny"` from its blocking execution-turn
+# check and `"allow_advisory"` from its advisory-only answer-turn check):
+#   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
+#   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
+#   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
 #   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 5 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("five
+#   events-log.md:130   - decomposed enumeration: 8 deny + 2 allow_advisory,
+#                         pinned by the FULL LITERAL - cardinals ("eight
 #                         hooks", "two hooks") AND named members together.
 #                         This is deliberately count- AND membership-bound:
-#                         a ninth enforcer added later (denying or advisory)
-#                         changes either the cardinal or the member list, so
-#                         either change breaks this exact-substring pin and
-#                         forces the enumeration to be revisited by hand -
-#                         it is not a count-agnostic pin that tolerates a
-#                         stale number as long as names are unchanged.
+#                         an eleventh enforcer added later (denying or
+#                         advisory) changes either the cardinal or the
+#                         member list, so either change breaks this
+#                         exact-substring pin and forces the enumeration to
+#                         be revisited by hand - it is not a count-agnostic
+#                         pin that tolerates a stale number as long as
+#                         names are unchanged.
+#   enforcement_log.py:39-47 - module manifest's own "Downstream consumers"
+#                         field (was omitted from this sweep entirely, which
+#                         is exactly why it went stale for two fix passes -
+#                         see hooks/lib/enforcement_log.py's own history).
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by seven of the eight enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by nine of the ten enforce-*.py hooks - every one except `enforce-no-abdication.py`",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the seven enforce-*.py hooks' best-effort dynamic import",
+        "for the nine enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Seven of the eight enforce-*.py hooks additionally",
+        "Nine of the ten enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "nine of the ten `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the seven consumer hooks enumerated below",
+        "one of the nine consumer hooks enumerated below",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (five hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (eight hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-tier.py`) and `\"allow_advisory\"` "
+        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, "
+        "`enforce-turn-shape.py`, `enforce-worktree-read.py`) "
+        'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
+    ),
+    (
+        REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
+        "Downstream consumers: the nine enforce-*.py PreToolUse/Stop hooks that",
     ),
 ]
 
-# Bidirectional and case-insensitive: "six" followed by "enforce" within one
-# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
-# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
-# "enforce" followed by "six" within one sentence (catches "...enforce-
-# shippable-edit" - one of the six consumer hooks"). The `[^.]{0,80}` bound
-# stops the match from crossing a sentence boundary into an unrelated "six".
-# Known limitation (tracked as a follow-up, not fixed here): this sweep is
-# lowercase/capitalized-word-form and value-keyed to "six" - it goes silent
-# once the live count moves past seven (when "seven" itself becomes stale),
-# and it does not catch numeral ("6 of the 7") or decomposed-enumeration
-# forms (the events-log.md:130 defect this pass fixed is pinned by exact
-# membership text above, not by this regex).
+# Bidirectional and case-insensitive: "seven" followed by "enforce" within
+# one sentence (catches "seven of the eight enforce-*.py", "the seven
+# enforce-*.py hooks", and the capitalized "Seven of the eight enforce-*.py
+# hooks"), OR "enforce" followed by "seven" within one sentence (catches
+# "...enforce-shippable-edit" - one of the seven consumer hooks", and the
+# pre-this-fix decomposed deny-subset enumeration "(seven hooks -
+# `enforce-...`)"). The `[^.]{0,80}` bound stops the match from crossing a
+# sentence boundary into an unrelated "seven".
+# Target word is "seven" because this repo has TWO independent enforcer-
+# count facts that both restate stale cardinals in prose, and "seven" is
+# the shared most-recently-retired value across both: (1) the total-
+# consumer-count fact ("N of the M enforce-*.py hooks call log_fire"),
+# which moved eight-of-nine -> nine-of-ten when the skeptic-round-cap unit
+# added `enforce-skeptic-round-cap.py` as a log_fire caller (that
+# transition's own regression is already caught by the positive pins above
+# requiring the literal "nine of the ten" text - a revert to eight-of-nine
+# would fail those asserts directly); and (2) the deny-subset count ("N
+# hooks" in the decomposed enumeration at events-log.md:130), which moved
+# five -> six when DS-150 added `enforce-worktree-read.py` to the deny
+# group, six -> seven when DS-156 added `enforce-turn-shape.py` to the deny
+# group, then seven -> eight when the skeptic-round-cap unit added
+# `enforce-skeptic-round-cap.py` to the deny group. "eight" cannot be used
+# as this sweep's stale marker: it is now itself a live, correct cardinal
+# (the deny-hook enumeration currently reads "eight hooks"), so a sweep
+# still keyed to "eight" would false-positive against that legitimate use,
+# mirroring why an earlier pass retired "six" as a marker only to have
+# DS-156's deny-subset change make "six" stale again, and this fix's
+# deny-subset change make "seven" stale in turn.
+# Known limitations (tracked as a follow-up, not fixed here): this sweep is
+# lowercase/capitalized-word-form and value-keyed to a single cardinal - it
+# goes silent once the live deny-subset count moves past eight (when
+# "eight" itself becomes stale), and it does not catch numeral ("7 of the
+# 8") forms.
+# A further limitation (Skeptic Minor, round 1 finding, still applicable
+# post-rebase): keying on a single cardinal cannot simultaneously guard
+# every possible stale restatement of BOTH facts above - e.g. a reverted
+# total-count restatement using some other now-stale cardinal shape would
+# not be caught by this sweep alone. The positive pins above still confirm
+# the current "nine of the ten" / "eight hooks" phrasing is present at
+# every known site, so residual risk is limited to an unenumerated site
+# using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
+    r"\bseven\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bseven\b",
     re.IGNORECASE,
 )
 
 
 def test_enforcer_subcount_is_current_across_all_known_sites():
-    # Positive: every known site carries the current 7-caller / 8-enforcer
+    # Positive: every known site carries the current 8-caller / 9-enforcer
     # phrasing, in its own grammatical form.
     for path, expected in _ENFORCER_SUBCOUNT_SITES:
         text = path.read_text(encoding="utf-8")
@@ -873,7 +1130,7 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
             f"phrasing: '{expected}'"
         )
 
-    # Negative, phrasing-agnostic: no stale "six ... enforce" (or reversed)
+    # Negative, phrasing-agnostic: no stale "five ... enforce" (or reversed)
     # survives in either file, regardless of which of the three grammatical
     # forms it was written in. This is the part a positive-only pin cannot
     # do - a half-fix that bumps the count-table cell but leaves a bare-
@@ -919,6 +1176,77 @@ def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
     ds_config_pending_row_idx = ds_config_text.index("| Pending-merge sweep |")
     ds_config_tracker_row_idx = ds_config_text.index("| Tracker state diagnostic |")
     assert ds_config_tracker_row_idx > ds_config_pending_row_idx
+
+
+# Every catalog the toggle COUNT governs, as (path, anchor-for-the-predecessor,
+# anchor-for-the-new-toggle). The predecessor is `commit_telemetry`, which is
+# where all six catalogs place the new entry.
+#
+# This is MEMBERSHIP coverage, and it is deliberately separate from
+# TOGGLE_COUNT_FILES above, which is COUNT coverage. The distinction is the
+# whole point: a count sweep verifies the numeral in each of its four
+# grammatical forms and reports all-clear while a catalog is short an entry -
+# exactly how `knowledge_commit_on_pr` reached README.md's "twenty-one"
+# sentence with only 20 bullets under it. A numeral and its list are two
+# different claims and need two different assertions.
+_KNOWLEDGE_TOGGLE_CATALOGS = [
+    # (path, predecessor anchor, new-toggle anchor)
+    (REPO_ROOT / "README.md", "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "docs" / "components.md",
+     "`commit_telemetry` (", "`knowledge_commit_on_pr` ("),
+    (REPO_ROOT / "docs" / "configuration-reference.md",
+     "| `commit_telemetry` |", "| `knowledge_commit_on_pr` |"),
+    (REPO_ROOT / "content" / "templates" / ".agentic" / "config.json",
+     '"commit_telemetry": true,', '"knowledge_commit_on_pr": true,'),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     '"commit_telemetry": true,', '"knowledge_commit_on_pr": true,'),
+]
+
+
+def test_toggle_catalog_has_knowledge_commit_on_pr_entry_in_all_locations():
+    """Membership + position for `knowledge_commit_on_pr` in every catalog the
+    toggle count governs - the four TOGGLE_BULLET_FILES bullet catalogs, the
+    two prose/table catalogs, and both seed JSONs.
+
+    Same shape as
+    test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations
+    above. Asserted per-file with the path in the message, so a catalog that is
+    short the entry names ITSELF rather than failing anonymously."""
+    bullet_paths = {p for p, _, _ in _KNOWLEDGE_TOGGLE_CATALOGS}
+    for path in TOGGLE_BULLET_FILES:
+        assert path in bullet_paths, (
+            f"{path.relative_to(REPO_ROOT)} is in TOGGLE_BULLET_FILES but is not "
+            "covered by this membership check - every bullet catalog the count "
+            "governs must be checked, or the next toggle repeats the README miss"
+        )
+
+    for path, predecessor, entry in _KNOWLEDGE_TOGGLE_CATALOGS:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(REPO_ROOT)
+        assert entry in text, (
+            f"{rel}: missing the `knowledge_commit_on_pr` entry ({entry!r}). "
+            "The toggle count in this file (or governing it) says 21 - a "
+            "catalog with 20 entries makes that numeral false."
+        )
+        assert text.count(entry) == 1, (
+            f"{rel}: `knowledge_commit_on_pr` entry appears {text.count(entry)} "
+            f"times ({entry!r}); expected exactly 1 - a duplicate inflates the "
+            "catalog against its own count."
+        )
+        assert predecessor in text, (
+            f"{rel}: predecessor anchor {predecessor!r} not found - this check's "
+            "position assertion cannot be evaluated, so it must not silently pass"
+        )
+        assert text.index(entry) > text.index(predecessor), (
+            f"{rel}: the `knowledge_commit_on_pr` entry must follow "
+            f"`commit_telemetry`, matching its position in every other catalog"
+        )
 
 
 def test_agentic_config_settings_registers_tracker_state_diagnostic():
@@ -1165,7 +1493,7 @@ def test_phase_11_inputs_list_includes_pipeline_order():
 
 
 def test_phase_11_summary_sentence_names_pipeline_order():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 300]

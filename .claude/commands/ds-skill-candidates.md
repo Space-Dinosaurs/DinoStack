@@ -2,7 +2,7 @@
 description: "Read-only view of the skill-candidate backlog: recurring workflow friction grouped by domain, count, and suggested artifact type."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-skill-candidates
 

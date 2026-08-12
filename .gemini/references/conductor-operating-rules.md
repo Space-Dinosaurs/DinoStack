@@ -77,7 +77,7 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 ## Editing methodology files
 
-Always route through `/ds-update-agentic-engineering` for edits to `content/**`, Codex native-skill generation inputs or outputs (`.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, `.codex/skills/**`), the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/ds-update-agentic-engineering` instead.
+Always route through `/ds-update-agentic-engineering` for edits to `content/**`, Codex native-skill generation inputs or outputs (`.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, `.codex/skills/**`), the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/dinostack/{agents,commands,references,rules}` are symlink blobs (mode `120000`) pointing at the sibling `content/` directories, not hardlinks - editing through them resolves to editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/ds-update-agentic-engineering` instead.
 
 ## Parallel Investigators
 
@@ -85,14 +85,14 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (the conductor acquires this lock on wrap-ticket's behalf before every Phase 11b spawn - see `content/commands/ds-implement-ticket.md` Phase 11b's bounded-wait acquisition contract; wrap-ticket itself has no Bash tool and never acquires the lock. `/ds-wrap` acquires it directly for its own pre-flight; concurrent holds are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (conductor owns - qa-engineer performs no file writes and returns entries as a payload instead), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer across agents - not across sessions for `tasks.jsonl`; see `content/references/task-state-file.md`), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (the conductor acquires this lock on wrap-ticket's behalf before every Phase 11b spawn - see `content/commands/ds-implement-ticket.md` Phase 11b's bounded-wait acquisition contract; wrap-ticket itself has no Bash tool and never acquires the lock. `/ds-wrap` acquires it directly for its own pre-flight; concurrent holds are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (conductor owns - qa-engineer has no write access to it and returns knowledge entries as a `qa-knowledge-json` payload instead; qa-engineer's own writes are narrowly scoped to its own `/tmp/qa-reports/` report and screenshot-evidence files - deliberately `/tmp/`, not `.agentic/`, since this agent always runs `isolation: "worktree"`), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer across agents - not across sessions for `tasks.jsonl`; see `content/references/task-state-file.md`), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
 **`.agentic/context.md` writer contract: a DERIVED rollup, deliberately lock-free.**
 
 `.agentic/context.md` is not a file anyone writes directly. It is recomposed on every turn as a pure function of two inputs:
 
 - **`.agentic/_wrap.md`** - the CURATED region: everything up to the `## Session Activity` sentinel, including `## Recent Focus` and its 10-slot rolling session-label window. Owned by `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, and a conductor-direct context write. The rolling-window algorithm in `content/references/wrap-context-format.md` is unchanged; only the path it reads and writes moved.
-- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/agentic-migrate`.
+- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/ds-migrate`.
 
 **The read contract is unchanged:** every session still reads `.agentic/context.md` as its first action.
 
@@ -104,11 +104,11 @@ wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions
 
 Compounding that, a `role:'agent'` lock carries `pid: null` by construction, so its liveness verdict is `live` forever and, on the default config (`deferred_wrap_daemon: false`), no code path could ever clear it. Measured live in this repo: a lock held **10.3 hours** by a dead pid, during which **49 `context.md` writes across 6 sessions were silently discarded** - from the file every session reads first, so all six started from stale context and none of them knew.
 
-**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `agentic-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
+**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. `/ds-wrap`'s genuine read-modify-write of `_wrap.md` is the write this fix is scoped to protect - it is not the lock's only guarded file; the paragraph below gives the fuller, non-exhaustive scope. The lock also carries a `session_id` and is cleared by `ds-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
 
 `.agentic/wrap/deferred-activity.jsonl` is **no longer produced** - spillover existed only because a held lock skipped the write. `/ds-wrap` Part A still DRAINS a pre-existing file (the drain step is unchanged), so records preserved from before this change are not orphaned. The daemon is launched by the SessionStart hook (`hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
-The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/ds-wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/ds-wrap` target and is not added to the `wrap/lock` scope.
+Root `MEMORY.md` is written by wrap-ticket and learnings-agent (append-with-dedup), `/ds-memory-update` (interactive), `/ds-init-project`'s CLAUDE.md-split Worker (one-time), and - as of DS-90 - `/ds-wrap` Part B (staging-drain promotion, capped 3/run) and Part E (compression). Because `/ds-wrap` performs a genuine read-modify-write of root `MEMORY.md`, it IS within the `wrap/lock` scope. The lock's actual scope is broader than a short list can stay accurate for: at minimum it also covers `_wrap.md`, `.agentic/compression-state.json`, `decisions.md` (shared with `/ds-implement-ticket` - see that command's "The lock is shared with" note), and - as of DS-90 - `.agentic/memory.md` and `.agentic/memory-pending.md`, both rewritten inside the held lock by Part B. Treat this as a non-exhaustive list of files known to be in scope, not a closed enumeration. `wrap-ticket` already serializes on that same lock before every Phase 11b spawn, so its own append-writes to `MEMORY.md` are unaffected by this addition. Part G commits root `MEMORY.md` when it survives gating, but Part G runs OUTSIDE the lock (after release) and authors no content of its own - it is a verbatim copy-and-commit of whatever Part B/E already wrote.
 
 ## learnings-agent background capture
 
@@ -141,7 +141,7 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    conductor MUST also emit a `tool_failure_workaround` event to `.agentic/events.jsonl`:
 
    ```bash
-   agentic-emit tool_failure_workaround - - \
+   ds-emit tool_failure_workaround - - \
      '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<name>","domain_tag":"<tag>","note":"<one sentence>"}'
    ```
 
@@ -233,6 +233,10 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 
 ### Routing hop for `learnings_candidate[]` (new input source)
 
+The `kind` map in step 2b below is a **consumer** of the `kind` enum, not a second declaration of it: the enum is defined once in `content/references/learnings-capture-instruction.md`, alongside the `--event-type` enum of `bin/ds-learning-shard`. Adding, removing or renaming a `kind` value there without updating this map leaves the conductor with no `event_type` for the new value, so change the two together.
+
+`engineer`, `investigator` and `debugger` are the only roles whose return contract declares `learnings_candidate[]`, and this hop reads it from those three only. No other agent should emit the field; if one is ever given it, its return contract and this list are a single change.
+
 When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-6 sweep:
 
 1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
@@ -240,11 +244,11 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
    a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
 
       ```bash
-      agentic-emit tool_failure_workaround - - \
+      ds-emit tool_failure_workaround - - \
         '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
       ```
 
-      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `ds-cost` does not miscount.
    b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
 3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
 

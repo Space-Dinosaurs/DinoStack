@@ -2,7 +2,7 @@
 description: "Apply scaffolding migrations to bring a project up to the current manifest version."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-migrate-project
 
@@ -13,9 +13,9 @@ Purpose: Conductor-facing command to inspect and apply project scaffolding migra
          from the canonical manifest (content/project-scaffolding.yml).
 Public API: /ds-migrate-project, /ds-migrate-project --apply, /ds-migrate-project --apply --include-destructive,
             /ds-migrate-project --reset <version>
-Upstream: content/project-scaffolding.yml (via bin/agentic-migrate); project .agentic/config.json
-Downstream: called by operator; shells out to bin/agentic-migrate
-Failure modes: silently swallowed by agentic-migrate; command surfaces exit-code summary to operator
+Upstream: content/project-scaffolding.yml (via bin/ds-migrate); project .agentic/config.json
+Downstream: called by operator; shells out to bin/ds-migrate
+Failure modes: silently swallowed by ds-migrate; command surfaces exit-code summary to operator
 -->
 
 Inspect or apply project scaffolding migrations from the canonical manifest (`content/project-scaffolding.yml`). By default (no flags) runs a dry-run diff and shows what would change without applying anything.
@@ -35,7 +35,7 @@ Inspect or apply project scaffolding migrations from the canonical manifest (`co
 
 Shells out to:
 ```bash
-agentic-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Prints a human-readable summary of what `--apply` would do. Read-only - no changes written.
@@ -44,7 +44,7 @@ Prints a human-readable summary of what `--apply` would do. Read-only - no chang
 
 Shells out to:
 ```bash
-agentic-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Applies additive scaffolding rules from the manifest:
@@ -71,24 +71,35 @@ Sets `scaffolding_version` in `.agentic/config.json` to the specified integer wi
 **Use case:** you want the next preflight to re-run the full diff and re-emit the audit line - for example, to verify the migration engine is idempotent after a manual edit to `.gitignore` or `.agentic/`. Does NOT undo applied changes; if you need to undo, do so manually.
 
 ```bash
-agentic-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
+ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
 ```
 
 ## Manifest resolution
 
-`agentic-migrate` resolves the manifest in this order (first found wins):
+`ds-migrate` resolves the manifest in this order (first found wins):
 1. `AGENTIC_MANIFEST_PATH` env var
-2. `~/.claude/skills/agentic-engineering/project-scaffolding.yml`
+2. `~/.claude/skills/dinostack/project-scaffolding.yml`
 3. `<script_dir>/../content/project-scaffolding.yml` (dev path)
 
-## Exit codes from agentic-migrate
+## Exit codes from ds-migrate
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success / no-op |
 | 1 | Drift detected (check subcommand only) |
-| 2 | Manifest not found or parse error |
-| 3 | Partial apply - some rules errored |
+| 2 | Manifest parse error (any subcommand); manifest NOT FOUND on `check`/`diff` only |
+| 3 | Partial apply - some rules errored, OR (round 10+) `apply` ran every rule successfully but a behavioral `git check-ignore` recheck afterward still reports a manifest-negated path as ignored - a spelling neither the ordering-repair nor bare-form-repair matcher recognizes. The affected paths are named on stderr for manual `.gitignore` repair. |
+
+**`apply`'s manifest-not-found case is the one exception to this table:** it returns 0 (not 2), by deliberate silent-fail discipline documented in the `bin/ds-migrate` module docstring (`Failure modes: silent-fail discipline; never throws to caller`) - a caller that needs to distinguish "applied successfully" from "manifest was unresolvable" cannot do so from `apply`'s exit code alone and must instead check the actual postcondition (e.g. does `.gitignore` now contain the expected umbrella and negation lines - see `content/commands/ds-init-project.md` Step 9 for the concrete pattern). `check` and `diff` do not share this exception; both return 2 for an unresolvable manifest, same as a parse error.
+
+## `self_repo_exempt` status
+
+`ds-migrate check`, `diff`, and `apply` all print a `"status": "self_repo_exempt"` JSON value (exit code 0, same as `"ok"`) when `--project-root` (or `cwd`, when unset) resolves to the dinostack/agentic-engineering methodology source repo itself - checked against the enclosing git repository root, so this also fires from any subdirectory of the self-repo - rather than a scaffolding consumer (see `_is_self_repo` in `bin/ds-migrate`). This is a distinct, terminal outcome from `"ok"` and `"drift"`:
+
+- `check`/`diff` report `self_repo_exempt` and stop; there is no drift to report and no diff to show, since consumer-manifest scaffolding is not a meaningful operation against the methodology's own source.
+- `apply` no-ops entirely (prints why on stdout, writes nothing) - the self-repo's own `.agentic/` gitignore rule is a deliberate, negation-free categorical `.agentic/*` (root AGENTS.md: "DinoStack does not commit its own `.agentic/` runtime files"), and layering the manifest's consumer negations on top of it would silently start tracking the methodology's own runtime state.
+
+The exit-code table above is unaffected: `self_repo_exempt` always returns 0, same row as `check`'s `"ok"` no-drift case.
 
 ## Notes
 

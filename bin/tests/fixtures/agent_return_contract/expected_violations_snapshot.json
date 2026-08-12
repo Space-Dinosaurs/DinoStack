@@ -1,0 +1,19 @@
+{
+  "adr-drift-detector.md": [],
+  "architect.md": [],
+  "debugger.md": [],
+  "dependency-auditor.md": [],
+  "engineer.md": [],
+  "goal-condition-evaluator.md": [],
+  "investigator.md": [],
+  "learning-extractor.md": [],
+  "learnings-agent.md": [],
+  "orchestration-planner.md": [],
+  "perf-analyst.md": [],
+  "product-discovery.md": [],
+  "qa-engineer.md": [],
+  "release-orchestrator.md": [],
+  "security-auditor.md": [],
+  "skeptic.md": [],
+  "wrap-ticket.md": []
+}

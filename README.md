@@ -12,20 +12,26 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 ## Updating
 
-Run `agentic-update` from anywhere, no arguments.
+Run `ds-update` from anywhere, no arguments.
 
 | Path                | Command                          | When                                                                                                             |
 | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Shell (recommended) | `agentic-update`                 | Default; from any directory, no TTY                                                                              |
+| Shell (recommended) | `ds-update`                 | Default; from any directory, no TTY                                                                              |
 | In-session          | `/ds-update`                     | Inside Claude Code, any project                                                                                  |
 | TUI                 | `./update.sh`                    | Interactive adapter selection                                                                                    |
 | CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
-| Repair drift        | `agentic-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
-| Check cross-harness | `agentic-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
+| Repair drift        | `ds-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
+| Check cross-harness | `ds-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
 
 Full details: [docs/updating.md](docs/updating.md).
+
+Every `ds-*` CLI (e.g. `ds-update`, `ds-doctor`, `ds-cost`) has a permanent
+`agentic-*` compat alias (e.g. `agentic-update`) - both names invoke the same
+binary and behave identically. `ds-*` is the current primary name; the
+`agentic-*` form is kept indefinitely for existing cron jobs and shell
+aliases.
 
 ## Getting started
 
@@ -35,7 +41,7 @@ Full details: [docs/updating.md](docs/updating.md).
 curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
-This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/ds-update-agentic-engineering` command know where to find it.
+This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/ds-update` command know where to find it.
 
 > **Note:** if the one-liner clone fails (e.g. network or auth issue), the script automatically falls back to SSH.
 
@@ -153,7 +159,7 @@ The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gem
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
-bash .claude/install.sh --dry-run             # preview symlink + repo_dir changes; hook, build, and permission phases still execute
+bash .claude/install.sh --dry-run             # preview symlink, CLAUDE.md managed-block update, and repo_dir changes; hook, build, and permission phases still execute
 ```
 
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
@@ -194,7 +200,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-two methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -206,7 +212,8 @@ The per-project marker only has effect in combination with the global activation
 - `storybook_enabled` - boolean, default `false`. Opt-in targeting of the Storybook iframe for `visual_conformance` and `accessibility` scenarios.
 - `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
 - `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/ds-init-project`.
-- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
+- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `ds-cost team` aggregation after pull.
+- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` onto the ticket's PR branch (checkout-free, via a temporary index plus `commit-tree`), so a session's durable knowledge ships with the work that produced it. Set to `false` as a kill switch: the phase pushes operator-authored markdown onto a branch whose checks have already passed, which re-runs CI at a point where no phase revisits a red result.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/ds-wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; the shipped template and `/ds-init-project` set it). Stop hook that detects conductor abdication - asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or a co-equal ballot in a prose `## Operator decisions` block - and injects a directive.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
@@ -215,7 +222,8 @@ The per-project marker only has effect in combination with the global activation
 - `rework_detection` - boolean, default `true`. Disables the Phase 9 ledger write, Phase 1 detection, the notice, the `/ds-ticket-triage` badge, and the escalation with a single flag.
 - `pending_merge_sweep` - boolean, default `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
-- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on). Advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and never blocks the stop, only logs; a two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap of 2, sharing machinery with the abdication guard via `hooks/lib/loop_guard.py`) bounds how many times the advisory can re-invoke the model on consecutive non-conforming turns; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1`.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on). Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs, bounded by a two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap of 2, sharing machinery with the abdication guard via `hooks/lib/loop_guard.py`) on how many times it can re-invoke the model on consecutive non-conforming turns; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1`.
+- `worktree_read_guard_exemptions` - list of strings, default `[]`. Each entry is a path prefix (relative to the primary checkout root) exempted from the worktree-isolation read guard; a worktree-isolated subagent's `Read` under an exempt prefix is allowed even though it reaches into the primary checkout. Read by `hooks/enforce-worktree-read.py`; kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 
 Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
@@ -237,7 +245,7 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | OpenClaw        | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
 | VS Code Copilot | `.copilot/`  | See [.copilot/README.md](.copilot/README.md)   |
 
-Codex installs exactly four native Codex skills: `agentic-engineering`, `brief`, `wrap`, and `implement-ticket`. Invoke its workflow skills with `$brief`, `$wrap`, and `$implement-ticket`; bare `/ds-brief`, `/ds-wrap`, and `/ds-implement-ticket` are canonical source names, not Codex invocation syntax. The workflow sources remain `content/commands/ds-brief.md`, `content/commands/ds-wrap.md`, and `content/commands/ds-implement-ticket.md`. `.codex/build.sh` runs `scripts/codex-skills.py` to transform the reviewed sources, generate each skill's `SKILL.md` and `RESOURCE-MAP.json`, validate relative symlink/resource-map closure, and synchronize the exact output allowlist. The read-only Codex skill check rejects drift.
+Codex installs exactly four native Codex skills: `dinostack`, `brief`, `wrap`, and `implement-ticket`. Invoke its workflow skills with `$brief`, `$wrap`, and `$implement-ticket`; bare `/ds-brief`, `/ds-wrap`, and `/ds-implement-ticket` are canonical source names, not Codex invocation syntax. The workflow sources remain `content/commands/ds-brief.md`, `content/commands/ds-wrap.md`, and `content/commands/ds-implement-ticket.md`. `.codex/build.sh` runs `scripts/codex-skills.py` to transform the reviewed sources, generate each skill's `SKILL.md` and `RESOURCE-MAP.json`, validate relative symlink/resource-map closure, and synchronize the exact output allowlist. The read-only Codex skill check rejects drift.
 
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
@@ -249,7 +257,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (33 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (39 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
@@ -260,79 +268,102 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Multi-developer coordination - parallel sessions, branch and worktree hygiene
 - Regression test obligation - when a fix requires a regression test and what counts
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
-- Cross-harness agent teams - `agentic-team` CLI, team.yml schema, cross-harness dispatch and collection
+- Cross-harness agent teams - `ds-team` CLI, team.yml schema, cross-harness dispatch and collection
+- Evidence-on-disk - spill/sketch/rehydrate protocol for large worker tool outputs
+- Learnings capture instruction - what counts as a learning, the in-flight `ds-learning-shard append` path for the four roles it belongs to (`engineer`, `adr-generator`, `product-discovery`, `release-orchestrator`), and the `learnings_candidate[]` digest field for the three roles whose return contract declares it
+- Command & skill authoring - trigger-keyword descriptions (always injected, so enumerate when to fire) and bad/good example-pair seeding to encode taste
 
 **Agents** (18) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (25) - workflow shortcuts:
-ds-config (interactive settings viewer/editor for methodology mode/profile/toggles), ds-configure-team (cross-harness team setup and verification), ds-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), ds-disable, ds-help (static, zero-token command reference listing every slash command), ds-identity, ds-status, ds-brief, ds-cleanup-worktrees, ds-feedback-triage (triage captured session friction from `~/.agentic/feedback.jsonl` into tracker tickets), ds-implement-ticket, ds-init-project, ds-memory-update, ds-migrate-project, ds-prune-harness, ds-representation-audit, ds-skeptic, ds-skill-candidates (read-only view of the skill-candidate backlog), ds-test-suite-comprehension, ds-ticket-status-sync, ds-ticket-triage (plan-only cross-ticket triage: dependencies, conflicts, parallel lanes), ds-update (pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up), ds-update-agentic-engineering, ds-wrap, ds-wrap-deferred (non-interactive single-pass session enrichment for the deferred-wrap daemon)
+**Commands** (26) - workflow shortcuts:
+ds-config (interactive settings viewer/editor for methodology mode/profile/toggles), ds-configure-team (cross-harness team setup and verification), ds-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), ds-disable, ds-help (static, zero-token command reference listing every slash command), ds-identity, ds-status, ds-brief, ds-cleanup-worktrees, ds-feedback-triage (triage captured session friction from `~/.agentic/feedback.jsonl` into tracker tickets), ds-implement-ticket, ds-init-project, ds-memory-update, ds-migrate-project, ds-failure-audit (conductor-invoked audit: mines session telemetry for failure modes per model/harness with quantified frequency), ds-prune-harness, ds-representation-audit, ds-skeptic, ds-skill-candidates (read-only view of the skill-candidate backlog), ds-test-suite-comprehension, ds-ticket-status-sync, ds-ticket-triage (plan-only cross-ticket triage: dependencies, conflicts, parallel lanes), ds-update (pull and reinstall dinostack from upstream, or fresh-install if not yet set up), ds-update-agentic-engineering, ds-wrap, ds-wrap-deferred (non-interactive single-pass session enrichment for the deferred-wrap daemon)
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 
-`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
+`ds-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
 
 ### Registering a handle (global)
 
 The quickest path derives your handle from your GitHub login:
 
 ```bash
-agentic-identity auto      # derives handle from `gh api user`, writes it provisional
-agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
+ds-identity auto      # derives handle from `gh api user`, writes it provisional
+ds-identity confirm   # strips the provisional flag and flushes buffered sessions
 ```
 
 Or set a handle manually:
 
 ```bash
-agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
+ds-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
 ```
 
-Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes only pending records matching the confirmed effective scope and retains nonmatching records. Matching records start writing attributed logs; nonmatching records remain buffered for their own scope.
 
-Run `agentic-identity show` at any time to see your current identity.
+The pending record's canonical `identity_scope` comes from the effective
+provisional identity, not merely the active profile. Identity targets and
+parent directories are opened without following symlinks; special,
+multiply-linked, and wrong-owner identity files are rejected.
 
-### Per-project override
+Run `ds-identity show --scope effective` at any time to see the identity
+that wins for the current project and profile.
+
+### Per-profile and per-project overrides
+
+For separate harness tenants or config profiles, store the identity beside
+that profile's configuration:
+
+```bash
+AGENTIC_CONFIG_DIR=~/.claude-client-a ds-identity auto --scope profile
+AGENTIC_CONFIG_DIR=~/.claude-client-a ds-identity confirm --scope profile
+```
+
+Profile config-dir detection uses `AGENTIC_CONFIG_DIR`, then
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, then `PI_CODING_AGENT_DIR`. You can instead pass
+`--profile-dir <dir>`. Profile dirs must remain lexically under `$HOME` and
+must not contain symlinked components.
 
 If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
 
 ```bash
-agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
-agentic-identity confirm --scope project          # confirm a provisional project identity
+ds-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
+ds-identity confirm --scope project          # confirm a provisional project identity
 ```
 
-The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
+The project file is gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - it is per-developer and never committed. The global identity is unchanged.
 
 ### Precedence
 
-When both files exist, the most-confirmed identity wins:
+When multiple identity files exist, confirmation wins before scope:
 
-**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+**project-confirmed > profile-confirmed > global-confirmed > project-provisional > profile-provisional > global-provisional > none**
 
-A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+A provisional project or profile file never suppresses a working confirmed
+identity. To see which handle is active in the current repo and profile:
 
 ```bash
-agentic-identity show --scope effective
+ds-identity show --scope effective
 ```
 
-### agentic-cost attribution
+### ds-cost attribution
 
-`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+`ds-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
 
 ## Tracker config: `.agentic/tracker.yml`
 
 A repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` - doing so would bake one operator's workspace, project key, or account ID into a public file - can still resolve `TRACKER` at runtime via a project-local, gitignored overlay.
 
 ```bash
-agentic-tracker init --tracker jira --prefix DS --base-url https://acme.atlassian.net
-agentic-tracker resolve --json   # merge algorithm, deterministically testable
-agentic-tracker show --scope project
+ds-tracker init --tracker jira --prefix DS --base-url https://acme.atlassian.net
+ds-tracker resolve --json   # merge algorithm, deterministically testable
+ds-tracker show --scope project
 ```
 
-The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `agentic-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
+The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `ds-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
 
 ## Repo structure
 
@@ -388,7 +419,7 @@ The framework is a safety rail, not a complete boundary. The deny list and Skept
 
 ## Naming
 
-DinoStack is the product; `agentic-engineering` is the package it ships. The `agentic-engineering` name appears throughout the internals - the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands - and stays stable so existing installs keep working.
+DinoStack is the product; `dinostack` is the package it ships. The `dinostack` name appears throughout the internals - the `~/.claude/agentic-engineering.json` config, the `agentic-engineering: opt-in` marker, the `.agentic/` directory, the `/agentic-*` commands - and stays stable so existing installs keep working.
 
 ## Contributing
 

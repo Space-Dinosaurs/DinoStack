@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+Purpose: Resolve one Codex invocation identifier without consulting Claude-only state.
+
+Public API: ds-codex-session-id [HOOK_JSON]; also accepts hook JSON on stdin.
+
+Upstream deps: Codex hook session_id/thread_id fields, CODEX_THREAD_ID,
+               CODEX_SESSION_ID, and Python's UUID implementation.
+
+Downstream consumers: generated Codex skills and Codex hook adapters.
+
+Failure modes: empty, malformed, non-object, over-1 MiB, stalled piped input,
+               or stdin inspection/selector setup failure fails closed with exit 2
+               and no stdout. Pipes and sockets use a 0.5-second inactivity timeout
+               and a 5-second absolute timeout. Regular files use a bounded read.
+               No filesystem writes.
+
+Performance: O(n) for at most 1 MiB of input, bounded by the stdin timeouts.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import selectors
+import stat
+import sys
+import time
+import uuid
+
+MAX_STDIN_BYTES = 1024 * 1024
+INACTIVITY_TIMEOUT_SECONDS = 0.5
+ABSOLUTE_TIMEOUT_SECONDS = 5.0
+
+
+class InputError(ValueError):
+    pass
+
+
+def decode_payload(raw: bytes) -> dict[str, object]:
+    if not raw.strip():
+        raise InputError("empty hook input")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InputError(f"malformed hook input: {exc}") from exc
+    if not isinstance(value, dict):
+        raise InputError("hook input must be a JSON object")
+    return value
+
+
+def read_regular_stdin(descriptor: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        try:
+            chunk = os.read(descriptor, min(65536, MAX_STDIN_BYTES + 1 - total))
+        except OSError as exc:
+            raise InputError(f"cannot read stdin: {exc}") from exc
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > MAX_STDIN_BYTES:
+            raise InputError(f"hook input exceeds {MAX_STDIN_BYTES} bytes")
+
+
+def read_streaming_stdin(descriptor: int) -> bytes:
+    selector: selectors.BaseSelector | None = None
+    try:
+        try:
+            selector = selectors.DefaultSelector()
+            selector.register(descriptor, selectors.EVENT_READ)
+        except (OSError, ValueError) as exc:
+            raise InputError(f"cannot monitor stdin: {exc}") from exc
+        started = time.monotonic()
+        inactivity_deadline = started + INACTIVITY_TIMEOUT_SECONDS
+        absolute_deadline = started + ABSOLUTE_TIMEOUT_SECONDS
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            now = time.monotonic()
+            remaining = min(inactivity_deadline - now, absolute_deadline - now)
+            if remaining <= 0:
+                raise InputError("stdin stalled before EOF")
+            try:
+                ready = selector.select(remaining)
+            except (OSError, ValueError) as exc:
+                raise InputError(f"cannot monitor stdin: {exc}") from exc
+            if not ready:
+                raise InputError("stdin stalled before EOF")
+            try:
+                chunk = os.read(descriptor, min(65536, MAX_STDIN_BYTES + 1 - total))
+            except OSError as exc:
+                raise InputError(f"cannot read stdin: {exc}") from exc
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > MAX_STDIN_BYTES:
+                raise InputError(f"hook input exceeds {MAX_STDIN_BYTES} bytes")
+            inactivity_deadline = time.monotonic() + INACTIVITY_TIMEOUT_SECONDS
+        return b"".join(chunks)
+    finally:
+        if selector is not None:
+            selector.close()
+
+
+def read_stdin() -> bytes:
+    descriptor = sys.stdin.buffer.fileno()
+    try:
+        mode = os.fstat(descriptor).st_mode
+    except OSError as exc:
+        raise InputError(f"cannot inspect stdin: {exc}") from exc
+    if stat.S_ISREG(mode):
+        return read_regular_stdin(descriptor)
+    return read_streaming_stdin(descriptor)
+
+
+def payload() -> dict[str, object]:
+    if len(sys.argv) > 1:
+        raw = sys.argv[1].encode("utf-8")
+        if len(raw) > MAX_STDIN_BYTES:
+            raise InputError(f"hook input exceeds {MAX_STDIN_BYTES} bytes")
+        return decode_payload(raw)
+    if sys.stdin.isatty():
+        return {}
+    return decode_payload(read_stdin())
+
+
+def main() -> int:
+    try:
+        data = payload()
+    except InputError as exc:
+        print(f"ds-codex-session-id: {exc}", file=sys.stderr)
+        return 2
+    for candidate in (
+        data.get("session_id"),
+        data.get("thread_id"),
+        os.environ.get("CODEX_THREAD_ID"),
+        os.environ.get("CODEX_SESSION_ID"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            print(candidate.strip())
+            return 0
+    print(uuid.uuid4())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

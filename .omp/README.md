@@ -27,7 +27,7 @@ referencing the methodology guarantees it is active.
 
 ## What's adapted
 
-- **Skill**: `agentic-engineering` SKILL.md with Pi-compatible guidance. Includes subagent mapping (task/explore/plan/designer/reviewer to DinoStack roles) and methodology overview.
+- **Skill**: `dinostack` SKILL.md with Pi-compatible guidance. Includes subagent mapping (task/explore/plan/designer/reviewer to DinoStack roles) and methodology overview.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Rules**: Symlinked from `content/rules/` into the skill directory for easy access.
 - **Commands**: Not adapted as markdown files. Pi commands are native TypeScript. Use natural language to invoke methodology commands ("run ds-init-project", "do a ds-wrap", "run ds-skeptic review").
@@ -43,7 +43,7 @@ bash ~/DinoStack/.omp/install.sh
 This will:
 1. Build the adapter (ensures symlinks from `content/`)
 2. Configure activation mode (opt-out or opt-in)
-3. Copy the skill to `~/.omp/agent/skills/agentic-engineering/` for global availability
+3. Copy the skill to `~/.omp/agent/skills/dinostack/` for global availability
 
 ## Uninstall
 
@@ -54,7 +54,7 @@ bash .omp/uninstall.sh
 ## Project-level vs global
 
 **Project-level** (no install required):
-When this repo is your working directory, Pi automatically discovers `.omp/skills/agentic-engineering/`.
+When this repo is your working directory, Pi automatically discovers `.omp/skills/dinostack/`.
 
 **Global** (optional):
 Running `install.sh` copies the skill to `~/.omp/agent/skills/` so the methodology is available in all projects.

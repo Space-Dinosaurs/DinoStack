@@ -2,7 +2,7 @@
 description: "Capture a stable project fact or decision into MEMORY.md."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-memory-update - Memory Protocol: Capture a Decision
 
@@ -16,13 +16,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
 
-**Orphan data warning:** If `<cwd>/.agentic/memory/MEMORY.md` exists, it was written by a prior buggy version of this command. Its content is NOT auto-injected by Claude Code. Surface this to the operator before spawning:
-
-```
-WARNING: orphaned memory file at .agentic/memory/MEMORY.md detected. Content is not auto-injected. Review manually and merge into <cwd>/MEMORY.md if needed.
-```
-
-Do NOT auto-merge the orphaned file.
+**Auto-memory index:** `<cwd>/.agentic/memory/MEMORY.md` is the Claude Code auto-memory index, wired via `autoMemoryDirectory` in `.claude/settings.local.json` and auto-injected into session context by the harness. It is distinct from `<cwd>/MEMORY.md`, the curated project memory file this command manages. The two stores are separate - do not merge them.
 
 **What to pass as context:** A concise summary of the decision - 1-3 sentences covering what was decided, why, and any key tradeoffs.
 
@@ -84,17 +78,17 @@ Otherwise: complete silently - do NOT report back to the user.
 
 ## Memory retrieval
 
-To query existing memory without rewriting it, use `bin/agentic-memory`:
+To query existing memory without rewriting it, use `bin/ds-memory`:
 
 ```bash
 # Find recent Skeptic spawns
-agentic-memory query --type spawn_complete --agent skeptic --last 5
+ds-memory query --type spawn_complete --agent skeptic --last 5
 
 # Find decisions about a topic
-agentic-memory query --source MEMORY.md --topic "context budget"
+ds-memory query --source MEMORY.md --topic "context budget"
 
 # Show recent turns
-agentic-memory turns --last 5
+ds-memory turns --last 5
 ```
 
 This is a permitted direct action — the conductor may run it inline without spawning a subagent.

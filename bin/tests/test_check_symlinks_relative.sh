@@ -2,7 +2,7 @@
 # Purpose: Regression guard for DS-104 (ref mode) and DS-136 (--staged mode)
 #          of scripts/check-symlinks-relative.sh - the CI/pre-commit gate
 #          that fails when any of the four
-#          .claude/skills/agentic-engineering/{agents,commands,references,rules}
+#          .claude/skills/dinostack/{agents,commands,references,rules}
 #          symlinks are absolutized. A gate that has only ever been observed
 #          passing has not been verified - this test exercises both
 #          directions in both modes: it must FAIL against a constructed
@@ -15,7 +15,7 @@
 #          `git cat-file -p 0` -> "fatal: Not a valid object name".
 #
 #          SKILL_DIR/LINKS in check-symlinks-relative.sh are cwd-relative
-#          (".claude/skills/agentic-engineering", not tied to the real
+#          (".claude/skills/dinostack", not tied to the real
 #          checkout's absolute path), so a synthetic fixture repo built at
 #          that same relative path under a throwaway git init exercises the
 #          gate identically to the real repo, in both ref and --staged
@@ -29,7 +29,9 @@
 #                or index.
 #
 # Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
+#                        (the bin-sh-tests job in
+#                        .github/workflows/bin-tests.yml auto-discovers
+#                        bin/tests/test_*.sh).
 #
 # Failure modes: gate script missing -> immediate FAIL. Gate does not exit 1
 #                on an absolutized fixture, or does not exit 0 on a relative
@@ -78,7 +80,7 @@ mkdir -p "$FIXTURE_REPO"
   git config user.name "DS-104 fixture"
 ) || { _fail "could not init fixture repo"; exit 1; }
 
-SKILL_DIR="$FIXTURE_REPO/.claude/skills/agentic-engineering"
+SKILL_DIR="$FIXTURE_REPO/.claude/skills/dinostack"
 mkdir -p "$SKILL_DIR" "$FIXTURE_REPO/content"
 
 build_commit() {
@@ -91,8 +93,8 @@ build_commit() {
     while [[ $# -gt 0 ]]; do
       local name="$1" target="$2"
       shift 2
-      rm -f ".claude/skills/agentic-engineering/$name"
-      ln -s "$target" ".claude/skills/agentic-engineering/$name"
+      rm -f ".claude/skills/dinostack/$name"
+      ln -s "$target" ".claude/skills/dinostack/$name"
     done
     git add -A .claude
     git commit -q -m "$msg"
@@ -109,8 +111,8 @@ stage_change() {
     while [[ $# -gt 0 ]]; do
       local name="$1" target="$2"
       shift 2
-      rm -f ".claude/skills/agentic-engineering/$name"
-      ln -s "$target" ".claude/skills/agentic-engineering/$name"
+      rm -f ".claude/skills/dinostack/$name"
+      ln -s "$target" ".claude/skills/dinostack/$name"
     done
     git add -A .claude
   )
@@ -176,7 +178,7 @@ fi
 # --staged Test C: staging a deletion of a watched symlink (uncommitted)
 # exits 0 - a legitimate removal must not block the commit that removes it.
 # ---------------------------------------------------------------------------
-(cd "$FIXTURE_REPO" && git rm -q ".claude/skills/agentic-engineering/rules")
+(cd "$FIXTURE_REPO" && git rm -q ".claude/skills/dinostack/rules")
 
 if (cd "$FIXTURE_REPO" && bash "$GATE_SCRIPT" --staged) >/dev/null 2>&1; then
   _pass "--staged: staged deletion of watched symlink exits 0"

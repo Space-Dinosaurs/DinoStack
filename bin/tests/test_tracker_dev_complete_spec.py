@@ -75,6 +75,13 @@ STATUS_SYNC_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.m
 WRAP_PATH = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
 INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
 
+# DS split unit 1: the "## Tracker Writeback Helper" block itself moved out
+# of CANONICAL_PATH into HELPER_PATH behind a trigger-pointer. Tests that
+# examine the block's own content read HELPER_PATH; tests that examine
+# content that stayed inline (Setup, Phase 2c, Phase 11's own Inputs list)
+# still read CANONICAL_PATH.
+HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
+
 HEADING = "## Tracker Writeback Helper"
 
 
@@ -101,7 +108,7 @@ def _extract_block(text: str) -> str:
 
 @pytest.fixture(scope="module")
 def canonical_block() -> str:
-    return _extract_block(CANONICAL_PATH.read_text(encoding="utf-8"))
+    return _extract_block(HELPER_PATH.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -161,12 +168,16 @@ def test_no_test_pattern_matches_the_bare_tracker_state_prefix():
 
 
 def test_diagnostic_toggle_absent_from_the_two_state_enumerations():
-    """Supplementary spot-check, NOT the pin - the pin is the sweep above."""
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
-    block = _extract_block(text)
+    """Supplementary spot-check, NOT the pin - the pin is the sweep above.
+    Two-way split post-DS-split-unit-1: the tracker_state_values pass-list
+    bullet moved to HELPER_PATH with the rest of the block; the Setup
+    TRACKER=none branch stayed inline in CANONICAL_PATH."""
+    block = _extract_block(HELPER_PATH.read_text(encoding="utf-8"))
     tsv_line = next(l for l in block.splitlines()
                     if l.strip().startswith("- `tracker_state_values`:"))
     assert "DIAGNOSTIC" not in tsv_line
+
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
     setup_none = next(l for l in text.splitlines()
                       if l.strip().startswith("4. Else: set `TRACKER=none`."))
     assert "TRACKER_STATE_DIAGNOSTIC" not in setup_none
@@ -202,18 +213,23 @@ TARGET_RE = re.compile(
 # Derived, not hardcoded: every content/ file that names any TRACKER_STATE_
 # variable at all. A grep of a hardcoded list can only confirm the members
 # already in it, never surface the one that is missing. Measured against the
-# live tree: SIX files, not three. The last three match only on the literal
+# live tree: SEVEN files, not three. The last three match only on the literal
 # TRACKER_STATE_* inside the tracker_state_diagnostic and pending_merge_sweep
 # toggle descriptions; they contain zero TARGET_RE matches before or after
 # this change, so including them widens the universe without changing the
-# scan's outcome.
+# scan's outcome. content/references/events-log.md (DS-163) documents the W1
+# `tracker_writeback` breadcrumb's `target_state` field descriptively
+# ("the resolved `$TRACKER_STATE_IN_PROGRESS` value)") with no colon between
+# `target_state` and the value, so it also contributes zero TARGET_RE matches.
 EXPECTED_TRACKER_STATE_FILES = {
     "content/commands/ds-implement-ticket.md",
     "content/commands/ds-init-project.md",
     "content/commands/ds-ticket-status-sync.md",
     "content/commands/ds-wrap.md",
     "content/references/conventions-detail.md",
+    "content/references/events-log.md",
     "content/references/risk-config-and-tiers.md",
+    "content/references/tracker-writeback.md",
 }
 
 
@@ -482,7 +498,7 @@ FORBIDDEN_INHERITED_RANK_PHRASES = (
 
 
 def test_guard_states_inherited_dev_complete_carries_no_rank():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     block = _extract_block(text)
 
     # Non-vacuity: assert the block is non-empty and contains
@@ -618,10 +634,11 @@ TSV_LITERAL_RE = re.compile(r"`(\{ \"IN_PROGRESS\":.*?\"\$TRACKER_STATE_DONE\" \
 
 
 def test_tracker_state_values_literal_identical_at_both_sites():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
-    helper_line = next(l for l in text.splitlines()
+    helper_text = HELPER_PATH.read_text(encoding="utf-8")
+    helper_line = next(l for l in helper_text.splitlines()
                        if l.startswith("   - `tracker_state_values`: `{ \"IN_PROGRESS\""))
-    phase11_line = next(l for l in text.splitlines()
+    phase11_text = CANONICAL_PATH.read_text(encoding="utf-8")
+    phase11_line = next(l for l in phase11_text.splitlines()
                         if l.startswith("> - `tracker_state_values`: `{ \"IN_PROGRESS\""))
     a = TSV_LITERAL_RE.search(helper_line)
     b = TSV_LITERAL_RE.search(phase11_line)

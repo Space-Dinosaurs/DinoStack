@@ -168,7 +168,7 @@ echo "Checking hooks.json..."
 if [[ -e "$HOOKS_DST" ]]; then
   echo "  ! $HOOKS_DST was not automatically removed."
   echo "    If you installed it via install-cursor.sh, manually delete it or remove"
-  echo "    any agentic-engineering entries if you have other hooks configured."
+  echo "    any dinostack entries if you have other hooks configured."
 else
   echo "  = $HOOKS_DST not found - nothing to do."
 fi

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
+SKILL_DST="$HOME/.kimi/skills/dinostack"
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 
 removed=()
@@ -28,12 +28,12 @@ remove_if_ours() {
 echo "Uninstalling Kimi adapter..."
 
 # Remove global skill symlink
-remove_if_ours "$SKILL_DST" "$REPO_DIR/.kimi/skills/agentic-engineering"
+remove_if_ours "$SKILL_DST" "$REPO_DIR/.kimi/skills/dinostack"
 
 # Remove per-command skill symlinks
 for cmd_dir in "$REPO_DIR/.kimi/skills/"*/; do
   cmd_name="$(basename "$cmd_dir")"
-  if [[ "$cmd_name" == "agentic-engineering" ]]; then
+  if [[ "$cmd_name" == "dinostack" ]]; then
     continue
   fi
   if [[ ! -f "$cmd_dir/SKILL.md" ]]; then

@@ -1,7 +1,7 @@
 {
-  "name": "agentic-engineering-slides-build",
+  "name": "dinostack-slides-build",
   "private": true,
-  "description": "Pinned Marp toolchain for scripts/build-slides.sh - upgrading marp is an intentional same-PR action (bump these, regenerate lock, rebuild all 15 .html).",
+  "description": "Pinned Marp toolchain for scripts/build-slides.sh - upgrading marp is an intentional same-PR action (bump these, regenerate lock, rebuild every deck's .html).",
   "dependencies": {
     "@marp-team/marp-cli": "4.4.0",
     "@marp-team/marp-core": "4.3.0",

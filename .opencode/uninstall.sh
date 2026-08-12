@@ -41,23 +41,23 @@ remove_symlinks() {
 # Remove skill symlink
 # ---------------------------------------------------------------------------
 
-echo "Removing skill: agentic-engineering..."
+echo "Removing skill: dinostack..."
 
-SKILLS_SRC="$REPO_DIR/.opencode/skills/agentic-engineering"
-SKILLS_DST="$HOME/.config/opencode/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.opencode/skills/dinostack"
+SKILLS_DST="$HOME/.config/opencode/skills/dinostack"
 
 if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     rm "$SKILLS_DST"
-    echo "  - agentic-engineering"
+    echo "  - dinostack"
   else
-    echo "  = agentic-engineering (points to $current_target - not ours, skipping)"
+    echo "  = dinostack (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  = agentic-engineering (real file/directory - not removing)"
+  echo "  = dinostack (real file/directory - not removing)"
 else
-  echo "  = agentic-engineering (not found, nothing to remove)"
+  echo "  = dinostack (not found, nothing to remove)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -143,16 +143,16 @@ with open(config_path, "r") as f:
 
 changed = False
 
-# Remove agentic-engineering skill permission
+# Remove dinostack skill permission
 perm = config.get("permission", {})
-if "skill" in perm and "agentic-engineering" in perm["skill"]:
-    del perm["skill"]["agentic-engineering"]
+if "skill" in perm and "dinostack" in perm["skill"]:
+    del perm["skill"]["dinostack"]
     if not perm["skill"]:
         del perm["skill"]
     changed = True
-    print("  - Removed agentic-engineering skill permission")
+    print("  - Removed dinostack skill permission")
 
-# Remove external directory entry for agentic-engineering repo
+# Remove external directory entry for dinostack repo
 if "external_directory" in perm:
     to_remove = [k for k in perm["external_directory"] if repo_dir in k]
     for k in to_remove:
@@ -165,7 +165,7 @@ if "external_directory" in perm:
 if not perm:
     config.pop("permission", None)
 
-# Remove instructions pointing to agentic-engineering content
+# Remove instructions pointing to dinostack content
 instructions = config.get("instructions", [])
 new_instructions = [i for i in instructions if repo_dir not in i]
 removed = len(instructions) - len(new_instructions)
@@ -180,7 +180,7 @@ if changed:
         f.write("\n")
     print("  opencode.json written.")
 else:
-    print("  = No agentic-engineering entries found in opencode.json")
+    print("  = No dinostack entries found in opencode.json")
 
 PYEOF
 

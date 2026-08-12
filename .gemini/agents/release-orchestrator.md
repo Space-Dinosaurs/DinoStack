@@ -18,7 +18,7 @@ capabilities:
 
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Role
 
@@ -252,8 +252,8 @@ Produce this report at the end of a successful release, or at the point of failu
 - Commit range: <from-sha>..<to-sha>
 - Tag: vX.Y.Z
 - Commits included:
-  - <sha> <message>
-  - <sha> <message>
+  - <sha> <commit message, capped at 80 chars>
+  - <sha> <commit message, capped at 80 chars>
 
 ## Where it shipped
 - Environment: <environment name>
@@ -263,7 +263,7 @@ Produce this report at the end of a successful release, or at the point of failu
 
 ## Verification
 - QA result: PASS | FAIL | BLOCKED | not run
-- QA report: <summary or "see spawned qa-engineer output">
+- QA report: <summary, capped at 200 chars, or "see spawned qa-engineer output">
 
 ## Rollback
 - Command: <exact rollback command>
@@ -271,7 +271,7 @@ Produce this report at the end of a successful release, or at the point of failu
 - Rollback status: not needed | executed | pending human decision
 
 ## Failures and blockers
-<If status is not SUCCESS: which gate failed, what the error was, what was done>
+<If status is not SUCCESS: which gate failed, what the error was, what was done - capped at 500 chars>
 ```
 
 Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why.
@@ -295,3 +295,4 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 - Spawn `debugger` when a build or deploy fails
 - Produce a complete release report including the rollback command
 - Stop and report clearly when any gate fails
+- Capture learnings in flight: the shard CLI is your capture path - `release-orchestrator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.

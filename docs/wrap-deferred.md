@@ -73,9 +73,12 @@ is a single in-session model pass with the same write targets but fewer steps.
 | Marker transition to `done` | Omitted - the daemon owns this after the child exits 0 |
 | Scaffold migration prompts | Omitted - detected drift becomes a "Watch Out For" bullet in context.md |
 
-The write targets are identical: `.agentic/context.md`, `.agentic/memory.md`,
-and touched-track AGENTS.md files. The content quality is lower because there
-is no draft-review loop - it is a best-effort single pass.
+The write targets differ for memory: the synchronous `/ds-wrap` writes root
+`MEMORY.md` directly (Part B's staging-drain promotion, capped 3/run); this
+deferred path only ever writes `.agentic/memory.md`, the staging area, and
+never touches root `MEMORY.md`. `.agentic/context.md` and touched-track
+AGENTS.md files remain the same targets on both paths. The content quality is
+lower because there is no draft-review loop - it is a best-effort single pass.
 
 ## The non-interactive contract
 
@@ -118,9 +121,10 @@ present, still reads git normally.
 ## What it writes
 
 The inputs are the resumed transcript and live reads of a small set of files:
-`.agentic/context.md`, `.agentic/memory.md`, root and track `AGENTS.md` files,
-and `.agentic/learnings.md` (read-only, to avoid duplicating already-captured
-facts).
+`.agentic/context.md`, `.agentic/memory.md` (the staging area this path
+writes - not root `MEMORY.md`, which is read-only here), root and track
+`AGENTS.md` files, and `.agentic/learnings.md` (read-only, to avoid
+duplicating already-captured facts).
 
 The write sequence is fixed:
 
@@ -134,8 +138,10 @@ The write sequence is fixed:
    publishes a `role:'daemon'` descriptor with its own PID) and cannot be
    stolen by another waiter while the daemon process is alive.
 
-3. **Write memory.md** with append-dedup. Skip if there is nothing stable to
-   record. No Open-PR deferral path - writes directly.
+3. **Write `.agentic/memory.md` (staging)** with append-dedup. Skip if there is
+   nothing stable to record. No Open-PR deferral path - writes directly. This
+   path never writes root `MEMORY.md`; promotion happens only at the next
+   synchronous `/ds-wrap`.
 
 4. **Write AGENTS.md updates** with semantic dedup against existing content.
    Skip if nothing to add. No Open-PR deferral path - writes directly.

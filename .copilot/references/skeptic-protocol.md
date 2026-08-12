@@ -111,7 +111,7 @@ Applying adversarial review.
 
 The Skeptic Protocol is an adversarial review loop for multi-agent systems. A Worker implements; the primary agent spawns a fresh Skeptic to critique; if findings remain, the primary agent routes them to a new Worker. The primary agent drives the loop until a clean sign-off is achieved.
 
-The core thesis: **the value of an adversarial reviewer is independence**. A reviewer who has already heard the implementer's justifications is no longer independent — they have been partially anchored to that framing. This is why the Skeptic is always a fresh invocation, never a continuation of a prior round. Workers cannot spawn subagents (platform constraint), so the primary agent is the sole orchestrator: it spawns Workers, spawns Skeptics, and routes findings between them. The Skeptic's independence is guaranteed by its fresh context — it sees only the output and the adversarial brief, never the Worker's reasoning process.
+The core thesis: **the value of an adversarial reviewer is independence**. A reviewer who has already heard the implementer's justifications is no longer independent — they have been partially anchored to that framing. This is why the Skeptic is always a fresh invocation, never a continuation of a prior round. Workers cannot spawn subagents (platform constraint), so the primary agent is the sole orchestrator: it spawns Workers, spawns Skeptics, and routes findings between them. The Skeptic's independence is guaranteed by its fresh context — it sees only the output and the adversarial brief, never the Worker's reasoning process. Skeptic context freshness (never a continuation of a prior round) is independent of branch/PR identity - a fresh Skeptic reviewing round N still reviews the same open PR's branch; see `content/rules/conventions.md` §Git Workflow for the round-N git mechanic.
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
@@ -161,7 +161,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 7. **Primary agent updates the resolved issues preflight list** with each addressed finding and its resolution.
 
-8. **Primary agent spawns a NEW fresh Skeptic** — never a continuation of the prior Skeptic — with the revised output, the same adversarial brief, and the updated preflight list.
+8. **Primary agent spawns a NEW fresh Skeptic** — never a continuation of the prior Skeptic — with the revised output, the same adversarial brief, and the updated preflight list. **When the prior round's unresolved findings were all prose-only and the fix diff carries no code/test/behavior change (§Prose-scoped re-check),** the primary agent names the narrowed mode explicitly in the spawn prompt and supplies the fix commit range `sha1..sha2` (the pre-fix and post-fix SHAs) in addition to the standard inputs - Global-context field 6 (the branch diff) does not by itself convey this range. Otherwise, spawn the standard full-pass Skeptic.
 
 9. **Repeat steps 4–8** until the Skeptic grants sign-off:
    > "No unresolved Critical or Major findings. Sign-off granted."
@@ -430,6 +430,30 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **Loop contract override:** When operating inside the `/ds-implement-ticket` persistence loop (Phase 6), the loop contract overrides this rule. One re-raise after a claimed fix (convergence failure as defined in the loop contract) is sufficient to trigger escalation. The loop already consumes iteration budget on each fix pass; requiring a second re-raise would waste an additional pass on a finding the Engineer has already failed to address. Outside the loop context (ad-hoc Skeptic re-routes not inside a named loop), the 2-re-route rule applies unchanged.
 
+### Round budget and value-per-round gate
+
+**Why this exists.** A single session spent ~10 hours and ~15 Skeptic rounds on a 6-unit change. Seven of those rounds went to ONE unit whose entire output was an enforcement gate that shipped zero user-visible behavior change, and it blocked the three units that carried the actual value. Every finding, including Minors, got its own full engineer+Skeptic cycle. The conductor set an explicit stop condition at round 5 and then abandoned it under review pressure. The methodology has extensive machinery against UNDER-verification (the re-route counter, the cognitive-surrender audit note, the calibration sampling) and had no brake at all on OVER-verification. This subsection is that brake.
+
+**1. Round budget.** Default cap of 3 Skeptic rounds per unit (the same cap named in `content/sections/05-qa-gate.md` §Re-route limits and `/ds-implement-ticket` Phase 6's `max_iterations`). On reaching the cap, the conductor takes exactly one of two actions, never silent continuation: (a) ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This is the one exception to "the cap always terminates the loop" and must never be missed: a cap-reached escalation with an open Critical is `termination_reason: cap_reached` per the loop contract, not a ship decision. **Caveat inside `/ds-implement-ticket` Phase 6 specifically:** Phase 6's `cap_reached` step's own prose is not yet updated to walk the conductor through the ship branch (a) - until that prose is updated, treat option (a) inside Phase 6 as a conductor override the operator must approve, not an automatic path. `hooks/enforce-skeptic-round-cap.py` mechanically enforces the round cap on every Skeptic spawn regardless of caller (ad-hoc or Phase 6 alike, keyed off the reviewed diff identity in the spawn prompt, not the conductor's own branch), so this remaining gap is prose-only, not an absence of enforcement - though the enforcement covers the round-count cap only. `unresolved_critical` inside that state is conductor-attested (written by a plain Edit, never derived from a Skeptic finding), so the hook prevents a recorded `ship` decision from silently overriding a Critical the conductor has already flagged, not the existence of a Critical itself. See `content/sections/05-qa-gate.md` §Re-route limits for the kernel statement of this caveat; do not duplicate its wording here beyond this pointer.
+
+**2. Value-per-round gate.** Before spawning round N+1, the conductor states, in one line, what shipped value that round buys - e.g. `[round-value: round 3 fixes the auth-bypass Critical, ships]`. If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, the default is to defer the remaining findings to a follow-up rather than spend the round. This gate applies per round, independent of whether the 3-round cap has been reached - a unit can be argued out of round 2 on value grounds alone.
+
+**3. Infrastructure-after-value ordering.** A unit whose sole output is enforcement (a gate, a pin, a spec test, a CI check with no accompanying behavior change) must NOT block the change it enforces. Ship the behavior-changing units first; enforcement follows in a later PR. A gate protecting a change that has not shipped protects nothing, and an inert gate is worse than no gate because it looks like coverage. When ordering a multi-unit plan, the conductor sequences enforcement-only units after every unit that changes shipped behavior, not before or interleaved.
+
+**4. Finding-tier round policy.** A Critical finding earns a dedicated round. Majors batch within a round - route all open Majors to the same Worker spawn rather than one Worker spawn per Major. Minors do NOT earn their own engineer+Skeptic cycle - per Section 6, they batch into the next unit or a follow-up PR via the Minor-fix Worker path, unless the Skeptic explicitly marks one as blocking with a stated reason (see the `Blocking-minor:` sign-off line in `content/agents/skeptic.md` §Sign-off format). A Minor marked blocking behaves as a Major for round-spending purposes for that one round only - it does not change the finding's permanent classification.
+
+**5. Self-inflicted-round rule.** Nothing distinguishes, by default, a round that found a pre-existing defect from a round whose finding is a direct consequence of the immediately-prior round's own fix diff - a self-inflicted round. A single session ran three of these back to back: a cosmetic guard added to satisfy round N's finding created a new Critical in round N+1; a docstring guarantee shipped in round N was falsified by the Skeptic's own re-read in round N+1; a fabricated explanation for an observed failure shipped in round N and was corrected in round N+1. All three were pure loss - cost spent repairing damage the loop itself introduced, not verifying pre-existing risk. Before spawning round N+1, the conductor states explicitly whether the round's finding is self-inflicted (a direct consequence of round N's fix diff) or pre-existing (present before round N's fix). **Two consecutive self-inflicted rounds is an automatic escalate** - not another spend, and not counted against the round-budget cap as a normal round: it is diagnostic evidence that the fix approach itself is unstable and needs human arbitration, exactly as a convergence failure (`content/sections/05-qa-gate.md` §Convergence failure) does.
+
+### Prose-scoped re-check
+
+When a round's only unresolved findings are prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only; the Major classification for stale manifest/doc-sync findings (`content/agents/skeptic.md` Step 8, `content/references/doc-sync-obligation.md`) is unchanged, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
+
+**Invocation.** The conductor names the narrowed spawn explicitly at Step 8 of the Core Loop below (`## 2. The Core Loop`) and states what it must carry - notably the fix commit range (`sha1..sha2`), since Global-context field 6 (the branch diff) does not supply this. The Skeptic's sign-off in this mode carries a mandatory `Scope:` line (see `content/agents/skeptic.md` §Sign-off format) declaring the range and which finding IDs were prose-only; the `Active search:` attestation is scoped accordingly and must not claim a full adversarial pass it did not run.
+
+**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing manifest/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
+
+**Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement of a stale claim re-asserts the same drift-prone shape, while deletion ends the class. This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
+
 ### Worker decomposition rule
 
 If a Worker discovers mid-task that its work requires decomposition into independent sub-tasks, it should note this and return its partial output with an explicit decomposition request. The primary agent then handles parallel decomposition — spawning multiple Workers and synthesizing results — before routing the assembled output back through Skeptic review.
@@ -450,7 +474,7 @@ Without that audit note, the conductor treats clean two-iteration agreement as s
 
 Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/ds-implement-ticket` Phase 6.
 
-The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
+The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `ds-calibrate` queryable surface.
 
 ---
 
@@ -460,7 +484,7 @@ The audit-note mechanism is the **primary** defense against the rubber-stamp / c
 
 **Major** — Should be fixed. Blocks sign-off unless the Worker provides a compelling documented reason to defer. Examples: missing error handling on critical paths, edge cases that cause silent failures, design issues that will be expensive to fix later. Also Major: the Worker deferred a decision it had sufficient context to make — i.e., punted to the main agent or the Skeptic on a question the spec, requirements, or available information already resolved. Workers must make decisions when they have the context to do so; using adversarial review as a substitute for deciding is a Major deficiency.
 
-**Minor** — Optional. Never blocks sign-off. When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
+**Minor** — Optional. Does not block sign-off by default (see the `Blocking-minor:` sign-off line in `content/agents/skeptic.md` §Sign-off format for the narrow exception). When Minor findings are present at sign-off, the primary agent spawns a general-purpose agent (background) to apply them - no follow-up Skeptic review is required, regardless of file type. Minor-fix Workers are an intentional exception to the "modifies protocol or infrastructure files" Elevated signal. Examples: style improvements, non-critical logging gaps, minor documentation issues, low-impact optimizations.
 
 - **Missing telemetry emit at an instrumented boundary.** When a conductor spawns engineer/skeptic/qa and `.agentic/events.jsonl` does not contain the corresponding `spawn_start`/`spawn_complete` events (or, for ad-hoc sessions, the hook-emitted `spawn_start` with `data.source:"hook"`) for that boundary, flag as **Minor**. Does not block sign-off; surfaced for awareness so cost dashboards stay accurate. (`conductor_direct` is deprecated and no longer emitted; its absence is not a finding.)
 
@@ -607,6 +631,8 @@ Active search: I have applied the adversarial brief and actively searched for Cr
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
+[Optional, only when applicable: Round value: low - <reason>]
+[Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
 ```
 
 When any Minor finding is a spec-deviation downgrade, the following block must also appear in the sign-off, once per downgraded finding:
@@ -670,12 +696,15 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
-Two further elements are **conditional** - required only when their triggering condition holds, and simply absent (not a defect) otherwise:
+Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
 - (e) Spec-deviation downgrade justification: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
 - (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+- (i) Prose-scoped re-check `Scope:` line: when the conductor spawned a prose-scoped re-check (§Prose-scoped re-check), the sign-off must include the `Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)` line (see content/agents/skeptic.md §Sign-off format). A scoped sign-off that omits this line is format-noncompliant and triggers the same format re-invocation - its absence is exactly what would make a scoped review indistinguishable from a full pass.
+- (j) `Round value: low` line: optional, added only when the Skeptic judges that a further round would buy little on an otherwise-clean or Minor-only state (see §Round budget and value-per-round gate). Never valid while a Critical or Major remains unresolved. Its absence is never format-noncompliant.
+- (k) `Blocking-minor:` line: optional, added only when the Skeptic marks a specific Minor finding as blocking sign-off despite Section 6's default that Minors never block. States the finding id/description and the reason. Its absence is never format-noncompliant.
 
-Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
@@ -772,11 +801,11 @@ Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 
 The Skeptic loop's review depth degrades silently if it degrades at all. A Skeptic that drifts into rubber-stamp behavior produces clean sign-offs identical in surface form to genuine ones. Section 5's audit-note mechanism is the primary per-spawn defense; this section adds the secondary backstop: aggregate drift detection via structured findings counters, sampled meta-review, and an inspection CLI.
 
-This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `agentic-calibrate divergence` output.
+This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `ds-calibrate divergence` output.
 
 ### Findings counters in the events log
 
-Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
+Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
 
 ```json
 {
@@ -796,7 +825,7 @@ Existing `spawn_complete` fields (`tier`, `tool_use_id`, `agent_id`, `model`, `w
 
 A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: hash `task_id` concatenated with `iteration` into a uniform 0-99 bucket; trigger if `bucket < 5`. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
 
-Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/agentic-emit`.
+Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/ds-emit`.
 
 ### Meta-Skeptic spawn brief
 
@@ -816,7 +845,7 @@ Minor missed: [list of finding titles, or "none"]
 Agreement: [yes | no]
 ```
 
-**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself, preserving the single-writer convention for `.agentic/events.jsonl`.
+**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself.
 
 ### Meta-divergence surfacing
 
@@ -827,7 +856,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `agentic-calibrate divergence` output.
+Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `ds-calibrate divergence` output.
 
 **Surfacing has two binding triggers:**
 
@@ -835,7 +864,7 @@ Original sign-off remains binding. Minor-only divergences are NOT surfaced inlin
 
 2. **Session-start sweep.** On every session boot (first turn of session, after reading `.agentic/context.md`), the conductor sweeps `.agentic/events.jsonl` for ALL `meta_review_complete` events whose `original_task_id` is not in `.agentic/.meta-divergence-surfaced`. Emits the META-DIVERGENCE line for each Critical/Major divergence and appends to the tracker. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
 
-**Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; gitignored under the `.agentic/` umbrella.
+**Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 ### Session-start sweep pagination
 
@@ -862,12 +891,12 @@ Format: single line, ISO8601 UTC timestamp (e.g. `2026-05-13T16:30:00Z`). File-a
 
 ### Inspection CLI
 
-`bin/agentic-calibrate` is the queryable surface for calibration data:
+`bin/ds-calibrate` is the queryable surface for calibration data:
 
 ```
-agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
-agentic-calibrate divergence [--since <ISO8601>]
-agentic-calibrate help
+ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+ds-calibrate divergence [--since <ISO8601>]
+ds-calibrate help
 ```
 
 `density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Spawns where `diff_lines == 0` are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows. When fewer than 10 spawns have been observed (after zero-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.

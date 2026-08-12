@@ -249,7 +249,7 @@ Think of named agents as a small team of specialists you can dispatch. The main 
 - Spawned into their own **isolated worktree** - their own files, their own context
 - Given a **structured brief** - goal, constraints, acceptance criteria, non-goals
 - Do their narrow job and return a **structured result** - not raw transcript
-- Most agents are read-only analysis/planning. `engineer`, `adr-generator`, `release-orchestrator`, `learning-extractor`, `learnings-agent`, and `wrap-ticket` write files.
+- Most agents are read-only analysis/planning. `engineer`, `adr-generator`, `release-orchestrator`, `learning-extractor`, `learnings-agent`, `wrap-ticket`, `product-discovery`, and (Bash-heredoc only, scoped to their own `.agentic/audit-reports/` or, for `qa-engineer`, `/tmp/qa-reports/` - deliberately `/tmp/`, not `.agentic/`, since this agent always runs `isolation: "worktree"`) `adr-drift-detector`, `dependency-auditor`, `perf-analyst`, and `qa-engineer` write files - 11 of 18.
 
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.

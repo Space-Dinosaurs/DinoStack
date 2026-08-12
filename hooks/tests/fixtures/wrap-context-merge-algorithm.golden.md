@@ -4,9 +4,9 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 1. Read the file at the `_wrap.md` output path (`.agentic/_wrap.md`).
 
-2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
+2. **If the file does not exist**: write the new draft content directly to the output path, per Atomic write discipline <!-- aw-site: wrap-md-fresh --> (unconditional publish). Result: "Wrote fresh context to [path] (no existing file)."
 
-3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
+3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file, per Atomic write discipline <!-- aw-site: wrap-md-nonauthored --> (unconditional publish). Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
 
 4. **If the file exists and its second line begins with `*Written by /ds-wrap`** (i.e. it was produced by a previous `/ds-wrap` run): proceed to the merge step below.
 
@@ -45,4 +45,4 @@ First, check how many session labels are already present in the existing file's 
 - **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
 - **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
 
-Write the merged result to disk. Result: "Merged context written to [path] (combined sessions)."
+Write the merged result to disk, per Atomic write discipline <!-- aw-site: wrap-md-merge --> (unconditional publish). Result: "Merged context written to [path] (combined sessions)."

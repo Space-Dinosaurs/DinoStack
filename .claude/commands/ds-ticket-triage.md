@@ -2,7 +2,7 @@
 description: "Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /ds-implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 <!--
 Purpose: Strategic triage command that takes a ticket list or tracker input,

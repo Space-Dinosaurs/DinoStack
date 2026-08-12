@@ -260,7 +260,7 @@ git branch -D <branch-name> 2>/dev/null || true
 
 - The local branch lingers after `worktree remove` without an explicit `branch -D`
 - Force-remove is only safe after confirming nothing important is uncommitted
-- Isolation worktrees with changes persist until the conductor explicitly removes them - subagents do not have hooks
+- Isolation worktrees with changes persist until the conductor explicitly removes them
 
 <div class="callout">
 Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
@@ -311,31 +311,71 @@ Run **once at session start** in the conductor preflight - not before every suba
 ```bash
 git fetch origin
 git worktree prune
-# Orphaned worktree-agent-* branches not checked out in a live worktree:
-# gated on merge evidence (ancestry, then PR state) before deleting.
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" && continue
-  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
-    git branch -D "$b"
-  elif [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-    git branch -D "$b"
-  else
-    echo "SKIP (unproven merge): $b" >&2
-  fi
-done
+# Local branch prune - bin/ds-branch-prune (DS-153), covering
+# worktree-agent-* branches and every other stale local branch:
+command -v ds-branch-prune >/dev/null 2>&1 && ds-branch-prune
 ```
 
-The **branch prune** runs alongside it. Three safe signals only - never force-deletes unproven work:
+The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work:
 
-1. `[gone]`-upstream branches (merged + remote-deleted via squash + `--delete-branch`)
-2. Branches fully merged into `origin/main`
-3. Orphaned `worktree-agent-*` branches whose worktree no longer exists
+1. Ancestry - every commit is literally on `origin/main`
+2. Squash-patch equivalence - the branch's cumulative delta matches a merged PR's squash commit
+3. Tip-subsumption - the tip carries no commit beyond the head that was squashed
+4. Content-on-main - every file the branch touched is byte-identical to `origin/main`
 
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
-- `[gone]` is the reliable merged-and-cleaned signal after a history rewrite; ancestry alone misses squash-merged branches
+- Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own
 
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
+</div>
+
+---
+
+## Ad-hoc cleanup obligation + the automatic reaper
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+`/ds-implement-ticket` Phase 8's own cleanup only fires on that command's own success path. Any ad-hoc `isolation: "worktree"` spawn outside it is on the conductor: clean it up at the natural completion point, not "eventually."
+
+`bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - it delegates the locked/dirty/branch-evidence decision to `worktree_model.disposition_for` (the same normative function the command file cites), never a second copy of that logic:
+
+- Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of PROTECTED gitignored content (`docs/planning/**`, `.env*`, `*.local` block by default; everything else ignored, including generated adapter output, is disposable - `--strict-ignored` for the old fail-safe-allowlist polarity), AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed
+- `.agentic/**` INVERTS the polarity: protected by default, disposable only for a small named set (`events.jsonl`/telemetry, `wrap/`, `codex-prompt-generation/`, `hud/`, cache dirs) - round 3's blanket protection measured `removed=0` here since this repo dogfoods itself and every worktree accumulates telemetry; `.agentic/events.jsonl` is salvaged into the primary repo before removal, and a failed salvage blocks removal rather than risking a silent loss
+- `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
+- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees --dry-run`/no-flags invocation
+
+<div class="callout">
+Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
+</div>
+
+---
+
+## The unproven class: archive, don't accumulate
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. Left alone, these never resolve.
+
+`bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-reap-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
+
+- Only two dispositions qualify - `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` - an explicit whitelist, never the whole `SKIP_UNPROVEN` bucket: `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set
+- Refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it can't tell a genuinely-unprovable branch from one behind an open PR
+- `git bundle create` captures the FULL branch, then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
+- Removes the WORKTREE only, never the branch - `bin/ds-branch-prune` still owns branch deletion
+- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"`
+- `.agentic/worktree-archive/` is gitignored and grows unbounded - pruning it is the operator's job, same as `.agentic/branch-archive/`
+
+<div class="callout">
+Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touched - unchanged default behavior.
 </div>
 
 ---

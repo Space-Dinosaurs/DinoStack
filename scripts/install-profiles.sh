@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Module Manifest
 #
-# Purpose: Install agentic-engineering into per-tenant PROFILE config dirs
+# Purpose: Install dinostack into per-tenant PROFILE config dirs
 #          (e.g. ~/.claude-<tenant>, ~/.codex-<tenant>) across the claude/codex/
 #          omp/pi harnesses, plus the single global Cursor install. Each
 #          harness install.sh is invoked with --config-dir pointed at the
@@ -36,12 +36,21 @@ set -euo pipefail
 #   a profile dir is installed into only if it already exists on disk. The
 #   optional --create-profile gate creates a fresh profile for all harnesses.
 #
-# Upstream deps: bash 3.2+, the per-harness <adapter>/install.sh scripts.
+# Upstream deps: bash 3.2+, the per-harness <adapter>/install.sh scripts,
+#   HOME, and the profile directory conventions documented above.
+#
+# Downstream consumers: operators installing multiple harness tenants;
+#   bin/tests/test_install_profile_config_dir.sh exercises profile creation,
+#   config isolation, symlink rejection, and identity forwarding.
 #
 # Failure modes: continue-on-error; failures collected and reported in a final
 #   summary; exit non-zero if any install failed. Missing profile dirs are
 #   skipped with a note (not a failure). Profile creation is refused unless
 #   both the --create-profile flag is present and the pre-flight check passes.
+#
+# Performance: sequential across harness x tenant installs; runtime is the sum
+#   of the selected adapter installers. Discovery is bounded by local profile
+#   directory globbing.
 # =============================================================================
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -278,7 +287,30 @@ for tenant in $TENANTS; do
 		echo ""
 		echo "==> $label  (--config-dir=$cfg)"
 		rc=0
-		bash "$installer" --config-dir="$cfg" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
+		# Claude and Codex expose their tenant config directories to the runtime,
+		# so their orchestrated installs can always use profile identity. Pi and
+		# OMP only have a reachable profile identity when the caller supplied the
+		# corresponding runtime-visible binding. A flag-only redirect for those
+		# harnesses must retain global identity rather than create identity.yml in
+		# a directory that resolve-hook can never discover.
+		identity_env=(env -u AE_IDENTITY_SCOPE)
+		case "$harness" in
+		claude | codex)
+			identity_env+=(AE_IDENTITY_SCOPE=profile)
+			;;
+		omp)
+			if [[ -n "${AGENTIC_CONFIG_DIR:-}" && "$AGENTIC_CONFIG_DIR" == "$cfg" ]]; then
+				identity_env+=(AE_IDENTITY_SCOPE=profile)
+			fi
+			;;
+		pi)
+			if [[ ( -n "${AGENTIC_CONFIG_DIR:-}" && "$AGENTIC_CONFIG_DIR" == "$cfg" ) \
+				|| ( -n "${PI_CODING_AGENT_DIR:-}" && "$PI_CODING_AGENT_DIR" == "$cfg" ) ]]; then
+				identity_env+=(AE_IDENTITY_SCOPE=profile)
+			fi
+			;;
+		esac
+		"${identity_env[@]}" bash "$installer" --config-dir="$cfg" "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}" || rc=$?
 		if [[ "$rc" -eq 0 ]]; then SUCCEEDED+=("$label"); else
 			echo "  ! $label failed (exit $rc)" >&2
 			FAILED+=("$label")

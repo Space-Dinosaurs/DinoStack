@@ -11,7 +11,7 @@ Public API: Operator-facing prose. Read first if you are new to role-model
 
 Upstream deps: content/references/role-models.md (schema, resolution);
                content/references/model-discovery.md (selection paths, heuristics);
-               bin/agentic-configure, bin/agentic-models (binaries).
+               bin/ds-configure, bin/ds-models (binaries).
 
 Downstream consumers: docs site root index; PR #249 description;
                       doc-sync-obligation.md cross-references.
@@ -26,7 +26,7 @@ Performance: Standard.
 # Role-model routing on Pi / oh-my-pi
 
 Per-role and per-reviewer model assignment for Pi and oh-my-pi harnesses.
-Lets the operator pin a different model for each agentic-engineering role
+Lets the operator pin a different model for each dinostack role
 and force the adversarial reviewer to run on a model that is NOT the one
 that wrote the code under review. Available only when the harness is Pi or
 oh-my-pi; Claude / Codex / Cursor / Gemini ignore this layer entirely.
@@ -58,26 +58,28 @@ harnesses.
 
 ## Set up in three steps
 
-1. **Install the agentic-engineering methods.** If you have not already,
+1. **Install the dinostack methods.** If you have not already,
    follow `docs/safe-configuration.md` and run
    `bash bootstrap.sh` (or your harness-native install path). This puts
-   `bin/agentic-configure` and `bin/agentic-models` on your PATH.
+   `bin/ds-configure` and `bin/ds-models` on your PATH.
 2. **Gather your model names.** Open your Pi or oh-my-pi model picker (or
    the harness's settings panel) and note the model handles your
    subscription includes -- for example `cc/claude-opus-4-5` or
    `gpt-5`. You will supply these to the wizard in the next step. If
    you only know family names (`opus`, `sonnet`, `haiku`), those work
    too; the wizard accepts any substring the harness recognises.
-3. **Seed `~/.agentic/role-models.yml`.** Run `bin/agentic-configure`. The
+3. **Seed `~/.agentic/role-models.yml`.** Run `bin/ds-configure`. The
    wizard asks you per role, ranks the names you provide using the hint
-   dictionaries in `bin/agentic-models`, and writes a starter file. You
+   dictionaries in `bin/ds-models`, and writes a starter file. You
    then edit it to taste. The file path is `~/.agentic/role-models.yml`
    (NOT `.agentic/config.json`; that is a different committed file).
 
-The file is gitignored under the `.agentic/` umbrella because it may name
-private model handles. If you want a project-local override, write
-`.agentic/role-models.yml` in the project root; project keys win on
-collision with the global file.
+The global file lives outside any git repo, so gitignore does not apply to
+it. If you want a project-local override, write `.agentic/role-models.yml`
+in the project root - that file is gitignored by `/ds-init-project` Step 9's
+`.agentic/*` umbrella ignore (not individually enumerated - see
+`content/project-scaffolding.yml`), because it may name private model
+handles; project keys win on collision with the global file.
 
 ## Configuration shape
 
@@ -140,7 +142,7 @@ The full role list and resolution rules live in
 After writing `~/.agentic/role-models.yml`, run:
 
 ```bash
-bin/agentic-status
+bin/ds-status
 ```
 
 The status command prints the resolved model for each role based on the
@@ -152,8 +154,8 @@ session.
 You can also preview rankings for a list of model names:
 
 ```bash
-bin/agentic-models opus sonnet haiku gpt-5 glm-4.6 --suggest engineer
-bin/agentic-models opus sonnet haiku gpt-5 glm-4.6 --all-suggestions
+bin/ds-models opus sonnet haiku gpt-5 glm-4.6 --suggest engineer
+bin/ds-models opus sonnet haiku gpt-5 glm-4.6 --all-suggestions
 ```
 
 Pass the model names your harness exposes as positional arguments.
@@ -189,7 +191,7 @@ latency-vs-depth without owning model names.
 - **Model name not recognised by harness.** The conductor forwards the
   string from `role-models.yml` verbatim. If the harness rejects it,
   the spawn fails with the harness's own error. Fix the string in
-  `role-models.yml` and retry. Use `bin/agentic-status` to preview
+  `role-models.yml` and retry. Use `bin/ds-status` to preview
   what the conductor will send before starting a real session.
 - **No role-models.yml present.** The conductor omits the `model` field
   on every Pi/omp spawn. Pi uses its session default for everything.
@@ -204,9 +206,9 @@ latency-vs-depth without owning model names.
 
 ## When things go wrong
 
-1. Run `bin/agentic-status` to see what the conductor resolves for each
+1. Run `bin/ds-status` to see what the conductor resolves for each
    role right now.
-2. Run `bin/agentic-models <your-model-names> --all-suggestions` to
+2. Run `bin/ds-models <your-model-names> --all-suggestions` to
    confirm the ranking heuristics score your model list as expected.
    Supply the exact model handles your harness exposes.
 3. If the file looks right and the status prints the right models but
@@ -224,6 +226,6 @@ latency-vs-depth without owning model names.
 - `content/references/role-models-example.yml` - copy-paste starter
 - `content/commands/ds-init-project.md` - Step 6g seeds the global file on
   fresh projects
-- `bin/agentic-configure` - interactive setup wizard
-- `bin/agentic-models` - per-role rank/suggest over a user-supplied model list
-- `bin/agentic-status` - shows the resolved model for each role
+- `bin/ds-configure` - interactive setup wizard
+- `bin/ds-models` - per-role rank/suggest over a user-supplied model list
+- `bin/ds-status` - shows the resolved model for each role

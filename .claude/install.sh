@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Purpose: One-shot installer for agentic-engineering. Symlinks agents,
+# Purpose: One-shot installer for dinostack. Symlinks agents,
 #          commands, and the skill directory into ~/.claude/; syncs hook
 #          scripts into a session-stable per-checkout snapshot dir (DS-54,
 #          scripts/lib/hooks-snapshot.sh) and wires hooks in
@@ -18,10 +18,14 @@
 #     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
 #     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
 #     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
-#   --dry-run: print symlink actions and repo_dir write intent without executing
-#              them. Hook wiring, build, and permission phases still execute.
+#   --dry-run: print symlink actions, the CLAUDE.md managed-block update
+#              intent, and repo_dir write intent without executing them.
+#              Hook wiring, build, and permission phases still execute.
 #
 # Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
+#   The CLAUDE.md managed-block table body is single-sourced from
+#   content/templates/claude-managed-content.md (manifest header stripped at
+#   write time) - do not re-inline that table here.
 #
 # Downstream consumers: bootstrap.sh (calls this), /update-agentic-engineering,
 #   developers running directly.
@@ -34,6 +38,36 @@
 #     already holds a valid DIFFERENT repo_dir, a warning is printed and the
 #     existing value is preserved. Only absent/invalid/same values are written.
 #   - All interactive prompts fall back to a default when stdin is not a TTY.
+#     The skill_auto_load prompt (fresh install only) defaults to yes ([Y/n],
+#     blank = yes) both interactively and non-interactively.
+#   - A skipped or not-yet-created skill symlink sets SKILL_LINK_OK=false and
+#     emits an operator warning twice per run (once where the skip is
+#     detected, once in the Summary block). Every --dry-run on a machine
+#     without an existing, correctly-pointed skill link falls into this case
+#     and emits the warning, since --dry-run never creates the symlink.
+#   - DS-143 gate: the CLAUDE.md managed block drops its three @-import lines
+#     ONLY when SKILL_LINK_OK == true; otherwise the imports are appended
+#     after the table exactly as before, and a warning is printed - the
+#     imports are never stripped without a working skill symlink to fall
+#     back on. On the run that first strips the imports (old-format block
+#     detected on disk pre-rewrite AND SKILL_LINK_OK == true), skill_auto_load
+#     is force-set to true in agentic-engineering.json as a one-time
+#     migration; this self-disarms once the old imports are gone from disk.
+#     A "start a new session" registry-refresh notice prints unconditionally
+#     whenever SKILL_LINK_OK == true (the strip gate allowed the skill-based
+#     table to be (re)written) - including idempotent re-runs and update-path
+#     runs where only the skill's regenerated body changed underneath an
+#     unchanged CLAUDE.md, since the notice's subject is the skill registry,
+#     not the CLAUDE.md byte diff. Suppressed only when the gate itself
+#     blocked the strip (SKILL_LINK_OK != true).
+#   - The managed-block table body's source,
+#     content/templates/claude-managed-content.md, must retain its leading
+#     HTML manifest comment with a "-->" terminator; if that terminator is
+#     missing, install.sh fails loudly and leaves CLAUDE.md untouched rather
+#     than silently shipping the whole template (manifest text included)
+#     into the user's file. Contract matches
+#     scripts/check-resident-budget.sh's own terminator requirement. A
+#     missing/unreadable template file at that path fails the same way.
 #
 # Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
 # ---------------------------------------------------------------------------
@@ -100,6 +134,13 @@ done
 # Only the per-harness config dir is redirected; shared user state
 # (~/.agentic, ~/.local/bin, ~/.claude.json) always stays in the real $HOME.
 AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+    _ae_identity_bind_config_dir "$AE_CONFIG_DIR" true
+  else
+    _ae_identity_bind_config_dir "$AE_CONFIG_DIR" false
+  fi
+fi
 
 AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
 # Symlink guard: refuse to traverse through a symlinked config dir. mkdir -p
@@ -188,12 +229,12 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [Y/n] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
+        config["skill_auto_load"] = answer in ("", "y", "yes")
     except OSError:
-        config["skill_auto_load"] = False
+        config["skill_auto_load"] = True
 # Write back
 # Symlink guard: never write through a symlink (open("w") would follow it and
 # truncate the real target). If the config path is a symlink, refuse.
@@ -210,9 +251,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -249,11 +290,11 @@ fi
 
 AGENTS_SRC="$REPO_DIR/.claude/agents"
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
-SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.claude/skills/dinostack"
 
 AGENTS_DST="$AE_CONFIG_DIR/agents"
 COMMANDS_DST="$AE_CONFIG_DIR/commands"
-SKILLS_DST="$AE_CONFIG_DIR/skills/agentic-engineering"
+SKILLS_DST="$AE_CONFIG_DIR/skills/dinostack"
 SETTINGS="$AE_CONFIG_DIR/settings.json"
 
 # ---------------------------------------------------------------------------
@@ -266,8 +307,8 @@ SETTINGS="$AE_CONFIG_DIR/settings.json"
 #     - it IS a symlink (never touch real files), AND
 #     - its current target is broken OR resolves under a methodology checkout
 #       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
-#   Intentionally more conservative than agentic-doctor on broken symlinks:
-#   agentic-doctor reclaims ALL broken symlinks in managed dirs regardless of
+#   Intentionally more conservative than ds-doctor on broken symlinks:
+#   ds-doctor reclaims ALL broken symlinks in managed dirs regardless of
 #   origin, while this predicate only reclaims broken symlinks whose target
 #   string contains a /DinoStack/ or -DinoStack/ component (i.e., was clearly
 #   a methodology path). Non-methodology broken symlinks are left untouched.
@@ -430,7 +471,10 @@ done
 # Symlink skill
 # ---------------------------------------------------------------------------
 
-echo "Linking skill: agentic-engineering..."
+SKILL_LINK_OK=true
+SKILL_LINK_REASON=""
+
+echo "Linking skill: dinostack..."
 
 mkdir -p "$(dirname "$SKILLS_DST")"
 
@@ -442,6 +486,8 @@ if [[ -L "$SKILLS_DST" ]]; then
     # Stale symlink pointing to another methodology checkout - re-point it.
     if [[ "$AE_DRY_RUN" == "true" ]]; then
       echo "  ~ engineering (would re-point to repo_dir)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="dry-run: stale symlink not re-pointed"
     else
       ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
       echo "  ~ engineering (re-pointed to repo_dir)"
@@ -449,22 +495,67 @@ if [[ -L "$SKILLS_DST" ]]; then
   else
     if [[ "$AE_DRY_RUN" == "true" ]]; then
       echo "  ! engineering (would skip: symlink points outside methodology checkout: $current_target)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="symlink points outside methodology checkout: $current_target"
     else
       echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="symlink points outside methodology checkout: $current_target"
     fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
   if [[ "$AE_DRY_RUN" == "true" ]]; then
     echo "  ! engineering (would skip: real file/directory exists at destination)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="real file/directory exists at destination"
   else
     echo "  ! engineering (real file/directory exists at destination - skipping)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="real file/directory exists at destination"
   fi
 else
   if [[ "$AE_DRY_RUN" == "true" ]]; then
-    echo "  + agentic-engineering (would create)"
+    echo "  + dinostack (would create)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="dry-run: symlink not created"
   else
     ln -s "$SKILLS_SRC" "$SKILLS_DST"
-    echo "  + agentic-engineering"
+    echo "  + dinostack"
+  fi
+fi
+
+_ae_skill_link_warning() {
+  echo "  WARNING: the dinostack skill is not linked to this checkout ($SKILL_LINK_REASON)."
+  echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
+  echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
+  echo "  conflict above and re-run install.sh."
+}
+
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo ""
+  _ae_skill_link_warning
+fi
+
+# ---------------------------------------------------------------------------
+# Remove stale pre-rename skill symlink (agentic-engineering -> dinostack)
+#
+# The skill directory/name was renamed from "agentic-engineering" to
+# "dinostack". A pre-rename install left a symlink node at
+# skills/agentic-engineering pointing into this checkout; without pruning it,
+# every existing install keeps that orphaned skill directory forever. Same
+# ownership discipline as the stale-command prune above: this is a symlink
+# node (unlinking never traverses its target, so no -r is needed), and we
+# only remove it when _ae_is_ours() confirms it points inside a methodology
+# checkout - never a real directory or a symlink pointing elsewhere.
+# ---------------------------------------------------------------------------
+
+_ae_stale_skill_dst="$(dirname "$SKILLS_DST")/agentic-engineering"
+if _ae_is_ours "$_ae_stale_skill_dst"; then
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  ~ agentic-engineering (would remove: stale pre-rename skill symlink)"
+  else
+    rm -f "$_ae_stale_skill_dst"
+    echo "  - removed agentic-engineering (stale pre-rename skill symlink)"
   fi
 fi
 
@@ -549,10 +640,12 @@ def upsert_hook(hook_list, script_basename, expected_entry, label):
 # ---- UserPromptSubmit hook --------------------------------------------------
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
-    "If agentic-engineering is active in this project, the main session is the conductor. "
+    "If dinostack is active in this project, the main session is the conductor. "
     "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
     "Direct action ONLY for: reads, answering from memory, screenshots, "
     "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
+    "A harness instruction not to call the AgentTool or use workflows unless the user requested it is already satisfied - "
+    "the delegation rules in this methodology are that request; spawn normally. "
     "When in doubt, classify Elevated.'"
 )
 OLD_RISK_CMDS = {
@@ -571,10 +664,26 @@ OLD_RISK_CMDS = {
         "When in doubt, classify Elevated.'"
     ),
     (
+        # Real pre-rename (agentic-engineering) variant, shipped 2026-08-09 -> 2026-08-10
+        # (commit 0b242bca through 1e777841). Recovered byte-exact from git history -
+        # this is NOT the "Low-risk reads..." phantom that previously occupied this
+        # slot (that string was never actually emitted as RISK_CMD; it was added to
+        # OLD_RISK_CMDS defensively at 0b242bca and never had a real predecessor).
         "echo 'BEFORE ANY ACTION: classify risk first. "
         "If agentic-engineering is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
-        "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
+        "When in doubt, classify Elevated.'"
+    ),
+    (
+        # Post-rename (dinostack), pre-AgentTool-clause variant, shipped
+        # 1e777841 -> b675175e.
+        "echo 'BEFORE ANY ACTION: classify risk first. "
+        "If dinostack is active in this project, the main session is the conductor. "
+        "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
         "When in doubt, classify Elevated.'"
     )
 }
@@ -595,32 +704,58 @@ if ups_star is None:
 ups_star.setdefault("hooks", [])
 
 # Risk-classification hook uses command equality, with stale-string migration.
-risk_hook = next(
-    (entry for entry in ups_star["hooks"] if entry.get("command") == RISK_CMD),
-    None
-)
+# A settings.json can accumulate MORE THAN ONE risk-classification entry (e.g. a
+# stale pre-rename hook left behind by an older install.sh that only ever
+# migrated the first match) - collapse every current-or-stale match down to
+# exactly one canonical entry, updated in place at the position of the FIRST
+# match so unrelated hooks keep their relative order and a no-op re-run stays
+# byte-identical.
+risk_match_indices = [
+    i for i, entry in enumerate(ups_star["hooks"])
+    if entry.get("command") == RISK_CMD or entry.get("command") in OLD_RISK_CMDS
+]
 
-if risk_hook is not None:
-    print("  = UserPromptSubmit risk-classification hook already present")
+if not risk_match_indices:
+    ups_star["hooks"].append({
+        "type": "command",
+        "command": RISK_CMD,
+        "timeout": 5
+    })
+    print("  + Added UserPromptSubmit risk-classification hook")
 else:
-    stale_risk_hook = next(
-        (entry for entry in ups_star["hooks"] if entry.get("command") in OLD_RISK_CMDS),
-        None
-    )
-    if stale_risk_hook is not None:
-        stale_risk_hook["type"] = "command"
-        stale_risk_hook["command"] = RISK_CMD
-        stale_risk_hook["timeout"] = 5
-        print("  ~ UserPromptSubmit risk-classification hook updated stale reminder")
+    first_idx = risk_match_indices[0]
+    first_entry = ups_star["hooks"][first_idx]
+    was_current = first_entry.get("command") == RISK_CMD
+    extra_indices = risk_match_indices[1:]
+    if extra_indices:
+        # Collapsing 2+ entries to 1 always rewrites the survivor - there is
+        # no single "already present" entry to leave untouched.
+        first_entry["type"] = "command"
+        first_entry["command"] = RISK_CMD
+        first_entry["timeout"] = 5
+        for idx in sorted(extra_indices, reverse=True):
+            del ups_star["hooks"][idx]
+        print(
+            f"  ~ UserPromptSubmit risk-classification hook collapsed "
+            f"{len(risk_match_indices)} current/stale entries to 1 current entry"
+        )
+    elif was_current:
+        # True no-op: do NOT touch command/timeout here. Rewriting an
+        # operator's customized timeout (e.g. 30) back to the default 5 while
+        # printing "already present" would silently discard a local override.
+        # "type" is a narrow exception - setdefault only repairs a MISSING
+        # key (never overwrites a present-but-wrong value), consistent with
+        # upsert_hook's identify-by-command-then-repair contract above
+        # without disturbing timeout.
+        first_entry.setdefault("type", "command")
+        print("  = UserPromptSubmit risk-classification hook already present")
     else:
-        ups_star["hooks"].append({
-            "type": "command",
-            "command": RISK_CMD,
-            "timeout": 5
-        })
-        print("  + Added UserPromptSubmit risk-classification hook")
+        first_entry["type"] = "command"
+        first_entry["command"] = RISK_CMD
+        first_entry["timeout"] = 5
+        print("  ~ UserPromptSubmit risk-classification hook updated stale reminder")
 
-SKILL_AUTO_CMD = f"bash {hooks_root}/hooks/skill-auto-load-check.sh"
+SKILL_AUTO_CMD = f"AE_ADAPTER=claude bash {hooks_root}/hooks/skill-auto-load-check.sh"
 
 upsert_hook(
     ups_star["hooks"],
@@ -673,10 +808,13 @@ upsert_hook(
     "Stop hook enforce-no-abdication.py",
 )
 
-# Turn-shape guard (DS-122): advisory-only, never blocks. Checks the shape
-# of the conductor's final assistant message (identity line, warrant
-# classification, forced-yield shape) and surfaces findings via
-# additionalContext. Registered AFTER enforce-no-abdication.py.
+# Turn-shape guard (DS-122; DS-156). Checks the shape of the conductor's
+# final assistant message (warrant classification, execution-turn structural
+# shape, answer-turn phrasing). As of DS-156 NOT uniformly advisory: the
+# execution-turn structural check (_execution_prose_flag) can block the
+# stop; the answer-turn phrasing check (_answer_relevance_flag) stays
+# advisory-only and surfaces via additionalContext.
+# Registered AFTER enforce-no-abdication.py.
 # Default ON (turn_shape_guard_enabled must be explicitly false in
 # .agentic/config.json to disable). Disable via:
 # AE_TURN_SHAPE_GUARD_DISABLE=1 in the environment.
@@ -760,6 +898,15 @@ upsert_hook(
 ENFORCE_BG_CMD = f"python3 {hooks_root}/hooks/enforce-background-spawn.py"
 ENFORCE_SINGULARITY_CMD = f"python3 {hooks_root}/hooks/enforce-orchestrator-singularity.py"
 ENFORCE_TIER_CMD = f"python3 {hooks_root}/hooks/enforce-tier.py"
+# Uses a GUARDED command string (like enforce-turn-shape.py, unlike its
+# bare-`python3 {path}` siblings above): `python3 <missing path>` exits 2
+# (BLOCKING on PreToolUse), so if this file were ever removed while the
+# registration survives in the operator's settings.json, every Skeptic
+# spawn would silently deny until hand-fixed. The guard prevents that.
+ENFORCE_SKEPTIC_ROUND_CAP_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-skeptic-round-cap.py && "
+    f"python3 {hooks_root}/hooks/enforce-skeptic-round-cap.py || exit 0"
+)
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -804,6 +951,20 @@ for spawn_matcher in ("Task", "Agent"):
         f"PreToolUse({spawn_matcher}) tier-enforcement hook",
     )
 
+    # Mechanically enforces the ad-hoc Skeptic round-budget policy
+    # (content/sections/05-qa-gate.md §Re-route limits): denies a 4th
+    # Skeptic round for the same unit unless the conductor has recorded an
+    # explicit ship or escalate decision in the per-unit
+    # .agentic/skeptic-round-*.json state file. Fires only on
+    # subagent_type == "skeptic"; fail-open on any error (missing git repo,
+    # unparsable state, write failure).
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-skeptic-round-cap.py",
+        {"type": "command", "command": ENFORCE_SKEPTIC_ROUND_CAP_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) skeptic-round-cap enforcement hook",
+    )
+
     # Emits a spawn_start telemetry event to .agentic/events.jsonl on every
     # subagent spawn. Fully fail-open (no deny, no stdout). Enables deterministic
     # events.jsonl creation in ad-hoc sessions that never run /implement-ticket.
@@ -845,6 +1006,37 @@ for spawn_matcher in ("Task", "Agent"):
         {"type": "command", "command": CAPTURE_NUDGE_CMD, "timeout": 5},
         f"PostToolUse({spawn_matcher}) capture-nudge hook",
     )
+
+# ---- SubagentStop spawn-complete telemetry hook (DS-160) --------------------
+# Fires when a subagent actually FINISHES (unlike PostToolUse(Task/Agent),
+# which fires at spawn LAUNCH - see hooks/pre-tool-use-spawn-emit.js header).
+# Emits a hook-sourced spawn_complete event with a real wall_seconds figure,
+# closing the gap where spawn_complete previously depended entirely on the
+# conductor LLM remembering to run `ds-emit spawn_complete ...` inline (an
+# LLM-semantic event with no deterministic trigger). Fully fail-open, no
+# stdout, no deny - matcher "*" since SubagentStop has no tool-name matcher.
+SUBAGENT_STOP_SPAWN_EMIT_CMD = f"node {hooks_root}/hooks/subagent-stop-spawn-emit.js"
+
+subagent_stop_list = hooks.setdefault("SubagentStop", [])
+
+subagent_stop_star = None
+for block in subagent_stop_list:
+    if block.get("matcher") == "*":
+        subagent_stop_star = block
+        break
+
+if subagent_stop_star is None:
+    subagent_stop_star = {"matcher": "*", "hooks": []}
+    subagent_stop_list.append(subagent_stop_star)
+
+subagent_stop_star.setdefault("hooks", [])
+
+upsert_hook(
+    subagent_stop_star["hooks"],
+    "subagent-stop-spawn-emit.js",
+    {"type": "command", "command": SUBAGENT_STOP_SPAWN_EMIT_CMD, "timeout": 5},
+    "SubagentStop spawn-emit telemetry hook",
+)
 
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ptu_list = hooks.setdefault("PreToolUse", [])
@@ -929,6 +1121,45 @@ for file_matcher in ("Write", "Edit", "MultiEdit"):
         f"PreToolUse({file_matcher}) shippable-edit guard hook",
     )
 
+# ---- PreToolUse worktree-read guard ("Read" matcher) ------------------------
+# Denies a worktree-isolated subagent (agent_id present) Read that reaches
+# into the PRIMARY checkout instead of the agent's own isolation worktree
+# (DS-150). caller_root comes from the payload's cwd field, primary_root
+# from CLAUDE_PROJECT_DIR; both are realpath-normalized before the
+# containment test. Never fires on a main-session call (agent_id absent) or
+# a subagent that is not worktree-isolated. Fully fail-open on any error.
+# Kill-switch: AE_WORKTREE_READ_GUARD_DISABLE=1.
+#
+# Uses a GUARDED command string, unlike a bare `python3 {path}` form:
+# `python3 <missing path>` exits 2 (the BLOCKING PreToolUse code), so if
+# this file were ever removed while the registration survives in the
+# operator's settings.json, every Read in every session (conductor
+# included) would silently deny until hand-fixed. The
+# `test -f ... && ... || exit 0` guard prevents that.
+ENFORCE_WORKTREE_READ_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-worktree-read.py && "
+    f"python3 {hooks_root}/hooks/enforce-worktree-read.py || exit 0"
+)
+
+ptu_worktree_read_block = None
+for block in ptu_list:
+    if block.get("matcher") == "Read":
+        ptu_worktree_read_block = block
+        break
+
+if ptu_worktree_read_block is None:
+    ptu_worktree_read_block = {"matcher": "Read", "hooks": []}
+    ptu_list.append(ptu_worktree_read_block)
+
+ptu_worktree_read_block.setdefault("hooks", [])
+
+upsert_hook(
+    ptu_worktree_read_block["hooks"],
+    "enforce-worktree-read.py",
+    {"type": "command", "command": ENFORCE_WORKTREE_READ_CMD, "timeout": 5},
+    "PreToolUse(Read) worktree-read guard hook",
+)
+
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking settings.json to a victim file and
 # running installer overwrites the victim's content through the link.
@@ -997,37 +1228,131 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
+# DS-143: the Skill Loading table body is single-sourced from
+# content/templates/claude-managed-content.md. When SKILL_LINK_OK == true
+# (the skill symlink resolves, so the methodology loads on skill invocation
+# instead), the three @-import lines are dropped and the registry-refresh
+# restart notice below fires unconditionally, since the skill body was
+# (re)written on this run regardless of whether CLAUDE.md's bytes changed.
+# When SKILL_LINK_OK != true, the imports are appended after the table
+# exactly as before, and a warning is printed instead of the notice - the
+# imports must never be stripped without a working skill symlink to fall
+# back on.
+if [[ "$AE_DRY_RUN" == "true" ]]; then
+  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
+else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
-import os, re, sys
+AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" python3 - <<'PYEOF'
+import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
-managed_content = """\
-<!-- BEGIN managed-by-agentic-engineering -->
-## Skill Loading
+repo_dir = os.environ.get("AE_REPO_DIR", "")
+skill_link_ok = os.environ.get("AE_SKILL_LINK_OK", "") == "true"
+config_path = os.environ.get("AE_CONFIG_PATH", "")
 
-Before starting any task, check if a domain skill should be loaded:
+import_lines = [
+    "@skills/dinostack/METHODOLOGY.md",
+    "@skills/dinostack/rules/code-standards.md",
+    "@skills/dinostack/rules/conventions.md",
+]
+# Migration detection must recognize an @-import line written under EITHER
+# skill-directory name: a block on disk from before the skill directory was
+# renamed from agentic-engineering to dinostack still carries the OLD path
+# literal, not import_lines[0]'s current one. Checking only the current
+# literal here would silently disarm the one-time skill_auto_load migration
+# for exactly the pre-rename installs it exists to catch.
+old_import_re = re.compile(r'@skills/(?:agentic-engineering|dinostack)/METHODOLOGY\.md')
 
-| Signal | Skill |
-|---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+template_path = os.path.join(repo_dir, "content", "templates", "claude-managed-content.md")
+try:
+    with open(template_path, "r") as f:
+        template_raw = f.read()
+except OSError as e:
+    sys.stderr.write(f"  ! managed-content template not found or unreadable: {template_path} ({e})\n")
+    sys.stderr.write("  ! CLAUDE.md was NOT touched.\n")
+    sys.exit(1)
 
-If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+# Strip the leading manifest HTML comment: everything through the closing "-->"
+# of that comment block. Only the body after it ships into CLAUDE.md.
+# Contract aligned with scripts/check-resident-budget.sh (MINOR-3, DS-143
+# Skeptic loop 2): require the "-->" terminator and fail loudly when absent,
+# rather than silently falling back to shipping the whole file (manifest
+# comment included) into the user's ~/.claude/CLAUDE.md.
+close_idx = template_raw.find("-->")
+if close_idx == -1:
+    sys.stderr.write(
+        f"  ! could not find manifest comment terminator ('-->') in {template_path}\n"
+    )
+    sys.stderr.write("  ! CLAUDE.md was NOT touched.\n")
+    sys.exit(1)
+template_body = template_raw[close_idx + 3:]
+template_body = template_body.strip("\n")
 
-@skills/agentic-engineering/METHODOLOGY.md
-@skills/agentic-engineering/rules/code-standards.md
-@skills/agentic-engineering/rules/conventions.md
-<!-- END managed-by-agentic-engineering -->"""
+block_lines = [begin_marker, template_body]
+if not skill_link_ok:
+    block_lines.append("")
+    block_lines.extend(import_lines)
+block_lines.append(end_marker)
+managed_content = "\n".join(block_lines)
 
 if os.path.exists(target):
     with open(target, "r") as f:
         existing = f.read()
 else:
     existing = ""
+
+# Compiled once - used both by the migration detection below and by the
+# managed-block rewrite further down.
+pattern = re.compile(
+    r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+    re.DOTALL
+)
+
+# One-time migration: if a MANAGED BLOCK'S OWN CONTENT ON DISK BEFORE this
+# rewrite still carried the old always-loaded @-import, AND this run is
+# actually stripping it (skill_link_ok), force skill_auto_load=true so users
+# are not left with neither the always-on imports nor the trigger-loaded
+# skill. Detection is scoped to the managed block(s) only, not the whole
+# file - a user's own prose elsewhere in CLAUDE.md that happens to contain
+# the import string (their own notes, a hand-restored old block outside the
+# markers, etc.) must never trigger this.
+#
+# Checked ALL matches, not just the first: the rewrite below (pattern.sub,
+# no count=) replaces every managed block in the file, so detection must
+# scan every one too - a file with two well-formed blocks (new-format first,
+# old-format second) would otherwise strip the second block's imports while
+# migrating stayed False, since a first-match-only check only inspects the
+# first block.
+#
+# Self-disarming: the rewrite below replaces EVERY matched block with the
+# same new-format managed_content, so once this run (or a user editing by
+# hand) has removed the marker string from every managed block on disk,
+# this condition can never fire again for this installation.
+old_block_matches = list(pattern.finditer(existing))
+migrating = skill_link_ok and config_path and any(
+    old_import_re.search(m.group(0)) for m in old_block_matches
+)
+
+if migrating:
+    try:
+        if os.path.islink(config_path):
+            raise OSError(f"refusing to write through symlink: {config_path}")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {}
+        cfg["skill_auto_load"] = True
+        with open(config_path, "w") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+        print("  + one-time migration: forced skill_auto_load=true (old @-imports were being removed)")
+    except Exception as e:
+        sys.stderr.write(f"  ! migration write failed: {e}\n")
 
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking CLAUDE.md to a victim file and running
@@ -1037,11 +1362,12 @@ if os.path.islink(target):
     sys.exit(1)
 
 if begin_marker in existing and end_marker in existing:
-    pattern = re.compile(
-        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
-        re.DOTALL
-    )
-    updated = pattern.sub(managed_content, existing)
+    # Use a callable replacement, not a string one: pattern.sub() interprets
+    # backslash escapes (e.g. \1, \g<name>) in a string replacement, and the
+    # template body is a markdown table where a literal pipe is written as
+    # "\|" - a callable sidesteps that interpretation entirely (MINOR-1,
+    # DS-143 Skeptic loop 2).
+    updated = pattern.sub(lambda _: managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
     print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
@@ -1060,6 +1386,18 @@ else:
         print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
 PYEOF
 
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo "  WARNING: keeping the @-import lines in CLAUDE.md's managed block ($SKILL_LINK_REASON)."
+  echo "  Resolve the skill symlink conflict noted above, then re-run install.sh to switch to"
+  echo "  skill-triggered methodology loading."
+else
+  echo ""
+  echo "IMPORTANT: skill definitions changed. Start a NEW Claude Code session"
+  echo "before relying on /dinostack - the currently running session's"
+  echo "skill registry may not reflect this update yet."
+fi
+fi
+
 # ---------------------------------------------------------------------------
 # Write repo_dir to ~/.agentic/agentic-engineering-config.json (guarded)
 #
@@ -1071,7 +1409,7 @@ PYEOF
 # Clobber-guard: ONLY writes when the config is absent, has no repo_dir key,
 # has an invalid (non-git-repo) repo_dir, or already equals REPO_DIR.
 # A valid DIFFERENT repo_dir is NEVER overwritten - a warning is printed
-# instead. Use agentic-doctor or set repo_dir manually if the intent is to
+# instead. Use ds-doctor or set repo_dir manually if the intent is to
 # switch canonical checkouts.
 # ---------------------------------------------------------------------------
 
@@ -1168,7 +1506,7 @@ except Exception:
         echo "  = repo_dir already set to this checkout (keeping)"
       else
         # Valid DIFFERENT repo_dir - do NOT overwrite.
-        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run agentic-doctor or set repo_dir manually if this is intended." >&2
+        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run ds-doctor or set repo_dir manually if this is intended." >&2
       fi
     fi
   fi
@@ -1227,17 +1565,6 @@ for tool_entry in "${CLI_TOOLS[@]}"; do
     fi
   fi
 done
-
-# ---------------------------------------------------------------------------
-# Developer identity
-# ---------------------------------------------------------------------------
-
-if declare -f _ae_setup_identity >/dev/null; then
-  echo ""
-  echo "Developer identity..."
-  _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
-fi
 
 # chrome-devtools MCP
 echo ""
@@ -1569,23 +1896,38 @@ echo "Linking bin/ scripts to PATH..."
 ae_install_bins
 
 # ---------------------------------------------------------------------------
+# Developer identity
+# ---------------------------------------------------------------------------
+
+if declare -f _ae_setup_identity >/dev/null; then
+  echo ""
+  echo "Developer identity..."
+  _ae_setup_identity
+  _ae_identity_guidance
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "Install complete."
 echo ""
-echo "  agentic-engineering is installed. Open a new Claude Code session in any project,"
+echo "  dinostack is installed. Open a new Claude Code session in any project,"
 echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
-echo "  Run 'agentic-identity show' to confirm your identity was saved."
+_ae_identity_guidance
 echo ""
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  _ae_skill_link_warning
+  echo ""
+fi
 echo "Next steps (for the agent running this installer):"
 echo ""
 echo "  Offer the user a quick orientation. Ask which of the following they'd"
 echo "  like to view, then 'open' each one they say yes to (skipping all is fine):"
 echo ""
 echo "    1. $REPO_DIR/docs/slides/how-it-works-slides.html"
-echo "       - what agentic-engineering is and how it works"
+echo "       - what dinostack is and how it works"
 echo "    2. $REPO_DIR/docs/slides/getting-started-slides.html"
 echo "       - install flow and the first focused session"
 echo "    3. $REPO_DIR/docs/slides/context-management-slides.html"

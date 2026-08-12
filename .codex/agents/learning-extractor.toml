@@ -18,7 +18,8 @@ Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
          is learnings-agent's responsibility via the mandatory triggers defined
          in content/references/conductor-operating-rules.md §learnings-agent.
          A finding's residual (the non-testable WHY) is still recorded as LRN
-         here; promotion to KNW or MEMORY.md happens at /ds-wrap.
+         here; promotion to KNW, and any MEMORY.md append, is learnings-agent's
+         responsibility (1/event) - not this agent's, and not /ds-wrap's.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, findings_log, merged_diff.
@@ -141,11 +142,11 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 ```json
 {
-  "learnings_written": ["LRN-YYYYMMDD-XXX: <finding-title>", ...],
-  "learning_ids": ["LRN-YYYYMMDD-XXX", ...],
+  "learnings_written": ["capped at 5 items: 'LRN-YYYYMMDD-XXX: <finding-title>'", ...],
+  "learning_ids": ["capped at 5 items: 'LRN-YYYYMMDD-XXX'", ...],
   "operator_summary": "<one-line human-readable summary of what was captured>",
-  "writer_actions": [": appended N entries", ...],
-  "skipped_reason": null
+  "writer_actions": ["capped at 5 items: '<file path>: appended <N> entries'", ...],
+  "skipped_reason": null | "zero-substance"
 }
 ```
 
@@ -189,4 +190,5 @@ The only file you may write is:
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 """

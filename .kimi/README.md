@@ -9,7 +9,7 @@ Instead, use one of these methods:
 
 - **Direct command load (preferred):** `/skill:ds-wrap`, `/skill:ds-skeptic`, `/skill:ds-implement-ticket`, etc.
   Each DinoStack command is available as its own skill.
-- **Full skill load:** `/skill:agentic-engineering ds-init-project` (loads the complete methodology)
+- **Full skill load:** `/skill:dinostack ds-init-project` (loads the complete methodology)
 - **Natural language:** "run ds-init-project" or "initialize DinoStack in this repo"
 
 The skill auto-triggers when you mention software development tasks, but explicitly
@@ -30,10 +30,10 @@ loading it guarantees the methodology is active.
 ## What's adapted
 
 - **AGENTS.md**: Auto-generated from `content/sections/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
-- **Skill**: `agentic-engineering` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to DinoStack roles) and command index.
+- **Skill**: `dinostack` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to DinoStack roles) and command index.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
-- **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:agentic-engineering <command-name>` or by asking the agent to run a specific command.
+- **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:dinostack <command-name>` or by asking the agent to run a specific command.
 - **Hooks**: Sample hook configuration provided in README (user must add to `~/.kimi/config.toml` manually).
 
 ## Install
@@ -46,7 +46,7 @@ bash ~/DinoStack/.kimi/install.sh
 This will:
 1. Build the adapter (generates AGENTS.md and symlinks from `content/`)
 2. Configure activation mode (opt-out or opt-in)
-3. Symlink the skill to `~/.kimi/skills/agentic-engineering/` for global availability
+3. Symlink the skill to `~/.kimi/skills/dinostack/` for global availability
 
 ## Uninstall
 
@@ -57,7 +57,7 @@ bash .kimi/uninstall.sh
 ## Project-level vs global
 
 **Project-level** (no install required):
-When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` and `.kimi/skills/agentic-engineering/`.
+When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` and `.kimi/skills/dinostack/`.
 
 **Global** (optional):
 Running `install.sh` symlinks the skill to `~/.kimi/skills/` so the methodology is available in all projects.
@@ -91,7 +91,7 @@ This regenerates AGENTS.md and verifies symlinks. Run this after editing files i
 
 ## Limitations
 
-- **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are available as individual skills (`/skill:<command-name>`) or via the main skill (`/skill:agentic-engineering <command>`), or through natural language requests.
+- **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are available as individual skills (`/skill:<command-name>`) or via the main skill (`/skill:dinostack <command>`), or through natural language requests.
 - **Agent definitions are reference material**: Kimi's `Agent` tool uses built-in subagent types (`coder`, `explore`, `plan`). The named agent roles from `content/agents/` are mapped to these types with detailed prompts rather than distinct subagent configurations.
 - **Hook scripts are manual**: Kimi requires hooks to be configured in `config.toml`. The installer does not modify `~/.kimi/config.toml` automatically.
 - **Global install copies SKILL.md**: The installer copies `SKILL.md` to `~/.kimi/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after updating `SKILL.md` itself.

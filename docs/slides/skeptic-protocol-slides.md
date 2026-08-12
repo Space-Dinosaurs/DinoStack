@@ -274,13 +274,15 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
   .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
-- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes** before escalating to the human
+- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes**. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. The round count is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` (denies a 4th Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller, when the spawn prompt's "Diff under review" line is present and unambiguous (fails open with no state written otherwise); known residual: two units both expressed as a bare `git diff <same-base>..<head>` SHA range share one counter. The Critical-never-ships rule inside it is conductor-attested, not independently verified. Phase 6's own step text does not yet describe the ship branch.
 - **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
 - The primary agent tracks each finding by its text across all rounds
 
 **Loop-context override (inside `/ds-implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.
+
+**Prose-scoped re-check:** when every unresolved finding is prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing manifest/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
 
 <div class="callout">
 The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
@@ -409,7 +411,7 @@ Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the dif
 
 The audit-note Minor is the per-spawn defense against rubber-stamping. The **calibration layer** is the long-horizon backstop - it detects drift in aggregate over time without enlarging the per-spawn review surface.
 
-- **Findings counters in `events.jsonl`** - every Skeptic `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`.
+- **Findings counters in `events.jsonl`** - every Skeptic **conductor-emitted** `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`. (A separate, deterministic hook-emitted `spawn_complete` variant also exists as of DS-160 and does NOT carry these calibration fields.)
 - **5% sampled meta-Skeptic** - deterministic bucket from `hash(task_id+iteration) % 100 < 5`. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits `meta_review_complete`.
 
 <div class="callout">
@@ -428,7 +430,7 @@ Threat model: drift detection in a non-adversarial conductor relationship. Not a
 </style>
 
 - **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions). The sweep paginates via `.meta-divergence-last-sweep` timestamp tracker.
-- **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
+- **Inspection CLI** - `ds-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `ds-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
 
 <div class="callout">
 Per-spawn: audit-note Minor attests the Skeptic re-read the diff end-to-end. Long-horizon: calibration layer catches aggregate drift across sessions. Two layers, two timescales.

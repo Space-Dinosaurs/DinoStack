@@ -2,7 +2,7 @@
 
 ## What this provides
 
-- **Skill** (`/agentic-engineering`) - loads the full engineering methodology on demand
+- **Skill** (`/dinostack`) - loads the full engineering methodology on demand
 - **Agents** (11) - architect, debugger, engineer, investigator, orchestration-planner, security-auditor, skeptic, adr-drift-detector, adr-generator, qa-engineer, learnings-agent
 - **Commands** (5) - skeptic, memory-update, wrap, init-project, implement
 - **Hooks** - UserPromptSubmit risk-classification reminder, Stop context saver
@@ -37,7 +37,7 @@ Or run manually from the repo root:
 This will:
 - Symlink agent definitions into `~/.claude/agents/`
 - Symlink commands into `~/.claude/commands/`
-- Symlink the engineering skill into `~/.claude/skills/agentic-engineering`
+- Symlink the engineering skill into `~/.claude/skills/dinostack`
 - Add hook entries to `~/.claude/settings.json` (preserves all existing entries)
 
 The script is idempotent - safe to run multiple times.
@@ -85,7 +85,7 @@ Removes all symlinks and hook entries added by install. Permissions configuratio
 
 ## How it works
 
-The `/agentic-engineering` skill auto-triggers when Claude detects engineering tasks. Each agent and command file includes a prerequisite line that ensures the skill loads first, regardless of entry point.
+The `/dinostack` skill auto-triggers when Claude detects engineering tasks. Each agent and command file includes a prerequisite line that ensures the skill loads first, regardless of entry point.
 
 Rules stay as separate files for maintainability:
 - `rules/agent-methodology.md` - delegation, risk classification, task decomposition

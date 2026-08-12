@@ -56,6 +56,13 @@ Public API (module-level functions, no class):
     count_user_messages(transcript_path) -> int
         Counts genuine human turns in the transcript JSONL. Returns 0 on any
         error. Never counts tool_result or meta lines.
+    last_genuine_user_text(transcript_path) -> str
+        Returns the text of the most recent genuine human turn (reverse
+        scan), or "" on any error or when none is found. Added DS-155 for
+        enforce-turn-shape.py's answer-warrant detector. Shares the same
+        tool_result / meta / harness-injected exclusions as
+        is_genuine_user_turn via the private _extract_genuine_user_text
+        helper - never duplicate that parsing logic at a call site.
     is_harness_injected_text(text) -> bool
         True iff the text carries one of the harness-injected markers that
         arrive as `type:"user"` lines without isMeta (background task-
@@ -66,7 +73,8 @@ Upstream deps: Python 3 stdlib only (json, os). No external dependencies,
                no import of any other hooks/lib module. Writes ONLY
                <cwd>/.agentic/<counter_filename> (creates <cwd>/.agentic/
                with os.makedirs(exist_ok=True) if absent). Reads ONLY that
-               file and, in count_user_messages, a transcript JSONL path.
+               file and, in count_user_messages and last_genuine_user_text, a
+               transcript JSONL path.
 
 Downstream consumers: hooks/enforce-no-abdication.py (counter filename
                        .abdication-guard-fire-count, cap 2) and
@@ -88,6 +96,8 @@ Failure modes: Fully fail-open and silent, matching every enforce-*.py
     - reset_counter: swallows write_counter's failure (the next emit attempt
       re-reads the persisted count and re-applies the reset check).
     - count_user_messages: any error returns 0 - never raises.
+    - last_genuine_user_text: any error (missing file, unparseable JSON on
+      every line, no genuine turn found) returns "" - never raises.
     - Concurrent hook invocations: each write uses a pid-suffixed tmp name
       (`<counter>.tmp.<os.getpid()>`) so two concurrent processes never
       share a staging path; os.replace makes the final rename atomic. A
@@ -207,8 +217,16 @@ def reset_counter(cwd: str, counter_filename: str, current_user_msg_count: int) 
 # ---------------------------------------------------------------------------
 
 
-def is_genuine_user_turn(obj: dict) -> bool:
-    """Return True only for a GENUINE human turn line in a CC transcript.
+def _extract_genuine_user_text(obj: dict):
+    """Return the genuine human-turn text for `obj`, or None if `obj` is not
+    a genuine human turn line.
+
+    Single source of truth for the tool_result / meta / harness-injected
+    exclusions - is_genuine_user_turn and last_genuine_user_text both call
+    this rather than re-parsing the transcript shape independently (the same
+    single-parser discipline _segment/_regions follow in
+    enforce-turn-shape.py, for the same reason: two independent parsers of
+    the same shape is exactly how a convergence failure gets introduced).
 
     Critical loop-safety constraint: in real Claude Code transcripts EVERY
     tool_result is recorded as a `type:"user"` line (the model running a tool
@@ -223,15 +241,15 @@ def is_genuine_user_turn(obj: dict) -> bool:
     mistaken for a human turn boundary.
     """
     if not isinstance(obj, dict):
-        return False
+        return None
     # Top-level role in CC transcripts is typically absent for user lines;
     # the discriminator is `type`. Accept either shape defensively.
     role = obj.get("role") or obj.get("type", "")
     if role != "user":
-        return False
+        return None
     # Exclude meta/system-injected lines (e.g. interleaved system reminders).
     if obj.get("isMeta") is True:
-        return False
+        return None
 
     # Locate the message content. CC shape: {"type":"user","message":{"content":...}}
     msg = obj.get("message")
@@ -247,30 +265,42 @@ def is_genuine_user_turn(obj: dict) -> bool:
     if isinstance(content, list):
         has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
         if has_tool_result:
-            return False
+            return None
         # Genuine turn requires at least one real text block with text that
         # is NOT a harness-injected marker (see _HARNESS_INJECTED_MARKERS).
         for b in content:
             if isinstance(b, dict) and b.get("type") == "text":
                 t = b.get("text", "")
                 if t.strip() and not is_harness_injected_text(t):
-                    return True
+                    return t
             elif isinstance(b, str) and b.strip() and not is_harness_injected_text(b):
-                return True
-        return False
+                return b
+        return None
     if isinstance(content, dict):
         if content.get("type") == "tool_result":
-            return False
+            return None
         if content.get("type") == "text":
             t = content.get("text", "")
-            return bool(t.strip()) and not is_harness_injected_text(t)
-        return False
+            if t.strip() and not is_harness_injected_text(t):
+                return t
+        return None
     if isinstance(content, str):
         # Real transcripts show harness task-notifications delivered as a
         # bare string here (type:"user", isMeta absent) - see
         # _HARNESS_INJECTED_MARKERS. These are not genuine human turns.
-        return bool(content.strip()) and not is_harness_injected_text(content)
-    return False
+        if content.strip() and not is_harness_injected_text(content):
+            return content
+        return None
+    return None
+
+
+def is_genuine_user_turn(obj: dict) -> bool:
+    """Return True only for a GENUINE human turn line in a CC transcript.
+
+    See _extract_genuine_user_text for the tool_result / meta / harness-
+    injected exclusion rationale this delegates to.
+    """
+    return _extract_genuine_user_text(obj) is not None
 
 
 def count_user_messages(transcript_path: str) -> int:
@@ -296,3 +326,39 @@ def count_user_messages(transcript_path: str) -> int:
         return count
     except Exception:
         return 0
+
+
+def last_genuine_user_text(transcript_path: str) -> str:
+    """Return the text of the most recent GENUINE human turn in the
+    transcript, or "" on any error or when none is found.
+
+    Reverse scan (most recent line first), stopping at the first line for
+    which _extract_genuine_user_text returns non-None - mirrors
+    enforce-no-abdication.py's own reverse-scan pattern
+    (_scan_transcript_tail) and enforce-turn-shape.py's
+    _last_assistant_text_from_transcript. Used by enforce-turn-shape.py's
+    answer-warrant detector (DS-155) to find the operator's actual question,
+    filtering out tool_result lines, meta lines, and harness-injected
+    notifications the same way count_user_messages does for its boundary.
+    """
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return ""
+
+    try:
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                continue
+            text = _extract_genuine_user_text(obj)
+            if text is not None:
+                return text
+        return ""
+    except Exception:
+        return ""

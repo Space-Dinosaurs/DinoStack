@@ -1,19 +1,38 @@
 # shellcheck shell=bash
 # ---------------------------------------------------------------------------
 # Purpose: Session-stable hook snapshotting (DS-54). Copies the hook-script
-#          source set (hooks/ + the four in-scope adapters' hook sources) out
+#          source set (hooks/, the bounded identity/telemetry helper, and the
+#          four in-scope adapters' hook sources) out
 #          of the live checkout into a per-checkout snapshot dir under
 #          $HOME/.agentic/hooks-snapshot/<key>/, so a bare `git pull` cannot
 #          silently rewire a hook command a live session already resolved.
 #          Adapter install.sh scripts point their hook commands at the
-#          snapshot instead of the checkout; a fresh install.sh run refreshes
-#          the snapshot in place.
+#          snapshot instead of the checkout; a fresh install.sh run publishes
+#          a complete immutable generation with one atomic symlink replacement.
 #
 # Public API:
 #   hooks_snapshot_key <repo_dir>
 #     -> prints "<basename(realpath repo_dir)>-<sha256_12(realpath repo_dir)>".
 #   hooks_snapshot_dir <repo_dir>
 #     -> prints "$HOME/.agentic/hooks-snapshot/$(hooks_snapshot_key repo_dir)".
+#   hooks_source_paths <repo_dir>
+#     -> prints, one per line, the six paths that together define "the hook
+#        source" for <repo_dir> (hooks/, bin/ds-identity, and the four
+#        in-scope adapters' hook sources) - the SOLE list, so
+#        sync_hooks_snapshot's hash, hooks/lib/hooks-staleness-core.sh's
+#        stale_but_stable check, and bin/ds-update's _hooks_snapshot_diverged
+#        check all pass the same argument list to compute_hooks_source_hash
+#        below and can never independently drift on what the six paths are.
+#        A fourth consumer, sync_hooks_snapshot's own copy loop, drives `cp`
+#        (not compute_hooks_source_hash) from this same list - the single
+#        most important property to preserve on any future edit here is
+#        that ALL FOUR consumers keep calling this one function rather than
+#        any of them reverting to a hand-copied path list, since that was
+#        the exact reader/writer divergence this function exists to close.
+#        Read one line at a time (`while IFS= read -r line; do arr+=("$line");
+#        done < <(hooks_source_paths "$repo_dir")`) rather than word-splitting
+#        the output, and never with `mapfile`/`readarray` (bash 3.2, the
+#        macOS system bash, ships neither).
 #   compute_hooks_source_hash <path>...
 #     -> prints a single sha256 hex digest over the sorted (relpath, content)
 #        pairs of every file under the given paths (files or directories).
@@ -26,10 +45,9 @@
 #        copy exclusions on the same relative basis, so hashing and copying
 #        agree on what "the hook source" means.
 #   sync_hooks_snapshot <repo_dir> [--dry-run]
-#     -> rm -rf + cp -R the source set into the snapshot dir, write
-#        .snapshot-meta.json, export AE_HOOKS_SNAPSHOT_DIR. Returns 1 (no
-#        filesystem write) on any bounded-delete guard failure. --dry-run
-#        prints intent only, still exports AE_HOOKS_SNAPSHOT_DIR.
+#     -> build a complete immutable generation, then atomically publish a
+#        symlink to it at the snapshot dir. Prior generations remain reachable
+#        until publication; four immutable generations are retained afterward.
 #   remove_hooks_snapshot <repo_dir>
 #     -> rm -rf the resolved snapshot dir (same bounded-delete guard).
 #        Returns 1 if the guard fails or the dir does not exist.
@@ -46,7 +64,19 @@
 #
 # Downstream consumers: .claude/install.sh, .gemini/install.sh,
 #   .codex/install.sh, .kimi/install.sh, .claude/uninstall.sh,
-#   hooks/lib/hooks-staleness-core.sh.
+#   .codex/uninstall.sh, hooks/lib/hooks-staleness-core.sh, bin/ds-doctor,
+#   bin/ds-update. This list must be maintained by mechanical sweep, not
+#   hand-listing (a hand-listed copy of this field has already gone stale
+#   twice). Sweep command (copy this ONE line verbatim, run from the repo
+#   root):
+#     grep -rl -e 'hooks-snapshot\.sh' -e 'hooks_snapshot_key' -e 'hooks_snapshot_dir' -e 'hooks_source_paths' -e 'compute_hooks_source_hash' -e 'sync_hooks_snapshot' -e 'remove_hooks_snapshot' -e 'hooks_config_points_at_snapshot' .
+#   Then classify each hit as a genuine code consumer (sources this file
+#   or calls one of its functions) vs. a comment/prose-only mention
+#   (excluded - e.g. bin/ds-base-sync, which invokes
+#   hooks-staleness-core.sh instead and is documented there as never
+#   calling sync_hooks_snapshot itself) or a test file (excluded from this
+#   field; test coverage is not a "downstream consumer" in the sense this
+#   field tracks).
 #
 # Failure modes:
 #   - Bounded-delete guard (mandatory on every rm -rf path): fails closed
@@ -58,13 +88,18 @@
 #   - compute_hooks_source_hash: unreadable files are skipped, not fatal;
 #     an empty source set still produces a stable (empty-input) digest.
 #   - sync_hooks_snapshot: any failure leaves the previous snapshot in place
-#     (the rm -rf only runs after the guard passes) and returns 1; callers
+#     and returns 1; callers
 #     must treat a nonzero return as "leave AE_HOOKS_SNAPSHOT_DIR unset" so
 #     the `AE_HOOKS_SNAPSHOT_DIR or repo_dir` fallback idiom degrades safely.
+#   - Stale empty or ambiguous live-PID publisher locks with absent/empty
+#     start metadata are reclaimed after 60 seconds; fresh ambiguous locks and
+#     live locks whose PID/start metadata still match are preserved. Successful
+#     publication keeps the current generation plus three recent fallbacks;
+#     candidates are validated relative to a nofollow versions descriptor.
 #   - Safe to source under set -euo pipefail; no top-level side effects
 #     beyond function definitions.
 #
-# Performance: one full rm -rf + cp -R of a small script tree (~sub-second);
+# Performance: one staged cp -R of a small script tree (~sub-second);
 #   compute_hooks_source_hash walks the same tree once more for the hash.
 # ---------------------------------------------------------------------------
 
@@ -94,6 +129,28 @@ hooks_snapshot_dir() {
   local key
   key="$(hooks_snapshot_key "$repo_dir")"
   printf '%s/.agentic/hooks-snapshot/%s\n' "$HOME" "$key"
+}
+
+# ---------------------------------------------------------------------------
+# hooks_source_paths <repo_dir>
+#   Prints, one per line, the SOLE list of paths that define "the hook
+#   source" for <repo_dir>. Every caller that needs this list (sync_hooks_
+#   snapshot's own copy loop AND its hash computation below,
+#   hooks/lib/hooks-staleness-core.sh's stale_but_stable check, and
+#   bin/ds-update's _hooks_snapshot_diverged check) must call this function
+#   rather than hand-copying the six paths - unpinned copies previously
+#   existed at both the hash layer and the copy layer and could silently
+#   disagree on drift.
+# ---------------------------------------------------------------------------
+hooks_source_paths() {
+  local repo_dir="$1"
+  printf '%s\n' \
+    "$repo_dir/hooks" \
+    "$repo_dir/bin/ds-identity" \
+    "$repo_dir/.codex/config/hooks.json" \
+    "$repo_dir/.codex/hooks" \
+    "$repo_dir/.gemini/hooks" \
+    "$repo_dir/.kimi/hooks"
 }
 
 # ---------------------------------------------------------------------------
@@ -215,6 +272,151 @@ _hooks_snapshot_guard() {
   return 0
 }
 
+_hooks_snapshot_reclaim_publish_lock() {
+  local publish_lock="$1"
+  [[ -d "$publish_lock" && ! -L "$publish_lock" ]] || return 1
+  local stale_pid="" recorded_start="" current_start="" require_stale_age=false
+  if [[ -f "$publish_lock/pid" && ! -L "$publish_lock/pid" ]]; then
+    stale_pid="$(tr -cd '0-9' < "$publish_lock/pid" 2>/dev/null || true)"
+  fi
+  if [[ -n "$stale_pid" ]] && kill -0 "$stale_pid" 2>/dev/null; then
+    if [[ -f "$publish_lock/started" && ! -L "$publish_lock/started" ]]; then
+      recorded_start="$(cat "$publish_lock/started" 2>/dev/null || true)"
+      current_start="$(ps -p "$stale_pid" -o lstart= 2>/dev/null | tr -d '\r' || true)"
+      if [[ -n "$recorded_start" ]]; then
+        if [[ -z "$current_start" ]]; then
+          # A failed or unavailable ps cannot prove PID reuse. Treat it like
+          # any other ambiguous live-PID lock: preserve it while fresh and
+          # reclaim only after the bounded stale age.
+          require_stale_age=true
+        elif [[ "$recorded_start" == "$current_start" ]]; then
+          return 1
+        fi
+      else
+        require_stale_age=true
+      fi
+    else
+      require_stale_age=true
+    fi
+  elif [[ -z "$stale_pid" ]]; then
+    require_stale_age=true
+  fi
+  if [[ "$require_stale_age" == true ]]; then
+    python3 - "$publish_lock" <<'PYEOF' || return 1
+import os, stat, sys, time
+st = os.lstat(sys.argv[1])
+if not stat.S_ISDIR(st.st_mode) or time.time() - st.st_mtime < 60:
+    raise SystemExit(1)
+PYEOF
+  fi
+  rm -f -- "$publish_lock/pid" "$publish_lock/started"
+  rmdir "$publish_lock" 2>/dev/null
+}
+
+# Validate and, when absent, create the snapshot storage hierarchy without
+# following any path component. Every directory must belong to the effective
+# user and must not be writable by group or other users. Printing the two
+# validated paths is safe because the ownership/mode checks prevent another
+# user from swapping a component after the descriptors close.
+_hooks_snapshot_prepare_storage() {
+  local mode="${1:---create}"
+  python3 - "$HOME" "$mode" <<'PYEOF'
+import os, stat, sys
+
+home = os.path.abspath(sys.argv[1])
+create = sys.argv[2] == "--create"
+uid = os.geteuid()
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+
+def checked_dir(fd, label):
+    st = os.fstat(fd)
+    if not stat.S_ISDIR(st.st_mode):
+        raise RuntimeError(f"{label} is not a directory")
+    if st.st_uid != uid:
+        raise RuntimeError(f"{label} has wrong owner")
+    if stat.S_IMODE(st.st_mode) & 0o022:
+        raise RuntimeError(f"{label} is writable by group or other users")
+
+def open_child(parent_fd, name, label):
+    try:
+        fd = os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        if not create:
+            raise
+        os.mkdir(name, 0o700, dir_fd=parent_fd)
+        fd = os.open(name, flags, dir_fd=parent_fd)
+    checked_dir(fd, label)
+    return fd
+
+fds = []
+try:
+    home_fd = os.open(home, flags)
+    fds.append(home_fd)
+    checked_dir(home_fd, "HOME")
+    agentic_fd = open_child(home_fd, ".agentic", "$HOME/.agentic")
+    fds.append(agentic_fd)
+    base_fd = open_child(agentic_fd, "hooks-snapshot", "snapshot base")
+    fds.append(base_fd)
+    versions_fd = open_child(base_fd, ".versions", "snapshot versions directory")
+    fds.append(versions_fd)
+    print(os.path.join(home, ".agentic", "hooks-snapshot"))
+    print(os.path.join(home, ".agentic", "hooks-snapshot", ".versions"))
+except (OSError, RuntimeError) as exc:
+    print(f"hooks-snapshot: unsafe snapshot storage: {exc} (fail-closed)", file=sys.stderr)
+    raise SystemExit(1)
+finally:
+    for fd in reversed(fds):
+        os.close(fd)
+PYEOF
+}
+
+_hooks_snapshot_prune_generations() {
+  local versions_dir="$1" key="$2" snapshot_dir="$3"
+  python3 - "$versions_dir" "$key" "$snapshot_dir" <<'PYEOF'
+import heapq, os, shutil, stat, sys
+versions, key, public = sys.argv[1:4]
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+fd = os.open(versions, flags)
+try:
+    current = os.path.basename(os.path.realpath(public))
+    prefix = key + "."
+    keep = []
+    candidates = []
+    with os.scandir(fd) as entries:
+        for entry in entries:
+            name = entry.name
+            if not name.startswith(prefix) or "/" in name or name in (".", ".."):
+                continue
+            try:
+                target = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                print(f"hooks-snapshot: cannot inspect generation {name}: {exc}", file=sys.stderr)
+                raise SystemExit(1)
+            if not stat.S_ISDIR(target.st_mode):
+                continue
+            candidates.append(name)
+            if name != current:
+                item = (target.st_mtime_ns, name)
+                if len(keep) < 3:
+                    heapq.heappush(keep, item)
+                elif item > keep[0]:
+                    heapq.heapreplace(keep, item)
+    retained = {current, *(name for _, name in keep)}
+    for name in candidates:
+        if name in retained:
+            continue
+        try:
+            target = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            if stat.S_ISDIR(target.st_mode):
+                shutil.rmtree(name, dir_fd=fd)
+        except OSError as exc:
+            print(f"hooks-snapshot: cannot prune generation {name}: {exc}", file=sys.stderr)
+            raise SystemExit(1)
+finally:
+    os.close(fd)
+PYEOF
+}
+
 # ---------------------------------------------------------------------------
 # sync_hooks_snapshot <repo_dir> [--dry-run]
 # ---------------------------------------------------------------------------
@@ -239,48 +441,96 @@ sync_hooks_snapshot() {
     return 0
   fi
 
-  rm -rf -- "$snapshot_dir"
-  mkdir -p "$snapshot_dir"
+  if [[ ! -d "$real_repo_dir/hooks" || ! -f "$real_repo_dir/bin/ds-identity" ]]; then
+    echo "hooks-snapshot: required hooks/helper source missing (previous snapshot preserved)" >&2
+    return 1
+  fi
+
+  local storage_paths=""
+  if ! storage_paths="$(_hooks_snapshot_prepare_storage)"; then
+    return 1
+  fi
+  local base="" versions_dir=""
+  base="${storage_paths%%$'\n'*}"
+  versions_dir="${storage_paths#*$'\n'}"
+  if [[ -z "$base" || -z "$versions_dir" ]]; then
+    echo "hooks-snapshot: storage validation returned no paths (fail-closed)" >&2
+    return 1
+  fi
+  local key=""
+  key="$(basename "$snapshot_dir")"
+  local nonce=""
+  nonce="$(python3 -c 'import secrets; print(secrets.token_hex(12))')" || return 1
+  local stage_dir="$versions_dir/.${key}.stage.$$.$nonce"
+  local version_dir="$versions_dir/${key}.$nonce"
+  if ! mkdir "$stage_dir"; then
+    echo "hooks-snapshot: cannot create staged generation (previous snapshot preserved)" >&2
+    return 1
+  fi
 
   # --- Copy the source set, preserving checkout-relative layout ---
-  # Plain cp -R (NOT rsync, NOT symlink) followed by a targeted rm of the
-  # excluded paths - matches compute_hooks_source_hash's exclusions so a
-  # hooks/tests/ or hooks/AGENTS.md edit alone never trips staleness.
-  if [[ -d "$real_repo_dir/hooks" ]]; then
-    cp -R "$real_repo_dir/hooks" "$snapshot_dir/hooks"
-    rm -rf "$snapshot_dir/hooks/tests"
-    rm -f "$snapshot_dir/hooks/AGENTS.md"
-  fi
-  if [[ -f "$real_repo_dir/.codex/config/hooks.json" ]]; then
-    mkdir -p "$snapshot_dir/.codex/config"
-    cp "$real_repo_dir/.codex/config/hooks.json" "$snapshot_dir/.codex/config/hooks.json"
-  fi
-  if [[ -d "$real_repo_dir/.codex/hooks" ]]; then
-    mkdir -p "$snapshot_dir/.codex"
-    cp -R "$real_repo_dir/.codex/hooks" "$snapshot_dir/.codex/hooks"
-  fi
-  if [[ -d "$real_repo_dir/.gemini/hooks" ]]; then
-    mkdir -p "$snapshot_dir/.gemini"
-    cp -R "$real_repo_dir/.gemini/hooks" "$snapshot_dir/.gemini/hooks"
-  fi
-  if [[ -d "$real_repo_dir/.kimi/hooks" ]]; then
-    mkdir -p "$snapshot_dir/.kimi"
-    cp -R "$real_repo_dir/.kimi/hooks" "$snapshot_dir/.kimi/hooks"
+  # Driven by hooks_source_paths() - the SOLE list - so the copy set can
+  # never independently drift from the hash set below. Plain cp -R/cp (NOT
+  # rsync), then a targeted rm of the excluded top-level hooks/tests and
+  # hooks/AGENTS.md paths - this matches compute_hooks_source_hash's
+  # exclusions ONLY at that top level. compute_hooks_source_hash excludes
+  # any "tests" path component or "AGENTS.md" basename at ANY depth under
+  # every walked root, not just under hooks/; the copy step here does not.
+  # This asymmetry is latent (pre-existing since round 2, unreachable today
+  # because no in-scope adapter's hooks source currently nests a "tests"
+  # dir or an "AGENTS.md" file below its top level) - a nested
+  # .codex/hooks/tests/ or .gemini/hooks/AGENTS.md would be hashed as
+  # excluded but copied into the snapshot anyway. Directory vs file is
+  # handled explicitly per-entry (cp -R vs cp) since the two need different
+  # cp invocations; everything else about the loop is uniform.
+  local -a _copy_source_paths=()
+  local _copy_source_path _copy_src _copy_rel _copy_dest
+  while IFS= read -r _copy_source_path; do
+    _copy_source_paths+=("$_copy_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+
+  for _copy_src in ${_copy_source_paths[@]+"${_copy_source_paths[@]}"}; do
+    [[ -e "$_copy_src" ]] || continue
+    _copy_rel="${_copy_src#"$real_repo_dir"/}"
+    _copy_dest="$stage_dir/$_copy_rel"
+    mkdir -p "$(dirname "$_copy_dest")" || {
+      rm -rf -- "$stage_dir"
+      return 1
+    }
+    if [[ -d "$_copy_src" ]]; then
+      cp -R "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    else
+      cp "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    fi
+  done
+
+  rm -rf "$stage_dir/hooks/tests"
+  rm -f "$stage_dir/hooks/AGENTS.md"
+  if [[ -f "$stage_dir/bin/ds-identity" ]]; then
+    chmod 700 "$stage_dir/bin/ds-identity" || {
+      rm -rf -- "$stage_dir"
+      return 1
+    }
   fi
 
   # --- Compute + persist the source hash + metadata (atomic write) ---
   local source_hash=""
-  source_hash="$(compute_hooks_source_hash \
-    "$real_repo_dir/hooks" \
-    "$real_repo_dir/.codex/config/hooks.json" \
-    "$real_repo_dir/.codex/hooks" \
-    "$real_repo_dir/.gemini/hooks" \
-    "$real_repo_dir/.kimi/hooks")"
+  local -a _sync_source_paths=()
+  while IFS= read -r _sync_source_path; do
+    _sync_source_paths+=("$_sync_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+  source_hash="$(compute_hooks_source_hash ${_sync_source_paths[@]+"${_sync_source_paths[@]}"})"
 
   local snapshotted_at=""
   snapshotted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
 
-  python3 - "$snapshot_dir/.snapshot-meta.json" "$real_repo_dir" "$source_hash" "$snapshotted_at" <<'PYEOF'
+  if ! python3 - "$stage_dir/.snapshot-meta.json" "$real_repo_dir" "$source_hash" "$snapshotted_at" <<'PYEOF'
 import json, sys, os
 path, source_repo_dir, source_hash, snapshotted_at = sys.argv[1:5]
 data = {
@@ -294,6 +544,72 @@ with open(tmp, "w") as f:
     f.write("\n")
 os.replace(tmp, path)
 PYEOF
+  then
+    rm -rf -- "$stage_dir"
+    return 1
+  fi
+
+  # Serialize publishers only. Readers continue through the old immutable
+  # generation while the next tree is staged and while another publisher waits.
+  local publish_lock="$base/.${key}.publish.lock"
+  local attempts=0
+  until mkdir "$publish_lock" 2>/dev/null; do
+    if _hooks_snapshot_reclaim_publish_lock "$publish_lock"; then
+      continue
+    fi
+    attempts=$((attempts + 1))
+    if [[ "$attempts" -ge 500 ]]; then
+      rm -rf -- "$stage_dir"
+      echo "hooks-snapshot: publish lock timeout (previous snapshot preserved)" >&2
+      return 1
+    fi
+    sleep 0.02
+  done
+  printf '%s\n' "$$" > "$publish_lock/pid"
+  ps -p "$$" -o lstart= 2>/dev/null | tr -d '\r' > "$publish_lock/started" || true
+
+  local link_tmp="$base/.${key}.link.$$.$nonce"
+  local publish_ok=false
+  if mv "$stage_dir" "$version_dir" \
+    && ln -s ".versions/$(basename "$version_dir")" "$link_tmp" \
+    && python3 - "$snapshot_dir" "$link_tmp" "$base/.${key}.backup.$$.$nonce" <<'PYEOF'
+import os
+import shutil
+import sys
+
+target, link_tmp, backup = sys.argv[1:4]
+had_target = os.path.lexists(target)
+if had_target and not os.path.islink(target):
+    os.rename(target, backup)
+try:
+    os.replace(link_tmp, target)
+except BaseException:
+    if had_target and os.path.lexists(backup) and not os.path.lexists(target):
+        os.rename(backup, target)
+    raise
+if os.path.lexists(backup):
+    if os.path.isdir(backup) and not os.path.islink(backup):
+        shutil.rmtree(backup)
+    else:
+        os.unlink(backup)
+PYEOF
+  then
+    publish_ok=true
+  fi
+  rm -f -- "$publish_lock/pid"
+  rm -f -- "$publish_lock/started"
+  rmdir "$publish_lock" 2>/dev/null || true
+  if [[ "$publish_ok" != "true" ]]; then
+    rm -f -- "$link_tmp"
+    rm -rf -- "$stage_dir" "$version_dir"
+    echo "hooks-snapshot: staged publication failed (previous snapshot recovered)" >&2
+    return 1
+  fi
+
+  if ! _hooks_snapshot_prune_generations "$versions_dir" "$key" "$snapshot_dir"; then
+    echo "hooks-snapshot: generation pruning failed" >&2
+    return 1
+  fi
 
   AE_HOOKS_SNAPSHOT_DIR="$snapshot_dir"
   export AE_HOOKS_SNAPSHOT_DIR
@@ -311,13 +627,52 @@ remove_hooks_snapshot() {
     return 1
   fi
   local snapshot_dir="$_HOOKS_SNAPSHOT_RESOLVED_DIR"
+  local key=""
+  key="$(basename "$snapshot_dir")"
 
-  if [[ ! -e "$snapshot_dir" ]]; then
+  local storage_paths=""
+  if ! storage_paths="$(_hooks_snapshot_prepare_storage --existing)"; then
     return 1
   fi
+  local base="" versions_dir=""
+  base="${storage_paths%%$'\n'*}"
+  versions_dir="${storage_paths#*$'\n'}"
 
-  rm -rf -- "$snapshot_dir"
-  return 0
+  python3 - "$base" "$versions_dir" "$key" <<'PYEOF'
+import os, shutil, stat, sys
+
+base, versions, key = sys.argv[1:4]
+flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+base_fd = os.open(base, flags)
+versions_fd = os.open(versions, flags)
+removed = False
+try:
+    try:
+        target = os.stat(key, dir_fd=base_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        target = None
+    if target is not None:
+        if stat.S_ISDIR(target.st_mode):
+            shutil.rmtree(key, dir_fd=base_fd)
+        else:
+            os.unlink(key, dir_fd=base_fd)
+        removed = True
+    prefix = key + "."
+    with os.scandir(versions_fd) as entries:
+        names = [entry.name for entry in entries if entry.name.startswith(prefix)]
+    for name in names:
+        if "/" in name or name in (".", ".."):
+            raise RuntimeError("unsafe generation name")
+        target = os.stat(name, dir_fd=versions_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(target.st_mode):
+            raise RuntimeError(f"unsafe generation entry: {name}")
+        shutil.rmtree(name, dir_fd=versions_fd)
+        removed = True
+finally:
+    os.close(versions_fd)
+    os.close(base_fd)
+raise SystemExit(0 if removed else 1)
+PYEOF
 }
 
 # ---------------------------------------------------------------------------

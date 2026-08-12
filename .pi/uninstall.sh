@@ -10,9 +10,9 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PI_HOME="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-SKILL_DST="$PI_HOME/skills/agentic-engineering"
+SKILL_DST="$PI_HOME/skills/dinostack"
 PROMPT_DST="$PI_HOME/prompts"
-EXT_DST="$PI_HOME/extensions/agentic-engineering"
+EXT_DST="$PI_HOME/extensions/dinostack"
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 
 removed=()
@@ -68,7 +68,7 @@ fi
 
 
 if [[ -d "$EXT_DST" ]]; then
-  remove_link_if_ours "$EXT_DST/index.ts" "$REPO_DIR/.pi/extensions/agentic-engineering/index.ts"
+  remove_link_if_ours "$EXT_DST/index.ts" "$REPO_DIR/.pi/extensions/dinostack/index.ts"
   if rmdir "$EXT_DST" 2>/dev/null; then
     removed+=("$EXT_DST")
   else

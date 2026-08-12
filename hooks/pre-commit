@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Purpose: Enforce staged static-analysis, Codex native-skill drift, agentic-engineering
+# Purpose: Enforce staged static-analysis, Codex native-skill drift, dinostack
 #          skill symlink absolutization, and adapter build gates.
 #
 # Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
 #
 # Upstream deps: the staged Git index, project lint/type tools when installed,
-#                scripts/check-codex-skill-sync.sh, scripts/check-symlinks-relative.sh
-#                (run in --staged mode against the staged blob, not the working-tree
-#                copy), and all adapter build scripts.
+#                native-skill and prompt-wrapper generators, their sync check,
+#                scripts/check-symlinks-relative.sh (run in --staged mode against
+#                the staged blob, not the working-tree copy), and all adapter
+#                build scripts.
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
@@ -30,13 +31,16 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 # ---------------------------------------------------------------------------
 
 # Only run when bin/ or hooks/ Python/JS files are staged.
-# Extension-less Python CLIs in bin/ match ^bin/agentic-[a-z-]+$ (e.g. bin/agentic-cost).
+# Extension-less Python CLIs in bin/ match ^bin/ds-[a-z-]+$ (e.g. bin/ds-cost).
+# The ^bin/agentic-[a-z-]+$ alternative covers the permanent compat symlinks
+# (e.g. bin/agentic-cost -> bin/ds-cost) - they resolve to the same content
+# when staged, so linting either path is safe.
 STAGED_PY=()
 while IFS= read -r staged_python; do
   [[ -n "$staged_python" ]] && STAGED_PY+=("$staged_python")
 done < <(
   git diff --cached --name-only \
-    | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' \
+    | grep -E '^(bin/|hooks/).*\.py$|^bin/(agentic|ds)-[a-z-]+$' \
     | grep -v '/tests/' \
     | grep -v '/lib/' \
     || true
@@ -62,14 +66,15 @@ if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v mypy >/dev/null 2>&1; then
     echo "[pre-commit] Running mypy on staged Python files..."
     # PROMINENT: this list must be updated when adding a new extension-less
-    # Python CLI to bin/. Only bin/agentic-* files with a python3 shebang are
-    # eligible (e.g. bin/agentic-emit is bash and must NOT be added).
+    # Python CLI to bin/. Only bin/ds-* files with a python3 shebang are
+    # eligible (e.g. bin/ds-emit is bash and must NOT be added). Lint the
+    # real bin/ds-* content files, not their bin/agentic-* compat symlinks.
     MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-codex-dispatch bin/agentic-codex-session-id
-      bin/agentic-configure bin/agentic-cost bin/agentic-disable
-      bin/agentic-doctor bin/agentic-help bin/agentic-identity bin/agentic-memory
-      bin/agentic-migrate bin/agentic-models bin/agentic-parse-subagent-usage
-      bin/agentic-status bin/agentic-team bin/agentic-update
+      bin/ds-calibrate bin/ds-codex-dispatch bin/ds-codex-session-id
+      bin/ds-configure bin/ds-cost bin/ds-disable
+      bin/ds-doctor bin/ds-help bin/ds-identity bin/ds-memory
+      bin/ds-migrate bin/ds-models bin/ds-parse-subagent-usage
+      bin/ds-status bin/ds-team bin/ds-update
       hooks/enforce-askuserquestion-default.py hooks/enforce-background-spawn.py
       hooks/enforce-no-abdication.py hooks/enforce-orchestrator-singularity.py
     )
@@ -112,12 +117,15 @@ while IFS= read -r staged_path; do
     content/*|\
     scripts/build-methodology.sh|\
     scripts/codex-skills.py|\
+    .codex/lib/prompt-wrappers.py|\
     scripts/check-codex-skill-sync.sh|\
     scripts/test/test_codex_skills.py|\
     .codex/build.sh|\
     .codex/skill-frontmatter/*|\
     .codex/skill-compatibility.yml|\
     .codex/skills/*|\
+    .codex/prompts/*|\
+    .codex/prompt-generation-state/*|\
     .codex/commands/*|\
     .codex/references/*|\
     .codex/hooks/skill-auto-load-check.sh|\
@@ -139,13 +147,15 @@ if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
   }
   trap cleanup_codex_skill_snapshot EXIT
   git checkout-index --all --prefix="$CODEX_SKILL_INDEX_SNAPSHOT/"
+  python3 "$CODEX_SKILL_INDEX_SNAPSHOT/.codex/lib/prompt-wrappers.py" \
+    build --repo "$CODEX_SKILL_INDEX_SNAPSHOT"
   bash "$CODEX_SKILL_INDEX_SNAPSHOT/scripts/check-codex-skill-sync.sh"
   cleanup_codex_skill_snapshot
   trap - EXIT
 fi
 
 # ---------------------------------------------------------------------------
-# Agentic-engineering skill symlink absolutization gate (DS-104/DS-136)
+# dinostack skill symlink absolutization gate (DS-104/DS-136)
 #
 # Runs the STAGED version of scripts/check-symlinks-relative.sh (via `git
 # show :path | bash -s --`) rather than the working-tree copy, so a locally
@@ -163,7 +173,7 @@ fi
 # stdout, which is silenced here on every passing commit. Failures still
 # surface - the checker writes all error/absolutization detail to stderr.
 if ! echo "$CHECK_SYMLINKS_STAGED_SRC" | bash -s -- --staged >/dev/null; then
-  echo "[pre-commit] ERROR: one or more agentic-engineering skill symlinks are staged as absolute paths (expected relative) - commit blocked. Run 'git status' and re-link with a relative target." >&2
+  echo "[pre-commit] ERROR: one or more dinostack skill symlinks are staged as absolute paths (expected relative) - commit blocked. Run 'git status' and re-link with a relative target." >&2
   exit 1
 fi
 
@@ -199,10 +209,13 @@ if git diff --cached --name-only | grep -q "^content/"; then
   # Stage generated files
   git add \
     "$REPO_DIR/.claude/commands/"*.md \
-    "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.claude/skills/dinostack/METHODOLOGY.md" \
+    "$REPO_DIR/.claude/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/skills" \
+    "$REPO_DIR/.codex/prompts" \
+    "$REPO_DIR/.codex/prompt-generation-state" \
     "$REPO_DIR/.codex/skill-compatibility.yml" \
     "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
     "$REPO_DIR/.codex/references/"*.md \
@@ -216,17 +229,17 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.gemini/agents/"*.md \
     "$REPO_DIR/.hermes/SKILL.md" \
     "$REPO_DIR/.kimi/AGENTS.md" \
-    "$REPO_DIR/.kimi/skills/agentic-engineering/sections" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/references" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/rules" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/commands" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/agents" \
+    "$REPO_DIR/.kimi/skills/dinostack/sections" \
+    "$REPO_DIR/.omp/skills/dinostack/references" \
+    "$REPO_DIR/.omp/skills/dinostack/rules" \
+    "$REPO_DIR/.omp/skills/dinostack/commands" \
+    "$REPO_DIR/.omp/skills/dinostack/agents" \
     "$REPO_DIR/.openclaw/skills" \
-    "$REPO_DIR/.opencode/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.opencode/skills/dinostack/METHODOLOGY.md" \
     "$REPO_DIR/.opencode/agents/"*.md \
     "$REPO_DIR/.opencode/commands/"*.md \
-    "$REPO_DIR/.pi/skills/agentic-engineering/METHODOLOGY.md" \
-    "$REPO_DIR/.pi/skills/agentic-engineering/SKILL.md" \
+    "$REPO_DIR/.pi/skills/dinostack/METHODOLOGY.md" \
+    "$REPO_DIR/.pi/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.pi/prompts/"*.md \
     "$REPO_DIR/.github/copilot-instructions.md" \
     "$REPO_DIR/.github/agents/"*.md \

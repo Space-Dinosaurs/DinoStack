@@ -896,7 +896,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Jul 22, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Aug 12, 2026
   <hr class="side-nav-divider">
   <a href="#install"><span class="nav-dot" style="background: var(--cyan);"></span> Install</a>
   <a href="#updating"><span class="nav-dot" style="background: var(--cyan);"></span> Updating</a>
@@ -938,7 +938,7 @@
 <!-- ═══ INSTALL: One command to get started ═══ -->
 <div id="install" class="section config-layer">
   <div class="section-title"><h2>Install</h2><h3>One command. Everything else is optional.</h3></div>
-  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>agentic-update</code>, <code>/ds-update-agentic-engineering</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
+  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>ds-update</code>, <code>/ds-update</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
 
   <div class="code-block">
     <span class="cb-label">one-liner install</span>
@@ -965,7 +965,7 @@
 <!-- ═══ UPDATING: Keep DinoStack current ═══ -->
 <div id="updating" class="section config-layer">
   <div class="section-title"><h2>Updating</h2><h3>Keep DinoStack current with one command.</h3></div>
-  <p class="desc">Run <code>agentic-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>agentic-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
+  <p class="desc">Run <code>ds-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>ds-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
   <table style="width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 16px 0;">
     <thead>
       <tr style="border-bottom: 1px solid var(--border-subtle);">
@@ -977,7 +977,7 @@
     <tbody>
       <tr style="border-bottom: 1px solid var(--border-faint);">
         <td style="padding: 10px 12px; vertical-align: top;">Shell <span style="color: var(--text-muted); font-size: 0.85em;">(recommended)</span></td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-update</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>ds-update</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Default; from any directory, no TTY</td>
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
@@ -997,7 +997,7 @@
       </tr>
       <tr>
         <td style="padding: 10px 12px; vertical-align: top;">Repair drift</td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-doctor --fix</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>ds-doctor --fix</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Fix broken symlinks/hooks (e.g. after moving the repo)</td>
       </tr>
     </tbody>
@@ -1142,7 +1142,7 @@
 
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Turn-shape guard</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether an advisory Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding. Never blocks the stop.</p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156, not uniformly advisory: the structural check on a non-Answer turn's shape can block the stop; the phrasing check on Answer-turn prose remains advisory-only and only logs.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code> (absent key resolves to on)</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>turn_shape_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_TURN_SHAPE_GUARD_DISABLE=1</code></p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn off the turn-shape guard&rdquo;</span></p>
@@ -1160,16 +1160,16 @@
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Guard kill-switches</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Per-session env vars that disable individual enforcement hooks or silence activation output.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AE_WORKTREE_READ_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> in-session - <code>export &lt;VAR&gt;=1</code> before launching</p>
   </div>
 
   <!-- Identity -->
   <div class="rel-card" style="margin-bottom: 16px;">
     <h4>Identity handle</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>agentic-identity auto</code> to derive from GitHub login)</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs. Identity can be global, profile-scoped at <code>&lt;active-config-dir&gt;/identity.yml</code>, or project-scoped at <code>.agentic/identity.yml</code>. Effective identity uses six-tier confirmation-first precedence.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>ds-identity auto</code> to derive from GitHub login)</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ds-identity auto</code> / <code>ds-identity init &lt;handle&gt;</code> / <code>ds-identity confirm</code>; add <code>--scope profile|project</code> for an override and <code>--profile-dir &lt;dir&gt;</code> when profile env detection is unavailable.</p>
   </div>
 
   <!-- Tracker config -->
@@ -1177,12 +1177,12 @@
     <h4>Tracker config overlay</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">A project-local, gitignored <code>.agentic/tracker.yml</code> file, merged field-by-field over the AGENTS.md tracker resolution chain - lets a repo whose tracker can't be declared in a public file still resolve TRACKER at runtime.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any allowlisted key &nbsp; <strong>Default:</strong> absent file = AGENTS.md chain only</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-tracker init --tracker jira --prefix P --base-url U</code> / <code>agentic-tracker resolve --json</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ds-tracker init --tracker jira --prefix P --base-url U</code> / <code>ds-tracker resolve --json</code></p>
   </div>
 
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
-  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
+  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/dinostack</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1197,13 +1197,13 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
-        <p class="desc">The <code>/agentic-engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/DinoStack/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
+        <h4 style="color: var(--cyan);">~/.claude/skills/dinostack/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
+        <p class="desc">The <code>/dinostack</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/DinoStack/.claude/skills/dinostack/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
+    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/dinostack/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/dinostack/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/dinostack/references/</code> (39 .md docs plus 3 example .yml files - skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, frontend-discipline.md, qa-gate.md, learnings-capture-instruction.md, and more)<br>
     <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), OpenClaw (<code>.openclaw/</code>), and VS Code Copilot (<code>.copilot/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -1239,7 +1239,7 @@
   <div class="two-col">
     <div>
       <div class="rel-card">
-        <h4>METHODOLOGY.md <span class="load-badge always">always loaded</span></h4>
+        <h4>METHODOLOGY.md <span class="load-badge on-demand">on demand (skill invocation)</span></h4>
         <ul>
           <li>Delegation model: conductor delegates, never implements</li>
           <li>Risk classification: Low vs Elevated</li>
@@ -1253,7 +1253,7 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4>code-standards.md <span class="load-badge always">always loaded</span></h4>
+        <h4>code-standards.md <span class="load-badge on-demand">on demand (skill invocation)</span></h4>
         <ul>
           <li>Tool discipline (Read primary; Glob/Grep preferred when available, Bash fallback)</li>
           <li>Agent-ergonomic tool selection (token-efficient output, CLI over MCP when cheaper, measure before adopting)</li>
@@ -1265,7 +1265,7 @@
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 10px;">
-        <h4>conventions.md <span class="load-badge always">always loaded</span></h4>
+        <h4>conventions.md <span class="load-badge on-demand">on demand (skill invocation)</span></h4>
         <ul>
           <li>Writing style (no em dashes)</li>
           <li>Project structure convention</li>
@@ -1277,7 +1277,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/agentic-engineering/references/)</h3></div>
+    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/dinostack/references/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -1286,6 +1286,8 @@
       <div class="node node-protocol">regression-test-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">qa-regression-obligation.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">doc-sync-obligation.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">evidence-on-disk.md <span class="load-badge on-demand">on demand</span></div>
+      <div class="node node-protocol">learnings-capture-instruction.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="cross-harness-teams.md" target="_blank" rel="noopener">cross-harness-teams.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="role-model-routing.md" target="_blank" rel="noopener">role-model-routing.md</a> <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol"><a href="skill-candidates.md" target="_blank" rel="noopener">skill-candidates.md</a> <span class="load-badge on-demand">on demand</span></div>
@@ -1301,7 +1303,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section">
-  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/agentic-engineering/references/</h3></div>
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/dinostack/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -1363,6 +1365,7 @@
             <li>Resolved Issues Preflight prevents re-raising fixed items, but Skeptic can contest insufficient resolutions</li>
             <li>Same finding contested 2+ re-routes &rarr; escalate to human (prevents infinite loops)</li>
             <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
+            <li><strong>Prose-scoped re-check</strong> - when every unresolved finding is prose-only (stale module manifest, doc-sync attestation, comment/count wording) with no code/test/behavior change in the fix diff, the next round is narrowed to those prose lines plus a full end-to-end read of the enclosing manifest/section instead of a full fresh adversarial pass; the reviewer (not the engineer) establishes the trigger by diffing the fix commit(s), the conductor names the mode and supplies the <code>sha1..sha2</code> fix range at spawn, and sign-off carries a mandatory <code>Scope:</code> line; any code/test/behavior finding found during it still escalates normally, and severity tiers are unchanged</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -1378,12 +1381,13 @@
           <h4 style="color: #b06bff;">Persistence Loop (inside <code>/ds-implement-ticket</code>)</h4>
           <ul>
             <li><strong>Loop-aware, not one-shot</strong> - <code>/ds-implement-ticket</code> runs Engineer &rarr; Skeptic &rarr; QA as a bounded loop, not a single pass. Re-routes are a named primitive, not ad-hoc conductor judgment.</li>
-            <li><strong>Max 3 fix passes per phase</strong> - Skeptic loop (Phase 6) and QA loop (Phase 6b) each have an independent 3-pass cap. Hitting the cap escalates to the human; the conductor does not spawn a fourth pass.</li>
+            <li><strong>Max 3 fix passes per phase</strong> - Skeptic loop (Phase 6) and QA loop (Phase 6b) each have an independent 3-pass cap; the conductor does not spawn a fourth pass. At the cap, the conductor ships (recording every unresolved non-Critical finding as accepted debt) or escalates to the human - never silent continuation. An unresolved Critical always escalates; the cap never ships a Critical. The round-count cap is mechanically enforced for Skeptic spawns by <code>hooks/enforce-skeptic-round-cap.py</code>, regardless of caller (ad-hoc or Phase 6), whenever the spawn prompt's "Diff under review" line is present and unambiguous - when it is not, the hook fails open with no state written rather than blocking; a known accepted residual is that two different units both expressed as a bare <code>git diff &lt;same-base&gt;..&lt;head&gt;</code> SHA range share one counter. The Critical-never-ships rule inside it is conductor-attested, not independently verified from any Skeptic finding. Inside Phase 6 specifically, the ship branch's own step text is a conductor override requiring operator approval, not yet an automatic path.</li>
             <li><strong>Findings accumulate</strong> - the <code>findings_log</code> carries forward across iterations. A finding closed in iteration 1 cannot be silently re-raised as new in iteration 2; the Skeptic must explicitly contest the claimed fix using a <code>[PREV: id]</code> tag.</li>
             <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
             <li><strong>Durable state</strong> - loop state is written per ticket to <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> at every phase transition (atomic write), superseding the single legacy <code>.agentic/loop-state.json</code>, which is still read and adopted when present. Keying per ticket means two sessions working two different tickets in one checkout each keep their own bookkeeping instead of contending for one file. Long-running loops survive rate limits and session exits: on the next <code>/ds-implement-ticket</code> invocation the conductor detects the interrupted state for that ticket's own key, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
             <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop. During active sessions, the <code>learnings-agent</code> captures learning events in real-time (error→fix cycles, resolved Skeptic findings, discovered workarounds) and writes them immediately to <code>.agentic/learnings.md</code>, reducing reliance on manual <code>/ds-wrap</code>.</li>
+            <li><strong>Knowledge commit on the PR (Phase 11e)</strong> - after the PR is open, <code>/ds-implement-ticket</code> first drains this session's in-flight learning shards (<code>ds-learning-shard rollup</code>, soft-fail), classifies each entry through the guardrail-first capture gate, and forwards the <code>Capture: MUST</code> ones to <code>learnings-agent</code> - then commits any changed <code>MEMORY.md</code>, <code>decisions.md</code>, and <code>.agentic/learnings.md</code> onto the PR branch itself, so a ticket's durable knowledge ships with the work that produced it instead of stranding in the operator's local checkout. Checkout-free and worktree-free (temporary index plus <code>commit-tree</code>, pushed straight to the branch ref); soft-fail throughout; gitignored files are skipped with a visible diagnostic, and a file whose negation is present but defeated by git's own oracle is skipped with a louder <code>ERROR</code> naming the path (<code>ds-migrate verify-commit-path</code>, the exact-path counterpart to <code>ds-migrate check</code>/<code>apply</code>'s manifest-wide sweep). Disable with <code>knowledge_commit_on_pr: false</code> in <code>.agentic/config.json</code>.</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
             <li><strong>Context-size preflight</strong> - at the top of <code>/ds-implement-ticket</code>, before any Phase 1 work, a two-level guard checks session load: if the turn count is at or above the soft limit (15&ndash;20 conductor turns) with substantive tool-call results in context, or a prior subagent result block of substantive size is visible from this session, it prints a warning with the recommended <code>/ds-wrap</code> &rarr; new session &rarr; re-invoke pattern and waits for operator confirmation; above the hard limit, it refuses further implementation and subagent spawns unconditionally. Silent on clean sessions.</li>
             <li><strong>Phase 12b: Operator Runbook</strong> - after all tickets in a session complete, the conductor prints a structured handoff: what PRs landed (&#10003; PR #N &rarr; url), the next copy-pasteable <code>/ds-implement-ticket</code> command (extracted from the most recent triage artifact's Kickoff prompts), and any blockers or deferred items. Soft-fail throughout; skipped when no PR was opened, when Phase 12a already printed a pause summary, or when Phase 12a&rsquo;s goal-met short-circuit already printed a terminal summary.</li>
@@ -1455,10 +1459,10 @@
           <h4 style="color: #b06bff;">Calibration Layer (Section 13)</h4>
           <ul>
             <li>The audit-note Minor is the <strong>per-spawn</strong> rubber-stamp defense. The calibration layer is the <strong>long-horizon</strong> backstop - aggregate drift detection without enlarging the per-spawn review surface.</li>
-            <li><strong>Findings counters in <code>events.jsonl</code></strong> - every Skeptic <code>spawn_complete</code> carries <code>findings_count</code>, <code>diff_lines</code>, <code>signed_off</code>, and <code>iteration</code> inside <code>data</code>. Conductor builds the merged JSON inline; subagents never write to <code>.agentic/</code>.</li>
+            <li><strong>Findings counters in <code>events.jsonl</code></strong> - every Skeptic <strong>conductor-emitted</strong> <code>spawn_complete</code> carries <code>findings_count</code>, <code>diff_lines</code>, <code>signed_off</code>, and <code>iteration</code> inside <code>data</code>. Conductor builds the merged JSON inline; subagents never write to <code>.agentic/</code>. (A separate, deterministic hook-emitted <code>spawn_complete</code> variant also exists as of DS-160 - see the Events Log reference - and does NOT carry these calibration fields.)</li>
             <li><strong>5% sampled meta-Skeptic</strong> - deterministic <code>hash(task_id+iteration) % 100 &lt; 5</code>. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits <code>meta_review_complete</code>.</li>
             <li><strong>Surfacing</strong> - Critical/Major divergence on a sampled spawn surfaces as one inline <code>META-DIVERGENCE:</code> line at the next turn boundary. Original sign-off remains binding; the notice is advisory. Dual triggers: in-session (Phase 6 boundaries) and session-start sweep (catches async returns from prior sessions). The sweep paginates via <code>.meta-divergence-last-sweep</code> timestamp tracker — reads only events newer than the last sweep, capped to 100 lines on first run.</li>
-            <li><strong><code>bin/agentic-calibrate</code></strong> - <code>density</code> (findings per 100 diff-lines, excludes zero-diff rows) and <code>divergence</code> (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.</li>
+            <li><strong><code>bin/ds-calibrate</code></strong> - <code>density</code> (findings per 100 diff-lines, excludes zero-diff rows) and <code>divergence</code> (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.</li>
             <li>Threat model: drift detection in a non-adversarial conductor relationship. Not cheating-prevention - a compromised conductor can mis-emit counts. Target is operator self-deception over time, not adversarial spoofing.</li>
           </ul>
         </div>
@@ -1498,6 +1502,10 @@
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>QA Regression Test Obligation:</strong> The symmetric rule for qa-engineer FAILs. When a fix engineer addresses a QA failure, it adds a unit/integration/e2e test that would have caught the failing scenario; the parallel Skeptic on the QA-fix iteration verifies it exists before sign-off. When a regression test is genuinely infeasible (visual conformance failure with no headless-testable observable, etc.), the engineer appends a curated entry to <code>.agentic/qa-regressions.md</code> so architects re-check the surface on future tickets via <code>qa_criteria.scenarios[]</code>. Canonical statement in <code>qa-regression-obligation.md</code>.
     </div>
+    <div class="rel-card" style="border-color: rgba(24,224,255,0.25); margin-top: 10px;">
+      <h4 style="color: var(--sky);">Front-End / QA Methodology</h4>
+      <p class="desc">The <code>qa_criteria.method</code> enum has 7 values: <code>browser</code>, <code>api</code>, <code>runtime-required</code>, <code>visual_conformance</code>, <code>accessibility</code>, <code>perceptual_diff</code>, and <code>motion</code>. Canonical reference: <code>content/references/frontend-discipline.md</code> - 7 sections (Semantic HTML, ARIA, Keyboard support, Focus management, Reduced motion, Design tokens, Responsive patterns) plus an 8-category FE-discipline findings table in <code>skeptic-protocol.md</code> that auto-applies whenever a diff touches FE files.</p>
+    </div>
   </div>
 
   <hr class="section-divider">
@@ -1506,7 +1514,7 @@
   <div style="margin-bottom: 24px;">
     <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Orchestration Methodology - 13 sections. The outer frame governing delegation.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1553,6 +1561,16 @@
             <li>Softening adversarial briefs</li>
           </ul>
         </div>
+        <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
+          <h4 style="color: #b06bff;">Sections 9-13</h4>
+          <ul>
+            <li><strong>9. Relationship to the Skeptic Protocol</strong> - the two protocols are complementary: this one governs delegation decisions, the Skeptic Protocol governs the inner review loop.</li>
+            <li><strong>10. Input Contract</strong> - the execution contract block (outputs, tool_scope, completion_conditions) an <code>engineer</code> Worker spawn must include on Elevated-risk tasks.</li>
+            <li><strong>11. Output Expectations</strong> - what a Worker returns (final output, round summary, memory update requests), the re-route limit, and side-effect disclosure rules.</li>
+            <li><strong>12. Sync with Related Documents</strong> - this document is canonical; <code>~/.claude/CLAUDE.md</code> and <code>skeptic-protocol.md</code> must be checked for drift when it changes.</li>
+            <li><strong>13. Conductor context budget</strong> - soft limit (~15-20 turns, warn and recommend <code>/ds-wrap</code>) and hard limit (~25-30 turns) for long-running conductor sessions.</li>
+          </ul>
+        </div>
       </div>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
@@ -1573,7 +1591,7 @@
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
           <h4 style="color: #b06bff;">The Team</h4>
-          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only - 11 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, wrap-ticket, and (Bash-heredoc only, no Write/Edit grant, scoped to their own <code>.agentic/audit-reports/</code> report file or, for qa-engineer, <code>/tmp/qa-reports/</code> - deliberately <code>/tmp/</code>, not <code>.agentic/</code>, since qa-engineer always runs isolation: "worktree") adr-drift-detector, dependency-auditor, perf-analyst, and qa-engineer. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1646,7 +1664,7 @@
       <div class="rel-card" style="border-left: 2px solid var(--gold);">
         <h4 style="color: var(--gold);">Implementation Agent</h4>
         <ul>
-          <li><strong>engineer</strong> - the primary agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Writes module manifests on non-trivial files and adds regression tests when fixing Critical/Major findings. Receives the architect's plan, file paths, acceptance criteria, and session context. Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
+          <li><strong>engineer</strong> - the primary agent that writes files. Reads codebase conventions, implements the change, runs quality gates (lint, typecheck, test), and returns a clear summary. Writes module manifests on non-trivial files and adds regression tests when fixing Critical/Major findings. Runs a pre-submit self-check mirroring four of the Skeptic's mechanical checks - new-test CI wiring, cross-file reference consistency after a rename, removal, or reshape, async fire-and-forget error handling, and per-consumer impact table row verification - before the final quality-gate re-run, so these findings are fixed before review rather than caught by it. Receives the architect's plan, file paths, acceptance criteria, session context, and the session's <code>SESSION_KEY</code> (the learnings-shard key, supplied on every spawn - a brief that omits it makes the Worker skip shard capture silently). Can return <code>NEEDS_CONTEXT</code>, <code>BLOCKED</code>, or <code>DONE_WITH_CONCERNS</code> statuses.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 12px; border-left: 2px solid var(--violet);">
@@ -1675,7 +1693,7 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files.</strong> Gold left border = writes files.
+    <strong>Most agents are read-only - 11 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, wrap-ticket, and (Bash-heredoc only, no Write/Edit grant, scoped to their own <code>.agentic/audit-reports/</code> report file or, for qa-engineer, <code>/tmp/qa-reports/</code> - deliberately <code>/tmp/</code>, not <code>.agentic/</code>, since qa-engineer always runs isolation: "worktree") adr-drift-detector, dependency-auditor, perf-analyst, and qa-engineer.</strong> Gold left border = writes files.
   </div>
 </div>
 
@@ -1790,7 +1808,7 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title" data-num="06"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 25 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 26 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1809,6 +1827,7 @@
           <li><strong>/ds-ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/ds-implement-ticket</code> exits before merge. Three modes: single-ticket, <code>--all</code> sweep (also sweeps the tracker itself for tickets shipped outside <code>/ds-implement-ticket</code> - deterministic ID-match may transition, unmatched candidates are report-only), and <code>--pending-merge</code> (ledger-driven, pushes the dev-complete transition once a ticket's PR merges; invoked automatically at session start, throttled, gated by the <code>pending_merge_sweep</code> config toggle); soft-fails on tracker API errors.</li>
           <li><strong>/ds-prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/ds-representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
+          <li><strong>/ds-failure-audit</strong> - conductor-invoked audit that spawns an agent to mine session telemetry (<code>.agentic/events.jsonl</code>, <code>.agentic/session-log/</code>, <code>~/.agentic/session-log/</code>) and categorize failure modes per model/harness with quantified frequency. Agent-driven categorization; never a deterministic classifier.</li>
           <li><strong>/ds-test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
           <li><strong>/ds-brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The conductor auto-invokes it on planning-intent signals ("I want to build...", "thinking about..."); operator-available but normally methodology-triggered.</li>
           <li><strong>/ds-migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
@@ -1817,6 +1836,7 @@
           <li><strong>/ds-memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
           <li><strong>/ds-feedback-triage</strong> - batch triage of the home-dir feedback store (<code>~/.agentic/feedback.jsonl</code>). Reviews the accumulated backlog of tool-friction, process-escalation, guardrail-fire, and operator-correction signals from <code>/ds-wrap</code>, presents them grouped, and creates tracker tickets only for items the operator explicitly approves.</li>
           <li><strong>/ds-ticket-triage</strong> - strategic triage of a ticket list or tracker input. Analyses dependencies and conflicts, distributes work across parallel lanes, and emits a paste-ready game plan. Plan-only: no code edits, no tracker mutations. Includes a story-size preflight: tickets estimated at &ge;5 story points receive a decomposition warning and a <code>context_risk: high</code> flag; tickets &le;4 points proceed silently.</li>
+          <li><strong>/ds-wrap-deferred</strong> - non-interactive, single-pass session enrichment invoked by the deferred-wrap daemon (<code>hooks/wrap-daemon.js</code>) headlessly resuming a cleanly-ended session, not by users directly. Writes good-faith enrichment of the same three targets as <code>/ds-wrap</code> with no prompts and no subagents, then exits.</li>
         </ul>
       </div>
     </div>
@@ -1826,10 +1846,10 @@
         <ul>
           <li><strong>/ds-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
           <li><strong>/ds-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
-          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
+          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>ds-identity auto</code>), tags buffered sessions with the winning <code>identity_scope</code>, then confirms only that scope. Supports global, harness-profile, and per-project scope with six-tier confirmation-first precedence and nofollow identity-file safety.</li>
           <li><strong>/ds-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
           <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
-          <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
+          <li><strong>/ds-config</strong> - interactive command to view and change dinostack settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
           <li><strong>/ds-configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
           <li><strong>/ds-update</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/ds-update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
           <li><strong>/ds-skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
@@ -1906,7 +1926,7 @@
         <div style="font-family: 'Nunito Sans', sans-serif; font-size: 16px; font-weight: 300; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
-    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's AGENTS.md, MEMORY.md, session history, and <code>/ds-wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Session history (conversation transcripts) lives under <code>~/.claude/projects/[slug-of-cwd]/</code>. AGENTS.md, MEMORY.md, <code>.agentic/context.md</code> (a derived rollup, not a direct write), and <code>/ds-wrap</code> outputs (<code>.agentic/_wrap.md</code>, etc.) live directly in the project repo itself, under <code>&lt;cwd&gt;/</code> - keyed just as directly to the working directory. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
       <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.01em;">The command:</div>
       <div class="code-block">
@@ -1922,7 +1942,7 @@
       </div>
     </div>
     <ul>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/ds-wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes each session's shard under the same <code>&lt;cwd&gt;/.agentic/context.d/</code>, recomposed into <code>&lt;cwd&gt;/.agentic/context.md</code>, keyed directly to the project directory rather than to Claude Code's session-history slug. <code>/ds-wrap</code>'s rolling-window merge works because that directory is stable as long as you launch from the same directory.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/ds-init-project</code> -&gt; work -&gt; <code>/ds-wrap</code> feedback loop. Each session reads richer AGENTS.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/ds-wrap</code> on one project does not touch the other's state.</li>
@@ -1988,9 +2008,9 @@
         <h4 style="color: var(--violet);">What it produces (4 outputs)</h4>
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
-          <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
+          <li><strong>MEMORY.md entries (max 3/run)</strong> - stable facts: architecture decisions, conventions, persistent gotchas, written directly to root <code>MEMORY.md</code></li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
-          <li><strong>knowledge-file commit (Part G)</strong> - a pushed <code>chore(knowledge):</code> branch carrying verbatim copies of any changed <code>MEMORY.md</code>, <code>decisions.md</code>, or <code>.agentic/learnings.md</code>, with a ready-to-paste <code>gh pr create</code> line - never opened automatically</li>
+          <li><strong>knowledge-file commit (Part G)</strong> - a pushed <code>chore(knowledge):</code> branch carrying verbatim copies of any changed <code>MEMORY.md</code>, <code>decisions.md</code>, or <code>.agentic/learnings.md</code>, with a ready-to-paste <code>gh pr create</code> line - never opened automatically. Part G skips, per file, anything <code>/ds-implement-ticket</code> Phase 11e already committed onto a ticket PR branch; it still covers ticket sessions where Phase 11e did not run or did not ship (toggle off, no PR opened, push rejected)</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -1999,10 +2019,10 @@
           <li>Compiles session data (files touched, errors, decisions)</li>
           <li>Worker drafts all 3 outputs from raw session data</li>
           <li>Skeptic reviews for accuracy and completeness</li>
-          <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
+          <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for MEMORY.md - draining any pending <code>.agentic/memory.md</code> staging first) - subagents cannot reliably get write permissions</li>
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
           <li>Cleans up stale worktrees as final step - backed by the <code>/ds-cleanup-worktrees</code> skill</li>
-          <li>Commits and pushes any changed knowledge files to a fresh branch (Part G, soft-fail, outside the wrap lock) - closing the gap where conductor-authored MEMORY.md/decisions.md/learnings.md edits previously stranded on the base branch with no shippable commit</li>
+          <li>Commits and pushes any changed knowledge files to a fresh branch (Part G, soft-fail, outside the wrap lock) - closing the gap where conductor-authored MEMORY.md/decisions.md/learnings.md edits previously stranded on the base branch with no shippable commit; for ticket sessions, <code>/ds-implement-ticket</code> Phase 11e commits that knowledge onto the PR branch itself, and Part G skips a file Phase 11e already captured</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -2085,7 +2105,7 @@
       </div>
       <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
         <strong>Protocol fit:</strong>
-        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code> and <code>MEMORY.md</code> so future sessions inherit the outcome without rereading every planning file.
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> then promotes the durable parts of those decisions into <code>AGENTS.md</code> and, capped at 3/run, into <code>MEMORY.md</code>; <code>wrap-ticket</code> and a manual <code>/ds-memory-update</code> remain the other two writers - so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>
@@ -2118,7 +2138,7 @@
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">context.md (session state)</span>
         <span class="flow-arrow">+</span>
-        <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">memory.md (stable facts)</span>
+        <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">MEMORY.md (stable facts)</span>
         <span class="flow-arrow">+</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">AGENTS.md updates</span>
       </div>
@@ -2137,7 +2157,7 @@
     <strong>Separation of concerns:</strong>
     <ul>
       <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
-      <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
+      <li><code>MEMORY.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
       <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
       <li>The Stop hook auto-writes this session's activity shard every turn and recomposes <code>context.md</code> from it; <code>/ds-wrap</code> produces the enriched curated half (<code>_wrap.md</code>) when detail matters.</li>
       <li>Close the session cleanly so the Stop hook can finish writing <code>context.md</code>: in the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state); in the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.</li>
@@ -2250,7 +2270,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/ds-init-project</code> and <code>/ds-wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/ds-init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/ds-init-project</code> and <code>/ds-wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, lowercase <code>memory*.md</code> staging/scratch files, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The uppercase root <code>MEMORY.md</code> is deliberately not listed in the <code>**/memory*.md</code> glob above - that omission is intentional, not an oversight: root <code>MEMORY.md</code> is the canonical, human-reviewed durable-facts store, and the confirm-before-overwrite prompt on it is a guard worth keeping by default. Add <code>Write(**/MEMORY.md)</code> / <code>Edit(**/MEMORY.md)</code> yourself if you want it silenced too. The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/ds-init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>
@@ -2575,7 +2595,7 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
-        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>agentic-engineering</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
+        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>dinostack</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
         <tr><td><strong>Workflow invocation</strong></td><td>Invoke the native workflows with <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code>. Bare <code>/ds-brief</code>, <code>/ds-wrap</code>, and <code>/ds-implement-ticket</code> are not Codex invocation syntax.</td></tr>
         <tr><td><strong>Generation</strong></td><td>The canonical workflow sources are <code>content/commands/ds-brief.md</code>, <code>content/commands/ds-wrap.md</code>, and <code>content/commands/ds-implement-ticket.md</code>. <code>.codex/build.sh</code> runs <code>scripts/codex-skills.py</code> to generate each <code>SKILL.md</code> and <code>RESOURCE-MAP.json</code>, validate relative symlink/resource-map closure, and synchronize the exact allowlist. The read-only check rejects drift.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
@@ -2603,7 +2623,7 @@
         <tr><td><strong>Slash commands</strong></td><td><code>~/.cursor/commands/*.md</code> - slash commands work natively in Cursor</td></tr>
         <tr><td><strong>Agents</strong></td><td>Not available - Cursor has no native sub-agent system</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>.cursor/hooks.json</code> - <code>beforeSubmitPrompt</code> event for the risk-reminder equivalent</td></tr>
-        <tr><td><strong>Stop hook / context save</strong></td><td>Stop hook writes to the Claude Code path (<code>~/.claude/projects/...</code>) - not surfaced in Cursor sessions. Rely on manual <code>context.md</code> maintenance.</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td>Stop hook writes <code>&lt;cwd&gt;/.agentic/context.md</code> via the Claude Code Stop event - not surfaced in Cursor sessions. Rely on manual <code>context.md</code> maintenance.</td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
         <tr><td><strong>Tier resolution</strong></td><td>Inherits the session model - no tier-map lookup</td></tr>
       </tbody>
@@ -2644,9 +2664,9 @@
       <thead><tr><th>Surface</th><th>Kimi equivalent</th></tr></thead>
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>.kimi/AGENTS.md</code> inside the project's <code>.kimi/</code> directory (loaded by Kimi via <code>$KIMI_AGENTS_MD</code>)</td></tr>
-        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/agentic-engineering/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
-        <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/agentic-engineering/SKILL.md</code> - invoke via <code>/skill:agentic-engineering</code> or natural language</td></tr>
-        <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:agentic-engineering &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/dinostack/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/dinostack/SKILL.md</code> - invoke via <code>/skill:dinostack</code> or natural language</td></tr>
+        <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:dinostack &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
         <tr><td><strong>Agents</strong></td><td>Built-in types only: coder, explore, plan. Agent files serve as reference prompts mapped to those types.</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
@@ -2668,7 +2688,7 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.config/opencode/AGENTS.md</code> and/or <code>instructions</code> field in <code>opencode.json</code></td></tr>
-        <tr><td><strong>Skill location</strong></td><td><code>.opencode/skills/agentic-engineering/SKILL.md</code> (project-local) or <code>~/.config/opencode/skills/</code> (global)</td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>.opencode/skills/dinostack/SKILL.md</code> (project-local) or <code>~/.config/opencode/skills/</code> (global)</td></tr>
         <tr><td><strong>Slash commands</strong></td><td><code>~/.config/opencode/commands/*.md</code> - slash commands work natively</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.config/opencode/agents/*.md</code> with <code>mode: subagent</code> and <code>permission:</code> frontmatter</td></tr>
         <tr><td><strong>Hooks</strong></td><td>Not available - OpenCode has no hook system</td></tr>

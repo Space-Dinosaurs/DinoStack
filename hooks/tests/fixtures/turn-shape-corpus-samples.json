@@ -1,0 +1,120 @@
+{
+  "_purpose": "DS-155 round 5 corpus-replay fixture for hooks/tests/test-enforce-turn-shape.py. Structural entry shapes ONLY, sampled from a local Claude Code transcript corpus - no real prompt text, response text, file paths, code, or project names are present anywhere in this file. `message_id` values are opaque relabeled placeholders (m1, m2, ...) that preserve which real entries shared one message.id and which did not - the actual grouping structure, not any literal API-issued identifier. Each sample's 'span' is the sequence of assistant/tool-result entries between a genuine operator question and that question's eventual plain-text answer.",
+  "_measurement": {
+    "corpus_root": "~/.claude/projects (local developer machine, not committed - this fixture is the sanitized extract)",
+    "files_scanned": 3429,
+    "assistant_entries_scanned": 169745,
+    "same_entry_mixed_text_and_tool_use_count": 4,
+    "same_entry_mixed_text_and_tool_use_pct": "0.002%",
+    "pure_text_entry_immediately_followed_by_separate_tool_use_entry_count": 30027,
+    "pure_text_then_tool_use_pairs_sharing_message_id_count": 5479,
+    "pure_text_then_tool_use_pairs_sharing_message_id_pct": "99.98% (of 5,480 sampled adjacent pairs)",
+    "corpus_replay_evaluation_points": "900 files / ~1,622 completed-turn evaluation points (round-4/round-5 comparison run)",
+    "correctness_by_round": {
+      "round_3_same_entry_only": "1,025 / 1,623 correct (63.2%)",
+      "round_4_positional": "1,580 / 1,623 correct (97.4%)",
+      "round_5_message_id_scoped": "1,620 / 1,623 correct (99.8%)"
+    },
+    "round_5_residual_gap": "3 of 1,623 points remain WRONG (all direction: expected stale=True, got False). All 3 share one shape: a pure-text entry and its own later tool_use entry share message.id, but a harness-injected/system bookkeeping line (a system-role entry, or a non-genuine 'user' system-reminder) is interleaved BETWEEN them. This hook's message.id-set match does not require contiguity, so it still treats the pair as one logical message (correctly, in the sense that they ARE the same API response) and exempts the text entry; a stricter oracle that requires unbroken JSONL-line contiguity to group same-id entries would instead treat the text-only prefix as its own separate completed message and correctly flag it as an intervening turn. A contiguity-tracking refinement is a possible further fix (reset message-id tracking on any non-assistant, non-tool_result interruption) but is NOT implemented here - it was not the validated/endorsed fix, and 3/1623 (0.18%) is disclosed as a residual, not rounded to zero.",
+    "shape_classes_covered": {
+      "single_direct": "no tool_use anywhere in the span (a direct answer, 2 samples: A1 one entry, A2 thinking+text)",
+      "own_message_split": "a pure-text entry immediately followed by a SEPARATE tool_use entry sharing the SAME message.id - the round-4 target shape, must stay QUIET (2 samples: B1 one split, B2 two chained splits)",
+      "genuinely_separate": "a genuinely separate, already-completed assistant message (its own message.id, no tool_use in its own group) sits between unrelated tool_use activity under DIFFERENT message.ids - the round-4 Major defect shape, must be flagged ADVISORY (2 samples: C1 modeled on a real corpus span with a lone completed message surrounded by tool_use-only messages; C2 a completed own-message-split immediately followed by a genuinely separate completed message)",
+      "deep_chain": "multiple own-message-split pairs chained across several message.ids before the final answer - stress-tests that message.id scoping does not accidentally leak across chain links (1 sample: D1)"
+    },
+    "note": "Restratified round 5 (was stratified by assistant_entry_count 1-8 in round 4, which under-covered the genuinely_separate shape class that actually discriminates between rounds - only 2 of round 4's 8 count-stratified samples exercised it at all). Every sample below is verified to reproduce the EXPECTED direction against round 3 (1e31bbd9) and round 4 (69ef2e7a) hook sources: round 3 mismatches B1/B2 (never learned the split-entry exemption at all); round 4 mismatches C1 (the positional-only rule over-exempts a genuinely separate completed turn when unrelated tool_use activity happens to be nearby); round 5 matches all 7."
+  },
+  "samples": [
+    {
+      "id": "A1",
+      "shape_class": "single_direct",
+      "expected": "quiet",
+      "span": [
+        {"role": "assistant", "block_types": ["text"], "message_id": "m1"}
+      ]
+    },
+    {
+      "id": "A2",
+      "shape_class": "single_direct",
+      "expected": "quiet",
+      "span": [
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m1"}
+      ]
+    },
+    {
+      "id": "B1",
+      "shape_class": "own_message_split",
+      "expected": "quiet",
+      "span": [
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m2"}
+      ]
+    },
+    {
+      "id": "B2",
+      "shape_class": "own_message_split",
+      "expected": "quiet",
+      "span": [
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m2"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m3"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m3"}
+      ]
+    },
+    {
+      "id": "C1",
+      "shape_class": "genuinely_separate",
+      "expected": "advisory",
+      "span": [
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m3"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m3"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m4"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m4"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m5"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m5"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m6"}
+      ]
+    },
+    {
+      "id": "C2",
+      "shape_class": "genuinely_separate",
+      "expected": "advisory",
+      "span": [
+        {"role": "assistant", "block_types": ["text"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m3"}
+      ]
+    },
+    {
+      "id": "D1",
+      "shape_class": "deep_chain",
+      "expected": "quiet",
+      "span": [
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m1"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m1"},
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["tool_use"], "message_id": "m2"},
+        {"role": "user", "block_types": ["tool_result"], "message_id": "m2"},
+        {"role": "assistant", "block_types": ["thinking"], "message_id": "m3"},
+        {"role": "assistant", "block_types": ["text"], "message_id": "m3"}
+      ]
+    }
+  ]
+}

@@ -22,10 +22,13 @@
 #                live repo tree with only HOME faked: that installer calls
 #                install_precommit_hook (writes <repo>/.git/hooks/pre-commit)
 #                and runs .claude/build.sh + .cursor/build.sh (regenerates
-#                adapter build artifacts in the live tree). These three
-#                effects are outside the faked HOME and land on the real
-#                checkout; empirically idempotent, but Test 2 is NOT
-#                read-only. Test 1/3 are read-only.
+#                adapter build artifacts in the live tree). The pre-commit
+#                hook effect is guarded via
+#                bin/tests/lib/precommit-hook-guard.sh (save once at top,
+#                restore via the EXIT/INT/TERM traps); the build-artifact
+#                effect is outside the faked HOME and lands on the real
+#                checkout, empirically idempotent. Test 2 is NOT read-only.
+#                Test 1/3 are read-only.
 #
 # Performance: ~3 s wall time on a developer machine (one real install.sh run).
 #
@@ -45,6 +48,16 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN_DIR="$REPO_DIR/bin"
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+# Test 2 below runs the REAL .claude/install.sh against this live repo tree
+# with only $HOME faked. install_precommit_hook resolves the git hooks dir
+# via `git -C REPO_DIR rev-parse --git-path hooks`, independent of $HOME, so
+# that run writes/repoints this repo's REAL .git/hooks/pre-commit. Save the
+# real hook's state ONCE, before Test 2's install.sh call, and restore it
+# via the EXIT/INT/TERM traps.
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
 
 PASS=0
 FAIL=0
@@ -105,8 +118,10 @@ FAKE_HOME=""
 _cleanup() {
   [[ -n "$FIXTURE_PATH" && -f "$FIXTURE_PATH" ]] && rm -f "$FIXTURE_PATH"
   [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]] && rm -rf "$FAKE_HOME"
+  precommit_hook_guard_restore
 }
 trap _cleanup EXIT
+trap '_cleanup; exit 130' INT TERM
 
 cat > "$FIXTURE_PATH" <<'EOF'
 #!/usr/bin/env bash

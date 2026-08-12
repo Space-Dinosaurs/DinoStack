@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: CLI wrapper around scripts/lib/base-branch-sync.sh. Fast-forwards
+#          the LOCAL <base-branch> ref in <repo> to match origin/<base-branch>.
+#          Never merges, rebases, force-pushes, or autostashes.
+#
+# Public API:
+#   ds-base-sync <repo> <base-branch>
+#     Prints a breadcrumb line (and possibly WARNING/NOTE diagnostic lines) to
+#     stdout. Exit codes are NORMALIZED by this wrapper - git's own native
+#     exit codes are never passed through:
+#       0  synced           - status=ff-pulled or status=ff-updated-ref
+#       1  diverged          - status=diverged
+#       2  skipped-dirty      - status=skipped-dirty
+#       3  usage/repo-resolution/argument error
+#       4  inconclusive       - status=fetch-failed, status=refused-unknown,
+#                               or status=ref-locked-elsewhere
+#     Advisory note (DS-54, non-blocking, never affects the exit code
+#     above): after the sync attempt, unconditionally runs
+#     hooks/lib/hooks-staleness-core.sh from the OPERATOR'S OWN DinoStack
+#     checkout (resolved independently of <repo> - a merge in ANY project
+#     should surface staleness in the operator's own AE install) and prints
+#     its one-line finding, if any, prefixed "ds-base-sync: ". This is the
+#     one guaranteed post-merge trigger point (called unconditionally at
+#     /ds-implement-ticket Phase 12), closing the "a merged hook fix stays
+#     dormant until an adapter install.sh runs" gap for operators who never
+#     think to run ds-doctor. Read-only: never calls sync_hooks_snapshot -
+#     the DS-54 invariant forbids a passive/automatic trigger from
+#     auto-rewiring a live session's hooks; only an explicit `--fix` (ds-doctor)
+#     or an adapter install.sh run may do that.
+#     Second advisory note (worktree-reaper automatic trigger): after the
+#     hooks-staleness note above, unconditionally runs
+#     `bin/ds-reap-worktrees --repo <repo> --count-only` against <repo>
+#     ITSELF (not the operator's DinoStack checkout - this one is
+#     project-scoped, since the worktrees accumulating are <repo>'s own) and,
+#     when the non-root worktree count is nonzero, prints a one-line note
+#     prefixed "ds-base-sync: ". This is the same "one guaranteed post-merge
+#     trigger point" rationale as the hooks-staleness note - the reaper's own
+#     automatic session-start nudge (hooks/session-start-wrap.sh) only fires
+#     at a brand-new session's first tool call, never mid-session or at merge
+#     time, so this closes the same class of dogfooding gap for worktree
+#     accumulation that DS-54 closed for hooks staleness. ADVISORY ONLY:
+#     `--count-only` never removes anything and never touches the network in
+#     any way - actual removal remains operator-invoked
+#     (`/ds-cleanup-worktrees` or a bare `ds-reap-worktrees` with no
+#     --dry-run). round-2 Skeptic Major 4/5 correction: the FIRST-round
+#     implementation used `--dry-run --no-gh`, which still performed full
+#     per-entry evaluation including one `git ls-remote` round-trip per
+#     worktree - measured 14.94s against this repo's live 38-worktree
+#     checkout on 2026-08-11 (this section previously, and wrongly, claimed
+#     "typically sub-second"). `--count-only` needs nothing beyond a count,
+#     so it does a SINGLE `git worktree list --porcelain` call and nothing
+#     else - measured 55ms against the same checkout at 37 worktrees on
+#     2026-08-11 via `time python3 bin/ds-reap-worktrees --repo <repo>
+#     --count-only`. Matches the DS-54 note's own "silent when there is
+#     nothing to report" contract: suppressed whenever the non-root count
+#     (parsed `entries=N` minus 1, from ds-reap-worktrees' own summary line)
+#     is 0 - a repo with no non-root worktrees has nothing actionable to
+#     surface here.
+#
+# Upstream deps: scripts/lib/base-branch-sync.sh, bash, git,
+#                hooks/lib/hooks-staleness-core.sh (advisory note only;
+#                missing/failing is silently skipped, never fatal),
+#                bin/ds-reap-worktrees (advisory note only; missing/failing
+#                is silently skipped, never fatal).
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
+#                       (repo-relative invocation), content/rules/
+#                       conventions.md Conductor preflight step 6 (PATH
+#                       invocation).
+#
+# Failure modes:
+#   - Exits 3 with stderr usage message if arg count != 2.
+#   - Exits 3 with stderr message if <repo> is not a directory.
+#   - Exits 3 with stderr message if <repo> is not a valid git repository.
+#   - Exits 3 with stderr message if scripts/lib/base-branch-sync.sh is not
+#     found relative to this script.
+#   - See scripts/lib/base-branch-sync.sh for the full status/exit-code
+#     classification (5 distinct statuses across exit codes 0/1/2/4).
+#   - The hooks-staleness advisory note never affects the exit code: a
+#     missing hooks-staleness-core.sh, or any error running it, is silently
+#     swallowed (stderr redirected, `|| true`).
+#   - The worktree-reaper advisory note likewise never affects the exit
+#     code: a missing bin/ds-reap-worktrees, or any error running it
+#     (including a non-git <repo> or a repo with zero worktree entries), is
+#     silently swallowed (stderr redirected, `|| true`).
+#
+# Performance: standard - see scripts/lib/base-branch-sync.sh. The staleness
+#              note adds one bash subprocess, sub-50ms on a warm cache (see
+#              hooks-staleness-core.sh's own perf note). The worktree-reaper
+#              note adds one python3 subprocess doing a SINGLE `git worktree
+#              list --porcelain` call and nothing else (`--count-only`, no
+#              network, no per-entry git calls) - measured 55ms against this
+#              repo's live 37-worktree checkout on 2026-08-11; see the
+#              Public API comment block above for the pre-fix figure this
+#              replaces.
+# ---------------------------------------------------------------------------
+
+set -u
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: ds-base-sync <repo> <base-branch>" >&2
+  exit 3
+fi
+
+if [ ! -d "$1" ]; then
+  echo "ds-base-sync: not a directory: $1" >&2
+  exit 3
+fi
+
+REPO_DIR="$(cd "$1" 2>/dev/null && pwd -P)"
+if [ -z "$REPO_DIR" ]; then
+  echo "ds-base-sync: cannot resolve path: $1" >&2
+  exit 3
+fi
+
+if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "ds-base-sync: not a git repository: $REPO_DIR" >&2
+  exit 3
+fi
+
+# Resolve BASH_SOURCE[0] through any symlink chain before computing
+# SCRIPT_DIR. This tool is installed on PATH as a symlink
+# (~/.local/bin/ds-base-sync -> $REPO_DIR/bin/ds-base-sync, see
+# .claude/install.sh ae_install_bins()), so when invoked by name (call site
+# 2, content/rules/conventions.md step 6), BASH_SOURCE[0] is the SYMLINK
+# path - dirname of that resolves to ~/.local/bin, not $REPO_DIR/bin, and
+# LIB_DIR resolves to a nonexistent path. Pure-bash loop, not `readlink -f`
+# (GNU-only, absent on macOS/BSD).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd -P)"
+  SOURCE="$(readlink "$SOURCE")"
+  # A relative symlink target is relative to the symlink's own directory.
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$DIR/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" 2>/dev/null && pwd -P)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../scripts/lib" 2>/dev/null && pwd -P)"
+
+if [ ! -f "$LIB_DIR/base-branch-sync.sh" ]; then
+  echo "ds-base-sync: base-branch-sync.sh not found at $LIB_DIR/base-branch-sync.sh" >&2
+  exit 3
+fi
+
+# shellcheck source=../scripts/lib/base-branch-sync.sh
+. "$LIB_DIR/base-branch-sync.sh"
+
+ae_base_branch_sync "$REPO_DIR" "$2"
+_ds_base_sync_status=$?
+
+# --- DS-54 advisory: hooks-snapshot staleness note (non-blocking) ---
+# Runs unconditionally after every ds-base-sync invocation regardless of
+# <repo>/<base-branch> or the sync status above - this is the one guaranteed
+# post-merge trigger point (called unconditionally at /ds-implement-ticket
+# Phase 12), independent of which project's repo was just synced. The
+# operator's own DinoStack checkout is resolved by
+# hooks-staleness-core.sh itself (via scripts/lib/repo-dir.sh), NOT from
+# $REPO_DIR - a merge in ANY consumer project should surface staleness in
+# the operator's own AE install, not just when syncing DinoStack's own repo.
+# Read-only: hooks-staleness-core.sh never touches the filesystem beyond
+# reads (see its own header), so this cannot violate the DS-54 invariant -
+# it only ever prints a note, never calls sync_hooks_snapshot itself.
+_ds_hooks_staleness_core="$SCRIPT_DIR/../hooks/lib/hooks-staleness-core.sh"
+if [ -f "$_ds_hooks_staleness_core" ]; then
+  _ds_staleness_note="$(bash "$_ds_hooks_staleness_core" 2>/dev/null || true)"
+  if [ -n "$_ds_staleness_note" ]; then
+    echo "ds-base-sync: $_ds_staleness_note"
+  fi
+fi
+
+# --- Worktree-reaper advisory: automatic --count-only report (non-blocking) ---
+# Scoped to <repo> ITSELF (the project whose base branch was just synced),
+# unlike the hooks-staleness note above which is scoped to the operator's
+# own DinoStack checkout. Always --count-only (round-2 Skeptic Major 4):
+# zero network calls, zero per-entry `git` calls beyond the single
+# `git worktree list --porcelain` --count-only itself needs - this call
+# site only ever needed a COUNT, and v1's `--dry-run --no-gh` full-mode
+# invocation measured 14.94s against the live checkout because --no-gh
+# suppressed `gh` but NOT `git ls-remote`, one network round-trip per
+# entry. Never removes anything and never shells out to gh or the network
+# in any mode. See the Public API comment block above for the full
+# rationale.
+_ds_reap_worktrees="$SCRIPT_DIR/ds-reap-worktrees"
+if [ -f "$_ds_reap_worktrees" ]; then
+  # `--count-only` prints exactly one line: "ds-reap-worktrees: mode=count-only
+  # entries=N" (N includes the main worktree). Matches the DS-54 hooks-
+  # staleness note's own "silent when there is nothing to report" contract:
+  # suppressed when the non-root count (N-1) is 0 - a bare main-worktree
+  # repo has nothing actionable to surface here.
+  _ds_reap_note="$(python3 "$_ds_reap_worktrees" --repo "$REPO_DIR" --count-only 2>/dev/null || true)"
+  if [[ "$_ds_reap_note" =~ entries=([0-9]+) ]]; then
+    _ds_reap_total="${BASH_REMATCH[1]}"
+    _ds_reap_nonroot=$((_ds_reap_total - 1))
+    if [ "$_ds_reap_nonroot" -gt 0 ]; then
+      echo "ds-base-sync: ${_ds_reap_nonroot} non-root git worktree(s) in $REPO_DIR - consider \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees --explain\` for a dry-run report)."
+    fi
+  fi
+fi
+
+exit "$_ds_base_sync_status"

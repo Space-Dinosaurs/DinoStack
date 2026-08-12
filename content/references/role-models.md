@@ -1,6 +1,6 @@
 <!--
 Purpose: Defines the Pi / oh-my-pi role-model routing layer for mapping
-         agentic-engineering roles and adversarial reviewers to concrete
+         dinostack roles and adversarial reviewers to concrete
          model strings.
 
 Public API: Read-only reference. Load when authoring `role-models.yml` or
@@ -14,7 +14,7 @@ Downstream consumers: content/sections/04-risk-classification.md (inline pointer
                       content/agents/skeptic.md;
                       content/agents/security-auditor.md;
                       content/commands/ds-init-project.md;
-                      bin/agentic-status.
+                      bin/ds-status.
 
 Failure modes: Prose + YAML schema; not auto-executed. Mis-set author-model
                tracking is the common error path: reviewer diversity depends
@@ -36,7 +36,7 @@ This layer is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. 
 
 If neither file exists when a Pi/omp spawn happens, the conductor omits the `model` field and Pi uses its session default. There are NO hardcoded model IDs anywhere in the repo or adapters.
 
-The file is **gitignored** under the `.agentic/` umbrella because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
+The file is **gitignored** - matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
 
 ## Schema
 
@@ -79,7 +79,7 @@ reviewers:
 
 Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Any role absent from the map means the conductor omits `model` for that spawn and Pi uses its session default. `conductor` is advisory: it applies only if the harness supports re-rooting the main agent; otherwise it is ignored because the main session model is already running.
 
-`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/agentic-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
+`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/ds-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
 
 `reviewers:` controls adversarial-reviewer model diversity for `skeptic` and `security-auditor` spawns. Reviewer entries accept the same scalar-or-mapping form as `roles:`. When a reviewer entry is a mapping, the `model:` key is the candidate the strategy picks from; `effort:` and `reasoning:` are carried through to the chosen reviewer verbatim.
 
