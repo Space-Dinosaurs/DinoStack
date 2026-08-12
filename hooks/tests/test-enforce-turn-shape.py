@@ -967,7 +967,7 @@ check("s10. forced-yield turn (2 Waiting: lines, sole warrant) -> QUIET, volume 
 # forced-yield turn (5 Waiting: lines, well over the OLD per-warrant
 # STOPPAGE budget of 3, and over the current flat BASE_BODY_BUDGET too if
 # each line charged) must stay QUIET -
-# conductor-turn-format.md:31 states the Waiting: count is "unbounded, not
+# conductor-turn-format.md:64 states the Waiting: count is "unbounded, not
 # re-capped at 1-3". Under the charge model this is now satisfied
 # STRUCTURALLY (amendment A1): stoppage is the sole warrant here, so every
 # well-formed Waiting: line charges 0 regardless of count, rather than via

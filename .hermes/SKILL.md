@@ -136,7 +136,7 @@ Consult the sources in order. Stop at the first source that yields a default. A 
 3. Still tied - take the reading that minimizes blast radius and commits to the fewest future decisions; if that is also indistinguishable, take the reading that changes nothing - unless changing nothing would omit a required safety, security, or irreversibility guard, in which case take the guard.
 4. Act, state the resolution in one line, and record the conflict as an intent-layer defect (capture trigger 6 - `content/references/conductor-operating-rules.md` §learnings-agent; recording satisfies the trigger, any doc fix is a follow-up).
 
-An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session.
+An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session. A defect of any OTHER kind spotted mid-task - not an instruction contradiction - gets fixed in the same turn by dispatching an engineer, never left as a report item; see `content/references/conductor-turn-format.md` §Self-discovered defects for the rule and its three exemptions.
 
 If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
 
@@ -2144,7 +2144,7 @@ The conductor's default output is noise. Every operator turn read is attention s
 
 > "Guard operator attention. Surface decisions and work-stoppages, not status."
 
-Two mechanisms enforce this: a warrant-bound shape for any turn that IS written (Rule A, §4), and an emission gate that decides whether a turn should be written at all (Rule B, §2). Neither rule replaces judgment - both are the mechanical form of the same North Star sentence.
+Two mechanisms enforce this mechanically: a warrant-bound shape for any turn that IS written (Rule A, §4), and an emission gate that decides whether a turn should be written at all (Rule B, §2). A third axis governs a defect spotted mid-task, before either question is reached - see Self-discovered defects, below - and is deliberately prose-only, not mechanized; its own disposition statement explains why. Neither Rule A nor Rule B replaces judgment - both are the mechanical form of the same North Star sentence.
 
 **DS-156 note.** An earlier version of Rule A added a structured block to every turn without removing the surrounding prose - structure was added, nothing was subtracted, and the net effect was a *bigger* turn to read, the exact regression pillar 1 forbids. §4 below fixes this by binding shape to which warrant fired: an execution turn (Decision/Stoppage/Completion, no Answer) is the structured block and nothing else; an Answer turn is prose and nothing else. The two shapes never mix except at the very end, where `## Operator decisions` may still close either one.
 
@@ -2162,6 +2162,33 @@ Everything else - agent spawned, agent returned, phase advanced, unit merged, CI
 ## Scope filter
 
 A conductor turn reports on **this session's work only**. Do not mention other concurrent sessions, other tickets, or unrelated in-flight work - the operator is tracking those elsewhere and a cross-session mention adds cost without adding a decision. Do not include rationale unless a decision surfaced in the *same* turn depends on it; rationale for past decisions belongs in the PR body, the plan artifact, or a memory file (see §5, bullet 3).
+
+## Self-discovered defects
+
+This is a THIRD axis, distinct from both mechanisms in §1: Rule A governs the shape of a turn that gets written, Rule B governs whether a turn gets written at all, and this rule governs what happens to a defect you notice yourself mid-task, before either question is reached. A defect you discover while doing the work is not a report item - it is work, under normal risk classification, in the same turn.
+
+**"Fix it" means dispatching it to an engineer, not editing it in the conductor's own turn.** The conductor never edits shippable artifacts directly, including Trivial one-line changes - that floor covers a small self-discovered defect, it does not exempt one (`content/rules/conventions.md` §Git Workflow, and the delegation floor referenced throughout this methodology). "In the same turn" means: spawn the Worker now, instead of naming the issue and moving on - not that the conductor makes the edit itself.
+
+Proportionality ("too small to be worth a cycle") is not a valid reason to defer. If the fix is small enough to describe, it is small enough to dispatch - describing it costs the operator more attention than spawning the fix costs you. A follow-up ticket, or any other handoff that leaves the defect unresolved for later (a PR comment, "noted in #N", a mention to circle back to), is the same defect with extra steps when the fix is dispatchable right now.
+
+The only legitimate reasons to leave an issue unfixed are the ones that already stop work elsewhere in this methodology: it is genuinely out of scope for the task at hand, it requires an operator decision, or it is structurally blocked. Name which one. **When in doubt, dispatch the fix** - proportionality is not a fourth exemption, and the default is to act, not to name the issue and leave it. "Easy to lose track of" is not one of the three.
+
+**This rule is deliberately prose-only and unmechanized**, the same disposition §5 gives relevance bans 1, 3, 4, and 6: no mechanical check can tell a genuinely out-of-scope defect from a deferred one, or confirm that "dispatched to an engineer" actually happened, without re-running the delegation floor's own judgment call. Enforcement here is review, not a hook.
+
+**Forbidden turn-ending shape: naming a spotted issue you chose not to fix, absent one of those three reasons.**
+
+```
+REJECTED: "One loose end I deliberately left: X isn't listed in the manifest.
+Genuinely minor, but it's the kind of thing that's easy to lose track of
+once the session closes."
+```
+
+**CORRECT behavior:** dispatch the fix to an engineer in the same turn. When the turn reporting it is itself an execution turn (§4), fold the resolution into a status slot rather than adding narrative prose beside it - the same idiom §10's residual-false-positive list uses for a `Waiting:` line ("fold the reason into the line itself"):
+
+```
+DS-123 · fix/foo · [phase: skeptic-review]
+State: added X to the manifest
+```
 
 ## Warrant-bound shape (Rule A)
 

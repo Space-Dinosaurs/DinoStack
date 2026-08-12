@@ -1172,6 +1172,16 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
+      "expected_target": "content/references/conductor-turn-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
+      "kind": "operational",
+      "occurrence_hash": "94f0324092211dfd81ddbab0ddf603012a8bedbd1f65febdaae83df49cad002f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conductor-turn-format.md"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
