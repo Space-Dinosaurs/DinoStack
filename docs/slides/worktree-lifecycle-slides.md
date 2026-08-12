@@ -367,6 +367,8 @@ Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a rea
 
 `bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-reap-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
 
+- Only two dispositions qualify - `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` - an explicit whitelist, never the whole `SKIP_UNPROVEN` bucket: `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set
+- Refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it can't tell a genuinely-unprovable branch from one behind an open PR
 - `git bundle create` captures the FULL branch, then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
 - Removes the WORKTREE only, never the branch - `bin/ds-branch-prune` still owns branch deletion
 - Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"`

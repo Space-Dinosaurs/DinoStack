@@ -42,7 +42,7 @@
 #                  optional - a missing/unresolvable binary just yields an
 #                  empty message piece via the `command -v ds-defer` fallback),
 #                bin/ds-reap-worktrees (worktree-count query for the nudge,
-#                  invoked --dry-run --no-gh; optional - a missing/
+#                  invoked --count-only; optional - a missing/
 #                  unresolvable binary just yields an empty message piece via
 #                  the `command -v ds-reap-worktrees` fallback), python3
 #                  (bin/ds-reap-worktrees is a Python CLI).

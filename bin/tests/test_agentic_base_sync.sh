@@ -558,6 +558,34 @@ EOF
   _assert_not_contains "case17: advisory note ABSENT (snapshot already current)" "$OUT" "ds-base-sync:"
 }
 
+echo "=== Case 18 (round-6): worktree-reaper --count-only advisory note ACTUALLY EMITS when the synced repo has a non-root worktree ==="
+# Case 17 above passes vacuously for the worktree-advisory leg specifically:
+# its fixture repo has zero non-root worktrees, so _ds_reap_nonroot is
+# always 0 and the note branch is never exercised - nothing in the
+# existing suite actually drives a nonzero non-root count through
+# bin/ds-reap-worktrees --count-only and asserts the note text. This case
+# closes that gap by adding one extra worktree to $C/repo before syncing.
+{
+  C="$TMP_ROOT/case18"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance18"
+  git -C "$C/repo" worktree add -q "$C/repo/wt-extra" -b worktree-case18-extra >/dev/null
+
+  # ds-base-sync resolves REPO_DIR via `pwd -P` (symlink-resolved), so the
+  # path in its printed note can differ from the literal $C/repo (e.g. a
+  # /var -> /private/var symlink on macOS) - match against the SAME
+  # resolved path, not the literal one.
+  RESOLVED_REPO="$(cd "$C/repo" && pwd -P)"
+
+  OUT="$("$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case18: exit 0" "0" "$RC"
+  _assert_contains "case18: breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_contains "case18: worktree-reaper advisory note present with correct non-root count" "$OUT" \
+    "ds-base-sync: 1 non-root git worktree(s) in $RESOLVED_REPO - consider \`/ds-cleanup-worktrees\`"
+
+  git -C "$C/repo" worktree remove "$C/repo/wt-extra" 2>/dev/null || true
+}
+
 echo "=== Locale robustness note (Finding N2 / LC_ALL=C) ==="
 echo "Not independently reproducible as a test case on this git build: Apple"
 echo "Git 2.39.5 ships no locale catalogs, so a translated-message failure"

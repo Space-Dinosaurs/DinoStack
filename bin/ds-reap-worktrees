@@ -102,24 +102,34 @@ Gate order, first match wins, ALL must clear for REMOVE:
 the only path to `REMOVE`. Every other outcome is reported, never a
 force-delete on an inconclusive read.
 
-Telemetry salvage (round-4 requirement, non-`--dry-run` only): immediately
-before `git worktree remove` runs for an entry, `<path>/.agentic/
-events.jsonl` (if present and non-empty) is copied into `<repo>/.agentic/
-reaped-telemetry/<branch>-<timestamp>.jsonl` and the copy is VERIFIED to
-have actually landed non-empty - `ds-cost`/retro read this data, so
-it must survive the worktree's own deletion even though it does not block
-removal on its own. ANY salvage failure (unreadable source, uncreatable
-destination directory, copy error, or failed post-copy verification)
-reclassifies that entry to `SKIP_PROTECTED_CONTENT` and skips the remove
-entirely for it - a failed salvage must never become a silent deletion of
-the data it was trying to preserve. `--dry-run` skips salvage entirely
-(nothing is copied) but still reports how many files WOULD be salvaged.
+Telemetry salvage (round-4 requirement, non-`--dry-run` only; round-6
+correction: applies identically on BOTH removal paths): immediately
+before `git worktree remove` runs for an entry - whether via the plain
+REMOVE loop or via `--archive-unproven`'s archive-then-remove loop -
+`<path>/.agentic/events.jsonl` (if present and non-empty) is copied into
+`<repo>/.agentic/reaped-telemetry/<branch>-<timestamp>.jsonl` and the copy
+is VERIFIED to have actually landed non-empty - `ds-cost`/retro read this
+data, so it must survive the worktree's own deletion even though it does
+not block removal on its own. Both loops call the SAME `_salvage_and_remove`
+function for this sequence, so they cannot diverge on this guarantee again
+(round-5 shipped the archive loop calling `git worktree remove` directly,
+bypassing salvage entirely - fixed in round 6). ANY salvage failure
+(unreadable source, uncreatable destination directory, copy error, or
+failed post-copy verification) blocks the remove entirely for that entry -
+a failed salvage must never become a silent deletion of the data it was
+trying to preserve. On the plain REMOVE loop this reclassifies the entry to
+`SKIP_PROTECTED_CONTENT`; on the archive loop the entry stays
+`SKIP_UNPROVEN` (its already-created, already-verified bundle is left in
+place - a failed salvage does not undo a successful archive, it only
+withholds the removal). `--dry-run` skips salvage entirely (nothing is
+copied) but still reports how many files WOULD be salvaged.
 `.agentic/reaped-telemetry/` needs no new `.gitignore` carve-out: the
 repo's existing `/.agentic/*`-style umbrella already covers any new
 top-level entry under `.agentic/`.
 
 Archiving unproven branches (round-5 requirement, `--archive-unproven`,
-OPT-IN, NEVER the default): round 4's `SKIP_UNPROVEN` verdict on a
+OPT-IN, NEVER the default; round-6 correction to the eligible set and to
+degraded-mode handling): round 4's `SKIP_UNPROVEN` verdict on a
 never-pushed branch with real commits is correct and this tool does not
 weaken it - nothing about the predicate above changes. The gap is that
 nothing ever RESOLVES that class on its own, which is why worktrees
@@ -127,27 +137,55 @@ accumulate indefinitely even after every other gate is passing. This repo
 already solved the identical problem for BRANCHES (`bin/ds-branch-prune`
 archived 75 unprovable branches into one verified bundle before deleting
 them, DS-153/`.agentic/branch-archive/`) - `--archive-unproven` extends
-that exact pattern to WORKTREES. When passed, for every entry that is
-still `SKIP_UNPROVEN` after every other gate above (clean, unlocked, past
-the age floor, not self, not protected-content - i.e. the ONLY thing
-blocking it is unprovable branch evidence): (1) `git bundle create
-<repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle <branch>`
-captures the FULL branch, not just its tip; (2) the bundle is VERIFIED
-with `git bundle verify` BEFORE any removal - a create failure, a
+that exact pattern to WORKTREES, but only to a narrow, EXPLICIT whitelist
+within `SKIP_UNPROVEN`, not the whole bucket. Round 5 shipped a filter on
+the `SKIP_UNPROVEN` outcome bucket alone, which silently swept in
+`SKIP_PR_OPEN` (a hard safety override - an OPEN PR is not "unresolved
+branch content", it is affirmative evidence the branch is still live work)
+and `SKIP_LS_REMOTE_ERROR` (a transient network failure, not proof of
+anything) - the "branch content itself is the ONLY unresolved question"
+claim this paragraph used to make was therefore false as written. Round 6
+fixes this: `--archive-unproven` archives ONLY entries whose underlying
+disposition (preserved in the entry's own `reason` field, and visible via
+`--explain`) is exactly `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR` -
+`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`, an explicit named whitelist so a new
+disposition added to `worktree_model.py` later is excluded by default,
+never swept in automatically. `SKIP_PR_OPEN` and `SKIP_LS_REMOTE_ERROR`
+(and any other `SKIP_UNPROVEN`-bucketed disposition not on the whitelist)
+are NEVER archived, unconditionally, even with the flag set. Separately,
+`--no-gh` (or `gh` simply being unavailable/unauthenticated) degrades
+EVERY entry's PR-state leg to inconclusive, which would otherwise make
+`SKIP_PR_OPEN` entries indistinguishable from genuinely-unprovable ones -
+`--archive-unproven` therefore REFUSES to run at all (prints an error to
+stderr and exits 1, doing no work) whenever gh evidence is unavailable or
+degraded; it never silently downgrades to a more permissive archive pass.
+For every entry that clears the whitelist (already clean, unlocked, past
+the age floor, not self, not protected-content, past the gh-evidence
+refusal check - i.e. the ONLY thing blocking it is exactly one of the two
+whitelisted unprovable-branch-evidence dispositions): (1) `git bundle
+create <repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle
+<branch>` captures the FULL branch, not just its tip; (2) the bundle is
+VERIFIED with `git bundle verify` BEFORE any removal - a create failure, a
 missing/empty bundle, or a failed verification leaves the entry
 `SKIP_UNPROVEN`, reported, worktree untouched (same discipline as the
 telemetry-salvage guard above: a failed archive must never become a
-silent deletion of the only copy of unproven work); (3) only then is the
-worktree removed, reclassified to `ARCHIVED_AND_REMOVED` (its own
-reported bucket, `archived-and-removed=N`, keeping the bucket-sum-
-equals-entries invariant intact) and the exact restore command
-(`git fetch <bundle> "refs/heads/<branch>:refs/heads/<branch>"` - braced,
-per this repo's own documented zsh-mangling gotcha) is printed. This tool
-NEVER deletes the branch itself, only the worktree - reclaiming the
-archived branch's own local ref remains `bin/ds-branch-prune`'s job, same
-as it already is for every other path in this tool. `--dry-run` creates
-no bundle but reports the would-be count. `.agentic/worktree-archive/`
-needs no new `.gitignore` carve-out (same umbrella as
+silent deletion of the only copy of unproven work); (3) telemetry is then
+salvaged (see "Telemetry salvage" below - this loop runs the identical
+`_salvage_and_remove` sequence the plain REMOVE loop runs, never a second
+copy of it) and, only once salvage clears, the worktree is removed,
+reclassified to `ARCHIVED_AND_REMOVED` (its own reported bucket,
+`archived-and-removed=N`, keeping the bucket-sum-equals-entries invariant
+intact) and the exact restore command (`git fetch <bundle>
+"refs/heads/<branch>:refs/heads/<branch>"` - braced, per this repo's own
+documented zsh-mangling gotcha) is printed. A salvage failure at step (3)
+leaves the bundle from step (1)/(2) in place (already verified, already
+safe) but does NOT remove the worktree - the entry stays `SKIP_UNPROVEN`,
+reported. This tool NEVER deletes the branch itself, only the worktree -
+reclaiming the archived branch's own local ref remains
+`bin/ds-branch-prune`'s job, same as it already is for every other path in
+this tool. `--dry-run` creates no bundle but reports the would-be count
+(computed against the SAME whitelist). `.agentic/worktree-archive/` needs
+no new `.gitignore` carve-out (same umbrella as
 `.agentic/reaped-telemetry/`) and grows unbounded - pruning it is the
 operator's own responsibility, exactly like `.agentic/branch-archive/`.
 
@@ -204,16 +242,28 @@ Public API (CLI):
                           blocks removal exactly like round 2, unchanged.
   --archive-unproven      OPT-IN, NEVER the default (see "Archiving
                           unproven branches" above for the full mechanism
-                          and rationale). For every entry that is
-                          `SKIP_UNPROVEN` and nothing else - the branch
-                          content itself is the ONLY unresolved question -
-                          archives the full branch into a verified `git
-                          bundle` under `.agentic/worktree-archive/`
-                          before removing the worktree. Removes WORKTREES
+                          and rationale). For every entry whose underlying
+                          disposition is exactly `SKIP_NOT_PUSHED` or
+                          `SKIP_AMBIGUOUS_NO_PR` (the explicit whitelist -
+                          NEVER `SKIP_PR_OPEN`, NEVER
+                          `SKIP_LS_REMOTE_ERROR`, and never any other
+                          `SKIP_UNPROVEN`-bucketed disposition, even
+                          though `--explain` reports all of them under the
+                          same `SKIP_UNPROVEN` outcome) - archives the full
+                          branch into a verified `git bundle` under
+                          `.agentic/worktree-archive/`, salvages telemetry,
+                          then removes the worktree. Removes WORKTREES
                           ONLY, never branches (`bin/ds-branch-prune`
                           remains responsible for branch deletion). A
-                          failed bundle create/verify never removes
-                          anything - the entry stays `SKIP_UNPROVEN`.
+                          failed bundle create/verify, or a failed
+                          telemetry salvage, never removes anything - the
+                          entry stays `SKIP_UNPROVEN`. REFUSES to run
+                          (prints an error, exits 1, does no work) when gh
+                          evidence is unavailable or degraded
+                          (`--no-gh`, or `gh` missing/unauthenticated/
+                          erroring) - archiving without PR evidence could
+                          not reliably distinguish a genuinely-unprovable
+                          branch from one behind an open PR.
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -409,6 +459,29 @@ _IGNORED_ALLOWLIST_DIR_NAMES = (
     "coverage",
 )
 _IGNORED_ALLOWLIST_PATTERNS = (".DS_Store", "*.log")
+
+#: Round-6 correction (Skeptic Major 2): the EXPLICIT whitelist of
+#: `Disposition` values `--archive-unproven` is permitted to archive. Named
+#: and closed by construction - a disposition NOT on this set is excluded
+#: by default, including any added to `worktree_model.py` later. Round 5's
+#: bug was filtering on the `SKIP_UNPROVEN` outcome bucket alone (see
+#: `evaluate_entry`), which silently swept in `SKIP_PR_OPEN` (a hard safety
+#: override - an OPEN PR is affirmative evidence of live work, never
+#: "unresolved branch content") and `SKIP_LS_REMOTE_ERROR` (a transient
+#: network failure, not proof of anything). Only these two dispositions
+#: mean "the branch content itself is the ONLY unresolved question":
+#: `SKIP_NOT_PUSHED` (branch never reached origin at all) and
+#: `SKIP_AMBIGUOUS_NO_PR` (every evidence source was inconclusive - no PR,
+#: no merge evidence, no subsumption proof). See the module docstring's
+#: "Archiving unproven branches" section for the full rationale, including
+#: why `--archive-unproven` additionally refuses to run in degraded gh
+#: mode rather than relying on this whitelist alone.
+_ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
+    {
+        Disposition.SKIP_NOT_PUSHED.value,
+        Disposition.SKIP_AMBIGUOUS_NO_PR.value,
+    }
+)
 
 
 # --------------------------------------------------------------------------
@@ -669,6 +742,41 @@ def _salvage_telemetry(repo: str, worktree_path: str, branch: Optional[str]) -> 
     return True, f"salvaged to {dest}"
 
 
+def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) -> Dict:
+    """Round-6 requirement (Skeptic Major 1): the SINGLE salvage-then-remove
+    sequence both the plain REMOVE loop and the `--archive-unproven`
+    archive loop call - round 5 shipped the archive loop calling
+    `git worktree remove` directly, bypassing `_salvage_telemetry`
+    entirely, so an unproven worktree holding real telemetry was silently
+    destroyed with `salvaged=0`. Factoring this into one function makes
+    that divergence structurally impossible: neither loop may call
+    `git worktree remove` on a REMOVE/ARCHIVED_AND_REMOVED-bound entry
+    except through here.
+
+    Returns a dict with keys:
+      `salvage_failed` - True when `_salvage_telemetry` returned `ok=False`.
+                          `removed` and `salvaged` are both False/irrelevant
+                          when this is True - `git worktree remove` is
+                          NEVER invoked when salvage fails (same guard
+                          `_salvage_telemetry`'s own docstring requires).
+      `salvaged`        - True when telemetry was actually copied (not
+                          merely "nothing to salvage").
+      `removed`         - True when `git worktree remove` succeeded.
+      `detail`          - the salvage failure detail (when `salvage_failed`)
+                          or the `git worktree remove` stderr (when
+                          `not removed`), else "".
+    """
+    salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
+    if not salvage_ok:
+        return {"salvage_failed": True, "salvaged": False, "removed": False, "detail": salvage_detail}
+
+    salvaged = salvage_detail.startswith("salvaged to ")
+    proc = _run(["git", "-C", repo, "worktree", "remove", worktree_path])
+    if proc.returncode == 0:
+        return {"salvage_failed": False, "salvaged": salvaged, "removed": True, "detail": ""}
+    return {"salvage_failed": False, "salvaged": salvaged, "removed": False, "detail": proc.stderr.strip()}
+
+
 def _restore_command(bundle_path: str, branch: str) -> str:
     """The exact restore command for a bundle archived by
     `_archive_branch_bundle` below. Per this repo's own documented
@@ -875,6 +983,7 @@ _ALL_OUTCOMES = (
     "SKIP_DIRTY",
     "SKIP_PROTECTED_CONTENT",
     "SKIP_UNPROVEN",
+    "SKIP_REMOVE_FAILED",
     "ARCHIVED_AND_REMOVED",
     "REMOVE",
 )
@@ -912,14 +1021,35 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ds-reap-worktrees: mode=count-only entries={len(entries)}")
         return 0
 
+    # Round-6 (Skeptic Major 2): `--archive-unproven` REFUSES to run at all
+    # in degraded gh mode - a real `gh_ok`/`degraded` computed here, ahead
+    # of the (rare) empty-entries branch below, so the refusal check and
+    # every other consumer of `degraded` share the SAME evidence, never a
+    # second independent `_gh_available` call that could disagree with it.
+    # `--count-only` above already returned before this point, so this
+    # computation still costs zero network calls in that mode.
+    gh_ok = _gh_available(repo, args.no_gh)
+    allow_network = not args.no_gh
+    degraded = not gh_ok
+
+    if args.archive_unproven and degraded:
+        print(
+            "ds-reap-worktrees: --archive-unproven requires PR evidence (gh) and refuses to "
+            "run in degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - "
+            "archiving without PR evidence cannot reliably distinguish a genuinely-unprovable "
+            "branch from one behind an open PR. Re-run with `gh` authenticated and without "
+            "--no-gh, or omit --archive-unproven.",
+            file=sys.stderr,
+        )
+        return 1
+
     if not entries:
         # Practically unreachable against a real git repo (`git worktree
         # list --porcelain` always emits at least the main worktree), but
         # the mode string is still composed from the SAME dry-run/degraded
         # axes as the populated-entries path below, not hardcoded "live".
-        empty_degraded = not _gh_available(repo, args.no_gh)
         empty_mode_parts = []
-        if empty_degraded:
+        if degraded:
             empty_mode_parts.append("degraded (gh unavailable)")
         if args.dry_run:
             empty_mode_parts.append("dry-run")
@@ -930,10 +1060,6 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"{empty_fields} pruned-admin=0 salvaged=0"
         )
         return 0
-
-    gh_ok = _gh_available(repo, args.no_gh)
-    allow_network = not args.no_gh
-    degraded = not gh_ok
 
     results = []
     for idx, entry in enumerate(entries):
@@ -948,15 +1074,20 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
         )
 
-    # Bucket-sum-equals-entries invariant (round-2 Minor a): every result
-    # must land in exactly one of _ALL_OUTCOMES - fail loudly (internal
-    # error) rather than silently under/over-counting the summary line.
+    # Bucket-membership invariant (round-2 Minor a, round-6 correction):
+    # every result must land in exactly one of _ALL_OUTCOMES - fail loudly
+    # (internal error) rather than silently under/over-counting the summary
+    # line. The old `sum(outcome_counts.values()) == len(results)` assert
+    # below this comment was TAUTOLOGICAL - `Counter(r["outcome"] for r in
+    # results)` sums to `len(results)` by construction regardless of what
+    # the outcome strings actually are, so it could never fail; the
+    # `unknown_outcomes` check above it is the only real guard here and is
+    # kept alone.
     outcome_counts = Counter(r["outcome"] for r in results)
     unknown_outcomes = set(outcome_counts) - set(_ALL_OUTCOMES)
     if unknown_outcomes:
         print(f"ds-reap-worktrees: internal error: unrecognized outcome(s) {sorted(unknown_outcomes)}", file=sys.stderr)
         return 1
-    assert sum(outcome_counts.values()) == len(results), "bucket sum must equal entries"
 
     remove_results = [r for r in results if r["outcome"] == "REMOVE"]
 
@@ -966,37 +1097,47 @@ def main(argv: Optional[List[str]] = None) -> int:
     if not args.dry_run:
         for r in remove_results:
             path = r["path"]
-            # Round-4 requirement: salvage BEFORE remove, and a failed
-            # salvage must NEVER become a silent deletion - reclassify to
-            # SKIP_PROTECTED_CONTENT and skip the remove entirely.
-            salvage_ok, salvage_detail = _salvage_telemetry(repo, path, r.get("branch"))
-            if not salvage_ok:
+            # Round-4 requirement, round-6 refactor (Skeptic Major 1): the
+            # salvage-then-remove sequence now lives in ONE function,
+            # `_salvage_and_remove`, shared with the --archive-unproven
+            # loop below - see that function's docstring for why (round 5
+            # shipped the archive loop bypassing salvage entirely by
+            # calling `git worktree remove` directly).
+            outcome = _salvage_and_remove(repo, path, r.get("branch"))
+            if outcome["salvage_failed"]:
                 print(
                     f"WARNING: telemetry salvage failed for {path} (branch={r.get('branch')}): "
-                    f"{salvage_detail} - worktree NOT removed",
+                    f"{outcome['detail']} - worktree NOT removed",
                     file=sys.stderr,
                 )
                 r["outcome"] = "SKIP_PROTECTED_CONTENT"
-                r["offenders"] = [f"salvage-failed: {salvage_detail}"]
+                r["offenders"] = [f"salvage-failed: {outcome['detail']}"]
                 continue
-            if salvage_detail.startswith("salvaged to "):
+            if outcome["salvaged"]:
                 salvaged += 1
-            proc = _run(["git", "-C", repo, "worktree", "remove", path])
-            if proc.returncode == 0:
+            if outcome["removed"]:
                 removed += 1
                 print(f"REMOVED {path} (branch={r['branch']}, reason={r['reason']})")
             else:
+                # Round-6 Minor b: a failed `git worktree remove` used to
+                # leave this entry's outcome as "REMOVE" - a bucket that is
+                # deliberately EXCLUDED from the printed field_str (see
+                # `_ALL_OUTCOMES`/field_str below), so a real removal
+                # failure was invisible in the summary line and only
+                # visible via the stderr WARNING. Reclassify to the
+                # dedicated, VISIBLE `SKIP_REMOVE_FAILED` bucket instead.
                 print(
-                    f"WARNING: failed to remove {path} (git worktree remove exit "
-                    f"{proc.returncode}): {proc.stderr.strip()}",
+                    f"WARNING: failed to remove {path} (git worktree remove failed): "
+                    f"{outcome['detail']}",
                     file=sys.stderr,
                 )
-        # A salvage failure above may have downgraded a REMOVE entry to
-        # SKIP_PROTECTED_CONTENT after `outcome_counts` was first computed -
-        # recompute so the summary line reflects the FINAL state, never a
-        # stale pre-salvage snapshot. Every value this loop can assign
-        # (SKIP_PROTECTED_CONTENT) is already a member of _ALL_OUTCOMES, so
-        # no further unknown-outcome check is needed.
+                r["outcome"] = "SKIP_REMOVE_FAILED"
+        # A salvage or remove failure above may have reclassified a REMOVE
+        # entry to SKIP_PROTECTED_CONTENT or SKIP_REMOVE_FAILED after
+        # `outcome_counts` was first computed - recompute so the summary
+        # line reflects the FINAL state, never a stale pre-loop snapshot.
+        # Every value this loop can assign is already a member of
+        # _ALL_OUTCOMES, so no further unknown-outcome check is needed.
         outcome_counts = Counter(r["outcome"] for r in results)
     else:
         removed = len(remove_results)
@@ -1004,17 +1145,31 @@ def main(argv: Optional[List[str]] = None) -> int:
         # WOULD be salvaged if this were a live run (round-4 requirement).
         salvage_would = sum(1 for r in remove_results if _worktree_has_salvageable_telemetry(r["path"]))
 
-    # --archive-unproven (round-5, OPT-IN, never the default): for every
-    # entry that is still SKIP_UNPROVEN at this point - which, by
-    # evaluate_entry's own gate order, already passed self/age/dirty/
-    # locked/protected-content and only failed the branch-evidence gate -
-    # archive the FULL branch into a verified git bundle, and only THEN
-    # remove the worktree. A bundle-create or bundle-verify failure never
-    # removes anything; the entry stays SKIP_UNPROVEN, reported.
+    # --archive-unproven (round-5, OPT-IN, never the default; round-6
+    # correction - Skeptic Major 2): for every entry that is still
+    # SKIP_UNPROVEN AND whose underlying disposition (preserved in `reason`
+    # by evaluate_entry) is on the EXPLICIT `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`
+    # whitelist - never the whole SKIP_UNPROVEN bucket, which also holds
+    # `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a
+    # transient failure), neither of which this flag may ever archive - by
+    # evaluate_entry's own gate order, a whitelisted entry already passed
+    # self/age/dirty/locked/protected-content and only failed the
+    # branch-evidence gate: archive the FULL branch into a verified git
+    # bundle, THEN salvage telemetry, and only THEN remove the worktree
+    # (via the SAME `_salvage_and_remove` the plain REMOVE loop above uses -
+    # round 5 called `git worktree remove` directly here, bypassing salvage
+    # entirely). A bundle-create/verify failure, or a telemetry-salvage
+    # failure, never removes anything; the entry stays SKIP_UNPROVEN,
+    # reported (a salvage failure after a successful archive leaves the
+    # already-verified bundle in place - it is not undone).
     archived_and_removed = 0
     archive_would = 0
     if args.archive_unproven:
-        unproven_results = [r for r in results if r["outcome"] == "SKIP_UNPROVEN"]
+        unproven_results = [
+            r
+            for r in results
+            if r["outcome"] == "SKIP_UNPROVEN" and r.get("reason") in _ARCHIVABLE_UNPROVEN_DISPOSITIONS
+        ]
         if not args.dry_run:
             for r in unproven_results:
                 path = r["path"]
@@ -1031,8 +1186,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                         file=sys.stderr,
                     )
                     continue
-                proc = _run(["git", "-C", repo, "worktree", "remove", path])
-                if proc.returncode == 0:
+                outcome = _salvage_and_remove(repo, path, branch)
+                if outcome["salvage_failed"]:
+                    print(
+                        f"WARNING: telemetry salvage failed for {path} (branch={branch}) after "
+                        f"successful archive (bundle={bundle_path}): {outcome['detail']} - "
+                        "worktree NOT removed",
+                        file=sys.stderr,
+                    )
+                    continue
+                if outcome["salvaged"]:
+                    salvaged += 1
+                if outcome["removed"]:
                     archived_and_removed += 1
                     r["outcome"] = "ARCHIVED_AND_REMOVED"
                     r["reason"] = f"archived to {bundle_path}"
@@ -1043,13 +1208,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 else:
                     print(
                         f"WARNING: failed to remove {path} after successful archive "
-                        f"(branch={branch}, bundle={bundle_path}): {proc.stderr.strip()}",
+                        f"(branch={branch}, bundle={bundle_path}): {outcome['detail']}",
                         file=sys.stderr,
                     )
+                    r["outcome"] = "SKIP_REMOVE_FAILED"
             # Recompute for the same reason the salvage loop above does -
             # an archive success may have reclassified a SKIP_UNPROVEN
-            # entry to ARCHIVED_AND_REMOVED, already a member of
-            # _ALL_OUTCOMES.
+            # entry to ARCHIVED_AND_REMOVED or SKIP_REMOVE_FAILED, both
+            # already members of _ALL_OUTCOMES.
             outcome_counts = Counter(r["outcome"] for r in results)
         else:
             # --dry-run: create nothing, report the would-be count only.

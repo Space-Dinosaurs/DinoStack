@@ -21,9 +21,14 @@ Public API: none (test module; invoked via `python3 -m pytest`).
 
 Upstream deps: bin/ds-reap-worktrees (module under test, invoked as a
                subprocess CLI); real `git` CLI (subprocess, incl.
-               `git worktree add/lock/prune`); no `gh` invocation in any
-               scenario here - every scenario runs with `--no-gh` so
-               these tests never depend on network or `gh` auth state.
+               `git worktree add/lock/prune`). No REAL `gh` invocation in
+               any scenario - every scenario either runs with `--no-gh`
+               (no network/auth dependency at all) or, for the
+               `--archive-unproven` scenarios that now require gh evidence
+               to run (round 6), against a `_fake_gh_dir`-generated stub
+               `gh` executable prepended onto PATH (a tiny bash script
+               answering `gh auth status`/`gh pr view` locally) - never
+               real `gh` binary, network, or auth state.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
                       per `.github/workflows/bin-tests.yml`).
@@ -120,7 +125,14 @@ def run_reap(
     min_age_hours: str = "0",
     extra=None,
     cwd: Path = None,
+    gh_dir: Path = None,
 ):
+    """`gh_dir`, when given, is prepended onto PATH (round-6: `gh_dir` is
+    normally the output of `_fake_gh_dir` below) so `_gh_available()`
+    resolves a real, present, authenticated `gh` without any actual
+    network/API dependency - required for any `--archive-unproven`
+    scenario now that it refuses to run in degraded gh mode (Skeptic
+    Major 2)."""
     cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--base", base, "--explain"]
     if dry_run:
         cmd.append("--dry-run")
@@ -130,7 +142,32 @@ def run_reap(
         cmd += ["--min-age-hours", min_age_hours]
     if extra:
         cmd += extra
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
+    env = None
+    if gh_dir is not None:
+        env = dict(os.environ)
+        env["PATH"] = f"{gh_dir}{os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None, env=env)
+
+
+def _fake_gh_dir(tmp_path: Path, *, pr_state: str = "") -> Path:
+    """Round-6: a directory containing a stub `gh` executable answering
+    `gh auth status` with success and `gh pr view <branch> --json state
+    -q .state` with `pr_state` (empty stdout = no PR found, matching a real
+    `gh pr view` on a branch with no PR). Zero real network/API dependency -
+    used only by scenarios that need `--archive-unproven` to actually run,
+    since it now refuses in degraded gh mode (see `--archive-unproven`
+    requires PR evidence)."""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    gh = bin_dir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi\n'
+        f'if [ "$1" = "pr" ] && [ "$2" = "view" ]; then echo "{pr_state}"; exit 0; fi\n'
+        "exit 1\n"
+    )
+    gh.chmod(0o755)
+    return bin_dir
 
 
 def outcomes(stdout: str) -> dict:
@@ -1006,7 +1043,9 @@ def test_archive_unproven_success_archives_and_removes(tmp_path):
     branch = "worktree-agent-archive-ok"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-ok", branch)
 
-    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
@@ -1027,6 +1066,150 @@ def test_archive_unproven_success_archives_and_removes(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 20b. (round-6, Skeptic Major 1) The --archive-unproven path runs the SAME
+#      telemetry-salvage-then-remove sequence the plain REMOVE loop runs -
+#      round 5 shipped the archive loop calling `git worktree remove`
+#      directly, bypassing `_salvage_telemetry` entirely, so an unproven
+#      worktree's own .agentic/events.jsonl was silently destroyed
+#      (measured `archived-and-removed=1 salvaged=0`, no reaped-telemetry/
+#      file written). This is the direct regression test for that defect,
+#      confirmed to fail against the pre-fix code (see the fix summary for
+#      the exact mutation-test observation).
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_salvages_telemetry_before_removal(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-archive-salvage"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-salvage", branch)
+    (wt / ".agentic").mkdir()
+    payload = '{"event": "session-end", "tokens": 42}\n'
+    (wt / ".agentic" / "events.jsonl").write_text(payload)
+
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert str(wt) not in worktree_paths(repo)
+
+    salvage_dir = repo / ".agentic" / "reaped-telemetry"
+    salvaged_files = sorted(salvage_dir.glob(f"{branch}-*.jsonl"))
+    assert len(salvaged_files) == 1, (
+        f"expected exactly one salvaged telemetry file from the archive path, found {salvaged_files} - "
+        "the archive loop must run the same salvage-then-remove sequence the plain REMOVE loop runs"
+    )
+    assert salvaged_files[0].stat().st_size > 0
+    assert salvaged_files[0].read_text() == payload
+    assert "salvaged=1" in summary_line(proc.stdout)
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
+
+
+def test_archive_unproven_salvage_failure_blocks_removal(tmp_path):
+    """(round-6, Skeptic Major 1) The archive path's salvage failure must
+    block removal exactly like the plain REMOVE loop's own salvage-failure
+    guard - the entry stays SKIP_UNPROVEN, the already-verified bundle from
+    the successful archive step is left in place (not undone), and the
+    worktree is never removed."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".agentic/*\n")
+    branch = "worktree-agent-archive-salvage-fail"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-salvage-fail", branch)
+    (wt / ".agentic").mkdir()
+    (wt / ".agentic" / "events.jsonl").write_text('{"event": "will-not-survive-a-bug"}\n')
+
+    # Pre-create the archive directory (so `git bundle create` still
+    # succeeds - `mkdir(parents=True, exist_ok=True)` on an already-existing
+    # directory needs no write permission on its parent), THEN lock down
+    # the primary repo's own .agentic/ so the LATER
+    # reaped-telemetry/ mkdir (which does not yet exist) fails - isolating
+    # the failure to salvage specifically, after a successful archive.
+    primary_agentic = repo / ".agentic"
+    (primary_agentic / "worktree-archive").mkdir(parents=True, exist_ok=True)
+    os.chmod(primary_agentic, 0o555)
+    try:
+        proc = run_reap(
+            repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+        )
+        assert proc.returncode == 0, proc.stderr
+        result = outcomes(proc.stdout)
+        assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_NOT_PUSHED)", result[str(wt)]
+        assert str(wt) in worktree_paths(repo), "a failed archive-path salvage must NEVER become a silent deletion"
+        assert "WARNING: telemetry salvage failed" in proc.stderr
+        assert "worktree NOT removed" in proc.stderr
+    finally:
+        os.chmod(primary_agentic, 0o755)
+
+
+# --------------------------------------------------------------------------
+# 20c. (round-6, Skeptic Major 2) --archive-unproven must NEVER archive an
+#      entry behind an OPEN PR, even with the flag set - round 5 filtered
+#      on the whole SKIP_UNPROVEN outcome bucket, which silently swept in
+#      SKIP_PR_OPEN (a hard safety override, not "unresolved branch
+#      content"). This is the direct regression test, confirmed to fail
+#      against a mutated whitelist that includes SKIP_PR_OPEN (see the fix
+#      summary for the exact mutation-test observation).
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_never_archives_open_pr_entry(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-open-pr"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-open-pr", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path, pr_state="OPEN"),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)", result[str(wt)]
+    assert str(wt) in worktree_paths(repo), (
+        "an entry behind an OPEN PR must NEVER be archived, even with --archive-unproven set"
+    )
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert "archived-and-removed=0" in summary_line(proc.stdout)
+
+
+# --------------------------------------------------------------------------
+# 20d. (round-6, Skeptic Major 2) --archive-unproven refuses to run at all
+#      in degraded gh mode (--no-gh, or gh genuinely unavailable) - without
+#      PR evidence it cannot distinguish a genuinely-unprovable branch from
+#      one behind an open PR, so `--archive-unproven --no-gh` must not
+#      silently downgrade to a MORE permissive archive pass than a full
+#      run. Exercised in both live and --dry-run mode; the refusal is
+#      unconditional on dry-run.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_refuses_in_degraded_gh_mode(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-degraded", "worktree-agent-degraded")
+
+    proc = run_reap(repo, dry_run=False, no_gh=True, extra=["--archive-unproven"])
+    assert proc.returncode == 1
+    assert "--archive-unproven requires PR evidence" in proc.stderr
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+
+
+def test_archive_unproven_refuses_in_degraded_gh_mode_even_under_dry_run(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-degraded-dry", "worktree-agent-degraded-dry")
+
+    proc = run_reap(repo, dry_run=True, no_gh=True, extra=["--archive-unproven"])
+    assert proc.returncode == 1
+    assert "--archive-unproven requires PR evidence" in proc.stderr
+
+
+# --------------------------------------------------------------------------
 # 21. (round-5) --dry-run creates NO bundle and removes nothing, but
 #     reports the would-be count.
 # --------------------------------------------------------------------------
@@ -1037,10 +1220,18 @@ def test_archive_unproven_dry_run_creates_no_bundle(tmp_path):
     branch = "worktree-agent-archive-dry"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-dry", branch)
 
-    proc = run_reap(repo, dry_run=True, extra=["--archive-unproven"])
+    proc = run_reap(
+        repo, dry_run=True, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
-    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+    # With real (faked) gh AND network both enabled (no --no-gh), ls-remote
+    # against the local origin resolves this never-pushed branch as
+    # SKIP_NOT_PUSHED rather than the --no-gh-degraded SKIP_AMBIGUOUS_NO_PR
+    # this same scenario reports elsewhere in this file - both are on the
+    # --archive-unproven whitelist, so this is a reason-string difference
+    # only, not a behavior change.
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_NOT_PUSHED)"
     assert str(wt) in worktree_paths(repo)
     assert not (repo / ".agentic" / "worktree-archive").exists()
     assert "archived-and-removed=0" in summary_line(proc.stdout)
@@ -1060,7 +1251,9 @@ def test_archive_unproven_bucket_sum_still_reconciles(tmp_path):
     dirty_wt = add_worktree(repo, ".claude/worktrees/agent-sum-c", "worktree-agent-sum-c", push=False)
     (dirty_wt / "uncommitted.txt").write_text("dirty\n")
 
-    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
     assert proc.returncode == 0, proc.stderr
     line = summary_line(proc.stdout)
     counts = bucket_counts(line)
@@ -1132,10 +1325,14 @@ def test_archive_directory_uncreatable_blocks_removal_end_to_end(tmp_path):
     primary_agentic.mkdir(exist_ok=True)
     os.chmod(primary_agentic, 0o555)
     try:
-        proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+        proc = run_reap(
+            repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+        )
         assert proc.returncode == 0, proc.stderr
         result = outcomes(proc.stdout)
-        assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+        # Real (faked) gh + real network enabled here (see the dry-run bundle
+        # test's comment above for why this differs from the --no-gh reason).
+        assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_NOT_PUSHED)"
         assert str(wt) in worktree_paths(repo), "a failed archive must NEVER become a silent deletion"
         assert "WARNING: archive failed" in proc.stderr
         assert "worktree NOT removed" in proc.stderr
@@ -1158,7 +1355,9 @@ def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-restore-e2e", branch)
     original_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
 
-    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
     assert proc.returncode == 0, proc.stderr
     result = outcomes(proc.stdout)
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")

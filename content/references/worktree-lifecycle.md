@@ -42,15 +42,15 @@ Downstream consumers: conductor preflight (session-start prune script and
                       /ds-cleanup-worktrees command (and its executable
                       predicate implementation, bin/ds-reap-worktrees);
                       /ds-implement-ticket lifecycle cleanup (Phase 8's
-                      hardened locked-unlock-retry-then-ledger cleanup
-                      block); every /ds-implement-ticket fix-pass spawn site
-                      that re-seeds an engineer worktree against an
+                      single-attempt, refusal-only cleanup block - no
+                      unlock, no force); every /ds-implement-ticket fix-pass
+                      spawn site that re-seeds an engineer worktree against an
                       already-open PR's branch (Phase 6/6b Skeptic and QA fix
                       passes, Phase 7 quality-gate fix passes) via the Round-N
                       rework mechanic; every ad-hoc isolation-worktree spawn
                       outside `/ds-implement-ticket` (the Ad-hoc worktree
                       cleanup obligation section); bin/ds-base-sync's
-                      dry-run advisory note and hooks/session-start-wrap.sh's
+                      --count-only advisory note and hooks/session-start-wrap.sh's
                       SessionStart worktree-count nudge (both backstops for
                       this obligation, never a substitute for it).
 
