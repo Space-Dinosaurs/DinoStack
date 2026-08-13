@@ -1595,13 +1595,76 @@ PLAIN_PROSE_ANSWER = (
     + "Clearing __pycache__ between runs fixes it.\n"
     + "No other change is needed.\n"
 )
+# PLAIN_PROSE_ANSWER averages exactly 8.0 words/unit (3 units, 24 words) -
+# advisory-recall fix's second signal 2, `_status_only_prose_is_explanatory`.
+# See w2/w3 below.
+
+# Narrative-creep body (advisory-recall fix, w2b): ~3 words/unit, well below
+# the 8.0 threshold - the shape signal 2 must NOT recall on, restoring what
+# w2/w3 originally proved before signal 2 existed.
+NARRATIVE_CREEP_BODY = (
+    IDENTITY_OK
+    + "\nFixed the bug.\n"
+    + "Updated the doc.\n"
+    + "Ran the tests.\n"
+    + "Deployed the fix.\n"
+)
+
+# Boundary fixture (advisory-recall fix): pinned at exactly 7.9 words/unit
+# (10 units, 79 words) - one word below PLAIN_PROSE_ANSWER's fragile exact
+# 8.0, so a future text edit to either fixture cannot silently flip both
+# across the threshold together.
+BOUNDARY_PROSE_ANSWER = (
+    IDENTITY_OK
+    + "\nThe stale cache entry was keyed on mtime.\n"
+    + "Clearing pycache between test runs fixes the issue.\n"
+    + "No other structural change is actually needed here.\n"
+    + "The fix is small and fully self contained.\n"
+    + "Tests pass cleanly after the cache is cleared.\n"
+    + "Nothing else in the pipeline needed adjustment today.\n"
+    + "The root cause took a while to isolate.\n"
+    + "Mutation testing confirmed the assertion catches it.\n"
+    + "Docs did not need any updates this time.\n"
+    + "This closes the ticket for the reported bug.\n"
+)
 
 with tempfile.TemporaryDirectory() as tmp_dir:
+    # PLAIN_PROSE_ANSWER pin (advisory-recall fix, Skeptic Minor 2): this
+    # constant sits at exactly _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE
+    # (8) words/unit (3 units, 24 words) - the same threshold signal 2 uses -
+    # so a one-word edit to its text would silently flip w1/w2/w3 without
+    # any assertion here ever failing. Pin the exact shape directly against
+    # the module's own unit-splitting function so a future edit fails LOUDLY
+    # here instead of silently changing what w1/w2/w3 actually test.
+    _plain_units = _mod._answer_prose_units(_mod._body_after_identity_line(PLAIN_PROSE_ANSWER))
+    _plain_total_words = sum(len(u.split()) for u in _plain_units)
+    check(
+        "PLAIN_PROSE_ANSWER pin: exactly 3 units / 24 words / 8.0 words-per-unit "
+        "(sits exactly at the signal-2 threshold - w1/w2/w3 depend on this precise "
+        "value; a text edit here must fail this assertion, not silently flip those)",
+        (len(_plain_units), _plain_total_words) == (3, 24)
+        and _plain_total_words / len(_plain_units) == 8.0,
+    )
+
     # w1. Genuine last user message ends with "?" -> answer bonus granted,
-    # plain-prose reply is QUIET (no status-only, under budget).
+    # plain-prose reply is QUIET (no status-only, under budget). Because
+    # PLAIN_PROSE_ANSWER also independently satisfies signal 2 (8.0
+    # words/unit, pinned above), the is_quiet() assertion below is
+    # OVERDETERMINED - it would still pass with the bonus mechanism
+    # stubbed to always return False, so it cannot by itself prove the
+    # bonus fired. w1a pins the bonus mechanism directly (fails if the
+    # bonus is disabled, unlike is_quiet() alone); corpus-replay
+    # A1/A2 (see the corpus-replay gate further below, built on
+    # NARRATIVE_CREEP_BODY - a body signal 2 does NOT recall) carry the
+    # bonus's true differential QUIET/ADVISORY behavior end-to-end.
     question_transcript = _write_transcript(
         tmp_dir,
         [{"role": "user", "content": "Why did the cache test fail on the second run?"}],
+    )
+    check(
+        "w1a. _transcript_answer_bonus fires directly on this transcript/text pair "
+        "(non-vacuous: fails if the bonus mechanism is disabled, unlike w1 below)",
+        _mod._transcript_answer_bonus(question_transcript, PLAIN_PROSE_ANSWER) is True,
     )
     rc, out, err = run_hook(
         json.dumps(
@@ -1612,14 +1675,19 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         )
     )
     check(
-        "w1. plain-prose reply to a genuine transcript question -> QUIET (answer bonus)",
+        "w1. plain-prose reply to a genuine transcript question -> QUIET "
+        "(overdetermined by signal 2 too - see w1a for the bonus-specific pin)",
         is_quiet(rc, out),
     )
 
     # w2. Same plain-prose reply, but the last genuine user message is a
-    # STATEMENT (no "?") -> bonus withheld, status-only still fires. Proves
-    # w1 is not QUIET merely because the body is short-ish - the bonus is
-    # doing the work.
+    # STATEMENT (no "?") -> bonus withheld. PLAIN_PROSE_ANSWER averages
+    # exactly 8.0 words/unit, so it now satisfies signal 2
+    # (`_status_only_prose_is_explanatory`) independent of the transcript
+    # bonus -> QUIET. (Advisory-recall fix: this fixture no longer proves
+    # "the bonus does the work, not body shape" - w2b below restores that
+    # original intent with a narrative-creep body signal 2 correctly
+    # rejects.)
     statement_transcript = _write_transcript(
         tmp_dir,
         [{"role": "user", "content": "Go ahead and clear the cache between runs."}],
@@ -1633,15 +1701,61 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         )
     )
     check(
-        "w2. plain-prose reply, transcript message is a statement not a question -> ADVISORY (status-only)",
+        "w2. plain-prose reply (8.0 words/unit), transcript message is a statement -> "
+        "QUIET (signal 2 recalls it independent of the transcript bonus)",
+        is_quiet(rc, out),
+    )
+
+    # w2b. Companion to w2: narrative-creep body (~3 words/unit) with the
+    # SAME statement (non-question) transcript -> signal 2 correctly
+    # rejects it (average-words-per-unit stays below threshold) and the
+    # transcript bonus is withheld (no question) -> still ADVISORY
+    # (status-only). Restores what w2 originally proved before signal 2
+    # existed: a terse, undeveloped body still nags regardless of body
+    # shape being present at all.
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": NARRATIVE_CREEP_BODY,
+                "transcript_path": statement_transcript,
+            }
+        )
+    )
+    check(
+        "w2b. narrative-creep body (~3 words/unit), statement transcript -> "
+        "ADVISORY (status-only), signal 2 does not recall narrative-creep noise",
         is_advisory(rc, out, "status-only"),
     )
 
-    # w3. No transcript_path at all -> falls back to today's narrower
-    # behavior (no bonus available) -> ADVISORY (status-only).
+    # w3. No transcript_path at all -> transcript bonus unavailable, but
+    # PLAIN_PROSE_ANSWER's whole-body shape (8.0 words/unit) independently
+    # satisfies signal 2 (`_status_only_prose_is_explanatory`) -> QUIET.
+    # Pins signal 2 firing with NO transcript involved at all.
     rc, out, err = run_hook(json.dumps({"last_assistant_message": PLAIN_PROSE_ANSWER}))
     check(
-        "w3. no transcript_path -> ADVISORY (status-only), today's behavior preserved",
+        "w3. no transcript_path -> QUIET (signal 2 alone, no transcript bonus needed)",
+        is_quiet(rc, out),
+    )
+
+    # w3b. Same no-transcript setup, but a narrative-creep body -> signal 2
+    # does not recall it and there is no transcript bonus either -> stays
+    # ADVISORY (status-only). Today's pre-fix behavior, preserved for a
+    # body signal 2 correctly does not recognize as explanatory.
+    rc, out, err = run_hook(json.dumps({"last_assistant_message": NARRATIVE_CREEP_BODY}))
+    check(
+        "w3b. no transcript_path, narrative-creep body -> ADVISORY (status-only), "
+        "today's behavior preserved for non-explanatory bodies",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w3c. Boundary fixture pinned at exactly 7.9 words/unit (one word below
+    # PLAIN_PROSE_ANSWER's fragile exact 8.0 threshold), no transcript ->
+    # signal 2 must NOT recall it (avg_words >= 8 is False at 7.9) -> stays
+    # ADVISORY (status-only).
+    rc, out, err = run_hook(json.dumps({"last_assistant_message": BOUNDARY_PROSE_ANSWER}))
+    check(
+        "w3c. boundary body at 7.9 words/unit, no transcript -> ADVISORY (status-only), "
+        "signal 2 stays below threshold",
         is_advisory(rc, out, "status-only"),
     )
 
@@ -1909,7 +2023,12 @@ with tempfile.TemporaryDirectory() as tmp_dir:
                 "role": "user",
                 "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}],
             },
-            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+            # NARRATIVE_CREEP_BODY (not PLAIN_PROSE_ANSWER, advisory-recall
+            # fix): this test proves the transcript-derived staleness
+            # scoping, not body shape - PLAIN_PROSE_ANSWER's 8.0 words/unit
+            # would independently satisfy signal 2 regardless of staleness
+            # and collapse this assertion to QUIET for the wrong reason.
+            {"role": "assistant", "content": NARRATIVE_CREEP_BODY},
         ],
     )
     rc, out, err = run_hook(
@@ -2006,8 +2125,16 @@ with tempfile.TemporaryDirectory() as tmp_dir:
             lines.append(built)
         return _write_transcript(tmp_dir_inner, lines)
 
+    # Advisory-recall fix: this gate exists to test the TRANSCRIPT-derived
+    # staleness classification (_has_intervening_assistant_turn), not body
+    # shape. NARRATIVE_CREEP_BODY (not PLAIN_PROSE_ANSWER) is used as the
+    # final answer text so signal 2 (`_status_only_prose_is_explanatory`)
+    # never independently recalls it - PLAIN_PROSE_ANSWER's whole-body
+    # shape (8.0 words/unit) would otherwise satisfy signal 2 regardless of
+    # transcript staleness and collapse every "advisory" expectation below
+    # to QUIET, defeating what this gate actually measures.
     for _sample in _corpus_fixture["samples"]:
-        _replay_transcript = _build_corpus_replay_transcript(tmp_dir, _sample, PLAIN_PROSE_ANSWER)
+        _replay_transcript = _build_corpus_replay_transcript(tmp_dir, _sample, NARRATIVE_CREEP_BODY)
         rc, out, err = run_hook(
             json.dumps({"last_assistant_message": "", "transcript_path": _replay_transcript})
         )
@@ -2328,11 +2455,32 @@ y5_msg = (
     "Two loose ends still open: the pre-commit hook fix, and Plan B's "
     "review.\n"
 )
+# y5a. Signal 1 (DS-157's `_has_body_completion_declaration`) still
+# correctly withholds its OWN suppression here - the veto phrases keep
+# doing their job at the unit level, unchanged by the advisory-recall fix.
+check(
+    "y5a. signal 1 (_has_body_completion_declaration) still vetoed by "
+    "'Review running on #639' / 'still open' - DS-157 behavior unchanged",
+    _mod._has_body_completion_declaration(y5_msg) is False,
+)
+# y5b. ADVISORY-RECALL FIX (measured, deliberate consequence): this body is
+# genuine, well-formed multi-paragraph prose (avg 8.25 words/unit, above
+# _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE) - signal 2
+# (`_status_only_prose_is_explanatory`) independently recognizes it as
+# explanatory, per the architect's exact-code design
+# (`_is_answer_shaped_prose` reused against the whole body, with no
+# continuing-work veto consulted - see that function's own docstring).
+# The WHOLE-HOOK verdict therefore flips from y5's pre-fix ADVISORY to
+# QUIET, even though signal 1 alone (y5a) still withholds its suppression.
+# This is consistent with y1/y2's true positives above: a real,
+# well-developed status report is recalled by signal 2 regardless of
+# whether it also happens to mention other still-open work.
 rc, out, err = run_hook(make_payload(y5_msg))
 check(
-    "y5. 'Review running on #639' / 'still open' vetoes suppression -> "
-    "ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
+    "y5b. whole-hook verdict on the same body -> QUIET (signal 2 "
+    "independently recalls genuine multi-paragraph prose, DS-157's veto "
+    "notwithstanding - see y5a for signal 1's unchanged behavior)",
+    is_quiet(rc, out),
 )
 
 # y6. BLOCKING-PATH SAFETY REGRESSION (the ticket's central concern): the
@@ -3571,6 +3719,113 @@ check(
     "real-corpus summary: 0 of the curated 10-turn subset BLOCK "
     "post-fix (was 5 pre-fix)",
     len(_real_corpus_still_blocking) == 0,
+)
+
+# ---------------------------------------------------------------------------
+# Advisory-recall fix: 3 real corpus turns, hand-classified as genuine
+# status-only false positives (multi-sentence explanatory answers that
+# pre-fix code flagged status-only purely on line count, with none of
+# _QUOTED_FRAGMENT_RE's double-quoted fragment / _transcript_answer_bonus's
+# question-shaped preceding message). Screened before inclusion in this
+# PUBLIC repo (credential shapes, personal emails/names, and any sibling-
+# project brand/filename all excluded or redacted); no `transcript_path`
+# is supplied for any of the three, so QUIET below is entirely attributable
+# to signal 2 (`_status_only_prose_is_explanatory`), not the transcript
+# bonus. Measured against the same 320-turn real corpus cited in this
+# module's docstring: 37 turns flagged status-only pre-fix, 2 remain
+# flagged post-fix (both genuine single-sentence status pings), so the 35
+# recalled turns - of which these three are a hand-picked, publication-safe
+# sample - average well above the 8 words/unit threshold (16-44 words/unit
+# measured across the full recalled set).
+# ---------------------------------------------------------------------------
+
+corpus_fp1_msg = (
+    IDENTITY_OK
+    + "\n"
+    + "Fix in flight. [phase: ci-fix]\n"
+    "\n"
+    "The verification round paid for itself. Everything the engineer "
+    "claimed held up under independent mutation testing - including the "
+    "`closed_unmerged` mapping surviving, which is the exact spot a bad "
+    "quote would have silently deleted. But it also caught what the "
+    "earlier round didn't: a JS hook test pins the old Part F sentence "
+    "verbatim, and it lives in `hooks/tests/`, not `bin/tests/`. The "
+    "600-pass number was accurate and irrelevant to it.\n"
+    "\n"
+    "Worth noting the fix direction, because the tempting move is wrong: "
+    "revert the prose to satisfy the old regex. That prose is a "
+    "byte-identical clause shared across two files - itself a Skeptic "
+    "finding that took three attempts to land. So the stale guard gets "
+    "updated, and it has to still fail when the gate is removed, or it's "
+    "worse than what it replaced.\n"
+    "\n"
+    "The verifier was also honest about its own new guard: it probed the "
+    "R4 never-substitutes test with novel wording (`retry with the "
+    "semantically equivalent live state name`) and got a pass. The guard "
+    "is real at its pinned call sites but the docstring claims block-wide "
+    "coverage it doesn't have - so the docstring gets corrected rather "
+    "than trusted.\n"
+)
+rc, out, err = run_hook(make_payload(corpus_fp1_msg))
+check(
+    "corpus-fp1. real corpus false positive (multi-paragraph fix-in-flight "
+    "explanation, no quoted fragment, no transcript bonus) -> QUIET",
+    is_quiet(rc, out),
+)
+
+corpus_fp2_msg = (
+    IDENTITY_OK
+    + "\n"
+    + "I found the issue. The qa-engineer agent writes screenshots and "
+    "diff images to `/tmp/` and only tears down browser sessions/dev "
+    "servers - it never deletes the screenshot files. The teardown "
+    "section mentions a dev-server log path but not screenshot "
+    "cleanup.\n"
+    "\n"
+    "A few questions before I route this as a fix:\n"
+    "\n"
+    "1. Do you want cleanup to cover **all** qa-engineer temp artifacts "
+    "(screenshots, diff PNGs, dev server log) or specifically "
+    "screenshots?\n"
+    "2. Should cleanup happen **on every exit path** (matching the "
+    "existing browser/dev-server teardown obligation) or only on PASS?\n"
+    "3. Is this the only agent with temp-file leakage, or do you suspect "
+    "others (e.g. `agent-browser`, orchestration tools)? I can audit "
+    "other agent specs while fixing this one.\n"
+)
+rc, out, err = run_hook(make_payload(corpus_fp2_msg))
+check(
+    "corpus-fp2. real corpus false positive (diagnosis + numbered "
+    "clarifying questions, no quoted fragment, no transcript bonus) -> "
+    "QUIET",
+    is_quiet(rc, out),
+)
+
+corpus_fp3_msg = (
+    IDENTITY_OK
+    + "\n"
+    + "Final review running on a deliberately narrow scope - verify five "
+    "changes landed, confirm nothing regressed, don't re-open five "
+    "rounds of verified work.\n"
+    "\n"
+    "The two things I'd bet on if anything is still wrong: whether a "
+    "reuse claim survived the scope-out disguised as background or "
+    "rationale (a deferral that still asserts a mechanism isn't a "
+    "deferral), and a per-consumer table row that has been inaccurate "
+    "in three consecutive revisions in two opposite directions.\n"
+    "\n"
+    "I also asked it to check that a rubric line's new absence-grep "
+    "isn't too narrow a pattern - an absence claim is only as strong as "
+    "its search breadth, which is a lesson already in this repo's "
+    "memory.\n"
+    "\n"
+    "The plan's fresh design still running.\n"
+)
+rc, out, err = run_hook(make_payload(corpus_fp3_msg))
+check(
+    "corpus-fp3. real corpus false positive (multi-paragraph review-scope "
+    "narration, no quoted fragment, no transcript bonus) -> QUIET",
+    is_quiet(rc, out),
 )
 
 # ---------------------------------------------------------------------------

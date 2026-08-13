@@ -24,10 +24,13 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
              closing-recap phrasing) remains ADVISORY-ONLY - it always
              exits 0 and surfaces via `additionalContext` on the next
              turn, exactly the posture the WHOLE hook carried before
-             DS-156. `_status_only_flag` (zero-warrant turns), the
-             turn-charge volume check, and the operator-decisions
-             per-item sprawl check also remain advisory-only, unchanged
-             in posture.
+             DS-156. `_status_only_flag` (zero-warrant turns; now
+             suppressed by TWO advisory-only signals, DS-157's
+             `_has_body_completion_declaration` and the advisory-recall
+             fix's `_status_only_prose_is_explanatory` - see that
+             function's docstring), the turn-charge volume check, and the
+             operator-decisions per-item sprawl check also remain
+             advisory-only, unchanged in posture.
 
          Why the split, not one posture for both: `_execution_prose_flag`
          is a structural predicate with no phrase matching or inference
@@ -265,7 +268,21 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
                 decision/stoppage/completion present): routes to
                 `_status_only_flag` only (ADVISORY, unchanged) - fires
                 when the message has MORE than ~1-2 lines of prose
-                outside the identity line.
+                outside the identity line, UNLESS one of two
+                advisory-only signals recognizes the body as something
+                that should not nag: DS-157's
+                `_has_body_completion_declaration` (a genuine completion
+                report), or (advisory-recall fix) the newer
+                `_status_only_prose_is_explanatory` (a genuine,
+                developed answer - reuses `_is_answer_shaped_prose`
+                against the whole body). Both signals are consumed
+                EXCLUSIVELY by `_status_only_flag`, never enter
+                `_classify_warrants`'s dict, and therefore cannot move a
+                turn onto the BLOCKING `_execution_prose_flag` path -
+                see each function's own docstring for why widening the
+                `answer`/`completion` WARRANTS directly was measured and
+                rejected while this zero-warrant-only recall path is
+                safe.
 
             Known implementation seam (DS-151 amendment A7, still true
             post-DS-156 for the two ADVISORY-only leaves (a) and (c)):
@@ -1497,11 +1514,17 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
     body's first paragraph is not itself a recognized completion
     declaration - see `_has_body_completion_declaration`'s docstring for
     why that check suppresses only this advisory, never the `completion`
-    WARRANT itself. Raw-line path for the line-count test - see the module
-    docstring's "Known implementation seam" note."""
+    WARRANT itself - AND (advisory-recall fix) the body is not itself
+    answer-shaped explanatory prose - see
+    `_status_only_prose_is_explanatory`'s docstring for why that check,
+    too, suppresses only this advisory and never the `answer` WARRANT.
+    Raw-line path for the line-count test - see the module docstring's
+    "Known implementation seam" note."""
     if any(warrants.values()):
         return False
     if _has_body_completion_declaration(text):
+        return False
+    if _status_only_prose_is_explanatory(text):
         return False
     body_lines = [ln for ln in _body_after_identity_line(text) if ln.strip()]
     return len(body_lines) > 2
@@ -1636,15 +1659,35 @@ def _is_answer_shaped_prose(lines) -> bool:
     block-line strings, NOT a single joined blob - see
     `_execution_prose_flag`'s per-block call site, round-2 Major 1 fix)
     average at least _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE words per unit
-    (see `_answer_prose_units`). Consumed ONLY by
-    _execution_prose_flag's general branch, to decide whether ONE
-    contiguous block of unrecognized status-region lines is narrative-
-    creep-shaped (a sprawl of short templated status pings averages only
-    a handful of words per unit even when there are many of them, and
-    still fails HERE regardless of how many other blocks the turn has) -
-    see that function's docstring for how this combines with the
-    whole-turn unit-count floor to produce the final ADVISORY/BLOCKING
-    decision.
+    (see `_answer_prose_units`). Two consumers:
+
+      - `_execution_prose_flag`'s general branch (the original, WARRANT-
+        adjacent consumer): decides whether ONE contiguous block of
+        unrecognized status-region lines is narrative-creep-shaped (a
+        sprawl of short templated status pings averages only a handful
+        of words per unit even when there are many of them, and still
+        fails HERE regardless of how many other blocks the turn has) -
+        see that function's docstring for how this combines with the
+        whole-turn unit-count floor to produce the final ADVISORY/
+        BLOCKING decision.
+      - `_status_only_prose_is_explanatory` (advisory-recall fix,
+        repo-local ad-hoc ticket): reuses this SAME predicate against the
+        WHOLE unsegmented body (via `_body_after_identity_line`, one
+        block) to decide whether a zero-warrant turn's body is a
+        genuine, developed answer that the `_status_only_flag` nag
+        should stay silent on. This is bounded-safe in a way that a
+        prior, REJECTED proposal to widen the `answer` WARRANT with this
+        same predicate was not: `_status_only_prose_is_explanatory` never
+        enters `_classify_warrants`'s dict, so it cannot change
+        `is_answer_turn`/`is_execution_turn` routing and cannot move a
+        single turn onto the BLOCKING `_execution_prose_flag` path -
+        it is consumed exclusively by `_status_only_flag`, which is
+        already ADVISORY-ONLY and was already suppressible by warrants
+        genuinely present. Widening the `answer` warrant itself with
+        whole-body `_is_answer_shaped_prose` was measured and rejected
+        (it exempted 4 of 5 real narrative-creep turns that correctly
+        BLOCK) - that risk does not apply here because the result never
+        reaches warrant classification at all.
 
     DS-159 (real false positive: a real multi-paragraph conductor
     answer, terse in this repo's own mandated style, routinely produces
@@ -1679,6 +1722,67 @@ def _is_answer_shaped_prose(lines) -> bool:
     total_words = sum(len(u.split()) for u in units)
     avg_words = total_words / len(units)
     return avg_words >= _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE
+
+
+def _status_only_prose_is_explanatory(text: str) -> bool:
+    """Signal 2 (advisory-recall fix, repo-local ad-hoc ticket) - the
+    SECOND, independent zero-warrant suppression signal alongside DS-157's
+    `_has_body_completion_declaration`. ADVISORY-ONLY: consumed ONLY by
+    `_status_only_flag`. Never contributes to the `answer` warrant, never
+    enters `_classify_warrants`'s dict, never influences
+    `is_answer_turn`/`is_execution_turn` routing - because routing depends
+    solely on that dict, this predicate is structurally unreachable from
+    any BLOCK-eligible turn. That is the entire safety argument for reusing
+    `_is_answer_shaped_prose` here; preserve it exactly on any future edit
+    to this function.
+
+    Measured motivation: over a 320-turn real-transcript corpus, 37 turns
+    were flagged status-only and 29 (78%) were false positives - turns
+    opening with substantive multi-sentence answers that neither
+    `_QUOTED_FRAGMENT_RE` (needs an 8+ char DOUBLE-quoted fragment; zero of
+    the 37 have one, while 32/37 use backtick spans it cannot see) nor
+    `_transcript_answer_bonus` (needs the preceding operator message to
+    look like a question; real directives like "go ahead"/"continue" are
+    not questions, so it grants only 4/37, independently reconfirmed by
+    truncating each of the 37 turns' real source transcript to its own
+    `source_line_idx` and calling `_transcript_answer_bonus` directly)
+    could recall. Under a correctly truncated live-transcript simulation,
+    33/37 still fired. Widening either of those two `answer`-warrant
+    signals directly was measured and REJECTED: feeding backticks into the
+    `answer` warrant exempts 4 of 5 real narrative-creep turns that
+    correctly BLOCK, and reusing `_is_answer_shaped_prose` to widen the
+    `answer` warrant grants all 5. This function reuses the same predicate
+    but keeps it off the warrant path entirely, so neither rejected
+    failure mode applies.
+
+    Reconciling the two corpus figures (this function does NOT consult
+    `_transcript_answer_bonus` or any transcript at all, so this is a
+    body-shape-only measurement): re-running the same 37 turns through
+    THIS function alone (no transcript context, matching how
+    `_status_only_flag` calls it) recalls 35 of 37 to quiet, leaving 2
+    flagged. Of the 6-turn gap between the hand-labelled 29 false
+    positives and the measured 35: 4 are exactly the bonus-recallable
+    turns above (confirmed by name via the same real-transcript
+    reconfirmation) - already NOT "false positives needing a new fix" by
+    the original classification's own logic, but independently recalled
+    here too because a turn substantial enough to read as an answer to a
+    real question is also substantial enough to clear this function's
+    words-per-unit floor. The remaining 2 were presumably among the 8
+    turns the original hand-review judged genuinely terse (no existing
+    recall path), yet this function's mechanical average recalls them
+    anyway - a measured, not contradictory, over-recall relative to that
+    hand-review's conservative bar; a direct hand-audit of all 35 recalled
+    turns found every one averaging well above threshold (10.5-43.7
+    words/unit), none borderline or narrative-creep-shaped. The 2 turns
+    still flagged post-fix are unambiguous single-sentence status pings.
+
+    Reuses `_is_answer_shaped_prose` against the WHOLE unsegmented body
+    (`_body_after_identity_line`, one contiguous block - not fence-aware,
+    matching `_status_only_flag`'s own raw-line domain) rather than a
+    per-block scan, since there is no BLOCKING path here to protect from a
+    laundering bypass the way `_execution_prose_flag`'s general branch
+    must guard against."""
+    return _is_answer_shaped_prose(_body_after_identity_line(text))
 
 
 def _execution_prose_flag(text: str, warrants: dict):
