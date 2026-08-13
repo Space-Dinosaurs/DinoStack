@@ -1,6 +1,6 @@
 # bin/
 
-Eighteen CLI entry points (14 Python, 2 Bash, 2 Node) that the dinostack
+Nineteen CLI entry points (15 Python, 2 Bash, 2 Node) that the dinostack
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description

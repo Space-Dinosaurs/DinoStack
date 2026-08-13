@@ -415,13 +415,14 @@ def test_dry_run_flag_shown_in_forwarded_flags_field_on_summary_line(tmp_path):
     # summary line, never a bare substring - a bare "flags=--dry-run"
     # match could otherwise be satisfied by unrelated log noise. Would
     # this assertion survive deleting the print() entirely? No: with the
-    # print gone, `errored=0 flags=--dry-run` cannot appear in stdout at
-    # all, so the assertion correctly fails - the anchor is meaningful.
+    # print gone, `errored=0 root-errors=0 skipped-not-git=0 flags=--dry-run`
+    # cannot appear in stdout at all, so the assertion correctly fails -
+    # the anchor is meaningful.
     dry_line = [ln for ln in dry_result.stdout.splitlines() if ln.startswith("ds-reap-all:")][-1]
     live_line = [ln for ln in live_result.stdout.splitlines() if ln.startswith("ds-reap-all:")][-1]
 
-    assert "errored=0 skipped-not-git=0 flags=--dry-run" in dry_line
-    assert "errored=0 skipped-not-git=0 flags=(none)" in live_line
+    assert "errored=0 root-errors=0 skipped-not-git=0 flags=--dry-run" in dry_line
+    assert "errored=0 root-errors=0 skipped-not-git=0 flags=(none)" in live_line
     assert dry_line != live_line
 
 
@@ -494,3 +495,123 @@ def test_cli_runs_through_path_symlink_and_finds_sibling_tool(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "== " in result.stdout
     assert "ds-reap-worktrees:" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# 10. (Skeptic round-1 Major 1) A nonexistent root is a reported error, not
+#     a silent no-op - exit 1, never exit 0.
+# --------------------------------------------------------------------------
+
+
+def test_nonexistent_root_is_reported_error_exit_1(tmp_path):
+    bad_root = tmp_path / "definitely-not-here-12345"
+    assert not bad_root.exists()
+
+    result = run_reap_all([str(bad_root)])
+
+    # Anchored on the composed field plus an adjacent field on the same
+    # summary line, never a bare substring - would this survive deleting
+    # the print()? No: with the print gone, "root-errors=1 skipped-not-git=0"
+    # cannot appear in stdout at all, so the assertion correctly fails.
+    summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-reap-all:")][-1]
+    assert "repos=0 swept=0 errored=0 root-errors=1 skipped-not-git=0" in summary_line
+    assert result.returncode == 1
+    assert "root not a directory" in result.stderr
+
+
+def test_one_bad_root_among_good_ones_still_sweeps_the_rest(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    good_repo = root / "good-project"
+    init_bare_git_repo(good_repo)
+    bad_root = tmp_path / "does-not-exist-at-all"
+
+    fake_tool = write_fake_tool(tmp_path)
+    result = run_reap_all([str(root), str(bad_root), "--dry-run"], fake_tool=fake_tool)
+
+    assert result.returncode == 1
+    summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-reap-all:")][-1]
+    assert "repos=1 swept=1 errored=0 root-errors=1" in summary_line
+
+
+# --------------------------------------------------------------------------
+# 11. (Skeptic round-1 Minor a) Malformed config values never crash -
+#     {"repos": null} and {"repos": "/tmp"} are both reported and ignored,
+#     never an uncaught traceback or silent per-character expansion.
+# --------------------------------------------------------------------------
+
+
+def test_config_repos_null_does_not_crash(tmp_path, monkeypatch):
+    config_path = tmp_path / "reap-all.json"
+    config_path.write_text(json.dumps({"repos": None}))
+
+    mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_CONFIG_PATH", config_path)
+
+    import argparse
+
+    args = argparse.Namespace(repo=[], roots=[], depth=1)
+    # Must not raise - a bare `list(None)` would.
+    targets, _skipped, root_errors = mod.discover_repos(args)
+    assert targets == []
+    assert root_errors == []
+
+
+def test_config_repos_bare_string_is_not_exploded_per_character(tmp_path, monkeypatch):
+    config_path = tmp_path / "reap-all.json"
+    config_path.write_text(json.dumps({"repos": "/tmp"}))
+
+    mod = _load_module_directly()
+    monkeypatch.setattr(mod, "_CONFIG_PATH", config_path)
+
+    import argparse
+
+    args = argparse.Namespace(repo=[], roots=[], depth=1)
+    targets, _skipped, _root_errors = mod.discover_repos(args)
+    # A bare string must never be treated as an iterable of characters
+    # (list("/tmp") -> ["/", "t", "m", "p"], each a bogus one-char "repo").
+    assert targets == []
+
+
+# --------------------------------------------------------------------------
+# 12. (Skeptic round-1 Minor c) The DS_REAP_ALL_UNDERLYING_TOOL test-only
+#     override is never silently active - a loud NOTE is printed whenever
+#     it is set.
+# --------------------------------------------------------------------------
+
+
+def test_underlying_tool_override_is_visibly_announced(tmp_path):
+    repo = tmp_path / "repo"
+    init_bare_git_repo(repo)
+    fake_tool = write_fake_tool(tmp_path)
+
+    result = run_reap_all(["--repo", str(repo), "--dry-run"], fake_tool=fake_tool)
+
+    assert f"underlying-tool override active: {fake_tool}" in result.stderr
+
+
+def test_no_override_note_when_env_var_unset(tmp_path):
+    repo = tmp_path / "repo"
+    init_bare_git_repo(repo)
+
+    # No fake_tool passed -> DS_REAP_ALL_UNDERLYING_TOOL is not set; this
+    # genuinely invokes the real sibling ds-reap-worktrees.
+    result = run_reap_all(["--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+
+    assert "underlying-tool override active" not in result.stderr
+
+
+# --------------------------------------------------------------------------
+# 13. (Skeptic round-1 Major 4) content/ wiring: ds-reap-all must be
+#     mentioned in content/commands/ds-cleanup-worktrees.md, the prose home
+#     of ds-reap-worktrees - "a new module is not done until something in
+#     content/ invokes it" (repo AGENTS.md rule; precedent:
+#     check_prose_wiring() in bin/tests/test_worktree_lifecycle_spec.sh).
+# --------------------------------------------------------------------------
+
+
+def test_ds_reap_all_is_wired_into_cleanup_worktrees_command_doc():
+    doc_path = Path(__file__).resolve().parent.parent.parent / "content" / "commands" / "ds-cleanup-worktrees.md"
+    assert doc_path.is_file(), f"expected {doc_path} to exist"
+    text = doc_path.read_text(encoding="utf-8")
+    assert "ds-reap-all" in text

@@ -53,38 +53,58 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, subprocess, sys,
                resolve().parent` - follows a PATH symlink back to the real
                bin/ directory, same discipline `ds-reap-worktrees` itself
                uses for `worktree_model.py`), falling back to `ds-reap-
-               worktrees` on PATH if no sibling is found. `git` (CLI, only
-               to validate an explicit `--repo` is actually a git
-               repository - the depth scan itself does a cheap `.git`
-               existence check, no subprocess).
+               worktrees` on PATH if no sibling is found. `git` (CLI - one
+               `git rev-parse --show-toplevel` subprocess call PER
+               DISCOVERED TARGET, run from `RepoTarget.__init__`: this
+               validates both an explicit `--repo` AND every repo the
+               depth scan already found via a `.git` existence check, so
+               a scanned target still pays one subprocess call to confirm
+               it. N discovered targets means N `git` subprocess calls,
+               not merely one per explicit `--repo`).
                `DS_REAP_ALL_UNDERLYING_TOOL` env var, when set, overrides
                tool resolution entirely - test-only hook, never part of
                the public CLI surface, lets bin/tests/test_ds_reap_all.py
                substitute a fake stub without touching PATH or the real
-               sibling file.
+               sibling file. When set, `main()` prints a loud
+               `underlying-tool override active: <path>` NOTE to stderr so
+               the override is never silently active in real output.
 
 Downstream consumers: none yet (new tool). Intended for direct operator
                       invocation (`ds-reap-all ~/Documents/Development` or
                       a configured `~/.agentic/reap-all.json`), not wired
                       into any automatic call site.
 
-Failure modes: exits 0 when zero repos errored. Exits 1 when at least one
-               discovered repo either failed discovery (an explicit
-               `--repo` that is not a directory or not a git repository)
-               or failed invocation (nonzero `ds-reap-worktrees` exit,
-               subprocess timeout, or an unexpected exception) - one
-               repo's failure never halts the sweep; every other repo is
-               still attempted. Exits 2 on a usage error: no repos were
-               discovered at all (no --repo, no roots, no usable config).
-               Never removes anything itself - all removal logic and its
-               own failure/retry semantics belong to `ds-reap-worktrees`.
+Failure modes: exits 0 when zero repos errored AND zero root-discovery
+               errors. Exits 1 when at least one of: (a) a discovered
+               repo failed discovery (an explicit `--repo` that is not a
+               directory or not a git repository), (b) a repo failed
+               invocation (nonzero `ds-reap-worktrees` exit, subprocess
+               timeout, or an unexpected exception), or (c) a positional
+               root directory did not exist at all (`root-errors` in the
+               summary line) - one repo's or root's failure never halts
+               the sweep; every other repo/root is still attempted. Exits
+               2 on a usage error: no repos were discovered at all AND no
+               root errors occurred either (no --repo, no roots, no
+               usable config) - a bad root is always a reported error
+               (exit 1), never silently treated as "nothing to do" (exit
+               2). Never removes anything itself - all removal logic and
+               its own failure/retry semantics belong to
+               `ds-reap-worktrees`. A malformed config file (`"repos"` or
+               `"roots"` present but not a list, or containing a non-
+               string element) is reported to stderr and treated as
+               empty for that key - never an uncaught exception.
 
 Performance: one subprocess invocation of `ds-reap-worktrees` per
              discovered repo, run sequentially (never parallel - keeps
              per-repo output legible and avoids concurrent git/gh
              rate-limit contention across repos), each bounded by
              `--timeout` (default 300s). The depth scan itself is pure
-             `pathlib` directory listing, no subprocess calls.
+             `pathlib` directory listing (no subprocess calls), but EVERY
+             resulting target - explicit or scanned - then pays one `git
+             rev-parse --show-toplevel` subprocess call in
+             `RepoTarget.__init__` to confirm it, so total `git`
+             subprocess calls scale with N discovered targets, not with
+             N explicit `--repo` flags alone.
 """
 
 from __future__ import annotations
@@ -250,8 +270,8 @@ def discover_repos(args: argparse.Namespace) -> Tuple[List[RepoTarget], int, Lis
 
     if not explicit_repo_paths and not root_paths:
         config = _load_config()
-        explicit_repo_paths = list(config.get("repos", []))
-        root_paths = list(config.get("roots", []))
+        explicit_repo_paths = _config_string_list(config, "repos")
+        root_paths = _config_string_list(config, "roots")
 
     targets: List[RepoTarget] = [RepoTarget(p, "explicit") for p in explicit_repo_paths]
 
@@ -279,6 +299,28 @@ def _load_config() -> Dict:
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def _config_string_list(config: Dict, key: str) -> List[str]:
+    """Returns `config[key]` as a `List[str]`, or `[]` when the key is
+    absent. A present-but-malformed value (not a list at all - e.g.
+    `null` or a bare string, both of which `list(...)` would otherwise
+    either crash on or silently explode into one entry per character -
+    or a list containing a non-string element) is reported to stderr and
+    treated as empty for that key, never an uncaught exception and never
+    silently misinterpreted.
+    """
+    if key not in config:
+        return []
+    value = config[key]
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        print(
+            f"ds-reap-all: ~/.agentic/reap-all.json field \"{key}\" must be a list of strings "
+            f"- got {value!r}; ignoring this field.",
+            file=sys.stderr,
+        )
+        return []
+    return list(value)
 
 
 def dedupe(targets: List[RepoTarget]) -> List[RepoTarget]:
@@ -361,6 +403,10 @@ def run_one_repo(tool: str, repo_path: str, forwarded: List[str], timeout: float
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
 
+    override = os.environ.get("DS_REAP_ALL_UNDERLYING_TOOL")
+    if override:
+        print(f"NOTE: underlying-tool override active: {override}", file=sys.stderr)
+
     targets, skipped_not_git, root_errors = discover_repos(args)
     targets = dedupe(targets)
 
@@ -402,12 +448,13 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"ds-reap-all: repo {header_path} failed: {result['detail']}", file=sys.stderr)
 
     flags_echo = " ".join(forwarded) if forwarded else "(none)"
+    root_error_count = len(root_errors)
     print(
         f"ds-reap-all: repos={len(targets)} swept={repos_swept} errored={repos_errored} "
-        f"skipped-not-git={skipped_not_git} flags={flags_echo}"
+        f"root-errors={root_error_count} skipped-not-git={skipped_not_git} flags={flags_echo}"
     )
 
-    if repos_errored:
+    if repos_errored or root_error_count:
         return 1
     return 0
 
