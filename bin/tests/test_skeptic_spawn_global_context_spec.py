@@ -196,7 +196,7 @@ FIELD_7_MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-brief.md": 2,
     REFERENCES_DIR / "agent-team.md": 4,
     REFERENCES_DIR / "planning-artifacts.md": 4,
-    SKEPTIC_PROTOCOL: 6,
+    SKEPTIC_PROTOCOL: 7,
 }
 
 
