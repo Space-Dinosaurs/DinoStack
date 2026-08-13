@@ -901,7 +901,8 @@ Seed with these documented defaults exactly:
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
   "turn_shape_guard_enabled": true,
-  "worktree_read_guard_exemptions": []
+  "worktree_read_guard_exemptions": [],
+  "worktree_write_guard_exemptions": []
 }
 ```
 
@@ -930,6 +931,7 @@ Seed with these documented defaults exactly:
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for full semantics.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
