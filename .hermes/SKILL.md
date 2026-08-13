@@ -3267,7 +3267,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
          Absence-claim scope axes (calibration worked example, both
-         directions, for the four search-narrowness axes); Investigator-
+         directions, for the four search-narrowness axes);
+         Capability-unavailability scope axes (four surface axes, both
+         directions, companion B INCONCLUSIVE-with-not-retried definition);
+         Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
          Investigators); Harness-Injected Instruction Conflicts (collision
          catalog, delegation-suppression subsection, notice template,
