@@ -42,7 +42,7 @@ sunset (external cron jobs and shell aliases reference it).
 - `ds-emit` shells out to `python3` and `date` for safe JSON assembly.
 - `ds-cost` soft-depends on `pyyaml` for `~/.agentic/pricing.yml`; absent = token-only output.
 - `ds-update` shells out to `git` and `bash <adapter>/install.sh`.
-- `ds-parse-subagent-usage` reads `~/.claude/projects/` transcript files.
+- `ds-parse-subagent-usage` reads `<config_dir>/projects/` transcript files, where `config_dir` is resolved via `bin/_lib.py`'s `resolve_claude_config_dir()`: `AGENTIC_CONFIG_DIR` > `CLAUDE_CONFIG_DIR` > `CODEX_HOME` > `PI_CODING_AGENT_DIR` (first non-empty wins), falling back to `~/.claude` only when none is set - not a hardcoded `~/.claude/projects/` path.
 
 ## Downstream consumers
 

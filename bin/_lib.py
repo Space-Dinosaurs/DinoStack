@@ -26,15 +26,32 @@ Public API:
     (missing_ok) and re-raises - never a shared/fixed name another concurrent
     caller could own. path must be a pathlib.Path.
 
+  resolve_claude_config_dir()
+    Returns the active harness config dir as an absolute pathlib.Path,
+    honoring the same env-var precedence as bin/ds-identity's
+    PROFILE_CONFIG_DIR_ENV: AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR >
+    CODEX_HOME > PI_CODING_AGENT_DIR, first non-empty wins. Falls back to
+    ~/.claude when none is set. A `~`-prefixed value is expanded, and the
+    result is absolutized via os.path.abspath() (round-2 fix: kept in sync
+    with the Node sibling, hooks/lib/config-dir.js's
+    resolveClaudeConfigDir(), which now applies the same two steps). This
+    is a READ-ONLY lookup (transcript discovery), not a write target -
+    unlike ds-identity's _profile_config_dir(), it deliberately does NOT
+    apply a $HOME-containment check or symlink-component check; those
+    guards exist there to stop an identity WRITE from escaping the user
+    tree, which does not apply to a read-only glob/stat lookup here.
+
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
 Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
                       helpers), bin/ds-feedback (both helpers),
                       bin/ds-learning-shard (both helpers),
                       bin/ds-migrate (atomic_write), bin/ds-tracker
-                      (atomic_write). bin/ds-identity does NOT use this
-                      module - it ships its own _atomic_write_identity and
-                      its own lock contextmanager.
+                      (atomic_write), bin/ds-parse-subagent-usage
+                      (resolve_claude_config_dir). bin/ds-identity does NOT
+                      use this module - it ships its own
+                      _atomic_write_identity, its own lock contextmanager,
+                      and its own (containment-checked) _profile_config_dir.
 
 Failure modes:
   acquire_exclusive_lock: raises RuntimeError("lock timeout") after timeout seconds
@@ -50,9 +67,24 @@ Failure modes:
     staging path (single-writer atomicity only - see rename semantics; the
     pid suffix prevents cross-process tmp collision/cleanup, not a
     last-write-wins race on the final destination itself).
+  resolve_claude_config_dir: an unset/blank/whitespace-only env var is
+    treated as absent; the first non-blank value wins even if the resulting
+    path does not exist on disk - callers must handle a nonexistent config
+    dir themselves (e.g. by falling through to a glob). `~` expansion and
+    abspath absolutization happen unconditionally on the winning value.
+    os.path.expanduser never raises (an unresolvable `~user` form is
+    returned unchanged, per CPython's own KeyError-swallowing behavior) but
+    os.path.abspath is NOT purely a string operation: for a RELATIVE input
+    (e.g. a config-dir env var set to a relative path) it calls
+    os.getcwd(), which DOES touch the filesystem and CAN raise (e.g.
+    FileNotFoundError when the current working directory has been deleted
+    out from under the process). This is a narrow, unlikely-in-practice
+    edge case - not observed in this repo - but the function is not
+    unconditionally raise-free.
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).
+  resolve_claude_config_dir is a handful of os.environ.get() calls - negligible.
 """
 
 from __future__ import annotations
@@ -117,6 +149,33 @@ def acquire_exclusive_lock(
         except Exception:
             pass
         raise
+
+
+# Harness-standard config-dir env vars, in detection precedence order. Kept
+# in sync with bin/ds-identity's PROFILE_CONFIG_DIR_ENV (same precedence,
+# same four vars) - see that file's comment for why each one is listed.
+CONFIG_DIR_ENV: tuple[str, ...] = (
+    "AGENTIC_CONFIG_DIR",
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "PI_CODING_AGENT_DIR",
+)
+
+
+def resolve_claude_config_dir() -> Path:
+    """Return the active harness config dir, or ~/.claude when none is set.
+
+    Read-only lookup: no $HOME-containment or symlink check (contrast with
+    bin/ds-identity's _profile_config_dir(), which guards a WRITE target).
+    Round-2 fix: applies os.path.abspath() in addition to expanduser() so
+    a relative env-var value absolutizes the same way the Node sibling
+    (hooks/lib/config-dir.js's resolveClaudeConfigDir()) now does.
+    """
+    for var in CONFIG_DIR_ENV:
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            return Path(os.path.abspath(os.path.expanduser(raw)))
+    return Path(os.path.expanduser("~/.claude"))
 
 
 def atomic_write(path: Path, content: str, mode: int | None = 0o600) -> None:

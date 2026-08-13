@@ -107,9 +107,13 @@ When `agent == "skeptic"`, additional calibration fields are present:
 above - both may exist for the same spawn. The hook variant carries
 `data.paired_spawn_id`, `data.wall_seconds` (real when paired, `null` if
 unmatched or if the paired duration exceeds a 24h sanity ceiling, in which
-case `data.suspect` is also `true`), and `data.tokens_note` (tokens are
-always unavailable - harness ceiling); it does NOT carry the `tier`/`model`/
-`status`/calibration fields above. See
+case `data.suspect` is also `true`), and `data.tokens` (real, summed from
+the subagent's own transcript, when it can be found, read, and yields at
+least one parsed assistant-with-usage record) OR `data.tokens_note` (a
+descriptive reason when it cannot - tokens and the note are mutually
+exclusive, never both, never a zero-filled stand-in for "we could not
+determine this"); it
+does NOT carry the `tier`/`model`/`status`/calibration fields above. See
 [content/references/events-log.md](../content/references/events-log.md) for
 the full schema and how consumers avoid double-counting the two variants.
 

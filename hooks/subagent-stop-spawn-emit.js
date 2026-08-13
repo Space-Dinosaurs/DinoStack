@@ -63,7 +63,8 @@
  *             the bottom of the file. Not imported in production; executed
  *             as a CLI script by the Claude Code SubagentStop hook.
  *
- * Upstream deps: Node built-ins only (fs, path). No npm dependencies. Reads
+ * Upstream deps: Node built-ins only (fs, path, os via
+ *                hooks/lib/config-dir.js). No npm dependencies. Reads
  *                SubagentStop payload from stdin (fd 0) via the bounded
  *                reader hooks/lib/stdin-guard.js (readStdinGuarded).
  *                Reads [cwd]/.agentic/events.jsonl - bounded on BOTH the
@@ -71,20 +72,25 @@
  *                from the tail via fs.statSync + fs.readSync at a computed
  *                offset, never a full-file fs.readFileSync once the file
  *                exceeds that size) and the line axis (MAX_SCAN_LINES) - to
- *                find the matching spawn_start.
+ *                find the matching spawn_start. Reads
+ *                hooks/lib/config-dir.js (resolveClaudeConfigDir) and, when
+ *                a transcript resolves, the subagent's own transcript JSONL
+ *                under <config_dir>/projects/... (size-capped at
+ *                MAX_TRANSCRIPT_BYTES, read synchronously).
  *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
  *
  * Downstream consumers: Claude Code SubagentStop hook (wired by
  *                        .claude/install.sh). hooks/stop-context.js
  *                        scanSessionAggregate() and bin/ds-cost's
  *                        _aggregate_by_agent() both read `data.wall_seconds`
- *                        from hook-emitted spawn_complete events into
- *                        session/cost aggregates, ONLY for sessions with no
+ *                        (and, as of the token-resolution addition,
+ *                        `data.tokens` when present) from hook-emitted
+ *                        spawn_complete events into session/cost
+ *                        aggregates, ONLY for sessions with no
  *                        conductor-emitted spawn_complete (double-count
  *                        guard - see the Purpose section above); this is the
- *                        first source of non-zero wall_seconds for hook-only
- *                        ad-hoc sessions (token fields remain zero - harness
- *                        ceiling, unchanged, out of DS-160 scope).
+ *                        first source of non-zero wall_seconds AND non-zero
+ *                        tokens for hook-only ad-hoc sessions.
  *                        hooks/lib/capture-gap.js detectCaptureGap() already
  *                        recognizes spawn_complete for debugger/investigator
  *                        and Skeptic-with-findings triggers.
@@ -104,6 +110,74 @@
  *                missing/renamed field. Live-payload verification against a
  *                real Claude Code session is a recommended fast follow-up
  *                (flagged, not blocking, in the DS-160 PR report).
+ *
+ *                **Token resolution (post-DS-160 addition).** `data.tokens`
+ *                (`{input, output, cache_creation, cache_read}`, summed
+ *                across the subagent's own transcript JSONL) is populated
+ *                when the transcript can be found and read; it is ABSENT
+ *                (never zero-filled) when unresolvable - a zero that looks
+ *                like a measurement is the exact failure mode this addition
+ *                removes. The transcript path is resolved the same way
+ *                bin/ds-parse-subagent-usage resolves it: under the active
+ *                harness config dir (hooks/lib/config-dir.js
+ *                resolveClaudeConfigDir(), NOT a hardcoded ~/.claude - see
+ *                that module's header for the measured root cause this
+ *                fixes), primary construction from `cwd`+`session_id`+
+ *                `agent_id`, falling back to a bounded scan (first
+ *                MAX_PROJECT_DIRS_SCAN entries of
+ *                `readdirSync(configDir/projects)`) when the primary path
+ *                does not exist. Requires `agent_id` (best-effort,
+ *                harness-supplied - see the field read above); when the
+ *                harness omits it, or the transcript FILE cannot be
+ *                located, `data.tokens_note` is
+ *                `"unavailable (transcript not found)"`. When the
+ *                transcript IS located but yields zero assistant-turn
+ *                records contributing at least one usable NUMERIC usage
+ *                field (round-2 fix: this is the same note for an empty
+ *                file, a wholly malformed/non-JSONL file, and a genuinely
+ *                turn-less transcript alike - readTranscriptTokens() tracks
+ *                whether ANY record actually parsed and never treats a
+ *                successful-but-vacuous read as a real zero measurement;
+ *                round-3 fix: "parsed" now means at least one usage field
+ *                that is a real, non-negative number - a record whose
+ *                `usage` is present but `{}`, or carries only non-numeric
+ *                values, no longer counts as parsed either, closing the
+ *                same fabrication class one step over: previously such a
+ *                transcript silently emitted a {0,0,0,0} `tokens` object
+ *                with no note. A negative usage value is treated as
+ *                unusable - never summed, and does not count toward "this
+ *                record parsed" - since a negative token count cannot be a
+ *                real measurement and silently adding it would corrupt the
+ *                total in the other direction),
+ *                `data.tokens_note` is
+ *                `"unavailable (transcript unreadable)"`, and no `tokens`
+ *                key is emitted either way. A transcript at or above
+ *                MAX_TRANSCRIPT_BYTES (20 MiB) is SKIPPED entirely
+ *                (`data.tokens_note: "skipped (transcript too large)"`) -
+ *                never partial-summed, same never-fabricate principle as
+ *                the `wall_seconds` sanity-cap treatment above. `tokens`
+ *                and `tokens_note` are mutually exclusive on a given event.
+ *
+ *                **Known, documented blemish (round-3): partial sums are
+ *                not flagged.** When a transcript contains a mix of
+ *                well-formed assistant-usage lines and malformed/truncated
+ *                lines (e.g. a transcript captured mid-write at the moment
+ *                the harness process stopped), readTranscriptTokens()
+ *                silently skips the malformed lines and sums only the
+ *                lines that parsed - `data.tokens` is emitted with no
+ *                `tokens_note` disclosing that some lines were dropped.
+ *                This is accepted, not fixed, for the same reason as the
+ *                pairing TOCTOU documented below: this file is
+ *                telemetry-only, fail-open, and advisory, and adding a
+ *                third mutually-exclusive-with-nothing state (tokens AND a
+ *                disclosure note together) would require re-deriving the
+ *                "mutually exclusive" invariant this doc-comment and every
+ *                consumer currently relies on. A partial sum is a
+ *                data-quality blemish (undercounting, never overcounting,
+ *                since only cleanly-parsed lines contribute), not a
+ *                fabricated measurement - it differs from the cases this
+ *                function otherwise guards against in that a real subset of
+ *                the true total is genuinely present in what is reported.
  *
  *                No serialization between concurrent SubagentStop
  *                invocations (Skeptic finding, Minor): if two subagents in
@@ -127,7 +201,19 @@
  *                Neither is judged worth the added complexity for a rare,
  *                low-severity race in an advisory-only signal.
  *
- * Performance: Bounded by hooks/lib/stdin-guard.js's read path (same as
+ * Performance: Token resolution adds, once per SubagentStop invocation (not
+ *              per events.jsonl line): at most one fs.statSync (primary
+ *              transcript path), an optional bounded readdirSync scan
+ *              (first MAX_PROJECT_DIRS_SCAN entries under
+ *              configDir/projects, only on primary-path miss), and one
+ *              synchronous fs.readFileSync of the resolved transcript,
+ *              size-capped at MAX_TRANSCRIPT_BYTES (20 MiB) - a transcript
+ *              at or above that size is skipped entirely rather than read.
+ *              This stays inside the hook's overall 5s timeout
+ *              (.claude/install.sh) alongside the rest of this hook's work.
+ *
+ *              The events.jsonl scan itself is bounded by
+ *              hooks/lib/stdin-guard.js's read path (same as
  *              hooks/pre-tool-use-spawn-emit.js). The events.jsonl scan is
  *              bounded on BOTH axes, independent of overall file size:
  *              readRecentEvents() first fs.statSync()s the file and, when it
@@ -152,6 +238,168 @@
 const fs = require('fs');
 const path = require('path');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
+const { resolveClaudeConfigDir } = require('./lib/config-dir.js');
+
+// Bounds the readdirSync fallback scan when the primary transcript path
+// (constructed from cwd's project hash) does not exist - mirrors
+// bin/ds-parse-subagent-usage's glob fallback but bounded on directory
+// COUNT rather than left as an unbounded glob, matching this file's
+// existing MAX_SCAN_LINES/MAX_TAIL_BYTES bounding discipline. readdirSync's
+// entry order is unspecified, so any bound short of "every project dir"
+// leaves SOME machine's tail unreachable on a primary-path miss; this fails
+// SAFE either way (a miss emits `data.tokens_note`, never a wrong number),
+// but round-2 raised the bound from 200 to 1000 after a real dev machine
+// was observed with 251 entries under ~/.claude/projects - comfortably
+// above the old bound and not comfortably below a plausible future one.
+const MAX_PROJECT_DIRS_SCAN = 1000;
+
+// A transcript at or above this size is SKIPPED entirely (never
+// partial-summed) - see the token-resolution doc-comment note above.
+const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Claude Code's cwd->project-hash substitution scheme: every '/' becomes
+ * '-'. Mirrors bin/ds-parse-subagent-usage's _project_hash_from_cwd().
+ */
+function projectHashFromCwd(cwd) {
+  return String(cwd).replace(/\//g, '-');
+}
+
+/**
+ * Resolve the subagent's own transcript path, or null when unresolvable.
+ * Requires both sessionId and agentId (the harness-supplied SubagentStop
+ * agent_id, best-effort - see the field read in run()); without agentId
+ * there is no way to select which transcript under a session belongs to
+ * THIS subagent, so this function does not guess.
+ *
+ * Primary: <configDir>/projects/<projectHash(cwd)>/<sessionId>/subagents/
+ *          agent-<agentId>.jsonl
+ * Fallback: the same filename under the first MAX_PROJECT_DIRS_SCAN
+ *           entries of readdirSync(<configDir>/projects) - bounded scan,
+ *           not an unbounded glob.
+ */
+function resolveTranscriptPath(configDir, cwd, sessionId, agentId) {
+  if (!sessionId || !agentId) return null;
+
+  const projectHash = projectHashFromCwd(cwd);
+  const primary = path.join(
+    configDir, 'projects', projectHash, sessionId, 'subagents', `agent-${agentId}.jsonl`
+  );
+  try {
+    if (fs.statSync(primary).isFile()) return primary;
+  } catch (_) { /* fall through to bounded scan */ }
+
+  const projectsDir = path.join(configDir, 'projects');
+  let entries;
+  try {
+    entries = fs.readdirSync(projectsDir);
+  } catch (_) {
+    return null;
+  }
+  const bounded = entries.slice(0, MAX_PROJECT_DIRS_SCAN);
+  for (const entry of bounded) {
+    const candidate = path.join(projectsDir, entry, sessionId, 'subagents', `agent-${agentId}.jsonl`);
+    try {
+      if (fs.statSync(candidate).isFile()) return candidate;
+    } catch (_) { /* continue scanning */ }
+  }
+  return null;
+}
+
+/**
+ * Sum token usage across all assistant turns in a transcript JSONL, or
+ * return a descriptive note when unresolvable. Never returns a zero-filled
+ * tokens object as a stand-in for "unresolved" - a real zero (genuinely no
+ * assistant turns yet) and "we could not read this" are kept distinct by
+ * tracking whether at least one assistant record ACTUALLY contributed a
+ * usable numeric usage field, not merely whether a `usage` object was
+ * present or the file opened without throwing. Round-2 fix: a prior version
+ * returned the untouched {0,0,0,0} accumulator as a "success" whenever the
+ * file was 0 bytes or wholly unparseable JSONL, which is indistinguishable
+ * downstream from a real zero-token measurement - exactly the fabrication
+ * this function exists to prevent. Round-3 fix: a prior version counted a
+ * record as "parsed" whenever a `usage` OBJECT existed, regardless of
+ * whether any field inside it was a real number - so a transcript whose
+ * assistant records all carried `usage: {}` (or only non-numeric usage
+ * values) silently produced the same {0,0,0,0}-with-no-note fabrication one
+ * step over. A record now counts as parsed only when it contributes at
+ * least one usable numeric usage field; a negative usage value is treated
+ * as unusable (never summed, does not count toward "parsed") rather than
+ * silently summed as-is. Malformed/truncated lines mixed with otherwise-
+ * valid lines are silently skipped and NOT flagged - see the "Known,
+ * documented blemish" note in this module's header doc-comment.
+ *
+ * Returns { tokens: {input,output,cache_creation,cache_read}, note: null }
+ * when at least one assistant record contributed a usable numeric usage
+ * field, or { tokens: null, note: <string> } when tokens could not be
+ * determined (file missing, oversized, or found but yielding zero usable
+ * fields).
+ */
+function readTranscriptTokens(transcriptPath) {
+  let stat;
+  try {
+    stat = fs.statSync(transcriptPath);
+  } catch (_) {
+    return { tokens: null, note: 'unavailable (transcript not found)' };
+  }
+  if (!stat.isFile()) {
+    return { tokens: null, note: 'unavailable (transcript not found)' };
+  }
+  if (stat.size >= MAX_TRANSCRIPT_BYTES) {
+    return { tokens: null, note: 'skipped (transcript too large)' };
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(transcriptPath, 'utf8');
+  } catch (_) {
+    return { tokens: null, note: 'unavailable (transcript not found)' };
+  }
+
+  const tokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+  // Maps the tokens accumulator key to the raw usage field name. A record
+  // is only counted as "parsed" (see doc-comment above) when at least one
+  // of these fields is a real, non-negative number.
+  const USAGE_FIELDS = [
+    ['input', 'input_tokens'],
+    ['output', 'output_tokens'],
+    ['cache_creation', 'cache_creation_input_tokens'],
+    ['cache_read', 'cache_read_input_tokens'],
+  ];
+  let parsedCount = 0;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+    if (!obj || obj.type !== 'assistant') continue;
+    const usage = obj.message && obj.message.usage;
+    if (!usage || typeof usage !== 'object') continue;
+    let usableFieldFound = false;
+    for (const [key, rawKey] of USAGE_FIELDS) {
+      const val = usage[rawKey];
+      if (val === undefined || val === null) continue;
+      const n = Number(val);
+      // Non-numeric (NaN) and negative values are unusable: never summed,
+      // and never counted toward this record having "parsed". A negative
+      // token count cannot be a real measurement; silently summing it would
+      // corrupt the total in the opposite direction from fabrication.
+      if (!Number.isFinite(n) || n < 0) continue;
+      tokens[key] += n;
+      usableFieldFound = true;
+    }
+    if (usableFieldFound) parsedCount += 1;
+  }
+  if (parsedCount === 0) {
+    // File opened and read fine, but nothing usable parsed out of it - an
+    // empty file, wholly malformed JSONL, and a genuinely turn-less
+    // transcript are all indistinguishable from "we could not determine
+    // this" from the caller's perspective, and must never be reported as
+    // a real zero-token measurement.
+    return { tokens: null, note: 'unavailable (transcript unreadable)' };
+  }
+  return { tokens, note: null };
+}
 
 const MAX_SCAN_LINES = 5000;
 // Bounds the raw byte read regardless of events.jsonl's total size (see
@@ -352,6 +600,31 @@ async function run() {
       }
     }
 
+    // Token resolution: try to find and read the subagent's own transcript.
+    // tokens is populated ONLY on success; tokens_note is populated ONLY on
+    // failure - never both, never a zero-filled tokens object standing in
+    // for "unresolved" (see the token-resolution doc-comment above).
+    let tokens = null;
+    let tokensNote = null;
+    try {
+      const configDir = resolveClaudeConfigDir();
+      const transcriptPath = resolveTranscriptPath(configDir, cwd, sessionId, agentId);
+      if (transcriptPath) {
+        const result = readTranscriptTokens(transcriptPath);
+        if (result.tokens) {
+          tokens = result.tokens;
+        } else {
+          tokensNote = result.note;
+        }
+      } else {
+        tokensNote = 'unavailable (transcript not found)';
+      }
+    } catch (_) {
+      // Token resolution must never block emitting the completion signal
+      // itself - fall through with tokensNote unset from this branch.
+      tokensNote = tokensNote || 'unavailable (transcript not found)';
+    }
+
     const event = {
       ts: nowIso,
       phase: 'hook',
@@ -366,7 +639,8 @@ async function run() {
         paired_spawn_id: pairedSpawnId,
         wall_seconds: wallSeconds,
         suspect: suspect,
-        tokens_note: 'unavailable (harness)',
+        ...(tokens ? { tokens } : {}),
+        ...(tokensNote ? { tokens_note: tokensNote } : {}),
       },
     };
     fs.appendFileSync(eventsPath, JSON.stringify(event) + '\n', 'utf8');

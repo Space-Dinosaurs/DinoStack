@@ -43,6 +43,12 @@
  *      match any spawn_start in this session's view (e.g. the hook's own
  *      2MB tail window missed it) -> dropped as completion metadata, does
  *      NOT create a new spawn count.
+ *  13. post-ds160-hook-only-session-wall-seconds-flows-into-session-total:
+ *      a hook-only ad-hoc session with a real paired wall_seconds ->
+ *      writeSessionTotal's own session_total event carries that real
+ *      duration, not 0. Exercises writeSessionTotal end-to-end (Tests
+ *      2/9/10/11/12 call scanSessionAggregate directly); does not modify
+ *      or duplicate any of them.
  *
  * Run with: node hooks/tests/test-stop-context-telemetry.js
  */
@@ -166,22 +172,31 @@ function makeHookSpawnStart(agent, sessionId, spawnId) {
   });
 }
 
-function makeHookSpawnComplete(agent, sessionId, pairedSpawnId, wallSeconds) {
+function makeHookSpawnComplete(agent, sessionId, pairedSpawnId, wallSeconds, tokens) {
+  const data = {
+    source: 'hook',
+    session_uuid: sessionId,
+    tool_use_id: null,
+    agent_id: null,
+    paired_spawn_id: pairedSpawnId || null,
+    wall_seconds: wallSeconds === undefined ? 3 : wallSeconds,
+  };
+  // Mirrors hooks/subagent-stop-spawn-emit.js's own mutual exclusivity:
+  // tokens present -> no tokens_note; tokens absent -> tokens_note explains
+  // why. Existing callers that omit `tokens` keep the pre-existing
+  // 'unavailable (harness)' shape unchanged.
+  if (tokens) {
+    data.tokens = tokens;
+  } else {
+    data.tokens_note = 'unavailable (harness)';
+  }
   return JSON.stringify({
     ts: new Date().toISOString(),
     phase: 'hook',
     event: 'spawn_complete',
     agent,
     task_id: null,
-    data: {
-      source: 'hook',
-      session_uuid: sessionId,
-      tool_use_id: null,
-      agent_id: null,
-      paired_spawn_id: pairedSpawnId || null,
-      wall_seconds: wallSeconds === undefined ? 3 : wallSeconds,
-      tokens_note: 'unavailable (harness)',
-    },
+    data,
   });
 }
 
@@ -574,6 +589,134 @@ console.log('\nTest 12: paired-complete-resolves-to-nothing-not-double-counted')
       `no "skeptic" agent row from the phantom-paired complete (got: ${JSON.stringify(agg.by_agent)})`);
     assert(agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns === 1,
       `by_agent.engineer.spawns === 1 (got: ${agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: post-ds160-hook-only-session-wall-seconds-flows-into-session-total
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: post-ds160-hook-only-session-wall-seconds-flows-into-session-total');
+{
+  // Locks in that a post-DS-160 hook-only session's real wall_seconds (from
+  // a paired hook spawn_start + spawn_complete) reaches session_total via
+  // writeSessionTotal's own scanSessionAggregate call - not just via a
+  // direct scanSessionAggregate() call as Tests 2/9/10/11/12 already
+  // exercise. Does NOT touch or duplicate the double-count guard those
+  // tests already pin.
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-adhoc-013';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('engineer', sessionId, 'spawn-013') + '\n'
+    + makeHookSpawnComplete('engineer', sessionId, 'spawn-013', 17) + '\n',
+    'utf8'
+  );
+
+  try {
+    writeSessionTotal(tmpDir, sessionId);
+  } catch (err) {
+    assert(false, `writeSessionTotal must not throw: ${err.message}`);
+  }
+
+  const lines = fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean);
+  const totalLine = lines[lines.length - 1];
+  let ev;
+  try { ev = JSON.parse(totalLine); } catch (_) {}
+  assert(ev && ev.event === 'session_total', `last line is session_total (got: ${ev && ev.event})`);
+  if (ev) {
+    assert(ev.data && ev.data.spawn_count === 1,
+      `session_total.spawn_count === 1 (got: ${ev.data && ev.data.spawn_count})`);
+    assert(ev.data && ev.data.wall_seconds === 17,
+      `session_total.wall_seconds === 17, the real paired duration - not 0/n-a (got: ${ev.data && ev.data.wall_seconds})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: hook-spawn-complete-tokens-flow-into-scanSessionAggregate
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: hook-spawn-complete-tokens-flow-into-scanSessionAggregate');
+{
+  // Round-2 regression: scanSessionAggregate()'s `if (data.tokens) existing.tokens
+  // = data.tokens;` (:738 as of this fix) and recordSpawn()'s tokens parameter
+  // (:741) were both reachable but had ZERO test coverage - reverting either
+  // line individually left the full suite green. This test plants a hook
+  // spawn_start + a paired spawn_complete CARRYING data.tokens and asserts
+  // those tokens appear in BOTH the session-wide total AND the per-agent
+  // by_agent rollup - the two places recordSpawn()'s tokens argument fans out
+  // to. Does not touch or duplicate the double-count guard tests above.
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-adhoc-014';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+
+  const tokens = { input: 111, output: 22, cache_creation: 3, cache_read: 4 };
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('engineer', sessionId, 'spawn-014') + '\n'
+    + makeHookSpawnComplete('engineer', sessionId, 'spawn-014', 5, tokens) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.tokens.input === 111,
+      `session-total tokens.input === 111 (got: ${agg.tokens.input})`);
+    assert(agg.tokens.output === 22,
+      `session-total tokens.output === 22 (got: ${agg.tokens.output})`);
+    assert(agg.tokens.cache_creation === 3,
+      `session-total tokens.cache_creation === 3 (got: ${agg.tokens.cache_creation})`);
+    assert(agg.tokens.cache_read === 4,
+      `session-total tokens.cache_read === 4 (got: ${agg.tokens.cache_read})`);
+    const engineerRow = agg.by_agent['engineer'];
+    assert(!!engineerRow, 'by_agent.engineer row exists');
+    if (engineerRow) {
+      assert(engineerRow.tokens.input === 111,
+        `by_agent.engineer.tokens.input === 111 (got: ${engineerRow.tokens.input})`);
+      assert(engineerRow.tokens.output === 22,
+        `by_agent.engineer.tokens.output === 22 (got: ${engineerRow.tokens.output})`);
+    }
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal
+// ---------------------------------------------------------------------------
+console.log('\nTest 15: hook-spawn-complete-tokens-flow-into-writeSessionTotal');
+{
+  // Same regression as Test 14, exercised through writeSessionTotal (the
+  // actual consumer path, mirroring how Test 13 exercises wall_seconds
+  // through writeSessionTotal rather than only via a direct
+  // scanSessionAggregate() call).
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-adhoc-015';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+
+  const tokens = { input: 77, output: 33, cache_creation: 0, cache_read: 0 };
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('skeptic', sessionId, 'spawn-015') + '\n'
+    + makeHookSpawnComplete('skeptic', sessionId, 'spawn-015', 5, tokens) + '\n',
+    'utf8'
+  );
+
+  try {
+    writeSessionTotal(tmpDir, sessionId);
+  } catch (err) {
+    assert(false, `writeSessionTotal must not throw: ${err.message}`);
+  }
+
+  const lines = fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean);
+  const totalLine = lines[lines.length - 1];
+  let ev;
+  try { ev = JSON.parse(totalLine); } catch (_) {}
+  assert(ev && ev.event === 'session_total', `last line is session_total (got: ${ev && ev.event})`);
+  if (ev) {
+    assert(ev.data && ev.data.tokens && ev.data.tokens.input === 77,
+      `session_total.tokens.input === 77, the real hook-resolved value (got: ${ev.data && ev.data.tokens && ev.data.tokens.input})`);
+    assert(ev.data && ev.data.tokens && ev.data.tokens.output === 33,
+      `session_total.tokens.output === 33 (got: ${ev.data && ev.data.tokens && ev.data.tokens.output})`);
   }
   cleanup(tmpDir);
 }

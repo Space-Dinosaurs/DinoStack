@@ -59,6 +59,11 @@ CASES = [
     ("agentic-tracker", ["--help"], 0),
     ("agentic-branch-prune", ["--help"], 0),
     ("agentic-learning-shard", ["--help"], 0),
+    # agentic-parse-subagent-usage has no argparse --help; its hand-rolled
+    # main() treats any extra arg as session_uuid/agent_id, prints the
+    # {"error":"usage"} envelope (too few args), and returns 0 - which is
+    # fine, since the shim still runs at import time either way.
+    ("agentic-parse-subagent-usage", ["--help"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the

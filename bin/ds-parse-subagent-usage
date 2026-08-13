@@ -10,11 +10,28 @@ Public API: ds-parse-subagent-usage <session_uuid> <agent_id>
             Prints compact JSON to stdout. Exits 0 in all cases (errors are
             reported via the {"error": "..."} envelope, never raised).
 
-Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib).
-               Reads ~/.claude/projects/<project-hash>/<session_uuid>/
+Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib,
+               importlib.util, importlib.machinery - the last two load
+               bin/_lib.py's resolve_claude_config_dir() by explicit path,
+               same PATH-symlink-safe shim pattern documented at the import
+               site below; not a third-party dependency).
+               Reads <config_dir>/projects/<project-hash>/<session_uuid>/
                subagents/agent-<agent_id>.jsonl. Resolves project-hash from
                the current working directory using Claude Code's
-               '/' -> '-' substitution scheme.
+               '/' -> '-' substitution scheme. config_dir is resolved via
+               bin/_lib's resolve_claude_config_dir() (AGENTIC_CONFIG_DIR >
+               CLAUDE_CONFIG_DIR > CODEX_HOME > PI_CODING_AGENT_DIR, first
+               non-empty wins, else ~/.claude) - NOT a hardcoded ~/.claude.
+               Prior to this fix, both the primary path AND the fallback
+               glob hardcoded ~/.claude unconditionally, so a session
+               running under a harness profile whose config dir is
+               redirected elsewhere (e.g. CLAUDE_CONFIG_DIR set to a
+               non-default location) silently found nothing - the tool
+               looked in an empty directory while real transcript data with
+               real per-turn `usage` blocks sat under the actual config
+               dir, and every downstream consumer (spawn_complete tokens,
+               bin/ds-cost) inherited the false "tokens unavailable" gap as
+               a result.
 
 Downstream consumers: content/commands/ds-implement-ticket.md spawn_complete
                       emit sites; bin/ds-emit (indirectly, via
@@ -22,17 +39,22 @@ Downstream consumers: content/commands/ds-implement-ticket.md spawn_complete
                       payload).
 
 Failure modes: Primary path derives the project hash from `pwd` using Claude
-               Code's `/`->`-` scheme. If the resulting directory does not
-               exist (scheme drift, symlinked cwd, or non-standard project
-               layout), the helper falls back to globbing
-               `~/.claude/projects/*/<session-uuid>/subagents/agent-<agent_id>.jsonl`
-               and selects the first match. If neither path resolves, exits
-               0 with `{"error":"transcript_not_found"}` - never raises.
+               Code's `/`->`-` scheme, under the resolved config_dir. If the
+               resulting directory does not exist (scheme drift, symlinked
+               cwd, or non-standard project layout), the helper falls back
+               to globbing
+               `<config_dir>/projects/*/<session-uuid>/subagents/agent-<agent_id>.jsonl`
+               (same resolved config_dir - the fallback previously hardcoded
+               ~/.claude independently of the primary path, which could not
+               have masked the primary-path bug for a redirected config dir
+               either) and selects the first match. If neither path
+               resolves, exits 0 with `{"error":"transcript_not_found"}` -
+               never raises.
 
 Performance: Primary path is two file opens (parent JSONL + subagent JSONL).
              Fallback glob is O(N projects) where N is the count of
-             directories under `~/.claude/projects/`; typical N < 50 makes
-             this <50 ms in practice but is not bounded by spec.
+             directories under `<config_dir>/projects/`; typical N < 50
+             makes this <50 ms in practice but is not bounded by spec.
 """
 
 from __future__ import annotations
@@ -44,6 +66,29 @@ import os
 import sys
 from pathlib import Path
 
+# Shared helper from bin/_lib (same directory; bin/ is on sys.path at
+# runtime). .resolve() follows a PATH symlink (e.g.
+# ~/.local/bin/ds-parse-subagent-usage -> repo bin/ds-parse-subagent-usage,
+# as created by install.sh) back to the real bin/ directory so _lib.py is
+# found on a bare invocation - the DS-66 bug class (bare `.parent`, no
+# `.resolve()`) resolves to a missing ~/.local/bin/_lib.py.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+resolve_claude_config_dir = _lib_mod.resolve_claude_config_dir
+del _sys, _ilu, _ilm, _lib_mod
+
 
 def _project_hash_from_cwd() -> str:
     cwd = os.getcwd()
@@ -53,17 +98,19 @@ def _project_hash_from_cwd() -> str:
 
 
 def _resolve_transcript(session_uuid: str, agent_id: str) -> str | None:
-    home = Path(os.path.expanduser("~"))
+    config_dir = resolve_claude_config_dir()
     primary = (
-        home / ".claude" / "projects" / _project_hash_from_cwd()
+        config_dir / "projects" / _project_hash_from_cwd()
         / session_uuid / "subagents" / f"agent-{agent_id}.jsonl"
     )
     if primary.is_file():
         return str(primary)
 
-    # Fallback: O(N projects) glob across all project hashes.
+    # Fallback: O(N projects) glob across all project hashes, under the
+    # SAME resolved config_dir as the primary path (not a hardcoded
+    # ~/.claude - see module docstring Upstream deps).
     pattern = str(
-        home / ".claude" / "projects" / "*" / session_uuid
+        config_dir / "projects" / "*" / session_uuid
         / "subagents" / f"agent-{agent_id}.jsonl"
     )
     matches = sorted(glob.glob(pattern))
