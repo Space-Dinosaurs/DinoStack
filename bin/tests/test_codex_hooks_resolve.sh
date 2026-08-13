@@ -24,7 +24,16 @@
 #                inside each command is evaluated (via bash command
 #                substitution) - the interpreter is never actually invoked,
 #                so this test has no side effects even if a resolved script
-#                has some.
+#                has some. On bash 3.2 (macOS default), the previous
+#                `mapfile -t COMMANDS < <(python3 -c "...")` form both failed
+#                (mapfile does not exist pre-4.0) and, once worked around,
+#                left COMMANDS unset when hooks.json had zero entries - an
+#                unguarded "${COMMANDS[@]}" expansion under `set -u` then
+#                raised "unbound variable" before this test's own empty-set
+#                diagnostic could print. Fixed by writing the extractor's
+#                output to a temp file and reading it back with a `while
+#                read` loop, and by guarding the loop expansion with
+#                "${COMMANDS[@]+"${COMMANDS[@]}"}".
 #
 # Performance: < 1 s wall time (pure shell + python3, no network).
 
@@ -65,9 +74,16 @@ mkdir -p "$FAKE_HOME/.codex"
 ln -s "$HOOKS_JSON" "$FAKE_HOME/.codex/hooks.json"
 
 # Extract every "command" string from hooks.json (order-independent walk).
-mapfile -t COMMANDS < <(python3 -c "
+# The path is passed as sys.argv[1] rather than interpolated into the Python
+# source string, so a checkout path containing a quote or $ cannot break the
+# script. bash 3.2 (macOS default) lacks `mapfile`, so the output is written
+# to a temp file and read back with a `while read` loop instead - see
+# bin/tests/test_tasks_jsonl_fold.sh:60-68 for why a pipe-fed `while read`
+# (subshell discards state) is also avoided.
+_CMDS_TMP="$TMP_ROOT/commands.txt"
+python3 -c "
 import json, sys
-with open('$HOOKS_JSON') as f:
+with open(sys.argv[1]) as f:
     data = json.load(f)
 
 def walk(node):
@@ -84,7 +100,12 @@ def walk(node):
     yield
 
 list(walk(data))
-")
+" "$HOOKS_JSON" > "$_CMDS_TMP"
+
+COMMANDS=()
+while IFS= read -r line; do
+  COMMANDS+=("$line")
+done < "$_CMDS_TMP"
 
 if [[ ${#COMMANDS[@]} -eq 0 ]]; then
   _fail "no 'command' entries found in $HOOKS_JSON - parser or fixture regressed"
@@ -92,7 +113,7 @@ else
   _pass "found ${#COMMANDS[@]} command entries in $HOOKS_JSON"
 fi
 
-for cmd in "${COMMANDS[@]}"; do
+for cmd in "${COMMANDS[@]+"${COMMANDS[@]}"}"; do
   # Each command has the shape:
   #   <interpreter> "<path-expression-with-$(...)-substitutions>"
   # Extract just the quoted path expression and evaluate it under FAKE_HOME
