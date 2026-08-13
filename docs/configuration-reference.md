@@ -108,7 +108,10 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | Variable | Default (unset) | What it disables |
 |---|---|---|
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
+| `AE_PLANNING_GUARD_DISABLE=1` | guard active | Planning-artifact spawn advisory hook (`hooks/enforce-planning-artifact-spawn.py`) |
+| `AE_SHIPPABLE_GUARD_DISABLE=1` | guard active | Shippable-edit guard denying conductor-direct shippable edits (`hooks/enforce-shippable-edit.py`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
+| `AE_TEAM_ROUTING_DISABLE=1` | guard active | Cross-harness team-routing branch of the background-spawn guard (`hooks/enforce-background-spawn.py`) |
 | `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check and the advisory phrasing check (only relevant when `turn_shape_guard_enabled: true`) |
 | `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
