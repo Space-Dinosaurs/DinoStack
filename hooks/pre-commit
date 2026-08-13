@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# Purpose: Enforce staged static-analysis, Codex native-skill drift, and adapter build gates.
+# Purpose: Enforce staged static-analysis, Codex native-skill drift, dinostack
+#          skill symlink absolutization, and adapter build gates.
 #
 # Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
 #
 # Upstream deps: the staged Git index, project lint/type tools when installed,
 #                native-skill and prompt-wrapper generators, their sync check,
+#                scripts/check-symlinks-relative.sh (run in --staged mode against
+#                the staged blob, not the working-tree copy),
 #                scripts/stamp-agent-fragments.sh (runs before the adapter
 #                builds so they see stamped content/agents/*.md), and all
 #                adapter build scripts.
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
-# Failure modes: exits non-zero on lint, type, native-skill drift, or adapter build
-#                failures; skips unavailable optional linters and worktree builds.
+# Failure modes: exits non-zero on lint, type, native-skill drift, symlink
+#                absolutization (staged skill symlink resolves to an absolute
+#                path), or adapter build failures; skips unavailable optional
+#                linters and worktree builds. The symlink-absolutization gate
+#                runs in every worktree, not just the primary checkout.
 #
 # Performance: staged-path scoped until canonical content requires full adapter builds.
 
@@ -148,6 +154,29 @@ if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
   bash "$CODEX_SKILL_INDEX_SNAPSHOT/scripts/check-codex-skill-sync.sh"
   cleanup_codex_skill_snapshot
   trap - EXIT
+fi
+
+# ---------------------------------------------------------------------------
+# dinostack skill symlink absolutization gate (DS-104/DS-136)
+#
+# Runs the STAGED version of scripts/check-symlinks-relative.sh (via `git
+# show :path | bash -s --`) rather than the working-tree copy, so a locally
+# modified-but-unstaged checker cannot silently weaken this gate. Runs
+# before the worktree build-skip exit below so it fires in every linked
+# worktree, not just the primary checkout.
+# ---------------------------------------------------------------------------
+
+CHECK_SYMLINKS_STAGED_SRC="$(git show :scripts/check-symlinks-relative.sh 2>/dev/null)"
+if [[ -z "$CHECK_SYMLINKS_STAGED_SRC" ]]; then
+  echo "[pre-commit] ERROR: unable to read the staged scripts/check-symlinks-relative.sh (missing from the index, e.g. staged for deletion) - commit blocked. Restore or unstage it." >&2
+  exit 1
+fi
+# Success path is quiet: the checker's per-link "(relative, OK)" line goes to
+# stdout, which is silenced here on every passing commit. Failures still
+# surface - the checker writes all error/absolutization detail to stderr.
+if ! echo "$CHECK_SYMLINKS_STAGED_SRC" | bash -s -- --staged >/dev/null; then
+  echo "[pre-commit] ERROR: one or more dinostack skill symlinks are staged as absolute paths (expected relative) - commit blocked. Run 'git status' and re-link with a relative target." >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
