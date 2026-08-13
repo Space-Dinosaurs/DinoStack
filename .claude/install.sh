@@ -1160,6 +1160,49 @@ upsert_hook(
     "PreToolUse(Read) worktree-read guard hook",
 )
 
+# ---- PreToolUse worktree-write guard ("Write"/"Edit"/"MultiEdit" matchers) -
+# Denies a worktree-isolated subagent (agent_id present) Write/Edit/MultiEdit
+# that reaches into the PRIMARY checkout instead of the agent's own isolation
+# worktree - the write-side companion to the read guard above. Catches the
+# case enforce-shippable-edit.py cannot: a subagent that has silently fallen
+# back to the primary checkout still carries a present agent_id and sails
+# through that guard, which only gates on agent_id absence (conductor-vs-
+# subagent), not on isolation containment. caller_root comes from the
+# payload's cwd field, primary_root from CLAUDE_PROJECT_DIR; both are
+# realpath-normalized before the containment test. Never fires on a
+# main-session call (agent_id absent) or a subagent that is not worktree-
+# isolated. Fully fail-open on any error.
+# Kill-switch: AE_WORKTREE_WRITE_GUARD_DISABLE=1.
+#
+# Uses a GUARDED command string, unlike a bare `python3 {path}` form - see
+# the worktree-read guard's comment above for why: a bare form exits 2
+# (BLOCKING) when the script is missing, so a registration outliving the
+# script would silently deny every Write/Edit/MultiEdit in every session.
+ENFORCE_WORKTREE_WRITE_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-worktree-write.py && "
+    f"python3 {hooks_root}/hooks/enforce-worktree-write.py || exit 0"
+)
+
+for file_matcher in ("Write", "Edit", "MultiEdit"):
+    ptu_worktree_write_block = None
+    for block in ptu_list:
+        if block.get("matcher") == file_matcher:
+            ptu_worktree_write_block = block
+            break
+
+    if ptu_worktree_write_block is None:
+        ptu_worktree_write_block = {"matcher": file_matcher, "hooks": []}
+        ptu_list.append(ptu_worktree_write_block)
+
+    ptu_worktree_write_block.setdefault("hooks", [])
+
+    upsert_hook(
+        ptu_worktree_write_block["hooks"],
+        "enforce-worktree-write.py",
+        {"type": "command", "command": ENFORCE_WORKTREE_WRITE_CMD, "timeout": 5},
+        f"PreToolUse({file_matcher}) worktree-write guard hook",
+    )
+
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking settings.json to a victim file and
 # running installer overwrites the victim's content through the link.

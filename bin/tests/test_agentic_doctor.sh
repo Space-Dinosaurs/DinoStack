@@ -634,6 +634,48 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 12b: check_hook_scripts_exist recognizes enforce-worktree-write.py as
+# a managed hook basename - the write-side counterpart of T12 above. Same
+# omission class: if MANAGED_HOOK_BASENAMES ever drops
+# "enforce-worktree-write.py" (e.g. bin/ds-doctor:170 deleted), a
+# settings.json registration whose script is missing on disk would be
+# silently skipped by check_hook_scripts_exist() and doctor would certify
+# "all managed hook scripts exist on disk" while the dangling registration
+# (CRITICAL-1-class blast radius, and larger here: all three of
+# Write/Edit/MultiEdit rather than Read alone) went undiagnosed.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+# enforce-worktree-write.py is referenced by settings.json but MISSING from
+# disk - must be reported as a FAIL, not silently skipped.
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {"type": "command", "command": "test -f $FAKE_REPO/hooks/enforce-worktree-write.py && python3 $FAKE_REPO/hooks/enforce-worktree-write.py || exit 0", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:.*enforce-worktree-write.py.*does not exist on disk"; then
+  _pass "T12b hook_scripts: missing enforce-worktree-write.py reported as FAIL (MANAGED_HOOK_BASENAMES omission regression guard)"
+else
+  _fail "T12b hook_scripts: expected FAIL for missing enforce-worktree-write.py (MANAGED_HOOK_BASENAMES omission regressed)\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Tests 13-15 (DS-54): hooks-snapshot staleness check
 # (check_hooks_snapshot_staleness / _fix_hooks_snapshot).
 #
