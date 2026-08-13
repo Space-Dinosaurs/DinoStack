@@ -535,7 +535,7 @@ Claude Code locks each isolation worktree while its agent is running, so git ref
 | **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
 | **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
 | **Code standards detail** | implementing or modifying code in a specific language | `content/references/code-standards-detail.md` §Per-Language Strict Defaults - TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs; §Browser Verification - `agent-browser` usage patterns |
-| **Conventions detail** | consulting the intent layer, context economy, or external comment rules | `content/references/conventions-detail.md` §The Intent Layer - artifact list, Project Config toggle catalog; §Context Economy - context-window discipline; §External Comment Discipline - PR/review comment rules |
+| **Conventions detail** | consulting the intent layer, context economy, or external comment rules | `content/references/conventions-detail.md` §The Intent Layer - artifact list, Project Config toggle catalog; §Context Economy - context-window discipline; §External Comment Discipline - PR/review comment, ticket description, commit message, and assembled PR-body rules |
 | **Capture classification** | deciding whether to write a learning entry at a mandatory trigger | `content/references/capture-classification.md` - guardrail-first precedence chain, two-gate MUST/SHOULD/SKIP table, per-trigger declaration format. Mandatory triggers and the `Capture:` block format: `content/references/conductor-operating-rules.md §learnings-agent` |
 | **Outcome rubric** | authoring or reviewing a Brief for Elevated work | `content/references/planning-artifacts.md` - line schema (`{id, line, verification_type: deterministic \| judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), verification-gate `Rubric lines resolved` subsection. Co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/ds-brief` Section 3 copies the staged draft or elicits rubric lines inline. Independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding |
 | **Trigger catalog and open-goal loops** | setting up an action-triggered workflow or declaring a measured goal condition rather than a fixed unit list | `content/references/trigger-catalog.md` - three trigger types (manual / scheduled / action-triggered), open-goal loop contract (trigger / action / measured condition / hard-stop), yolo-guard: a trigger fires the conductor (never a worker-spawn bypass), risk classification plus a fresh Skeptic apply on every iteration regardless of how the loop was started |
@@ -800,7 +800,7 @@ Read `content/references/conventions-detail.md` §Context Economy for context-wi
 
 ## External Comment Discipline
 
-Read `content/references/conventions-detail.md` §External Comment Discipline for rules on PR bodies, review comments, commit messages, and other external-facing artifacts (lead with result, bullets over prose, evidence beats description, no marketing voice).
+Read `content/references/conventions-detail.md` §External Comment Discipline for rules on PR bodies, review comments, commit messages, ticket descriptions, and other external-facing artifacts (lead with result, bullets over prose, evidence beats description, no marketing voice).
 
 ---
 
@@ -2648,8 +2648,9 @@ Upstream deps: content/rules/conventions.md (parent rules file; read that
 
 Downstream consumers: conductor (Intent Layer for understanding artifact
                       routing; External Comment Discipline for PR bodies,
-                      tracker comments, and review comments; Context Economy
-                      for output discipline); content/sections/
+                      ticket descriptions, commit messages, assembled PR
+                      bodies, tracker comments, and review comments; Context
+                      Economy for output discipline); content/sections/
                       12-protocol-details.md (conventions reference).
 
 Failure modes: Prose reference; does not auto-execute. The Project Config
@@ -2786,7 +2787,31 @@ Apply these rules to every external-facing comment:
 - **Skeptic findings posted as PR review comments** are one finding per comment in the form `[Severity] path:line - issue. Fix: <one-line action>.` No preamble, no sign-off banner, no "Active search" line on per-finding comments - that line belongs to the conductor-internal sign-off, not the PR surface.
 - **Self-check before posting.** Re-read this section. For each sentence ask: is this load-bearing for a human deciding "do I need to act on this?" If not, delete it.
 
-This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment). The templates still apply; this rule governs the substance that fills them.
+### Ticket descriptions
+
+Lead with the Problem. These are soft targets, not hard caps: the bounds below bind only where every line earns its place, because the signal-per-line test (`conventions-detail.md:159`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic - a 7-line Problem that is all load-bearing passes, and a 3-line Problem that restates the ticket fails.
+
+- **Problem:** soft target ≤ 5 lines.
+- **Acceptance Criteria:** soft target ≤ 8 bullets.
+- **Total:** soft target ≈ 15 lines.
+
+The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check at `content/commands/ds-implement-ticket.md:518`) is excluded from the budget.
+
+Per-line self-check: would a future reader need this line to know what to build, or when it is done? If not, delete it.
+
+**Cross-reference.** The direct-tool and follow-up ticket-creation path is governed by `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline - its carve-out, promotion bar, and batching rules decide whether a discovery becomes a ticket at all, independently of verbosity. These soft bounds apply to tickets authored through the Tracker Create Helper (`content/commands/ds-implement-ticket.md:501`); they do not reach the direct-tool path.
+
+### Commit messages
+
+Subject line: `type(scope): <imperative description>`, written in the imperative mood. The cap is on the whole subject INCLUDING the `type(scope):` prefix - ≤ 50 characters total, leaving roughly 25-35 characters for the description on typical scopes. A description that cannot fit pushes the detail into the body. Conventional git subject-line guidance: git truncates long subjects in tooling output, and 50 is the traditional subject cap. This is guidance, not a repo-precedent claim - measured subject lines in this repo run 64-116 characters.
+
+The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Co-Authored-By, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
+
+### Assembled PR bodies
+
+The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - DS-156's relevance bans apply over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:160`, unchanged).
+
+This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.
 
 ---
 

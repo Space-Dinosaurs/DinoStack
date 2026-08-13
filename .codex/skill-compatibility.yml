@@ -422,16 +422,6 @@
       "source_token": "Edit"
     },
     {
-      "expected_target": "content/references/conventions-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "3100787a41c71bfef0c3a79335c17f1d96d41d5867cdd473ebcfe976f3983ccf",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/conventions-detail.md"
-    },
-    {
       "expected_target": "git worktree add + spawn_agent",
       "generated_token": "**Worktree isolation is MANDATORY.** Before every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn, execute the Codex spawn contract above. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`$AE_PROJECT_DIR/.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` \u00a7Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking \"why is `$AE_PROJECT_DIR/.agentic/loop-state.json` in this PR?\" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.",
       "kind": "operational",
@@ -2070,6 +2060,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
+    },
+    {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "ee249a866a37560e40957babb43b6ea97a434e2d532caa715753402a27dda64d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conventions-detail.md"
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
