@@ -232,7 +232,7 @@ Write `status: iterating` during revision rounds.
    > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
 6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
-7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6), plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) lists the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet.
+7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6), plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) lists the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`.
 8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
 
