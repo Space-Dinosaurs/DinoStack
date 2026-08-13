@@ -259,9 +259,12 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 4. Per-consumer impact table (verbatim, OR "n/a - <enumerated reason>")
 5. Related files (list of absolute paths the diff touches OR is logically coupled to)
 6. Diff under review: <git diff command OR file paths>
+7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line>, OR n/a - <reason>
 ```
 
 On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
+
+**Rejected design (signed rationale, recorded as a remark):** field 7's value is required to carry the claim-bearing text itself, not a pointer to it - a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths.
 
 ### Enumerated `n/a` rationale set
 
@@ -278,6 +281,8 @@ A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the 
 - `n/a - architect skipped (judgment-based: well-understood, self-contained change)` (architect plan field only; see `content/references/agent-team.md`)
 - `n/a - architect skipped (mechanical: simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric))
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
+- `n/a - Worker was self-directed with no conductor-composed brief text beyond a ticket ID reference` (field 7 only)
+- `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)` (field 7 only)
 
 **Why this is open rather than closed:** the set above was previously treated as exhaustive. Four legitimate situations were discovered in two days, each while fixing the one before it (Skeptic-on-plan; single Elevated unit; mechanical architect skip; judgment-based architect skip). Completeness by enumeration does not hold for an evolving methodology with this many valid spawn shapes - a closed vocabulary guarantees a fifth instance. Do not re-close this list by reverting to string-membership checking; assess rationales on the merits instead (Step 0 check 2).
 
@@ -293,7 +298,7 @@ A Skeptic comparing a PR against a base branch MUST work from a live, synchroniz
 
 Before reading any artifact or producing any findings, the Skeptic verifies the Global-context input set is complete and well-formed:
 
-1. All 6 fields are present.
+1. All 7 fields are present.
 2. Every `n/a` value carries a specific reason after the `n/a - ` prefix. The Skeptic BLOCKS when a value is a bare `n/a`, has an empty or vacuous rationale (e.g. `n/a - not applicable`), or states a rationale that is factually false for the unit under review (e.g. citing "Trivial direct edit" on an Elevated unit, or citing a skip path that did not occur). A truthful, specific rationale that is NOT one of the enumerated strings above is valid and must NOT be BLOCKED on that basis alone - the enumerated set is canonical preferred wording for recurring situations, not an exhaustive whitelist.
 
 When the diff under review amends this section itself - the enumerated `n/a` rationale set, the Step 0 checks, or any other Section 4.5 validation rule - the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment. The trigger is "this diff changes how Section 4.5 validates", not the narrower "this diff edits an enumerated string": a PR that rewrites a Step 0 check without touching the enum is validated against the branch copy for the same reason.
@@ -518,7 +523,7 @@ The adversarial brief defines the threat model the Skeptic must adopt. It is wri
 
 **The primary agent must use the brief verbatim when invoking each Skeptic. The primary agent must not soften, summarize, or editorialize the brief.** The brief is an instruction to the Skeptic, not a suggestion. Softening it degrades adversarial independence.
 
-**Global-context input set (Section 4.5):** Every Skeptic spawn prompt must also include the Global-context input set (architect plan, Brief/Plan artifact, qa_criteria block, per-consumer impact table, related files, diff under review) in addition to the adversarial brief. See Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics.
+**Global-context input set (Section 4.5):** Every Skeptic spawn prompt must also include the Global-context input set (architect plan, Brief/Plan artifact, qa_criteria block, per-consumer impact table, related files, diff under review, conductor spawn brief) in addition to the adversarial brief. See Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics.
 
 The brief should be specific to the domain and threat model of the work being reviewed. Generic briefs produce generic findings.
 
@@ -836,7 +841,7 @@ The meta-Skeptic receives:
 - The original Skeptic's findings list verbatim
 - The original Skeptic's sign-off statement verbatim
 - The original adversarial brief
-- The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per Section 4.5 that was assembled for the original Skeptic spawn) - the meta-Skeptic is judging whether the original Skeptic missed something, which requires seeing the same context the original had, not a bare diff. Field 6 duplicates the diff bullet above; that redundancy is intentional so the block stays intact as a single verbatim unit.
+- The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per Section 4.5 that was assembled for the original Skeptic spawn, now 7 fields) - the meta-Skeptic is judging whether the original Skeptic missed something, which requires seeing the same context the original had, not a bare diff. Field 6 duplicates the diff bullet above; that redundancy is intentional so the block stays intact as a single verbatim unit.
 
 The meta-Skeptic produces a divergence report as **TEXT** in its return summary. The expected shape is:
 

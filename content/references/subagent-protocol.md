@@ -444,6 +444,8 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 - **Round summary** — what changes were made and why (if Skeptic findings were routed back)
 - **Memory update requests** — any architectural decisions or qualifying context the Worker believes should be recorded (the main agent serializes these writes, not the Worker directly)
 
+**Spawn-brief provenance:** every claim-bearing sentence the main agent writes into a spawn prompt (a value, path, count, or root-cause/rationale assertion) must carry a provenance tag per the provenance test in `content/sections/04-risk-classification.md`. This is a spawn-time obligation on the main agent, not on the Worker's return - the Skeptic checks it via Global-context field 7 (`content/references/skeptic-protocol.md` §4.5). Worked example, stated abstractly: a Skeptic Minor naming a suggested value is not license to invent the underlying rationale for a file the conductor never read - pass the finding and the file path to the engineer as a question, not as a directive with an invented cause.
+
 **Sign-off is the main agent's responsibility.** The main agent spawns Skeptics and accumulates the exchange log. A Worker does not return a sign-off statement — the Skeptic provides sign-off to the main agent directly.
 
 **Re-route limit:** After the same finding is contested for 2 or more re-routes without resolution, the main agent stops and escalates that finding to the human with: the exchange log, the contested finding, and the Worker and Skeptic positions on it. Do not attempt further re-routes without human direction.
