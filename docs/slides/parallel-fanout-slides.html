@@ -741,7 +741,7 @@ Units fully independent. Each gets its own Skeptic reviewing only that unit's di
 </div>
 <div class="card">
 <strong>integration</strong><br />
-Units share interface contracts, data models, or cross-cutting concerns. Still implemented in parallel, but Skeptic review is deferred until all units merge onto a scratch integration branch. One Skeptic reviews the combined diff. This IS Phase 6 - no second Skeptic.
+Units share interface contracts, data models, or cross-cutting concerns. Still implemented in parallel, but Skeptic review is deferred until all units merge, inside a dedicated integration worktree, onto FEATURE_BRANCH itself (unpushed until Phase 8). One Skeptic reviews the combined diff. This IS Phase 6 - no second Skeptic.
 </div>
 <div class="card">
 <strong>multi-dimensional</strong><br />
