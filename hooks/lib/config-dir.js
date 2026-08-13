@@ -55,9 +55,22 @@ const CONFIG_DIR_ENV = [
 
 /**
  * Expand a leading `~` (bare `~`, or `~/...`) to os.homedir(), then
- * absolutize via path.resolve(). Mirrors Python's
- * os.path.abspath(os.path.expanduser(raw)) - see resolveClaudeConfigDir's
- * header comment for why both steps are required here.
+ * absolutize via path.resolve(). Approximates Python's
+ * os.path.abspath(os.path.expanduser(raw)) for the current-user case only -
+ * see resolveClaudeConfigDir's header comment for why both steps are
+ * required here.
+ *
+ * Known limitation: unlike Python's os.path.expanduser(), this does NOT
+ * expand a `~user/...` form to that OTHER user's home directory (measured:
+ * Python's os.path.abspath(os.path.expanduser("~user/sub")) resolves to
+ * that user's home dir, e.g. /Users/tyson/sub, while this function leaves
+ * the literal `~user` segment untouched, e.g.
+ * /Users/tyson/~tyson/sub - a directory that does not exist). This fails
+ * safe: the resulting path simply does not resolve to a real transcript
+ * directory, so callers emit their normal "not found"/"unavailable" note
+ * rather than reading a wrong file. AGENTIC_CONFIG_DIR/CLAUDE_CONFIG_DIR/
+ * CODEX_HOME/PI_CODING_AGENT_DIR are not documented or expected to use the
+ * `~user` form in practice, so this is a documented gap, not a fix target.
  */
 function absolutize(raw) {
   let expanded = raw;

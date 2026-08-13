@@ -571,7 +571,8 @@ function skillCandidateDetectionEnabled(cwd) {
  *     wall_seconds 0 - it is NOT silently dropped. A PAIRED spawn_complete
  *     (data.paired_spawn_id referencing a spawn_start already counted via
  *     the dedup above) enriches that same spawn's record with a real
- *     wall_seconds - it does NOT add a second spawn.
+ *     wall_seconds and, when present, data.tokens - it does NOT add a
+ *     second spawn.
  *   - DS-160 round-2 fix: an UNPAIRED hook spawn_complete (paired_spawn_id:
  *     null) does NOT contribute a spawn count of its own. Earlier this
  *     function counted it as a distinct spawn on the theory that its

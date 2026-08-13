@@ -67,13 +67,20 @@ Failure modes:
     staging path (single-writer atomicity only - see rename semantics; the
     pid suffix prevents cross-process tmp collision/cleanup, not a
     last-write-wins race on the final destination itself).
-  resolve_claude_config_dir: never raises. An unset/blank/whitespace-only env
-    var is treated as absent; the first non-blank value wins even if the
-    resulting path does not exist on disk - callers must handle a
-    nonexistent config dir themselves (e.g. by falling through to a glob).
-    `~` expansion and abspath absolutization happen unconditionally on the
-    winning value; neither can raise (os.path.expanduser/abspath are pure
-    string operations that never touch the filesystem).
+  resolve_claude_config_dir: an unset/blank/whitespace-only env var is
+    treated as absent; the first non-blank value wins even if the resulting
+    path does not exist on disk - callers must handle a nonexistent config
+    dir themselves (e.g. by falling through to a glob). `~` expansion and
+    abspath absolutization happen unconditionally on the winning value.
+    os.path.expanduser never raises (an unresolvable `~user` form is
+    returned unchanged, per CPython's own KeyError-swallowing behavior) but
+    os.path.abspath is NOT purely a string operation: for a RELATIVE input
+    (e.g. a config-dir env var set to a relative path) it calls
+    os.getcwd(), which DOES touch the filesystem and CAN raise (e.g.
+    FileNotFoundError when the current working directory has been deleted
+    out from under the process). This is a narrow, unlikely-in-practice
+    edge case - not observed in this repo - but the function is not
+    unconditionally raise-free.
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).

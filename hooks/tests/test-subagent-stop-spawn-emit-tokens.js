@@ -56,6 +56,48 @@
  *                                        Test 3's padded fixture cannot
  *                                        exercise.
  *
+ * Round-3 additions (never-fabricate + documented-blemish regressions):
+ *   8. transcript-whitespace-only-never-zero-filled: a transcript that is
+ *                                        all blank/whitespace lines (not
+ *                                        0 bytes) -> same "unavailable
+ *                                        (transcript unreadable)" outcome
+ *                                        as an empty file.
+ *   9. transcript-no-assistant-records-never-zero-filled: a transcript with
+ *                                        only non-assistant (`type:"user"`)
+ *                                        records -> same "unavailable
+ *                                        (transcript unreadable)" outcome.
+ *  10. transcript-usage-empty-object-never-zero-filled: every assistant
+ *                                        record carries `usage: {}` -> no
+ *                                        `data.tokens` key and a note,
+ *                                        never a fabricated {0,0,0,0}
+ *                                        (round-3 regression: previously
+ *                                        counted as "parsed" on `usage`
+ *                                        object presence alone).
+ *  11. transcript-usage-nonnumeric-never-zero-filled: every usage field is
+ *                                        a non-numeric string -> same
+ *                                        outcome as Test 10 (round-3
+ *                                        regression: previously coerced via
+ *                                        `Number(x) || 0` and counted as
+ *                                        "parsed").
+ *  12. transcript-usage-negative-not-summed: a negative usage field is
+ *                                        never summed and does not, by
+ *                                        itself, count a record as parsed;
+ *                                        a genuinely usable positive field
+ *                                        in the SAME record is still summed
+ *                                        and still counts.
+ *  13. transcript-partial-valid-plus-malformed-summed-undisclosed:
+ *                                        documents (does not fix) the
+ *                                        accepted round-3 blemish - a
+ *                                        transcript mixing one valid line
+ *                                        with one malformed/truncated line
+ *                                        emits a partial `data.tokens` sum
+ *                                        with NO disclosure note.
+ *  14. transcript-just-under-boundary-summed-not-skipped: a transcript at
+ *                                        exactly MAX_TRANSCRIPT_BYTES - 1
+ *                                        byte is summed normally, not
+ *                                        skipped - pins the opposite edge
+ *                                        of Test 7's `>=` boundary.
+ *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit-tokens.js
  */
 
@@ -102,6 +144,31 @@ function assistantTurn(inputTokens, outputTokens, cacheCreation, cacheRead) {
         cache_read_input_tokens: cacheRead,
       },
     },
+  });
+}
+
+// Round-3 helper: an assistant turn with an ARBITRARY usage object (rather
+// than the four canonical numeric fields assistantTurn() always fills in),
+// for exercising usage-empty-object / usage-nonnumeric / usage-negative
+// states.
+function assistantTurnWithUsage(usage) {
+  return JSON.stringify({
+    type: 'assistant',
+    timestamp: new Date().toISOString(),
+    message: {
+      model: 'claude-test',
+      usage,
+    },
+  });
+}
+
+// A non-assistant record (e.g. a user turn) - never contributes to the
+// token sum and never counts as "parsed".
+function userTurn() {
+  return JSON.stringify({
+    type: 'user',
+    timestamp: new Date().toISOString(),
+    message: { content: 'hello' },
   });
 }
 
@@ -403,6 +470,281 @@ console.log('\nTest 7: transcript-exact-boundary-skipped');
       `tokens_note === "skipped (transcript too large)" at the exact boundary (got: ${JSON.stringify(data.tokens_note)})`);
     assert(data.tokens === undefined,
       `no tokens for a transcript at exactly the size boundary (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 8: transcript-whitespace-only-never-zero-filled');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-008';
+  const agentId = 'agent-tok-008';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  // Whitespace-only: not 0 bytes, but nothing but blank lines - same
+  // "nothing usable parsed" outcome as an empty file.
+  fs.writeFileSync(path.join(dir, `agent-${agentId}.jsonl`), '   \n\t\n   \n', 'utf8');
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no zero-filled tokens object for a whitespace-only transcript (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 9: transcript-no-assistant-records-never-zero-filled');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-009';
+  const agentId = 'agent-tok-009';
+  plantTranscript(configDir, projectCwd, sessionId, agentId, [userTurn(), userTurn()]);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no zero-filled tokens object with zero assistant records (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 10: transcript-usage-empty-object-never-zero-filled (round-3 regression)');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-010';
+  const agentId = 'agent-tok-010';
+  // Every assistant record carries `usage: {}` - a `usage` OBJECT is
+  // present but contributes no usable numeric field. Pre-round-3 this
+  // counted as "parsed" (parsedCount incremented on `usage` presence alone)
+  // and silently emitted tokens:{0,0,0,0} with NO note.
+  plantTranscript(configDir, projectCwd, sessionId, agentId, [
+    assistantTurnWithUsage({}),
+    assistantTurnWithUsage({}),
+  ]);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no fabricated {0,0,0,0} tokens for usage:{} records (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: transcript-usage-nonnumeric-never-zero-filled (round-3 regression)');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-011';
+  const agentId = 'agent-tok-011';
+  // Every usage field is a non-numeric string. Pre-round-3,
+  // `Number(usage.input_tokens) || 0` silently coerced this to 0 and still
+  // counted the record as "parsed" (usage object was present).
+  plantTranscript(configDir, projectCwd, sessionId, agentId, [
+    assistantTurnWithUsage({
+      input_tokens: 'not-a-number',
+      output_tokens: 'also-not',
+      cache_creation_input_tokens: 'nope',
+      cache_read_input_tokens: 'nope',
+    }),
+  ]);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no fabricated tokens for non-numeric usage values (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: transcript-usage-negative-not-summed (round-3 regression)');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-012';
+  const agentId = 'agent-tok-012';
+  // A negative usage value must never be summed (a negative token count is
+  // not a real measurement) but a genuinely usable positive field in the
+  // SAME record must still be summed and still count the record as parsed.
+  plantTranscript(configDir, projectCwd, sessionId, agentId, [
+    assistantTurnWithUsage({
+      input_tokens: -100,
+      output_tokens: 5,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    }),
+  ]);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(!!data.tokens, `data.tokens present (got: ${JSON.stringify(data.tokens)})`);
+    if (data.tokens) {
+      assert(data.tokens.input === 0,
+        `negative input_tokens NOT summed (got: ${data.tokens.input})`);
+      assert(data.tokens.output === 5,
+        `positive output_tokens in the same record still summed (got: ${data.tokens.output})`);
+    }
+    assert(data.tokens_note === undefined,
+      `no tokens_note when a usable positive field was found (got: ${JSON.stringify(data.tokens_note)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: transcript-partial-valid-plus-malformed-summed-undisclosed');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-013';
+  const agentId = 'agent-tok-013';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  // One valid assistant turn plus one truncated/malformed line (simulating
+  // a transcript captured mid-write). Documented blemish (round-3, see
+  // module header "Known, documented blemish"): the malformed line is
+  // silently skipped and the partial sum is reported with NO note
+  // disclosing that some lines failed to parse - this test pins that
+  // documented (not fixed) behavior so a future change to it is deliberate.
+  const lines = [assistantTurn(10, 5, 0, 0), '{"type":"assistant","message":{"usage":{"in'];
+  fs.writeFileSync(path.join(dir, `agent-${agentId}.jsonl`), lines.join('\n') + '\n', 'utf8');
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(!!data.tokens, `data.tokens present (got: ${JSON.stringify(data.tokens)})`);
+    if (data.tokens) {
+      assert(data.tokens.input === 10, `partial sum from the valid line only (got: ${data.tokens.input})`);
+      assert(data.tokens.output === 5, `partial sum from the valid line only (got: ${data.tokens.output})`);
+    }
+    assert(data.tokens_note === undefined,
+      `documented blemish: no disclosure note for a partial sum (got: ${JSON.stringify(data.tokens_note)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: transcript-just-under-boundary-summed-not-skipped');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-014';
+  const agentId = 'agent-tok-014';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
+  // Exactly MAX_TRANSCRIPT_BYTES - 1 byte, so the `>=` boundary must NOT
+  // trip - pins the opposite edge from Test 7.
+  const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+  const turnLine = assistantTurn(3, 2, 0, 0) + '\n';
+  const padTarget = MAX_TRANSCRIPT_BYTES - 1 - turnLine.length;
+  const padding = 'x'.repeat(Math.max(0, padTarget));
+  const fd = fs.openSync(transcriptPath, 'w');
+  fs.writeSync(fd, turnLine);
+  fs.writeSync(fd, padding);
+  fs.closeSync(fd);
+  const sizeBefore = fs.statSync(transcriptPath).size;
+  assert(sizeBefore === MAX_TRANSCRIPT_BYTES - 1,
+    `fixture transcript is exactly MAX_TRANSCRIPT_BYTES - 1 (got ${sizeBefore} bytes)`);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(!!data.tokens, `data.tokens present, not skipped, one byte under the boundary (got: ${JSON.stringify(data.tokens)})`);
+    if (data.tokens) {
+      assert(data.tokens.input === 3, `tokens summed just under the size boundary (got: ${data.tokens.input})`);
+    }
+    assert(data.tokens_note === undefined,
+      `no tokens_note when just under the size boundary (got: ${JSON.stringify(data.tokens_note)})`);
   }
   cleanup(projectCwd);
   cleanup(configDir);

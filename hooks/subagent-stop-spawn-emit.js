@@ -132,12 +132,23 @@
  *                located, `data.tokens_note` is
  *                `"unavailable (transcript not found)"`. When the
  *                transcript IS located but yields zero assistant-turn
- *                records carrying a usable `usage` block (round-2 fix:
- *                this is the same note for an empty file, a wholly
- *                malformed/non-JSONL file, and a genuinely turn-less
- *                transcript alike - readTranscriptTokens() tracks whether
- *                ANY record actually parsed and never treats a
- *                successful-but-vacuous read as a real zero measurement),
+ *                records contributing at least one usable NUMERIC usage
+ *                field (round-2 fix: this is the same note for an empty
+ *                file, a wholly malformed/non-JSONL file, and a genuinely
+ *                turn-less transcript alike - readTranscriptTokens() tracks
+ *                whether ANY record actually parsed and never treats a
+ *                successful-but-vacuous read as a real zero measurement;
+ *                round-3 fix: "parsed" now means at least one usage field
+ *                that is a real, non-negative number - a record whose
+ *                `usage` is present but `{}`, or carries only non-numeric
+ *                values, no longer counts as parsed either, closing the
+ *                same fabrication class one step over: previously such a
+ *                transcript silently emitted a {0,0,0,0} `tokens` object
+ *                with no note. A negative usage value is treated as
+ *                unusable - never summed, and does not count toward "this
+ *                record parsed" - since a negative token count cannot be a
+ *                real measurement and silently adding it would corrupt the
+ *                total in the other direction),
  *                `data.tokens_note` is
  *                `"unavailable (transcript unreadable)"`, and no `tokens`
  *                key is emitted either way. A transcript at or above
@@ -146,6 +157,27 @@
  *                never partial-summed, same never-fabricate principle as
  *                the `wall_seconds` sanity-cap treatment above. `tokens`
  *                and `tokens_note` are mutually exclusive on a given event.
+ *
+ *                **Known, documented blemish (round-3): partial sums are
+ *                not flagged.** When a transcript contains a mix of
+ *                well-formed assistant-usage lines and malformed/truncated
+ *                lines (e.g. a transcript captured mid-write at the moment
+ *                the harness process stopped), readTranscriptTokens()
+ *                silently skips the malformed lines and sums only the
+ *                lines that parsed - `data.tokens` is emitted with no
+ *                `tokens_note` disclosing that some lines were dropped.
+ *                This is accepted, not fixed, for the same reason as the
+ *                pairing TOCTOU documented below: this file is
+ *                telemetry-only, fail-open, and advisory, and adding a
+ *                third mutually-exclusive-with-nothing state (tokens AND a
+ *                disclosure note together) would require re-deriving the
+ *                "mutually exclusive" invariant this doc-comment and every
+ *                consumer currently relies on. A partial sum is a
+ *                data-quality blemish (undercounting, never overcounting,
+ *                since only cleanly-parsed lines contribute), not a
+ *                fabricated measurement - it differs from the cases this
+ *                function otherwise guards against in that a real subset of
+ *                the true total is genuinely present in what is reported.
  *
  *                No serialization between concurrent SubagentStop
  *                invocations (Skeptic finding, Minor): if two subagents in
@@ -279,17 +311,29 @@ function resolveTranscriptPath(configDir, cwd, sessionId, agentId) {
  * return a descriptive note when unresolvable. Never returns a zero-filled
  * tokens object as a stand-in for "unresolved" - a real zero (genuinely no
  * assistant turns yet) and "we could not read this" are kept distinct by
- * tracking whether at least one assistant-with-usage record ACTUALLY
- * parsed, not merely whether the file opened without throwing. Round-2 fix:
- * a prior version returned the untouched {0,0,0,0} accumulator as a
- * "success" whenever the file was 0 bytes or wholly unparseable JSONL,
- * which is indistinguishable downstream from a real zero-token
- * measurement - exactly the fabrication this function exists to prevent.
+ * tracking whether at least one assistant record ACTUALLY contributed a
+ * usable numeric usage field, not merely whether a `usage` object was
+ * present or the file opened without throwing. Round-2 fix: a prior version
+ * returned the untouched {0,0,0,0} accumulator as a "success" whenever the
+ * file was 0 bytes or wholly unparseable JSONL, which is indistinguishable
+ * downstream from a real zero-token measurement - exactly the fabrication
+ * this function exists to prevent. Round-3 fix: a prior version counted a
+ * record as "parsed" whenever a `usage` OBJECT existed, regardless of
+ * whether any field inside it was a real number - so a transcript whose
+ * assistant records all carried `usage: {}` (or only non-numeric usage
+ * values) silently produced the same {0,0,0,0}-with-no-note fabrication one
+ * step over. A record now counts as parsed only when it contributes at
+ * least one usable numeric usage field; a negative usage value is treated
+ * as unusable (never summed, does not count toward "parsed") rather than
+ * silently summed as-is. Malformed/truncated lines mixed with otherwise-
+ * valid lines are silently skipped and NOT flagged - see the "Known,
+ * documented blemish" note in this module's header doc-comment.
  *
  * Returns { tokens: {input,output,cache_creation,cache_read}, note: null }
- * when at least one assistant-with-usage record parsed, or
- * { tokens: null, note: <string> } when tokens could not be determined
- * (file missing, oversized, or found but yielding zero parsed records).
+ * when at least one assistant record contributed a usable numeric usage
+ * field, or { tokens: null, note: <string> } when tokens could not be
+ * determined (file missing, oversized, or found but yielding zero usable
+ * fields).
  */
 function readTranscriptTokens(transcriptPath) {
   let stat;
@@ -313,6 +357,15 @@ function readTranscriptTokens(transcriptPath) {
   }
 
   const tokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+  // Maps the tokens accumulator key to the raw usage field name. A record
+  // is only counted as "parsed" (see doc-comment above) when at least one
+  // of these fields is a real, non-negative number.
+  const USAGE_FIELDS = [
+    ['input', 'input_tokens'],
+    ['output', 'output_tokens'],
+    ['cache_creation', 'cache_creation_input_tokens'],
+    ['cache_read', 'cache_read_input_tokens'],
+  ];
   let parsedCount = 0;
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
@@ -322,11 +375,20 @@ function readTranscriptTokens(transcriptPath) {
     if (!obj || obj.type !== 'assistant') continue;
     const usage = obj.message && obj.message.usage;
     if (!usage || typeof usage !== 'object') continue;
-    parsedCount += 1;
-    tokens.input += Number(usage.input_tokens) || 0;
-    tokens.output += Number(usage.output_tokens) || 0;
-    tokens.cache_creation += Number(usage.cache_creation_input_tokens) || 0;
-    tokens.cache_read += Number(usage.cache_read_input_tokens) || 0;
+    let usableFieldFound = false;
+    for (const [key, rawKey] of USAGE_FIELDS) {
+      const val = usage[rawKey];
+      if (val === undefined || val === null) continue;
+      const n = Number(val);
+      // Non-numeric (NaN) and negative values are unusable: never summed,
+      // and never counted toward this record having "parsed". A negative
+      // token count cannot be a real measurement; silently summing it would
+      // corrupt the total in the opposite direction from fabrication.
+      if (!Number.isFinite(n) || n < 0) continue;
+      tokens[key] += n;
+      usableFieldFound = true;
+    }
+    if (usableFieldFound) parsedCount += 1;
   }
   if (parsedCount === 0) {
     // File opened and read fine, but nothing usable parsed out of it - an
