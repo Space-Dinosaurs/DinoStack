@@ -48,6 +48,8 @@ The methodology already measures two axes of agent work; this command adds the t
 
 The audit reuses the same telemetry the two siblings read - it is a new read pattern over existing files, not a parallel telemetry silo. Where the siblings surface "what happened" (cost) and "what recurred" (friction), this command surfaces "which model/harness failed, how often, and in what way".
 
+**Related command:** `/ds-evaluate` is the pillar-effectiveness axis - it scores the methodology against the North Star pillars from live telemetry, using this audit's failure-mode categories as one measured input. This command stays focused on failure-mode categorization; `/ds-evaluate` does the per-pillar scoring.
+
 ## What the audit reads
 
 The audit subagent reads three telemetry sources, plus one optional supplementary source if present:
@@ -78,7 +80,7 @@ The audit subagent runs under the model/harness the operator chooses. For object
 
 ## Step 3 - Spawn the audit agent
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `investigator` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
 
 *"You are a Worker agent. Produce a failure-mode audit of this operator's session telemetry and return your complete report. The main agent will present the report to the user."*
 

@@ -2676,7 +2676,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
 
     def test_inventory_wrapper_bytes_and_closed_manifest(self) -> None:
         inventory = json.loads(self.prompt("inventory").stdout)
-        self.assertEqual(25, len(inventory))
+        self.assertEqual(26, len(inventory))
         self.assertEqual(sorted(inventory), inventory)
         self.assertNotIn("ds-wrap-deferred", inventory)
         self.assertEqual(
@@ -3037,7 +3037,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
         mirror.symlink_to("../../content/commands/ds-new-workflow.md")
         self.prompt("build")
         self.assertTrue((self.repo / ".codex/prompts/ds-new-workflow.md").is_file())
-        self.assertEqual(26, len(json.loads(self.prompt("inventory").stdout)))
+        self.assertEqual(27, len(json.loads(self.prompt("inventory").stdout)))
         mirror.unlink()
         source.unlink()
         self.prompt("build")

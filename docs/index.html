@@ -1812,7 +1812,7 @@
 <!-- ═══ LAYER 5: Skills ═══ -->
 <div id="skills" class="section skill-layer">
   <div class="section-title" data-num="06"><h2>Skill Layer</h2><h3>Slash commands for specialized workflows</h3></div>
-  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 26 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
+  <p class="desc" style="margin-bottom: 16px;">Skills are invoked via <code>/name</code> in the chat. DinoStack ships 27 commands. In practice, operators type only a few (the daily loop); most are utilities or invoked by the methodology conductor automatically. Commands are defined in <code>content/commands/</code> and symlinked into <code>~/.claude/commands/</code>. Agents are defined in <code>content/agents/</code> and symlinked into <code>~/.claude/agents/</code>.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1832,6 +1832,7 @@
           <li><strong>/ds-prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/ds-representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
           <li><strong>/ds-failure-audit</strong> - conductor-invoked audit that spawns an agent to mine session telemetry (<code>.agentic/events.jsonl</code>, <code>.agentic/session-log/</code>, <code>~/.agentic/session-log/</code>) and categorize failure modes per model/harness with quantified frequency. Agent-driven categorization; never a deterministic classifier.</li>
+          <li><strong>/ds-evaluate</strong> - conductor-invoked methodology self-evaluation against the North Star pillars. Runs a deterministic signal collector (<code>bin/ds-evaluate</code>) for measured telemetry, spawns parallel per-pillar scoring agents, and writes a date-stamped report to <code>docs/planning/</code>. Scores are advisory; the pillar text is read live from <code>docs/overview/vision.md</code>.</li>
           <li><strong>/ds-test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
           <li><strong>/ds-brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The conductor auto-invokes it on planning-intent signals ("I want to build...", "thinking about..."); operator-available but normally methodology-triggered.</li>
           <li><strong>/ds-migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>

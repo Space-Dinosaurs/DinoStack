@@ -1,0 +1,458 @@
+#!/usr/bin/env python3
+"""
+Purpose: /ds-evaluate signal collector. Reads the live signal sources of a
+         DinoStack checkout and emits a single JSON rollup on stdout that
+         scoring subagents then rate per North Star pillar. This unit builds
+         ONLY the deterministic collector CLI - the /ds-evaluate command file
+         that hands this rollup to scoring subagents is a sibling unit.
+
+Signal sources and what is extracted:
+  1. .agentic/session-log/<dev>.jsonl  - aggregate session_total events:
+       sessions (line count), wall_seconds (sum), spawn_count (sum). The
+       data.tokens field is known zero-filled (data-quality gap): when every
+       token figure across the file is zero, the token fields are OMITTED and
+       a "tokens_data_quality":"zero-filled" note is emitted instead.
+  2. .agentic/events.jsonl             - counts by top-level `phase` and by
+       top-level `event`, plus spawn_start vs spawn_complete (reported both;
+       they are known unequal).
+  3. .agentic/.enforcement-fires.jsonl - per-hook counts of
+       decision==allow_advisory vs decision==deny, the newest timestamp in
+       the file, and a per-calendar-day count over the last 10 days measured
+       from that newest timestamp.
+  4. Budget gates                      - runs
+       scripts/check-{resident,skill-embed,command-file}-budget.sh via
+       subprocess from the repo root; captures the exit code and the tail of
+       stdout for each. A missing script omits that gate.
+  5. Resident floor                    - byte sizes of the always-loaded set:
+       ~/.claude/CLAUDE.md, <repo>/CLAUDE.md, <repo>/AGENTS.md,
+       <repo>/MEMORY.md, <repo>/.agentic/memory/MEMORY.md. Individual missing
+       files are omitted; the sum is over the present files.
+  6. Vision pillars                    - numbered North Star pillars read LIVE
+       from docs/overview/vision.md via a regex over the "N. **Title.**" lines
+       (the file lists 1. through 7.). Never hardcoded.
+
+Output discipline: every signal key is present ONLY when data exists - a
+missing or empty source OMITS its key rather than emitting a false 0 (the
+project's green-often-means-the-check-did-not-run discipline: a subagent must
+never read an empty object as "signal present, value zero").
+
+Public API:
+  ds-evaluate [--repo <path>] [--json]
+    --repo   path to the DinoStack checkout (default: cwd)
+    --json   emit JSON (the default output; accepted for symmetry)
+    --help   print usage and exit 0
+  Exit 0 on success. Exit 1 when invoked outside a DinoStack checkout (no
+  content/sections dir). argparse exits 2 on a usage error.
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, os, pathlib,
+               re, subprocess, sys). Read-only apart from the three budget-gate
+               subprocess runs (themselves read-only). No locking.
+
+Downstream consumers: the /ds-evaluate command file (content/commands/
+                      ds-evaluate.md, sibling unit) which passes this rollup
+                      to per-pillar scoring subagents.
+
+Failure modes: every file read is wrapped and tolerates a missing/unreadable
+               file; a malformed JSONL line is skipped. A missing or empty
+               signal source omits its key (never a crash, never a false 0).
+               A missing budget script omits that gate. A subprocess failure
+               of a budget gate (non-executable script, timeout) omits that
+               gate. Timestamps that do not parse are ignored for time-based
+               computations (newest_ts, last_10_days) but the line's hook/
+               decision tallies are still counted.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _home() -> Path:
+    """Current HOME (re-evaluated each call so tests can override HOME)."""
+    return Path(os.path.expanduser("~"))
+
+
+def _read_lines(path: Path) -> list[str]:
+    """Read text lines, tolerating a missing/unreadable file (returns [])."""
+    try:
+        if not path.is_file():
+            return []
+        return path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+
+
+def _parse_ts(value) -> datetime | None:
+    """Parse an ISO8601 UTC timestamp, tolerating optional .mmm precision.
+
+    Accepts both "2026-05-28T12:00:00Z" and "2026-07-27T12:00:00.000Z".
+    Returns None for anything unparseable.
+    """
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    """Parse a JSONL file into dicts, skipping blank/malformed lines."""
+    records: list[dict] = []
+    for line in _read_lines(path):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict):
+            records.append(rec)
+    return records
+
+
+# ---------------------------------------------------------------------------
+# Signal 1: .agentic/session-log/<dev>.jsonl
+# ---------------------------------------------------------------------------
+
+
+def _collect_session_log(repo: Path) -> dict | None:
+    """Aggregate session_total events across .agentic/session-log/*.jsonl.
+
+    Returns None when no session-log file carries a session_total event.
+    data.tokens is known zero-filled; when every token figure is zero the
+    token fields are omitted and tokens_data_quality="zero-filled" is set.
+    """
+    log_dir = repo / ".agentic" / "session-log"
+    if not log_dir.is_dir():
+        return None
+    files = sorted(log_dir.glob("*.jsonl"))
+    sessions = 0
+    wall_seconds = 0
+    spawn_count = 0
+    tokens = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    any_tokens_nonzero = False
+
+    for path in files:
+        for rec in _load_jsonl(path):
+            if rec.get("event") != "session_total":
+                continue
+            sessions += 1
+            data = rec.get("data") or {}
+            try:
+                wall_seconds += int(data.get("wall_seconds") or 0)
+            except (TypeError, ValueError):
+                pass
+            try:
+                spawn_count += int(data.get("spawn_count") or 0)
+            except (TypeError, ValueError):
+                pass
+            tok = data.get("tokens")
+            if isinstance(tok, dict):
+                for key in tokens:
+                    try:
+                        val = int(tok.get(key) or 0)
+                    except (TypeError, ValueError):
+                        val = 0
+                    tokens[key] += val
+                    if val:
+                        any_tokens_nonzero = True
+            elif isinstance(tok, (int, float)):
+                val = int(tok)
+                tokens["input"] += val
+                if val:
+                    any_tokens_nonzero = True
+
+    if sessions == 0:
+        return None
+
+    out: dict = {
+        "files": len(files),
+        "sessions": sessions,
+        "wall_seconds": wall_seconds,
+        "spawn_count": spawn_count,
+    }
+    if any_tokens_nonzero:
+        out["tokens"] = tokens
+    else:
+        out["tokens_data_quality"] = "zero-filled"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Signal 2: .agentic/events.jsonl
+# ---------------------------------------------------------------------------
+
+
+def _collect_events(repo: Path) -> dict | None:
+    """Count events.jsonl records by phase and by event, plus spawn counts."""
+    path = repo / ".agentic" / "events.jsonl"
+    records = _load_jsonl(path)
+    if not records:
+        return None
+
+    by_phase: dict[str, int] = {}
+    by_event: dict[str, int] = {}
+    spawn_start = 0
+    spawn_complete = 0
+    for rec in records:
+        phase = rec.get("phase")
+        if phase is not None:
+            key = str(phase)
+            by_phase[key] = by_phase.get(key, 0) + 1
+        event = rec.get("event")
+        if event is not None:
+            key = str(event)
+            by_event[key] = by_event.get(key, 0) + 1
+            if key == "spawn_start":
+                spawn_start += 1
+            elif key == "spawn_complete":
+                spawn_complete += 1
+
+    return {
+        "by_phase": dict(sorted(by_phase.items())),
+        "by_event": dict(sorted(by_event.items())),
+        "spawn_start": spawn_start,
+        "spawn_complete": spawn_complete,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Signal 3: .agentic/.enforcement-fires.jsonl
+# ---------------------------------------------------------------------------
+
+
+def _collect_enforcement_fires(repo: Path) -> dict | None:
+    """Tally enforcement fires per hook by decision, newest ts, last 10 days."""
+    path = repo / ".agentic" / ".enforcement-fires.jsonl"
+    records = _load_jsonl(path)
+
+    by_hook: dict[str, dict[str, int]] = {}
+    deny_total = 0
+    advisory_total = 0
+    parsed_ts: list[datetime] = []
+    newest: datetime | None = None
+
+    for rec in records:
+        hook = rec.get("hook")
+        if not hook:
+            continue
+        entry = by_hook.setdefault(str(hook), {"deny": 0, "allow_advisory": 0})
+        decision = rec.get("decision")
+        if decision == "deny":
+            entry["deny"] += 1
+            deny_total += 1
+        elif decision == "allow_advisory":
+            entry["allow_advisory"] += 1
+            advisory_total += 1
+        # Any other decision value is free-form by design (see events-log.md):
+        # counted under neither tally, still visible via newest_ts/last_10_days.
+        ts = _parse_ts(rec.get("ts"))
+        if ts is not None:
+            parsed_ts.append(ts)
+            if newest is None or ts > newest:
+                newest = ts
+
+    if not by_hook:
+        return None
+
+    out: dict = {
+        "by_hook": {k: dict(sorted(v.items())) for k, v in sorted(by_hook.items())},
+        "deny_total": deny_total,
+        "allow_advisory_total": advisory_total,
+    }
+    if newest is not None:
+        out["newest_ts"] = newest.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        start_day = (newest - timedelta(days=9)).date()
+        counts: dict[str, int] = {}
+        for ts in parsed_ts:
+            d = ts.date()
+            if start_day <= d <= newest.date():
+                counts[str(d)] = counts.get(str(d), 0) + 1
+        out["last_10_days"] = {
+            str(start_day + timedelta(days=i)): counts.get(str(start_day + timedelta(days=i)), 0)
+            for i in range(10)
+        }
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Signal 4: budget gates
+# ---------------------------------------------------------------------------
+
+BUDGET_SCRIPTS: tuple[str, ...] = (
+    "check-resident-budget.sh",
+    "check-skill-embed-budget.sh",
+    "check-command-file-budget.sh",
+)
+
+
+def _collect_budget_gates(repo: Path) -> dict | None:
+    """Run the three budget-gate scripts and capture exit + tail of stdout.
+
+    A missing or unrunnable script omits that gate (never a crash).
+    """
+    out: dict[str, dict] = {}
+    for name in BUDGET_SCRIPTS:
+        script = repo / "scripts" / name
+        if not script.is_file():
+            continue
+        try:
+            proc = subprocess.run(
+                ["bash", str(script)],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        out[name] = {"exit": proc.returncode, "summary": lines[-1] if lines else ""}
+    return out if out else None
+
+
+# ---------------------------------------------------------------------------
+# Signal 5: resident floor
+# ---------------------------------------------------------------------------
+
+RESIDENT_FILES: tuple[str, ...] = (
+    "~/.claude/CLAUDE.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "MEMORY.md",
+    ".agentic/memory/MEMORY.md",
+)
+
+
+def _collect_resident_floor(repo: Path) -> dict | None:
+    """Byte sizes of the always-loaded set; sum over the present files."""
+    sizes: dict[str, int] = {}
+    for rel in RESIDENT_FILES:
+        if rel.startswith("~/"):
+            path = _home() / rel[2:]
+        else:
+            path = repo / rel
+        try:
+            if path.is_file():
+                sizes[rel] = path.stat().st_size
+        except OSError:
+            continue
+    if not sizes:
+        return None
+    return {"files": sizes, "sum": sum(sizes.values())}
+
+
+# ---------------------------------------------------------------------------
+# Signal 6: vision pillars (read live, never hardcoded)
+# ---------------------------------------------------------------------------
+
+_PILLAR_RE = re.compile(r"^\s*(\d+)\.\s+\*\*(.+?)\*\*")
+
+
+def _collect_vision_pillars(repo: Path) -> list[str] | None:
+    """Extract numbered North Star pillars from docs/overview/vision.md.
+
+    Each pillar is emitted as "N. <title>" where <title> is the bold text of
+    the pillar line (trailing period stripped), truncated to 40 chars.
+    """
+    path = repo / "docs" / "overview" / "vision.md"
+    pillars: list[str] = []
+    for line in _read_lines(path):
+        m = _PILLAR_RE.match(line)
+        if not m:
+            continue
+        num = m.group(1)
+        title = m.group(2).rstrip().rstrip(".").strip()
+        pillars.append(f"{num}. {title[:40]}")
+    return pillars if pillars else None
+
+
+# ---------------------------------------------------------------------------
+# Assembly
+# ---------------------------------------------------------------------------
+
+_COLLECTORS: tuple[tuple[str, Callable[[Path], object]], ...] = (
+    ("session_log", _collect_session_log),
+    ("events", _collect_events),
+    ("enforcement_fires", _collect_enforcement_fires),
+    ("budget_gates", _collect_budget_gates),
+    ("resident_floor", _collect_resident_floor),
+    ("vision_pillars", _collect_vision_pillars),
+)
+
+
+def collect_all(repo: Path) -> dict:
+    """Run every signal collector; keep only keys with actual data."""
+    result: dict = {}
+    for key, collector in _COLLECTORS:
+        value = collector(repo)
+        if value is not None:
+            result[key] = value
+    return result
+
+
+def _is_dinostack(repo: Path) -> bool:
+    """A checkout is a DinoStack checkout iff it has content/sections/."""
+    return (repo / "content" / "sections").is_dir()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-evaluate",
+        description=(
+            "Signal collector for /ds-evaluate: read the live signal sources "
+            "of a DinoStack checkout and emit a JSON rollup on stdout."
+        ),
+    )
+    parser.add_argument(
+        "--repo",
+        default=".",
+        help="path to the DinoStack checkout (default: cwd)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit JSON (the default output; accepted for symmetry)",
+    )
+    args = parser.parse_args(argv)
+
+    repo = Path(args.repo).expanduser().resolve()
+    if not _is_dinostack(repo):
+        print(
+            f"ds-evaluate: error: {repo} is not a DinoStack checkout "
+            "(no content/sections dir)",
+            file=sys.stderr,
+        )
+        return 1
+
+    rollup = collect_all(repo)
+    print(json.dumps(rollup, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
