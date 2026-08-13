@@ -294,9 +294,18 @@ def _load_config() -> Dict:
     try:
         with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        print(
+            f"ds-reap-all: could not read config {_CONFIG_PATH}: {exc}; treating as empty.",
+            file=sys.stderr,
+        )
         return {}
     if not isinstance(data, dict):
+        print(
+            f"ds-reap-all: config {_CONFIG_PATH} must be a JSON object - got {data!r}; "
+            "treating as empty.",
+            file=sys.stderr,
+        )
         return {}
     return data
 

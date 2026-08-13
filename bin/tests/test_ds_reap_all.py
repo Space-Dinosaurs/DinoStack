@@ -580,6 +580,24 @@ def test_config_repos_bare_string_is_not_exploded_per_character(tmp_path, monkey
 # --------------------------------------------------------------------------
 
 
+def test_malformed_config_json_reports_parse_failure_and_exits_2(tmp_path):
+    fake_home = tmp_path / "home"
+    agentic_dir = fake_home / ".agentic"
+    agentic_dir.mkdir(parents=True)
+    config_path = agentic_dir / "reap-all.json"
+    # Trailing comma - invalid JSON. Previously silently swallowed to {}
+    # with no hint, leaving the operator staring at a bare "no repos
+    # discovered" usage message and no clue why.
+    config_path.write_text('{"repos": ["/tmp/a",],}')
+
+    result = run_reap_all([], extra_env={"HOME": str(fake_home)})
+
+    assert result.returncode == 2
+    assert str(config_path) in result.stderr
+    assert "could not read config" in result.stderr
+    assert "no repos discovered" in result.stderr.lower()
+
+
 def test_underlying_tool_override_is_visibly_announced(tmp_path):
     repo = tmp_path / "repo"
     init_bare_git_repo(repo)
