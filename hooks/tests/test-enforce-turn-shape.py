@@ -1629,11 +1629,42 @@ BOUNDARY_PROSE_ANSWER = (
 )
 
 with tempfile.TemporaryDirectory() as tmp_dir:
+    # PLAIN_PROSE_ANSWER pin (advisory-recall fix, Skeptic Minor 2): this
+    # constant sits at exactly _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE
+    # (8) words/unit (3 units, 24 words) - the same threshold signal 2 uses -
+    # so a one-word edit to its text would silently flip w1/w2/w3 without
+    # any assertion here ever failing. Pin the exact shape directly against
+    # the module's own unit-splitting function so a future edit fails LOUDLY
+    # here instead of silently changing what w1/w2/w3 actually test.
+    _plain_units = _mod._answer_prose_units(_mod._body_after_identity_line(PLAIN_PROSE_ANSWER))
+    _plain_total_words = sum(len(u.split()) for u in _plain_units)
+    check(
+        "PLAIN_PROSE_ANSWER pin: exactly 3 units / 24 words / 8.0 words-per-unit "
+        "(sits exactly at the signal-2 threshold - w1/w2/w3 depend on this precise "
+        "value; a text edit here must fail this assertion, not silently flip those)",
+        (len(_plain_units), _plain_total_words) == (3, 24)
+        and _plain_total_words / len(_plain_units) == 8.0,
+    )
+
     # w1. Genuine last user message ends with "?" -> answer bonus granted,
-    # plain-prose reply is QUIET (no status-only, under budget).
+    # plain-prose reply is QUIET (no status-only, under budget). Because
+    # PLAIN_PROSE_ANSWER also independently satisfies signal 2 (8.0
+    # words/unit, pinned above), the is_quiet() assertion below is
+    # OVERDETERMINED - it would still pass with the bonus mechanism
+    # stubbed to always return False, so it cannot by itself prove the
+    # bonus fired. w1a pins the bonus mechanism directly (fails if the
+    # bonus is disabled, unlike is_quiet() alone); corpus-replay
+    # A1/A2 (see the corpus-replay gate further below, built on
+    # NARRATIVE_CREEP_BODY - a body signal 2 does NOT recall) carry the
+    # bonus's true differential QUIET/ADVISORY behavior end-to-end.
     question_transcript = _write_transcript(
         tmp_dir,
         [{"role": "user", "content": "Why did the cache test fail on the second run?"}],
+    )
+    check(
+        "w1a. _transcript_answer_bonus fires directly on this transcript/text pair "
+        "(non-vacuous: fails if the bonus mechanism is disabled, unlike w1 below)",
+        _mod._transcript_answer_bonus(question_transcript, PLAIN_PROSE_ANSWER) is True,
     )
     rc, out, err = run_hook(
         json.dumps(
@@ -1644,7 +1675,8 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         )
     )
     check(
-        "w1. plain-prose reply to a genuine transcript question -> QUIET (answer bonus)",
+        "w1. plain-prose reply to a genuine transcript question -> QUIET "
+        "(overdetermined by signal 2 too - see w1a for the bonus-specific pin)",
         is_quiet(rc, out),
     )
 

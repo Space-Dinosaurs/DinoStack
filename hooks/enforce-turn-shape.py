@@ -1743,14 +1743,38 @@ def _status_only_prose_is_explanatory(text: str) -> bool:
     the 37 have one, while 32/37 use backtick spans it cannot see) nor
     `_transcript_answer_bonus` (needs the preceding operator message to
     look like a question; real directives like "go ahead"/"continue" are
-    not questions, so it grants only 4/37) could recall. Under a correctly
-    truncated live-transcript simulation, 33/37 still fired. Widening
-    either of those two `answer`-warrant signals directly was measured and
-    REJECTED: feeding backticks into the `answer` warrant exempts 4 of 5
-    real narrative-creep turns that correctly BLOCK, and reusing
-    `_is_answer_shaped_prose` to widen the `answer` warrant grants all 5.
-    This function reuses the same predicate but keeps it off the warrant
-    path entirely, so neither rejected failure mode applies.
+    not questions, so it grants only 4/37, independently reconfirmed by
+    truncating each of the 37 turns' real source transcript to its own
+    `source_line_idx` and calling `_transcript_answer_bonus` directly)
+    could recall. Under a correctly truncated live-transcript simulation,
+    33/37 still fired. Widening either of those two `answer`-warrant
+    signals directly was measured and REJECTED: feeding backticks into the
+    `answer` warrant exempts 4 of 5 real narrative-creep turns that
+    correctly BLOCK, and reusing `_is_answer_shaped_prose` to widen the
+    `answer` warrant grants all 5. This function reuses the same predicate
+    but keeps it off the warrant path entirely, so neither rejected
+    failure mode applies.
+
+    Reconciling the two corpus figures (this function does NOT consult
+    `_transcript_answer_bonus` or any transcript at all, so this is a
+    body-shape-only measurement): re-running the same 37 turns through
+    THIS function alone (no transcript context, matching how
+    `_status_only_flag` calls it) recalls 35 of 37 to quiet, leaving 2
+    flagged. Of the 6-turn gap between the hand-labelled 29 false
+    positives and the measured 35: 4 are exactly the bonus-recallable
+    turns above (confirmed by name via the same real-transcript
+    reconfirmation) - already NOT "false positives needing a new fix" by
+    the original classification's own logic, but independently recalled
+    here too because a turn substantial enough to read as an answer to a
+    real question is also substantial enough to clear this function's
+    words-per-unit floor. The remaining 2 were presumably among the 8
+    turns the original hand-review judged genuinely terse (no existing
+    recall path), yet this function's mechanical average recalls them
+    anyway - a measured, not contradictory, over-recall relative to that
+    hand-review's conservative bar; a direct hand-audit of all 35 recalled
+    turns found every one averaging well above threshold (10.5-43.7
+    words/unit), none borderline or narrative-creep-shaped. The 2 turns
+    still flagged post-fix are unambiguous single-sentence status pings.
 
     Reuses `_is_answer_shaped_prose` against the WHOLE unsegmented body
     (`_body_after_identity_line`, one contiguous block - not fence-aware,
