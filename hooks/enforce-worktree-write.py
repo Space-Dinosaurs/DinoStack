@@ -107,6 +107,12 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
       unexpected topology): fail-open (ALLOW) - the "isolation worktrees
       live inside the primary root" assumption does not hold, so this
       hook has nothing reliable to enforce.
+    - caller_root is a proper subdirectory of primary_root but has no
+      `.git` entry (file or directory) of its own, i.e. it is an ordinary
+      repo subdirectory rather than a genuine git worktree: fail-open
+      (ALLOW) - there is no isolation boundary to defeat, and without this
+      check a subagent whose cwd merely happens to be a subdirectory would
+      be denied every write elsewhere in the repo.
     - target path resolution raises (e.g. embedded null byte): fail-open
       (caught by the outer try/except).
     - target resolves outside primary_root entirely: fail-open - not
@@ -120,12 +126,18 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                JSON, tool_name in {Write, Edit, MultiEdit}, agent_id
                present (subagent), valid tool_input.file_path, a
                resolvable primary_root, a resolvable caller_root that is a
-               proper subdirectory of primary_root (genuine worktree
-               isolation), a target inside primary_root but NOT inside
-               caller_root, and no matching exemption.
+               proper subdirectory of primary_root AND itself carries a
+               `.git` entry (genuine worktree isolation, not merely an
+               ordinary subdirectory), a target inside primary_root but
+               NOT inside caller_root, and no matching exemption.
 
 Performance: < 2 ms per call (in-memory JSON parse, a handful of path
              operations, one optional small JSON config read, no network).
+             Measured end-to-end (including interpreter startup) is
+             ~22 ms per invocation. This hook is registered on the same
+             three matchers (Write, Edit, MultiEdit) as
+             enforce-shippable-edit.py, so its per-call cost STACKS with
+             that hook's on every guarded call rather than replacing it.
 """
 
 # Kill-switch + recovery:
@@ -303,16 +315,29 @@ def main() -> None:
             sys.exit(0)
         caller_root = os.path.realpath(raw_cwd)
 
-        if caller_root == primary_root:
-            # Subagent is not worktree-isolated - no isolation boundary to
-            # defeat.
-            sys.exit(0)
-
+        # caller_root == primary_root (a subagent that is NOT worktree-
+        # isolated) is deliberately not a separate branch here: it is fully
+        # subsumed by the check below, since _relpath_or_none(X, X) returns
+        # os.curdir ('.'), which the rel_caller == os.curdir arm below
+        # already fails open on.
         rel_caller = _relpath_or_none(caller_root, primary_root)
         if rel_caller is None or rel_caller == os.curdir:
             # caller_root is not (or is trivially) inside primary_root -
             # the "worktrees live inside the primary root" assumption this
             # hook relies on does not hold here. Fail open.
+            sys.exit(0)
+
+        # caller_root must be a REAL git worktree, not merely any proper
+        # subdirectory of primary_root - otherwise a subagent whose cwd
+        # happens to be an ordinary repo subdirectory (e.g. it cd'd into
+        # content/ without ever being worktree-isolated) gets treated as
+        # "worktree-isolated" and is denied every write elsewhere in the
+        # repo, a false positive on the deny path for the three primary
+        # write tools. In a real `git worktree`, `.git` is a FILE containing
+        # a gitdir pointer (not a directory as in the primary checkout), so
+        # this check must accept both forms - os.path.exists() is true for
+        # either.
+        if not os.path.exists(os.path.join(caller_root, ".git")):
             sys.exit(0)
 
         # Resolve the write target. Any failure here is caught by the outer

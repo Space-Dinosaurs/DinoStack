@@ -34,7 +34,10 @@ HOOK_PATH = os.path.join(
 def make_primary_and_worktree():
     """Build a fake primary checkout with a nested isolation worktree,
     mirroring the real .claude/worktrees/agent-<id> layout (worktrees live
-    INSIDE the primary root)."""
+    INSIDE the primary root). The worktree carries a `.git` FILE (not a
+    directory) containing a gitdir pointer, matching real `git worktree`
+    layout - this is what makes it a genuine worktree rather than an
+    ordinary subdirectory."""
     primary = os.path.realpath(tempfile.mkdtemp(prefix="test-wtwrite-primary-"))
     os.makedirs(os.path.join(primary, "content"), exist_ok=True)
     with open(os.path.join(primary, "content", "foo.md"), "w", encoding="utf-8") as f:
@@ -44,8 +47,26 @@ def make_primary_and_worktree():
     os.makedirs(os.path.join(worktree, "content"), exist_ok=True)
     with open(os.path.join(worktree, "content", "own.md"), "w", encoding="utf-8") as f:
         f.write("worktree content\n")
+    with open(os.path.join(worktree, ".git"), "w", encoding="utf-8") as f:
+        f.write("gitdir: " + os.path.join(primary, ".git", "worktrees", "agent-1") + "\n")
 
     return primary, worktree
+
+
+def make_primary_and_ordinary_subdir():
+    """Build a fake primary checkout with an ORDINARY subdirectory (no
+    `.git` entry) at the same depth/shape as a real worktree, to exercise
+    the false-positive path: a subagent whose cwd happens to be a plain
+    repo subdirectory, never worktree-isolated."""
+    primary = os.path.realpath(tempfile.mkdtemp(prefix="test-wtwrite-primary-"))
+    os.makedirs(os.path.join(primary, "content"), exist_ok=True)
+    with open(os.path.join(primary, "content", "foo.md"), "w", encoding="utf-8") as f:
+        f.write("primary content\n")
+
+    subdir = os.path.join(primary, "content", "subdir")
+    os.makedirs(subdir, exist_ok=True)
+
+    return primary, subdir
 
 
 def run_hook(
@@ -201,6 +222,29 @@ check_allow(
 )
 
 # ---------------------------------------------------------------------------
+# 2b. Subagent whose cwd is an ORDINARY subdirectory of primary_root (a
+#     proper subdirectory, but with no `.git` entry of its own - never
+#     worktree-isolated) -> ALLOW. This is the false-positive regression:
+#     without the `.git`-existence check, a subagent that merely cd'd into
+#     a repo subdirectory would be denied every write elsewhere in the
+#     repo, even though it was never worktree-isolated at all.
+# ---------------------------------------------------------------------------
+print("-- subagent cwd is an ordinary subdirectory (no .git) -> ALLOW --")
+_ORD_PRIMARY, _ORD_SUBDIR = make_primary_and_ordinary_subdir()
+assert not os.path.exists(os.path.join(_ORD_SUBDIR, ".git"))
+check_allow(
+    "subagent cwd is an ordinary subdirectory writing elsewhere in the primary checkout -> ALLOW",
+    make_payload(
+        "Write",
+        os.path.join(_ORD_PRIMARY, "content", "foo.md"),
+        agent_id="wk-1",
+        agent_type="engineer",
+        cwd=_ORD_SUBDIR,
+    ),
+    primary_root=_ORD_PRIMARY,
+)
+
+# ---------------------------------------------------------------------------
 # 3. Worktree-isolated subagent writing inside its OWN worktree -> ALLOW.
 # ---------------------------------------------------------------------------
 print("-- worktree-isolated subagent, own worktree -> ALLOW --")
@@ -299,6 +343,29 @@ check_allow(
     "dotdot-relative path resolving to own worktree file -> ALLOW",
     make_payload("Write", _dotdot_path, agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
     primary_root=PRIMARY,
+)
+
+# A GENUINELY relative file_path (does not start with os.sep - the dotdot
+# case above builds an absolute path via os.path.join(WORKTREE, ...) before
+# ever reaching the hook, so it never exercises the
+# `os.path.join(cwd, file_path)` branch of _resolve_target()). This one
+# does: "content/own.md" joined against cwd=WORKTREE resolves to the
+# agent's own worktree file -> ALLOW.
+check_allow(
+    "genuinely relative file_path joined against cwd resolves to own worktree file -> ALLOW",
+    make_payload("Write", os.path.join("content", "own.md"), agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
+    primary_root=PRIMARY,
+)
+
+# A genuinely relative file_path that escapes the worktree via cwd-relative
+# ".." segments to land inside the primary checkout -> DENY. Depth from
+# WORKTREE to PRIMARY is 3 segments (.claude/worktrees/agent-1).
+_relative_escape_path = os.path.join("..", "..", "..", "content", "foo.md")
+check_deny(
+    "genuinely relative file_path escaping via cwd to primary content -> DENY",
+    make_payload("Write", _relative_escape_path, agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
+    primary_root=PRIMARY,
+    must_contain=("Worktree-write guard", PRIMARY_TARGET),
 )
 
 # ---------------------------------------------------------------------------

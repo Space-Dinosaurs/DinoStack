@@ -1072,6 +1072,17 @@ _ENFORCER_SUBCOUNT_SITES = [
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
         "Downstream consumers: the ten enforce-*.py PreToolUse/Stop hooks that",
     ),
+    (
+        # Distinct fact from the log_fire-consumer count above: this is the
+        # count of enforce-*.py hooks sharing the "Decision print comes
+        # FIRST, unconditionally" print-before-telemetry convention (a
+        # strict subset of the log_fire consumers - e.g.
+        # enforce-skeptic-round-cap.py calls log_fire but does not use this
+        # phrasing), restated from enforce-planning-artifact-spawn.py's own
+        # perspective ("the OTHER N enforce-*.py hooks", excluding itself).
+        REPO_ROOT / "hooks" / "enforce-planning-artifact-spawn.py",
+        "convention in the other eight enforce-*.py hooks",
+    ),
 ]
 
 # Bidirectional and case-insensitive: "seven" followed by "enforce" within
