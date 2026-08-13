@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Spec test for DS-112: every Skeptic-spawn-constructing template in
-content/commands/ must carry the 6-field "Global-context inputs" block (or a
+content/commands/ must carry the 7-field "Global-context inputs" block (or a
 live, non-dangling pointer to content/references/skeptic-protocol.md Section
 4.5, which defines the canonical block) so a conductor copying the template
 verbatim does not produce a prompt that fails Skeptic Step 0.
@@ -122,6 +122,7 @@ Run with: python3 -m pytest bin/tests/test_skeptic_spawn_global_context_spec.py 
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -163,6 +164,39 @@ MIN_OCCURRENCES = {
     REFERENCES_DIR / "agent-team.md": 2,  # architect-plan review, engineer-output review
     REFERENCES_DIR / "planning-artifacts.md": 2,  # Skeptic-on-Brief step 8, Plan-tier second-pass
     SKEPTIC_PROTOCOL: 3,  # Section 4.5 heading, heading-distinction cross-ref, Section 14 meta-Skeptic list
+}
+
+
+# Field-7 regression guard (Skeptic PR #729 round-1 Major 2 / Minor 1): a
+# case-insensitive marker pattern for the "conductor spawn brief" field added
+# to the Global-context block. A site can spell the marker as the literal
+# "field 7" (e.g. "field 7 per §4.5"), as "7 fields" (a whole-block count
+# restatement, e.g. the meta-Skeptic sites), or as "conductor spawn brief"
+# (the field's own name, e.g. ds-skeptic.md's numbered "7. Conductor spawn
+# brief" template line, which never spells out "field 7" literally). A single
+# line commonly matches more than one alternative (e.g. "field 7 (conductor
+# spawn brief) is ..."), which inflates the count above the floor rather than
+# masking a drop - the assertion is a floor (>=), not an exact count, so this
+# is safe.
+FIELD_7_MARKER_RE = re.compile(r"field 7|7 fields|conductor spawn brief", re.IGNORECASE)
+
+# Minimum number of field-7 marker occurrences expected per file - the floor
+# is the actual measured count at the time this guard was added (DS-112
+# follow-up, PR #729 rework). A future edit that silently drops the
+# conductor-spawn-brief field from any of these 13 spawn-prompt-constructing
+# sites (11 originally enumerated plus the 2 planning-artifacts.md sites
+# discovered during PR #729) - or from the canonical Section 4.5 definition
+# and its agent-team.md restatements - reduces the count below this floor.
+FIELD_7_MIN_OCCURRENCES = {
+    COMMANDS_DIR / "ds-skeptic.md": 1,
+    COMMANDS_DIR / "ds-implement-ticket.md": 5,
+    COMMANDS_DIR / "ds-init-project.md": 2,
+    COMMANDS_DIR / "ds-ticket-triage.md": 2,
+    COMMANDS_DIR / "ds-wrap.md": 4,
+    COMMANDS_DIR / "ds-brief.md": 2,
+    REFERENCES_DIR / "agent-team.md": 4,
+    REFERENCES_DIR / "planning-artifacts.md": 4,
+    SKEPTIC_PROTOCOL: 6,
 }
 
 
@@ -213,6 +247,33 @@ def test_every_spawn_template_site_carries_the_block() -> None:
         "Skeptic spawn template(s) missing the Global-context inputs block "
         "(DS-112 regression - a conductor copying the template verbatim "
         "would produce a prompt that fails Skeptic Step 0):\n"
+        + "\n".join(failures)
+    )
+
+
+def test_every_spawn_template_site_carries_field_7() -> None:
+    """Every enumerated Skeptic-spawn-constructing site must also carry the
+    field-7 (conductor spawn brief) marker at least as many times as it was
+    measured to at the time this guard was added. This is the direct
+    regression guard for the live-validated defect: a prior round of this PR
+    added field 7 to the Global-context block everywhere but left
+    bin/tests/test_skeptic_spawn_global_context_spec.py's own docstring
+    asserting the stale 6-field count, with no mechanical check that field 7
+    itself stays present at every site going forward."""
+    failures = []
+    for path, expected_min in FIELD_7_MIN_OCCURRENCES.items():
+        text = _read(path)
+        count = len(FIELD_7_MARKER_RE.findall(text))
+        if count < expected_min:
+            failures.append(
+                f"{path.relative_to(REPO_ROOT)}: found {count} field-7 marker "
+                f"occurrence(s) (pattern: 'field 7' / '7 fields' / 'conductor "
+                f"spawn brief', case-insensitive), expected at least {expected_min}"
+            )
+    assert not failures, (
+        "Skeptic spawn template(s) missing the field-7 (conductor spawn "
+        "brief) marker (regression - a conductor copying the template "
+        "verbatim would produce a Global-context block missing field 7):\n"
         + "\n".join(failures)
     )
 

@@ -264,7 +264,7 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 
 On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
 
-**Field 7 canonical `n/a` reasons:** `n/a - Trivial direct edit (no Skeptic spawn)`; `n/a - Worker was self-directed with no conductor-composed brief text beyond a ticket ID reference`; `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`. (Signed rationale, recorded as a remark: a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths - field 7 must carry the claim-bearing text itself, not a pointer to it.)
+**Rejected design (signed rationale, recorded as a remark):** field 7's value is required to carry the claim-bearing text itself, not a pointer to it - a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths.
 
 ### Enumerated `n/a` rationale set
 
@@ -281,6 +281,8 @@ A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the 
 - `n/a - architect skipped (judgment-based: well-understood, self-contained change)` (architect plan field only; see `content/references/agent-team.md`)
 - `n/a - architect skipped (mechanical: simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric))
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
+- `n/a - Worker was self-directed with no conductor-composed brief text beyond a ticket ID reference` (field 7 only)
+- `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)` (field 7 only)
 
 **Why this is open rather than closed:** the set above was previously treated as exhaustive. Four legitimate situations were discovered in two days, each while fixing the one before it (Skeptic-on-plan; single Elevated unit; mechanical architect skip; judgment-based architect skip). Completeness by enumeration does not hold for an evolving methodology with this many valid spawn shapes - a closed vocabulary guarantees a fifth instance. Do not re-close this list by reverting to string-membership checking; assess rationales on the merits instead (Step 0 check 2).
 
