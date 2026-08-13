@@ -20,7 +20,13 @@ task and get back a verifiable outcome.
 2. **Produce verifiable outcomes autonomously.** Agents should drive work to a checkable result
    — tests/lints/gates passing, an adversarial Skeptic sign-off, a clear `ok | needs_human |
    blocked` exit — without a human in the loop for routine steps. Verifiability is what makes
-   autonomy safe to trust.
+   autonomy safe to trust. The conductor does not do the work - it orchestrates agents that do. A
+   conductor that investigates, diagnoses, or asserts unverified conclusions has substituted its
+   own unchecked judgment for the adversarial verification this pillar exists to guarantee, and
+   the correction round that follows costs strictly more than delegation would have. (The
+   "orchestration test": did this claim/artifact come from a subagent return or a conductor read
+   verified against `origin/main`, or did the conductor manufacture it directly? The latter is not
+   ready to spawn on.)
 3. **Low friction.** Sensible defaults, minimal setup, global-default/per-project-override
    everywhere. The protocol should reduce ceremony, not add it.
 4. **Works for everyone (universality).** The protocol is a shared, portable package — every
@@ -116,7 +122,9 @@ proportional gain (fails the efficiency test), or needlessly serializes independ
 a full review cycle on a single non-blocking finding, or otherwise adds wall-clock delay without
 a proportional gain (fails the latency test), or leaves a mechanical review check unmoved to the
 producing step when it could catch the defect earlier without weakening the review (fails the
-prevention test). Symmetrically, a PR that cuts a gate, review round, verification step, or
+prevention test), or asserts a conclusion/value in a spawn brief that came from neither a
+subagent return nor a conductor read verified against `origin/main` (fails the orchestration
+test). Symmetrically, a PR that cuts a gate, review round, verification step, or
 enforcement floor to save tokens or to finish sooner - or that removes a reviewer's mechanical
 check because the producer now runs it too - is also misaligned, regardless of how it scores on
 the efficiency, latency, or prevention test - that trade-off is never on the table. Misalignment is
