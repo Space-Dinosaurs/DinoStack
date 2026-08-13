@@ -282,16 +282,30 @@ manually before ending a session.
     // Silent failure - matches every sibling port's convention.
   }
 
-  // conductor_overreach detection port (DS unit DE): same gap as the Codex
-  // and Gemini ports - the Claude Code detector (hooks/lib/
-  // overreach-detector.js's computeOverreach) needs a structured
-  // payload.transcript array of tool_use/tool_result blocks. Cursor's Stop
-  // payload instead carries an undocumented-format transcript_path (see
-  // readTranscriptExcerpt above), read only as a bounded raw-text tail
-  // excerpt, not structured tool-call data. Not wired here for the same
-  // reason. If a future Cursor payload exposes a structured tool-call
-  // transcript, require('../../hooks/lib/overreach-detector.js') and call
-  // computeOverreach(payload.transcript, threshold).
+  // conductor_overreach detection port (DS unit DE): RE-EVALUATED - an
+  // earlier version of this comment justified skipping the port by citing
+  // "needs a structured payload.transcript array", the wrong field name
+  // (the real Claude Code Stop payload has no `transcript` array either;
+  // it has `transcript_path`, exactly like Cursor does here). The ACTUAL,
+  // already-established reason a structured port is not safely feasible
+  // is different and correct: Cursor's transcript_path DOES exist (this
+  // file already reads it, above, via readTranscriptExcerpt), but its
+  // on-disk FORMAT is undocumented - readTranscriptExcerpt deliberately
+  // reads only a bounded raw-text tail excerpt rather than JSON-parsing
+  // it, per this file's own header comment ("The transcript file format is
+  // undocumented, so this...read at most a bounded tail excerpt", citing
+  // https://cursor.com/docs). Attempting to feed that file through
+  // hooks/lib/overreach-detector.js's parseTranscriptBlocks() (which
+  // assumes Claude Code's `{message:{content:[{type:'tool_use'|
+  // 'tool_result',...}]}}` per-line shape) would either silently parse
+  // nothing (if the format differs, most lines fail JSON.parse or lack a
+  // `message.content` array - parseTranscriptBlocks tolerates this by
+  // returning available:false, so at least it would fail safe rather than
+  // fail wrong) or, worse, coincidentally parse SOME lines successfully
+  // while misinterpreting Cursor-specific fields as Claude-shaped ones.
+  // Not wired here until Cursor's transcript format is reverse-engineered
+  // and documented (docs/planning/cursor-stop-hook-plan.md's Addendum is
+  // the existing investigation trail for that reverse-engineering effort).
 
   exitOk();
 }

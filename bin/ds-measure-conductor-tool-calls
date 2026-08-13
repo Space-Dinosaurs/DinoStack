@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
 """
 Purpose: Read-only calibration tool. Walks recent Claude Code session
-         transcripts and, per session/turn, counts conductor-issued
-         investigation-shaped tool calls (Read/Grep/Glob, plus read-shaped
-         Bash) that happen with zero subagent spawns, after subtracting a
-         mandated-preflight whitelist. Prints a per-session table and a
-         recommended conductor_overreach_threshold, to calibrate the Stop-hook
-         detector in hooks/lib/overreach-detector.js BEFORE any threshold is
-         hardcoded. Read-only: never mutates a transcript or config file.
+         transcripts and, per session, computes the SAME cumulative
+         whole-transcript statistic hooks/lib/overreach-detector.js's
+         computeOverreach actually gates on: total conductor-issued
+         investigation-shaped tool calls (after subtracting the
+         mandated-preflight whitelist) versus total subagent spawns, for
+         the ENTIRE session transcript (not a per-turn or per-run-length
+         measure - ratio_trigger requires spawns===0 for the whole
+         transcript, so only zero-spawn sessions can ever trigger; this
+         script mirrors that exactly so the recommended threshold is
+         calibrated against the actual gating statistic, not a proxy).
+         Prints a per-session table and a recommended
+         conductor_overreach_threshold, derived from the distribution of
+         conductor_tool_calls among ZERO-SPAWN sessions specifically -
+         sessions with at least one spawn can never trigger ratio_trigger
+         regardless of their conductor_tool_calls count, so they are
+         reported for context but excluded from the threshold
+         recommendation itself.
 
 Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
-            Prints a per-session table to stdout (session_id[:8], turns,
-            max_consecutive_conductor_calls_no_spawn, whitelisted_excluded)
-            followed by a recommended THRESHOLD line. --json emits the same
-            data as a JSON object instead. Exit 0 always (advisory tool).
+            Prints a per-session table to stdout (session_id[:8],
+            conductor_tool_calls, spawns, whitelisted_excluded) followed by
+            a recommended THRESHOLD line. --json emits the same data as a
+            JSON object instead. Exit 0 always (advisory tool).
 
 Upstream deps: Python 3 stdlib only (json, sys, os, glob, argparse, pathlib,
                re). Resolves the Claude projects directory via
@@ -25,7 +35,12 @@ Upstream deps: Python 3 stdlib only (json, sys, os, glob, argparse, pathlib,
                only - subagent turns live in a separate subagents/*.jsonl
                sidecar per session and are NOT scanned here, since a
                subagent's own tool calls are never conductor calls by
-               construction).
+               construction). The algorithm below (window-binding to an
+               Agent-tool tool_use_id specifically, not any tool_result) is
+               deliberately duplicated from hooks/lib/overreach-detector.js
+               rather than shared (JS vs Python runtimes) - see
+               hooks/tests/fixtures/overreach-shared-transcript.json for the
+               cross-language equivalence fixture both suites exercise.
 
 Downstream consumers: Operators calibrating conductor_overreach_threshold in
                        .agentic/config.json before enabling
@@ -83,17 +98,19 @@ WHITELIST_PATH_SUBSTRINGS = (
 WHITELIST_PATH_RE = re.compile(r"content/agents/[^/]+\.md$")
 
 # Subagent-spawn tool name. Measured against 60 real transcripts on this
-# harness (Claude Code v2.1.x): the spawn tool is named "Agent", not "Task"
-# (name collision risk with the unrelated TaskCreate/TaskUpdate/TaskStop/
-# TaskOutput todo-list tools, which must NOT be treated as spawns).
-TASK_TOOL_NAME = "Agent"
+# harness (Claude Code v2.1.x): the spawn tool is named "Agent" - NOT
+# "Task" (that name collides with the unrelated TaskCreate/TaskUpdate/
+# TaskStop/TaskOutput todo-list tools, which must never be treated as
+# spawns).
+SPAWN_TOOL_NAME = "Agent"
 
 # A Read/Grep/Glob call is treated as a "post-spawn spot-check" (whitelisted)
 # when it occurs within this many conductor tool_use events immediately
-# following a Task tool_result (subagent return).
+# following the tool_result of an Agent-tool spawn SPECIFICALLY - a
+# tool_result from any other tool must never open or extend this window.
 POST_SPAWN_SPOTCHECK_WINDOW = 2
 
-DEFAULT_THRESHOLD = 8
+DEFAULT_THRESHOLD = 12
 
 
 def _project_hash_from_cwd(cwd: str) -> str:
@@ -158,15 +175,9 @@ def _tool_input_path(tool_input: dict) -> str:
     return ""
 
 
-def _iter_tool_use_events(transcript_path: Path):
-    """Yield (kind, payload) in file order.
-
-    kind is one of: 'tool_use', 'tool_result'.
-    'tool_use' payload: {"name": str, "input": dict}
-    'tool_result' payload: {} (only used to detect a Task return boundary,
-    which this transcript shape does not disambiguate by tool name, so we
-    conservatively treat every tool_result as a possible spawn-return
-    boundary for the spot-check window).
+def _iter_blocks(transcript_path: Path):
+    """Yield ordered {type, name, id, tool_use_id, input} dicts from a
+    Claude Code session transcript JSONL file. Malformed lines are skipped.
     """
     try:
         with transcript_path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -189,45 +200,59 @@ def _iter_tool_use_events(transcript_path: Path):
                         continue
                     btype = block.get("type")
                     if btype == "tool_use":
-                        yield ("tool_use", {
-                            "name": block.get("name"),
+                        yield {
+                            "type": "tool_use",
+                            "name": block.get("name") or "",
+                            "id": block.get("id"),
                             "input": block.get("input") or {},
-                        })
+                        }
                     elif btype == "tool_result":
-                        yield ("tool_result", {})
+                        yield {
+                            "type": "tool_result",
+                            "tool_use_id": block.get("tool_use_id"),
+                        }
     except OSError:
         return
 
 
 def _measure_session(transcript_path: Path) -> dict:
-    """Return {turns, max_consecutive_no_spawn, whitelisted_excluded}.
-
-    'turns' approximates by counting Task (spawn) tool_use events plus 1
-    (the calibration table's purpose is relative volume, not exact turn
-    boundaries - the transcript format does not cleanly demarcate
-    conductor "turns" independent of tool_use ordering).
+    """Return {conductor_tool_calls, spawns, whitelisted_excluded} - the
+    SAME cumulative whole-transcript statistic computeOverreach gates on.
     """
-    consecutive = 0
-    max_consecutive = 0
+    conductor_tool_calls = 0
     spawns = 0
     whitelisted_excluded = 0
-    since_last_result = None  # counts tool_use events since last tool_result
 
-    for kind, payload in _iter_tool_use_events(transcript_path):
-        if kind == "tool_result":
-            since_last_result = 0
+    # Maps tool_use id -> tool name, so a tool_result can be correlated
+    # back to the tool that produced it (CRITICAL FIX: the post-spawn
+    # window must bind to an Agent-tool's OWN tool_result, not any
+    # tool_result).
+    tool_name_by_id: dict[str, str] = {}
+
+    # None = not inside a post-spawn spot-check window. An int counts
+    # conductor tool_use events observed since the most recent Agent-tool
+    # tool_result.
+    since_last_agent_result: int | None = None
+
+    for block in _iter_blocks(transcript_path):
+        if block["type"] == "tool_result":
+            producer = tool_name_by_id.get(block["tool_use_id"]) if block["tool_use_id"] else None
+            if producer == SPAWN_TOOL_NAME:
+                since_last_agent_result = 0
+            # Any other tool's result must NOT touch the window.
             continue
 
-        name = payload["name"]
-        tool_input = payload["input"]
+        # tool_use
+        name = block["name"]
+        tool_input = block["input"]
+        if block["id"]:
+            tool_name_by_id[block["id"]] = name
 
-        if since_last_result is not None:
-            since_last_result += 1
+        if since_last_agent_result is not None:
+            since_last_agent_result += 1
 
-        if name == TASK_TOOL_NAME:
+        if name == SPAWN_TOOL_NAME:
             spawns += 1
-            consecutive = 0
-            since_last_result = None
             continue
 
         is_investigation = False
@@ -247,18 +272,17 @@ def _measure_session(transcript_path: Path) -> dict:
             continue
 
         if (
-            since_last_result is not None
-            and since_last_result <= POST_SPAWN_SPOTCHECK_WINDOW
+            since_last_agent_result is not None
+            and since_last_agent_result <= POST_SPAWN_SPOTCHECK_WINDOW
         ):
             whitelisted_excluded += 1
             continue
 
-        consecutive += 1
-        max_consecutive = max(max_consecutive, consecutive)
+        conductor_tool_calls += 1
 
     return {
-        "turns": spawns + 1,
-        "max_consecutive_conductor_calls_no_spawn": max_consecutive,
+        "conductor_tool_calls": conductor_tool_calls,
+        "spawns": spawns,
         "whitelisted_excluded": whitelisted_excluded,
     }
 
@@ -294,15 +318,18 @@ def main(argv: list[str]) -> int:
             **m,
         })
 
-    values = [r["max_consecutive_conductor_calls_no_spawn"] for r in rows]
-    values.sort()
-    if values:
-        # Recommendation: max observed value + 1, floored at DEFAULT_THRESHOLD
-        # when the sample is thin (< 20 transcripts).
-        observed_max = values[-1]
-        recommended = max(observed_max + 1, DEFAULT_THRESHOLD if len(rows) < 20 else 0)
-        if len(rows) < 20:
-            recommended = max(recommended, DEFAULT_THRESHOLD)
+    # Only zero-spawn sessions can ever trigger ratio_trigger (spawns===0
+    # is required for the WHOLE transcript). Sessions with >=1 spawn are
+    # reported for context but excluded from the threshold recommendation.
+    zero_spawn_calls = sorted(
+        r["conductor_tool_calls"] for r in rows if r["spawns"] == 0
+    )
+    if zero_spawn_calls:
+        observed_max = zero_spawn_calls[-1]
+        if len(zero_spawn_calls) >= 20:
+            recommended = observed_max + 1
+        else:
+            recommended = max(observed_max + 1, DEFAULT_THRESHOLD)
     else:
         recommended = DEFAULT_THRESHOLD
 
@@ -310,25 +337,32 @@ def main(argv: list[str]) -> int:
         print(json.dumps({
             "rows": rows,
             "sample_size": len(rows),
+            "zero_spawn_sample_size": len(zero_spawn_calls),
             "recommended_threshold": recommended,
         }, indent=2))
         return 0
 
-    header = f"{'session':<10}{'turns':>8}{'max_no_spawn':>14}{'whitelisted':>13}"
+    header = f"{'session':<10}{'calls':>8}{'spawns':>8}{'whitelisted':>13}"
     print(header)
     print("-" * len(header))
     for r in rows:
         print(
-            f"{r['session']:<10}{r['turns']:>8}"
-            f"{r['max_consecutive_conductor_calls_no_spawn']:>14}"
-            f"{r['whitelisted_excluded']:>13}"
+            f"{r['session']:<10}{r['conductor_tool_calls']:>8}"
+            f"{r['spawns']:>8}{r['whitelisted_excluded']:>13}"
         )
     print()
-    print(f"Sample size: {len(rows)} transcripts.")
+    print(f"Sample size: {len(rows)} transcripts "
+          f"({len(zero_spawn_calls)} zero-spawn, "
+          f"{len(rows) - len(zero_spawn_calls)} with >=1 spawn).")
+    print(
+        "Only zero-spawn sessions can ever trigger ratio_trigger "
+        "(spawns===0 is required for the whole transcript); the threshold "
+        "recommendation below is derived from the zero-spawn subset only."
+    )
     print(f"Recommended THRESHOLD: {recommended}")
-    if len(rows) < 20:
+    if len(zero_spawn_calls) < 20:
         print(
-            f"NOTE: sample < 20 transcripts; provisional default "
+            f"NOTE: zero-spawn sample < 20 transcripts; provisional default "
             f"({DEFAULT_THRESHOLD}) floors the recommendation."
         )
     return 0

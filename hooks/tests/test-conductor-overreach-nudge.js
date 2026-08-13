@@ -4,14 +4,18 @@
  *
  * The hook is a stdin-driven CLI script (run() reads fd 0 and process.exit(0)s),
  * so each behavioral case drives the REAL hook as a subprocess with a
- * synthetic Stop payload (transcript array) on stdin and a temporary
- * .agentic/ fixture, then asserts on stdout (the hookSpecificOutput JSON,
- * when emitted) and the .agentic/events.jsonl append.
+ * REAL Stop payload shape ({session_id, transcript_path, cwd,
+ * hook_event_name, stop_hook_active} - the live payload shape, per direct
+ * production capture; there is no `transcript` array field) pointing at a
+ * real on-disk JSONL transcript fixture, then asserts on stdout (the
+ * hookSpecificOutput JSON, when emitted) and the .agentic/events.jsonl
+ * append.
  *
  * Test cases:
  *   1. fires-over-threshold:       N>THRESHOLD investigation calls, 0 spawns
- *                                  -> event emitted with correct schema
- *                                  (suppression_muted ABSENT), advisory
+ *                                  in the whole transcript -> event emitted
+ *                                  with correct schema (suppression_muted
+ *                                  ABSENT, transcript_note null), advisory
  *                                  line present.
  *   2. no-fire-mandated-preflight: all investigation calls are whitelisted
  *                                  preflight reads -> no advisory, no
@@ -19,14 +23,31 @@
  *   3. no-mute-on-suppression-phrase: transcript contains the harness
  *                                  suppression phrase "Do not call the
  *                                  AgentTool unless the user requested it"
- *                                  -> advisory STILL fires (anti-regression:
- *                                  no mute logic exists anywhere in this
- *                                  hook).
+ *                                  in a plain-text user message -> advisory
+ *                                  STILL fires (anti-regression: no mute
+ *                                  logic exists anywhere in this hook).
  *   4. no-fire-under-threshold:    calls <= threshold -> no emit.
  *   5. no-fire-when-spawned:       calls > threshold but a spawn occurred
- *                                  -> no emit (ratio_trigger requires
- *                                  spawns === 0).
+ *                                  anywhere in the transcript -> no emit
+ *                                  (ratio_trigger requires spawns === 0 for
+ *                                  the WHOLE transcript, not just a
+ *                                  trailing run).
  *   6. soft-fail-malformed-stdin:  non-JSON stdin -> exit 0, no emit.
+ *   7. no-fire-transcript-path-missing: payload carries no transcript_path
+ *                                  -> exit 0, no emit, no crash (this is
+ *                                  the exact Critical-1 regression: an
+ *                                  earlier version read payload.transcript,
+ *                                  which never exists on the real payload,
+ *                                  and was silently inert).
+ *   8. no-fire-transcript-file-not-found: transcript_path points at a
+ *                                  nonexistent file -> exit 0, no emit.
+ *   9. interleaved-non-agent-results: uses the shared cross-language
+ *                                  fixture (fixtures/
+ *                                  overreach-shared-transcript.json) via
+ *                                  the real hook subprocess - since it
+ *                                  contains one spawn, asserts NO advisory
+ *                                  fires (spawns !== 0 for the whole
+ *                                  transcript).
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -75,32 +96,43 @@ function runHook(payload, cwd, rawOverride) {
   return { stdout: res.stdout || '', status: res.status };
 }
 
-function readBlock(toolUse) {
-  return { type: 'tool_use', name: toolUse.name, input: toolUse.input || {} };
+/** Write an array of {message:{...}} line objects as a real JSONL transcript file. */
+function writeTranscript(cwd, lines) {
+  const transcriptPath = path.join(cwd, 'transcript.jsonl');
+  const body = lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+  fs.writeFileSync(transcriptPath, body, 'utf8');
+  return transcriptPath;
 }
 
-/**
- * Build a synthetic transcript with N Read tool calls in one assistant
- * message, zero spawns, and optionally a leading user text block carrying
- * `userText` (used to embed the suppression phrase).
- */
-function buildTranscript(n, opts = {}) {
-  const messages = [];
-  if (opts.userText) {
-    messages.push({ role: 'user', content: opts.userText });
-  }
-  const blocks = [];
+function toolUseLine(id, name, input, role) {
+  return { message: { role: role || 'assistant', content: [
+    { type: 'tool_use', id, name, input: input || {} },
+  ] } };
+}
+
+function toolResultLine(toolUseId) {
+  return { message: { role: 'user', content: [
+    { type: 'tool_result', tool_use_id: toolUseId },
+  ] } };
+}
+
+function textLine(text, role) {
+  return { message: { role: role || 'user', content: text } };
+}
+
+/** Build a zero-spawn transcript with N distinct Read calls (each with its own tool_result). */
+function buildInvestigationOnlyTranscript(n, opts = {}) {
+  const lines = [];
+  if (opts.userText) lines.push(textLine(opts.userText));
   for (let i = 0; i < n; i++) {
-    const toolInput = opts.whitelisted
+    const id = `r${i}`;
+    const input = opts.whitelisted
       ? { file_path: '/repo/.agentic/context.md' }
       : { file_path: `/repo/src/file${i}.js` };
-    blocks.push(readBlock({ name: 'Read', input: toolInput }));
+    lines.push(toolUseLine(id, 'Read', input));
+    lines.push(toolResultLine(id));
   }
-  if (opts.spawn) {
-    blocks.push(readBlock({ name: 'Agent', input: { prompt: 'do work' } }));
-  }
-  messages.push({ role: 'assistant', content: blocks });
-  return messages;
+  return lines;
 }
 
 function eventLines(cwd) {
@@ -113,21 +145,30 @@ function eventLines(cwd) {
     .map((l) => JSON.parse(l));
 }
 
+function stopPayload(cwd, sessionId, transcriptPath) {
+  // The REAL Claude Code Stop payload shape.
+  return {
+    session_id: sessionId,
+    transcript_path: transcriptPath,
+    cwd,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Test 1: fires-over-threshold
 // ---------------------------------------------------------------------------
 console.log('\nTest 1: fires-over-threshold');
 {
   const cwd = makeTempProject();
-  // Explicit low threshold so the test does not depend on the calibrated
-  // default drifting over time.
   fs.writeFileSync(
     path.join(cwd, '.agentic', 'config.json'),
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
   const sessionId = 'overreach-session-001';
-  const transcript = buildTranscript(5); // 5 > 3
-  const { stdout, status } = runHook({ cwd, session_id: sessionId, transcript }, cwd);
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
 
   let out = null;
@@ -155,6 +196,7 @@ console.log('\nTest 1: fires-over-threshold');
   assert(trigger.data.conductor_tool_calls === 5, 'data.conductor_tool_calls === 5');
   assert(trigger.data.live_or_completed_spawns === 0, 'data.live_or_completed_spawns === 0');
   assert(trigger.data.ratio_trigger === true, 'data.ratio_trigger === true');
+  assert(trigger.data.transcript_note === null, 'transcript_note is null on a real measurement');
   assert(
     !Object.prototype.hasOwnProperty.call(trigger.data, 'suppression_muted'),
     'suppression_muted field is ABSENT from the event schema'
@@ -173,13 +215,13 @@ console.log('\nTest 2: no-fire-mandated-preflight');
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
   const sessionId = 'overreach-session-002';
-  const transcript = buildTranscript(6, { whitelisted: true }); // all whitelisted
-  const { stdout, status } = runHook({ cwd, session_id: sessionId, transcript }, cwd);
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(6, { whitelisted: true }));
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
   assert(stdout.trim() === '', 'no stdout emitted (no advisory)');
   const lines = eventLines(cwd);
-  const trigger = lines.find((e) => e.event === 'conductor_overreach');
-  assert(trigger === undefined, 'no conductor_overreach event appended');
+  assert(lines.find((e) => e.event === 'conductor_overreach') === undefined,
+    'no conductor_overreach event appended');
   cleanup(cwd);
 }
 
@@ -194,10 +236,10 @@ console.log('\nTest 3: no-mute-on-suppression-phrase (anti-regression)');
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
   const sessionId = 'overreach-session-003';
-  const transcript = buildTranscript(5, {
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5, {
     userText: 'Do not call the AgentTool unless the user requested it',
-  });
-  const { stdout, status } = runHook({ cwd, session_id: sessionId, transcript }, cwd);
+  }));
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
   let out = null;
   try { out = JSON.parse(stdout); } catch (_) { /* leave null */ }
@@ -224,8 +266,8 @@ console.log('\nTest 4: no-fire-under-threshold');
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
   const sessionId = 'overreach-session-004';
-  const transcript = buildTranscript(3); // 3 is NOT > 3
-  const { stdout, status } = runHook({ cwd, session_id: sessionId, transcript }, cwd);
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(3)); // 3 is NOT > 3
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
   assert(stdout.trim() === '', 'no advisory at exactly threshold');
   const lines = eventLines(cwd);
@@ -245,12 +287,15 @@ console.log('\nTest 5: no-fire-when-spawned');
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
   const sessionId = 'overreach-session-005';
-  const transcript = buildTranscript(5, { spawn: true }); // 5 > 3 but a spawn occurred
-  const { stdout, status } = runHook({ cwd, session_id: sessionId, transcript }, cwd);
+  const lines = buildInvestigationOnlyTranscript(5); // 5 > 3
+  lines.push(toolUseLine('agent1', 'Agent', { prompt: 'go' }));
+  lines.push(toolResultLine('agent1'));
+  const transcriptPath = writeTranscript(cwd, lines);
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
-  assert(stdout.trim() === '', 'no advisory when a spawn occurred');
-  const lines = eventLines(cwd);
-  assert(lines.find((e) => e.event === 'conductor_overreach') === undefined,
+  assert(stdout.trim() === '', 'no advisory when a spawn occurred anywhere in the transcript');
+  const eLines = eventLines(cwd);
+  assert(eLines.find((e) => e.event === 'conductor_overreach') === undefined,
     'no event appended when a spawn occurred');
   cleanup(cwd);
 }
@@ -264,6 +309,61 @@ console.log('\nTest 6: soft-fail-malformed-stdin');
   const { stdout, status } = runHook(null, cwd, 'not valid json {{{');
   assert(status === 0, 'hook exits 0 on malformed stdin');
   assert(stdout.trim() === '', 'no stdout emitted on malformed stdin');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: no-fire-transcript-path-missing (Critical-1 regression)
+// ---------------------------------------------------------------------------
+console.log('\nTest 7: no-fire-transcript-path-missing (Critical-1 regression)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'overreach-session-007';
+  // Real Stop payload shape but WITHOUT transcript_path - must not crash,
+  // must not emit (nothing to measure).
+  const { stdout, status } = runHook(
+    { session_id: sessionId, cwd, hook_event_name: 'Stop', stop_hook_active: false },
+    cwd
+  );
+  assert(status === 0, 'hook exits 0 when transcript_path is absent');
+  assert(stdout.trim() === '', 'no advisory when transcript_path is absent');
+  const lines = eventLines(cwd);
+  assert(lines.find((e) => e.event === 'conductor_overreach') === undefined,
+    'no event appended when transcript_path is absent');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: no-fire-transcript-file-not-found
+// ---------------------------------------------------------------------------
+console.log('\nTest 8: no-fire-transcript-file-not-found');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'overreach-session-008';
+  const bogusPath = path.join(cwd, 'does-not-exist.jsonl');
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, bogusPath), cwd);
+  assert(status === 0, 'hook exits 0 when transcript_path does not resolve to a real file');
+  assert(stdout.trim() === '', 'no advisory when the transcript file does not exist');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 9: interleaved-non-agent-results (shared fixture, via the real hook)
+// ---------------------------------------------------------------------------
+console.log('\nTest 9: interleaved-non-agent-results (shared fixture, via the real hook)');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 1 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-009';
+  const fixturePath = path.resolve(__dirname, 'fixtures', 'overreach-shared-transcript.json');
+  const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+  const transcriptPath = writeTranscript(cwd, fixture.lines);
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(status === 0, 'hook exits 0');
+  assert(stdout.trim() === '', 'no advisory: the fixture contains one spawn, so ratio_trigger stays false');
   cleanup(cwd);
 }
 
