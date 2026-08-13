@@ -23,6 +23,12 @@ Count sites covered:
                                          triggered this drift) is listed
   - docs/index.html                    : the evidence-on-disk.md node is in the
                                          Referenced Protocol Documents grid
+  - docs/components.md                 : "**Reference docs** (<N> .md docs
+                                         plus <M> example .yml files" against
+                                         the live content/references/ counts
+                                         for both extensions (PR #719 fixed a
+                                         33 -> 39 drift here; the site was
+                                         previously unpinned)
 
 docs/index.html's grid is a curated subset, not a full enumeration - it lists
 a fraction of the files and carries pre-existing stale names (e.g. graphify.md,
@@ -49,6 +55,7 @@ CONTRIBUTING_PATH = REPO_ROOT / "CONTRIBUTING.md"
 SLIDES_PATH = REPO_ROOT / "docs" / "slides" / "contributing-slides.md"
 SKILL_PATH = REPO_ROOT / "content" / "SKILL.md"
 INDEX_PATH = REPO_ROOT / "docs" / "index.html"
+COMPONENTS_PATH = REPO_ROOT / "docs" / "components.md"
 
 # The doc whose addition bumped the count 33 -> 34 and triggered this finding.
 DRIFT_TRIGGER_DOC = "evidence-on-disk"
@@ -138,6 +145,32 @@ def test_slides_count_matches_at_all_sites(reference_count):
     assert all(c == reference_count for c in counts), (
         f"contributing-slides.md states {counts} reference docs, "
         f"expected {reference_count} at every site"
+    )
+
+
+def test_components_md_counts_match(reference_count, reference_stems):
+    text = COMPONENTS_PATH.read_text(encoding="utf-8")
+    md_match = re.search(r"\*\*Reference docs\*\* \((\d+) \.md docs", text)
+    assert md_match, (
+        "docs/components.md must state the count as "
+        "'**Reference docs** (<N> .md docs ...'"
+    )
+    stated_md = int(md_match.group(1))
+    assert stated_md == reference_count, (
+        f"docs/components.md states {stated_md} reference-doc .md files, "
+        f"expected {reference_count}"
+    )
+
+    yml_match = re.search(r"plus (\d+) example \.yml files", text)
+    assert yml_match, (
+        "docs/components.md must state the example .yml count as "
+        "'plus <M> example .yml files'"
+    )
+    live_yml = len(list(REFERENCES_DIR.glob("*.yml")))
+    stated_yml = int(yml_match.group(1))
+    assert stated_yml == live_yml, (
+        f"docs/components.md states {stated_yml} example .yml files, "
+        f"expected {live_yml}"
     )
 
 
