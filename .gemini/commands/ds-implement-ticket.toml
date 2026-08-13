@@ -1744,23 +1744,24 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = the unit's worktree diff; field 7 per §4.5) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches into `$INTEGRATION_WORKTREE` (see Merge phase below, run early here) - provisional until sign-off, since it stays unpushed until Phase 8 and `$REPO`'s HEAD is untouched. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation becomes the adversarial brief hint: pass it to this Skeptic so it knows the expected interaction boundaries.
 
-**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, which runs per unit immediately before that unit's merge command:
+**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`, inside a **dedicated integration worktree**, never `$REPO` itself. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, run per unit before that unit's merge:
 
 ```bash
-git -C $REPO checkout $FEATURE_BRANCH
+INTEGRATION_WORKTREE="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}"
+git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b $FEATURE_BRANCH origin/$BASE_BRANCH
 
 # For each unit in merge_order sequence:
-git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
+git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 # After each merge, check for conflicts before continuing:
-# git -C $REPO diff --name-only --diff-filter=U
+# git -C "$INTEGRATION_WORKTREE" diff --name-only --diff-filter=U
 # If that command outputs any file names, conflicts are present - apply N>2 conflict recovery below.
 ```
 
 **N>2 conflict recovery.** On merge conflict at any step:
-1. `git -C $REPO merge --abort`
+1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
 2. Do not attempt remaining merges.
 3. Collect conflict files, all units' diffs, and the orchestration-planner output.
 4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
@@ -1775,7 +1776,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 # If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
 ```
 
-**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `FEATURE_BRANCH` root. If the integration check fails, spawn one engineer on `FEATURE_BRANCH` with the integration failure output. This engineer has full context (all units' work is on the branch). The resulting fix goes through a single Skeptic on the incremental diff before Phase 5 is declared complete. The integration fix Skeptic does NOT replace Phase 6.
+**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output - this engineer has full context (all units' work is on the branch). The fix goes through a single Skeptic on the incremental diff before Phase 5 is declared complete; this does NOT replace Phase 6.
 
 **Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
 
@@ -1790,6 +1791,8 @@ fi
 git -C $REPO worktree prune
 ```
 
+`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolves it by `$BRANCH_NAME` via `bin/ds-resolve-worktree`, same clean-status guard).
+
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `METHODOLOGY.md §Worktree Lifecycle`.
 
 **Merge-conflict re-route and loop iteration:** If a merge conflict re-route occurred above and the re-routed Engineer's output then goes through Skeptic review in Phase 6, the conflict re-route counts as iteration 1 of the Phase 6 loop. Do not double-count: the conflict-resolution Engineer pass is the first fix pass; Phase 6 initializes its `iteration` counter at 1 to reflect this.
@@ -1798,7 +1801,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 ## Phase 6: Skeptic review
 
-**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
+**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`). This catches cross-unit interactions the per-unit Skeptics could not see. Phase 6 is NOT skipped for the `per-unit` strategy.
 
 **Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
 
@@ -2286,7 +2289,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Sequential path:** Stage specific files and commit as described below.
 
-**Parallel path:** All commits were already made to sub-branches and merged in Phase 5. Phase 8 should only handle any post-merge fixup files that were not captured in the sub-branch commits. Run `git -C $REPO status --short` after the merge to check for any unstaged post-merge fixup files. If output is non-empty, stage and commit those files. If output is empty, skip the stage-and-commit step and proceed directly to push.
+**Parallel path:** All commits were already made to sub-branches and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 should only handle post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` after the merge to check for unstaged fixup files. If non-empty, stage and commit them there; if empty, skip straight to push.
 
 **Only run the following commit block if `status --short` was non-empty (parallel path) or on the sequential path:**
 
@@ -2295,7 +2298,11 @@ Stage specific files - never `git add -A` or `git add .`:
 ```bash
 # @harness:phase8-commit-and-telemetry
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
-git -C $REPO add [specific files]
+
+# Fan-out = $INTEGRATION_WORKTREE ($REPO's HEAD never switches). Sequential = $REPO.
+if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
+
+git -C "$COMMIT_CHECKOUT" add [specific files]
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
@@ -2305,8 +2312,8 @@ if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then
 DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
 
 # Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
-SO_NAME=$(git -C $REPO config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-SO_EMAIL=$(git -C $REPO config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
+SO_NAME=$(git -C "$COMMIT_CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
+SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
 
 if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
   echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
@@ -2315,7 +2322,7 @@ else
   NL=$'
 '
   COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
-  git -C $REPO commit -m "$COMMIT_MSG"
+  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
 fi
 
 # --- Telemetry commit (soft-fail throughout) ---
@@ -2330,19 +2337,22 @@ except: print('true')
 if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
 
-  # Resolve PR_CHECKOUT: the checkout that holds the PR branch.
-  # Fan-out path: $REPO is on $FEATURE_BRANCH after the "Merge phase (all-done join)" checkout.
-  # Single-engineer paths: engineer return supplies WORKTREE_PATH.
-  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
+  # PR_CHECKOUT: fan-out reuses COMMIT_CHECKOUT; single-engineer uses WORKTREE_PATH.
+  if [ "$COMMIT_CHECKOUT" != "$REPO" ]; then
+    PR_CHECKOUT="$COMMIT_CHECKOUT"
+  elif [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
     PR_CHECKOUT="$REPO"
   elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     PR_CHECKOUT="$WORKTREE_PATH"
-    # Copy file into the worktree (git cannot stage files outside the work tree).
-    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
-    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
   else
     echo "WARNING: telemetry commit skipped - cannot resolve PR checkout for branch $BRANCH_NAME"
     PR_CHECKOUT=""
+  fi
+
+  # Copy file into the worktree (git cannot stage outside the work tree).
+  if [ -n "$PR_CHECKOUT" ] && [ "$PR_CHECKOUT" != "$REPO" ]; then
+    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
+    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
   fi
 
   # HEAD-branch guard (safety floor: never commit to the wrong branch).
@@ -2382,7 +2392,7 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
         fi
       fi
     fi
-    # Push only on single-engineer paths (fan-out push handled in its own block).
+    # Push here when PR_CHECKOUT != $REPO; sequential falls to the final push below.
     if [ "$PR_CHECKOUT" != "$REPO" ]; then
       git -C "$PR_CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || true
     fi
@@ -2390,6 +2400,8 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
 fi
 # --- End telemetry commit ---
 
+# $BRANCH_NAME is shared across all of $REPO's worktrees (only HEAD
+# differs), so this is correct even though fan-out never switches HEAD.
 git -C $REPO push -u origin [BRANCH_NAME]
 
 # --- Isolation worktree cleanup (post-push) ---
@@ -2446,7 +2458,7 @@ fi
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
-**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the "Merge phase (all-done join)" `git checkout $FEATURE_BRANCH`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard above - if either is empty the telemetry commit is skipped (staged file unstaged) with a visible WARNING, never emitting a malformed `Signed-off-by` trailer. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
+**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out path uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE` (`$REPO`'s HEAD untouched); single-engineer paths use `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file into the worktree before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a one-line warning and never affects the feature commit. Fan-out and single-engineer-worktree paths push in the same block; the sequential path (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed `Signed-off-by` trailer. **Eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs; the current session's own line lands in the next ticket's Phase 8 commit - a known property, not a bug.
 
 **Point-of-use defeated-negation check.** Before staging, the block runs `ds-migrate verify-commit-path .agentic/session-log/<developer_id>.jsonl --project-root $PR_CHECKOUT`. This is the exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based negation-defeat detection: `_compute_negations_defeated` must synthesize candidate probe paths for the 2 directory-form negations (`!.agentic/session-log/` and its `/**` twin) when no real file exists yet, and a defeater keyed to an unguessed name returns "ok" undetected - see that function's docstring for the full residual. At this exact commit site the target path is already known, so no guessing is needed. Exit 1 (a negation targets this path but git still reports it ignored) prints a visible `ERROR:` line and skips the commit this run - loud, unlike the silent `git add` no-op this replaces. Exit 0 covers both a genuinely reachable path and a path this project's `.gitignore` never attempted to reach at all (e.g. DinoStack's own repo, which categorically excludes `.agentic/*` by decision with zero negations) - neither is a defect, and the existing `git add` / `diff --cached --quiet` handling below is unchanged for both. Exit 2 (git missing, not a worktree, or an untrusted check result) is treated the same as exit 0 - a tooling-unavailability soft-fail must never itself block a commit that would otherwise have succeeded.
 
