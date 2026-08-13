@@ -10,7 +10,11 @@ Public API: ds-parse-subagent-usage <session_uuid> <agent_id>
             Prints compact JSON to stdout. Exits 0 in all cases (errors are
             reported via the {"error": "..."} envelope, never raised).
 
-Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib).
+Upstream deps: Python 3 stdlib only (json, sys, os, glob, datetime, pathlib,
+               importlib.util, importlib.machinery - the last two load
+               bin/_lib.py's resolve_claude_config_dir() by explicit path,
+               same PATH-symlink-safe shim pattern documented at the import
+               site below; not a third-party dependency).
                Reads <config_dir>/projects/<project-hash>/<session_uuid>/
                subagents/agent-<agent_id>.jsonl. Resolves project-hash from
                the current working directory using Claude Code's

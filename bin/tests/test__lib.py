@@ -44,6 +44,8 @@ _loader.exec_module(_lib)
 
 atomic_write = _lib.atomic_write
 acquire_exclusive_lock = _lib.acquire_exclusive_lock
+resolve_claude_config_dir = _lib.resolve_claude_config_dir
+CONFIG_DIR_ENV = _lib.CONFIG_DIR_ENV
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +215,56 @@ class TestAcquireExclusiveLock(unittest.TestCase):
         with acquire_exclusive_lock(self.lock_path, timeout=1.0):
             acquired.append(True)
         self.assertEqual(acquired, [True])
+
+
+# ---------------------------------------------------------------------------
+# resolve_claude_config_dir tests (round-2 fix: tilde expansion +
+# absolutization, kept in sync with hooks/lib/config-dir.js's Node sibling -
+# see hooks/tests/test-config-dir.js for the JS-side coverage of the same
+# four cases).
+# ---------------------------------------------------------------------------
+
+class TestResolveClaudeConfigDir(unittest.TestCase):
+
+    def setUp(self):
+        self._saved_env = {var: os.environ.get(var) for var in CONFIG_DIR_ENV}
+        for var in CONFIG_DIR_ENV:
+            os.environ.pop(var, None)
+
+    def tearDown(self):
+        for var, val in self._saved_env.items():
+            if val is None:
+                os.environ.pop(var, None)
+            else:
+                os.environ[var] = val
+
+    def test_tilde_prefixed_value_expanded(self):
+        """CLAUDE_CONFIG_DIR="~/.claude-alt" expands under the real home dir."""
+        os.environ["CLAUDE_CONFIG_DIR"] = "~/.claude-alt"
+        result = resolve_claude_config_dir()
+        expected = Path(os.path.expanduser("~")) / ".claude-alt"
+        self.assertEqual(result, expected)
+        self.assertFalse(str(result).startswith("~"))
+
+    def test_bare_tilde_expanded(self):
+        """CLAUDE_CONFIG_DIR="~" alone resolves to the real home dir."""
+        os.environ["CLAUDE_CONFIG_DIR"] = "~"
+        result = resolve_claude_config_dir()
+        self.assertEqual(result, Path(os.path.expanduser("~")))
+
+    def test_relative_value_absolutized(self):
+        """A relative (non-~) value absolutizes via abspath."""
+        os.environ["CLAUDE_CONFIG_DIR"] = "relative-config-dir"
+        result = resolve_claude_config_dir()
+        self.assertTrue(result.is_absolute())
+        self.assertEqual(result, Path(os.path.abspath("relative-config-dir")))
+
+    def test_absolute_value_passthrough(self):
+        """An already-absolute value with no ~ resolves unchanged."""
+        abs_dir = tempfile.gettempdir() + "/ae-config-dir-passthrough"
+        os.environ["CLAUDE_CONFIG_DIR"] = abs_dir
+        result = resolve_claude_config_dir()
+        self.assertEqual(result, Path(abs_dir))
 
 
 # ---------------------------------------------------------------------------

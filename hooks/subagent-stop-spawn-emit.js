@@ -128,10 +128,19 @@
  *                `readdirSync(configDir/projects)`) when the primary path
  *                does not exist. Requires `agent_id` (best-effort,
  *                harness-supplied - see the field read above); when the
- *                harness omits it, or the transcript cannot be found or
- *                read, `data.tokens_note` explains why
- *                (`"unavailable (transcript not found)"`) and no `tokens`
- *                key is emitted. A transcript at or above
+ *                harness omits it, or the transcript FILE cannot be
+ *                located, `data.tokens_note` is
+ *                `"unavailable (transcript not found)"`. When the
+ *                transcript IS located but yields zero assistant-turn
+ *                records carrying a usable `usage` block (round-2 fix:
+ *                this is the same note for an empty file, a wholly
+ *                malformed/non-JSONL file, and a genuinely turn-less
+ *                transcript alike - readTranscriptTokens() tracks whether
+ *                ANY record actually parsed and never treats a
+ *                successful-but-vacuous read as a real zero measurement),
+ *                `data.tokens_note` is
+ *                `"unavailable (transcript unreadable)"`, and no `tokens`
+ *                key is emitted either way. A transcript at or above
  *                MAX_TRANSCRIPT_BYTES (20 MiB) is SKIPPED entirely
  *                (`data.tokens_note: "skipped (transcript too large)"`) -
  *                never partial-summed, same never-fabricate principle as
@@ -203,8 +212,14 @@ const { resolveClaudeConfigDir } = require('./lib/config-dir.js');
 // (constructed from cwd's project hash) does not exist - mirrors
 // bin/ds-parse-subagent-usage's glob fallback but bounded on directory
 // COUNT rather than left as an unbounded glob, matching this file's
-// existing MAX_SCAN_LINES/MAX_TAIL_BYTES bounding discipline.
-const MAX_PROJECT_DIRS_SCAN = 200;
+// existing MAX_SCAN_LINES/MAX_TAIL_BYTES bounding discipline. readdirSync's
+// entry order is unspecified, so any bound short of "every project dir"
+// leaves SOME machine's tail unreachable on a primary-path miss; this fails
+// SAFE either way (a miss emits `data.tokens_note`, never a wrong number),
+// but round-2 raised the bound from 200 to 1000 after a real dev machine
+// was observed with 251 entries under ~/.claude/projects - comfortably
+// above the old bound and not comfortably below a plausible future one.
+const MAX_PROJECT_DIRS_SCAN = 1000;
 
 // A transcript at or above this size is SKIPPED entirely (never
 // partial-summed) - see the token-resolution doc-comment note above.
@@ -263,11 +278,18 @@ function resolveTranscriptPath(configDir, cwd, sessionId, agentId) {
  * Sum token usage across all assistant turns in a transcript JSONL, or
  * return a descriptive note when unresolvable. Never returns a zero-filled
  * tokens object as a stand-in for "unresolved" - a real zero (genuinely no
- * assistant turns yet) and "we could not read this" are kept distinct.
+ * assistant turns yet) and "we could not read this" are kept distinct by
+ * tracking whether at least one assistant-with-usage record ACTUALLY
+ * parsed, not merely whether the file opened without throwing. Round-2 fix:
+ * a prior version returned the untouched {0,0,0,0} accumulator as a
+ * "success" whenever the file was 0 bytes or wholly unparseable JSONL,
+ * which is indistinguishable downstream from a real zero-token
+ * measurement - exactly the fabrication this function exists to prevent.
  *
  * Returns { tokens: {input,output,cache_creation,cache_read}, note: null }
- * on success, or { tokens: null, note: <string> } when tokens could not be
- * determined.
+ * when at least one assistant-with-usage record parsed, or
+ * { tokens: null, note: <string> } when tokens could not be determined
+ * (file missing, oversized, or found but yielding zero parsed records).
  */
 function readTranscriptTokens(transcriptPath) {
   let stat;
@@ -279,7 +301,7 @@ function readTranscriptTokens(transcriptPath) {
   if (!stat.isFile()) {
     return { tokens: null, note: 'unavailable (transcript not found)' };
   }
-  if (stat.size > MAX_TRANSCRIPT_BYTES) {
+  if (stat.size >= MAX_TRANSCRIPT_BYTES) {
     return { tokens: null, note: 'skipped (transcript too large)' };
   }
 
@@ -291,6 +313,7 @@ function readTranscriptTokens(transcriptPath) {
   }
 
   const tokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
+  let parsedCount = 0;
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -299,10 +322,19 @@ function readTranscriptTokens(transcriptPath) {
     if (!obj || obj.type !== 'assistant') continue;
     const usage = obj.message && obj.message.usage;
     if (!usage || typeof usage !== 'object') continue;
+    parsedCount += 1;
     tokens.input += Number(usage.input_tokens) || 0;
     tokens.output += Number(usage.output_tokens) || 0;
     tokens.cache_creation += Number(usage.cache_creation_input_tokens) || 0;
     tokens.cache_read += Number(usage.cache_read_input_tokens) || 0;
+  }
+  if (parsedCount === 0) {
+    // File opened and read fine, but nothing usable parsed out of it - an
+    // empty file, wholly malformed JSONL, and a genuinely turn-less
+    // transcript are all indistinguishable from "we could not determine
+    // this" from the caller's perspective, and must never be reported as
+    // a real zero-token measurement.
+    return { tokens: null, note: 'unavailable (transcript unreadable)' };
   }
   return { tokens, note: null };
 }

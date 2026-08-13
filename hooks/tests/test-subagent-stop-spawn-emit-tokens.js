@@ -31,6 +31,30 @@
  *                                        CLAUDE_CONFIG_DIR-scoped transcript,
  *                                        not the decoy. Direct regression
  *                                        gate for the hardcoded-~/.claude bug.
+ *   5. transcript-empty-file-never-zero-filled: a 0-byte transcript exists
+ *                                        on disk -> data.tokens_note ===
+ *                                        "unavailable (transcript
+ *                                        unreadable)", no data.tokens key.
+ *                                        Round-2 regression: prior to the
+ *                                        fix this returned a zero-filled
+ *                                        tokens object with NO note, the
+ *                                        exact fabrication this module's
+ *                                        header claims never happens.
+ *   6. transcript-malformed-never-zero-filled: a transcript that exists and
+ *                                        is wholly non-JSONL garbage ->
+ *                                        same "unavailable (transcript
+ *                                        unreadable)" note, no data.tokens
+ *                                        key. Same round-2 regression as
+ *                                        Test 5, different cause.
+ *   7. transcript-exact-boundary-skipped: a transcript of EXACTLY
+ *                                        MAX_TRANSCRIPT_BYTES (20 MiB, not
+ *                                        20 MiB + padding like Test 3) ->
+ *                                        still skipped ("skipped
+ *                                        (transcript too large)"), pinning
+ *                                        the "at or above" boundary
+ *                                        (`>=`, not `>`) at the exact edge
+ *                                        Test 3's padded fixture cannot
+ *                                        exercise.
  *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit-tokens.js
  */
@@ -272,6 +296,116 @@ console.log('\nTest 4: claude-config-dir-honored');
   cleanup(projectCwd);
   cleanup(redirectedConfigDir);
   cleanup(decoyHome);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 5: transcript-empty-file-never-zero-filled');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-005';
+  const agentId = 'agent-tok-005';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  // 0-byte transcript: exists on disk, but has nothing to parse.
+  fs.writeFileSync(path.join(dir, `agent-${agentId}.jsonl`), '', 'utf8');
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no zero-filled tokens object for an empty transcript (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 6: transcript-malformed-never-zero-filled');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-006';
+  const agentId = 'agent-tok-006';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  // Wholly malformed: not JSON at all, on every line.
+  fs.writeFileSync(
+    path.join(dir, `agent-${agentId}.jsonl`),
+    'this is not json\nneither is this }{\n\x00\x01garbage\n',
+    'utf8'
+  );
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'unavailable (transcript unreadable)',
+      `tokens_note === "unavailable (transcript unreadable)" (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no zero-filled tokens object for a malformed transcript (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 7: transcript-exact-boundary-skipped');
+{
+  const projectCwd = makeTmpDir('ae-tok-proj-');
+  const configDir = makeTmpDir('ae-tok-cfg-');
+  fs.mkdirSync(path.join(projectCwd, '.agentic'), { recursive: true });
+  const sessionId = 'sess-tok-007';
+  const agentId = 'agent-tok-007';
+  const dir = path.join(configDir, 'projects', projectHash(projectCwd), sessionId, 'subagents');
+  fs.mkdirSync(dir, { recursive: true });
+  const transcriptPath = path.join(dir, `agent-${agentId}.jsonl`);
+  // Exactly MAX_TRANSCRIPT_BYTES (20 MiB), no more, no less - pins the
+  // "at or above" boundary (>=) that Test 3's padded fixture cannot.
+  const MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024;
+  const fd = fs.openSync(transcriptPath, 'w');
+  fs.ftruncateSync(fd, MAX_TRANSCRIPT_BYTES);
+  fs.closeSync(fd);
+  const sizeBefore = fs.statSync(transcriptPath).size;
+  assert(sizeBefore === MAX_TRANSCRIPT_BYTES, `fixture transcript is exactly MAX_TRANSCRIPT_BYTES (got ${sizeBefore} bytes)`);
+
+  const { status } = runHook(
+    stopPayload(projectCwd, sessionId, agentId),
+    projectCwd,
+    { CLAUDE_CONFIG_DIR: configDir, AGENTIC_CONFIG_DIR: '' }
+  );
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(projectCwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const data = complete.data || {};
+    assert(data.tokens_note === 'skipped (transcript too large)',
+      `tokens_note === "skipped (transcript too large)" at the exact boundary (got: ${JSON.stringify(data.tokens_note)})`);
+    assert(data.tokens === undefined,
+      `no tokens for a transcript at exactly the size boundary (got: ${JSON.stringify(data.tokens)})`);
+  }
+  cleanup(projectCwd);
+  cleanup(configDir);
 }
 
 // ---------------------------------------------------------------------------

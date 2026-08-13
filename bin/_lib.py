@@ -27,15 +27,19 @@ Public API:
     caller could own. path must be a pathlib.Path.
 
   resolve_claude_config_dir()
-    Returns the active harness config dir as a pathlib.Path, honoring the
-    same env-var precedence as bin/ds-identity's PROFILE_CONFIG_DIR_ENV:
-    AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > CODEX_HOME > PI_CODING_AGENT_DIR,
-    first non-empty wins. Falls back to ~/.claude when none is set. This is a
-    READ-ONLY lookup (transcript discovery), not a write target - unlike
-    ds-identity's _profile_config_dir(), it deliberately does NOT apply a
-    $HOME-containment check or symlink-component check; those guards exist
-    there to stop an identity WRITE from escaping the user tree, which does
-    not apply to a read-only glob/stat lookup here.
+    Returns the active harness config dir as an absolute pathlib.Path,
+    honoring the same env-var precedence as bin/ds-identity's
+    PROFILE_CONFIG_DIR_ENV: AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR >
+    CODEX_HOME > PI_CODING_AGENT_DIR, first non-empty wins. Falls back to
+    ~/.claude when none is set. A `~`-prefixed value is expanded, and the
+    result is absolutized via os.path.abspath() (round-2 fix: kept in sync
+    with the Node sibling, hooks/lib/config-dir.js's
+    resolveClaudeConfigDir(), which now applies the same two steps). This
+    is a READ-ONLY lookup (transcript discovery), not a write target -
+    unlike ds-identity's _profile_config_dir(), it deliberately does NOT
+    apply a $HOME-containment check or symlink-component check; those
+    guards exist there to stop an identity WRITE from escaping the user
+    tree, which does not apply to a read-only glob/stat lookup here.
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
@@ -67,6 +71,9 @@ Failure modes:
     var is treated as absent; the first non-blank value wins even if the
     resulting path does not exist on disk - callers must handle a
     nonexistent config dir themselves (e.g. by falling through to a glob).
+    `~` expansion and abspath absolutization happen unconditionally on the
+    winning value; neither can raise (os.path.expanduser/abspath are pure
+    string operations that never touch the filesystem).
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).
@@ -153,11 +160,14 @@ def resolve_claude_config_dir() -> Path:
 
     Read-only lookup: no $HOME-containment or symlink check (contrast with
     bin/ds-identity's _profile_config_dir(), which guards a WRITE target).
+    Round-2 fix: applies os.path.abspath() in addition to expanduser() so
+    a relative env-var value absolutizes the same way the Node sibling
+    (hooks/lib/config-dir.js's resolveClaudeConfigDir()) now does.
     """
     for var in CONFIG_DIR_ENV:
         raw = os.environ.get(var, "").strip()
         if raw:
-            return Path(os.path.expanduser(raw))
+            return Path(os.path.abspath(os.path.expanduser(raw)))
     return Path(os.path.expanduser("~/.claude"))
 
 
