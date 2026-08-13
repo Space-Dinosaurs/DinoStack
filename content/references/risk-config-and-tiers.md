@@ -1,7 +1,7 @@
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         twenty-two-toggle project config catalog (behavioral toggles only);
+         twenty-three-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -37,7 +37,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve twenty-two project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve twenty-three project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -61,6 +61,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-two project-level o
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). Controls the Stop hook (`hooks/enforce-turn-shape.py`) that checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (structural shape of a non-Answer turn) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both; also disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 
 #### Graph-derived risk signal
 

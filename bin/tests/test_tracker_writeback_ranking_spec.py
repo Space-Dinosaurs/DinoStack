@@ -846,14 +846,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-two methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-two project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-two-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-two project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-two toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-two methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 22 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-three methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-three methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-three project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-three-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-three project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-three toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-three methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 23 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [
@@ -1011,22 +1011,23 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 10 enforce-*.py hooks post-
+# Site inventory (all reference the same fact: 11 enforce-*.py hooks post-
 # merge with the worktree-read-guard unit (DS-150), the turn-shape-hook
-# unit (DS-156), and the skeptic-round-cap unit, 9 of them call log_fire,
-# split 8 deny + 2 allow_advisory - `enforce-turn-shape.py` is the one hook
-# in both subsets, since it logs `"deny"` from its blocking execution-turn
-# check and `"allow_advisory"` from its advisory-only answer-turn check):
+# unit (DS-156), the skeptic-round-cap unit, and the worktree-write-guard
+# unit, 10 of them call log_fire, split 9 deny + 2 allow_advisory -
+# `enforce-turn-shape.py` is the one hook in both subsets, since it logs
+# `"deny"` from its blocking execution-turn check and `"allow_advisory"`
+# from its advisory-only answer-turn check):
 #   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
 #   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
 #   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 8 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("eight
+#   events-log.md:130   - decomposed enumeration: 9 deny + 2 allow_advisory,
+#                         pinned by the FULL LITERAL - cardinals ("nine
 #                         hooks", "two hooks") AND named members together.
 #                         This is deliberately count- AND membership-bound:
-#                         an eleventh enforcer added later (denying or
+#                         a twelfth enforcer added later (denying or
 #                         advisory) changes either the cardinal or the
 #                         member list, so either change breaks this
 #                         exact-substring pin and forces the enumeration to
@@ -1040,36 +1041,47 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by nine of the ten enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by ten of the eleven enforce-*.py hooks - every one except `enforce-no-abdication.py`",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the nine enforce-*.py hooks' best-effort dynamic import",
+        "for the ten enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Nine of the ten enforce-*.py hooks additionally",
+        "Ten of the eleven enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "nine of the ten `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "ten of the eleven `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the nine consumer hooks enumerated below",
+        "one of the ten consumer hooks enumerated below",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (eight hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (nine hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
         "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, "
-        "`enforce-turn-shape.py`, `enforce-worktree-read.py`) "
+        "`enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`) "
         'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
     (
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
-        "Downstream consumers: the nine enforce-*.py PreToolUse/Stop hooks that",
+        "Downstream consumers: the ten enforce-*.py PreToolUse/Stop hooks that",
+    ),
+    (
+        # Distinct fact from the log_fire-consumer count above: this is the
+        # count of enforce-*.py hooks sharing the "Decision print comes
+        # FIRST, unconditionally" print-before-telemetry convention (a
+        # strict subset of the log_fire consumers - e.g.
+        # enforce-skeptic-round-cap.py calls log_fire but does not use this
+        # phrasing), restated from enforce-planning-artifact-spawn.py's own
+        # perspective ("the OTHER N enforce-*.py hooks", excluding itself).
+        REPO_ROOT / "hooks" / "enforce-planning-artifact-spawn.py",
+        "convention in the other eight enforce-*.py hooks",
     ),
 ]
 
@@ -1093,25 +1105,28 @@ _ENFORCER_SUBCOUNT_SITES = [
 # hooks" in the decomposed enumeration at events-log.md:130), which moved
 # five -> six when DS-150 added `enforce-worktree-read.py` to the deny
 # group, six -> seven when DS-156 added `enforce-turn-shape.py` to the deny
-# group, then seven -> eight when the skeptic-round-cap unit added
-# `enforce-skeptic-round-cap.py` to the deny group. "eight" cannot be used
-# as this sweep's stale marker: it is now itself a live, correct cardinal
-# (the deny-hook enumeration currently reads "eight hooks"), so a sweep
-# still keyed to "eight" would false-positive against that legitimate use,
-# mirroring why an earlier pass retired "six" as a marker only to have
-# DS-156's deny-subset change make "six" stale again, and this fix's
-# deny-subset change make "seven" stale in turn.
+# group, seven -> eight when the skeptic-round-cap unit added
+# `enforce-skeptic-round-cap.py` to the deny group, then eight -> nine when
+# the worktree-write-guard unit added `enforce-worktree-write.py` to the
+# deny group. "eight" and "nine" cannot be used as this sweep's stale
+# marker: "nine" is now itself a live, correct cardinal (the deny-hook
+# enumeration currently reads "nine hooks"), so a sweep keyed to either
+# would false-positive against that legitimate use, mirroring why an
+# earlier pass retired "six" as a marker only to have DS-156's deny-subset
+# change make "six" stale again, and this fix's deny-subset change make
+# "seven" stale in turn - "seven" remains the safe target word since it has
+# not been reused as a live cardinal by any subsequent transition.
 # Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
-# goes silent once the live deny-subset count moves past eight (when
-# "eight" itself becomes stale), and it does not catch numeral ("7 of the
-# 8") forms.
+# goes silent once the live deny-subset count moves past nine (when "nine"
+# itself becomes stale), and it does not catch numeral ("9 of the 10")
+# forms.
 # A further limitation (Skeptic Minor, round 1 finding, still applicable
 # post-rebase): keying on a single cardinal cannot simultaneously guard
 # every possible stale restatement of BOTH facts above - e.g. a reverted
 # total-count restatement using some other now-stale cardinal shape would
 # not be caught by this sweep alone. The positive pins above still confirm
-# the current "nine of the ten" / "eight hooks" phrasing is present at
+# the current "ten of the eleven" / "nine hooks" phrasing is present at
 # every known site, so residual risk is limited to an unenumerated site
 # using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
