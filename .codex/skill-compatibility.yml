@@ -3982,6 +3982,16 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Telemetry commit - Codex runtime boundary.** Commit only existing `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` entries produced by a supported writer. The current Codex Stop hook does not create those entries; it writes only `~/.codex/projects/[hash]/context.md`. Project-local telemetry migration is deferred to `context-writer-migration`.",
+      "kind": "operational",
+      "occurrence_hash": "1317e58d9bf9d22e6cc792e790f010dba2ff405f6732d0ba1acd03b32212c0e7",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE`; single-engineer uses `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file in before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a warning, never affecting the feature commit. Fan-out and single-engineer-worktree paths push in the same block; sequential (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed trailer. **Eventual consistency:** the Phase 8 commit only has sessions that ended before it runs; the current session's line lands in the next ticket's commit - known, not a bug."
+    },
+    {
       "expected_target": "echo",
       "generated_token": "echo",
       "kind": "operational",
@@ -4150,6 +4160,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "-C",
+      "kind": "display-only",
+      "occurrence_hash": "15f785330ee6c907551a830ca5f667a1b1a7640bc56911a003ea1385a5acf7c3",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "-C"
     },
     {
       "expected_target": "done",
@@ -4390,6 +4410,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/qa-gate.md"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "INTEGRATION_WORKTREE",
+      "kind": "display-only",
+      "occurrence_hash": "19e5d3b8e82b7bd1bc0db85cebd9ff61e461563d752a29eccc35f4750c02dc9a",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "INTEGRATION_WORKTREE"
     },
     {
       "expected_target": ".claude/qa.md",
@@ -5262,6 +5292,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "awk",
+      "generated_token": "awk",
+      "kind": "operational",
+      "occurrence_hash": "28186b73a1ff561ad75fec5a3c6db60b12c5e38851a4bab3981ddb98cdf1e81f",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "awk"
+    },
+    {
       "expected_target": ".agentic/tracker.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
       "kind": "operational",
@@ -5270,6 +5310,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/tracker.yml"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/dev",
+      "kind": "display-only",
+      "occurrence_hash": "28586e0b3ecfe4ce4c5f2577011e76b890cad873e5321406459f53ad1e67d591",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/dev"
     },
     {
       "expected_target": "if",
@@ -5822,6 +5872,16 @@
       "source_token": "/ds-ticket-triage"
     },
     {
+      "expected_target": "if",
+      "generated_token": "if",
+      "kind": "operational",
+      "occurrence_hash": "2f2ec921d945a5a242afa5910f17421e3b733e9ecb71fc4d2b50296dcc938038",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "if"
+    },
+    {
       "expected_target": "echo",
       "generated_token": "echo",
       "kind": "operational",
@@ -5942,6 +6002,16 @@
       "source_token": "pr"
     },
     {
+      "expected_target": "then",
+      "generated_token": "then",
+      "kind": "operational",
+      "occurrence_hash": "31bc10e0d591efb588d4312def9ecb7ec07566183fdd0e444e7b42f4df69aa5f",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "then"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -6060,6 +6130,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "if"
+    },
+    {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "337076f246c35c6738fc65afcc2000895bb597cd73e7ade383581dfa0d05a81b",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -9602,6 +9682,16 @@
       "source_token": "risk_class"
     },
     {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "6afe565b78f50108c2d731e300c345f8d5016d2eb9024cd442cf85065e4e77bc",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -9810,16 +9900,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
-    },
-    {
-      "expected_target": "git",
-      "generated_token": "git",
-      "kind": "operational",
-      "occurrence_hash": "6e53717579b501e278d36648ebeb48433f7bb422a31ba168965df2a19c7e1f67",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "git"
     },
     {
       "expected_target": "then",
@@ -10850,6 +10930,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "PR_NUMBER"
+    },
+    {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "804a46ba0b573175ce8aa8a675d68e7fc0ce46e863af1a457dc56c63f089b152",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
     },
     {
       "expected_target": ".agentic/qa-regressions.md",
@@ -12272,6 +12362,16 @@
       "source_token": "else"
     },
     {
+      "expected_target": "else",
+      "generated_token": "else",
+      "kind": "operational",
+      "occurrence_hash": "98dd9cf83585e41e02fc4758d2489a81730ed26a322751533b709a26ab0b6e65",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "else"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -12280,16 +12380,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Telemetry commit - Codex runtime boundary.** Commit only existing `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` entries produced by a supported writer. The current Codex Stop hook does not create those entries; it writes only `~/.codex/projects/[hash]/context.md`. Project-local telemetry migration is deferred to `context-writer-migration`.",
-      "kind": "operational",
-      "occurrence_hash": "998cbde8cd8e1e28dd0bbb4634810662ebc374e6ccf5717f640504c17d2c5bb7",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out path uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE` (`$REPO`'s HEAD untouched); single-engineer paths use `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file into the worktree before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a one-line warning and never affects the feature commit. Fan-out and single-engineer-worktree paths push in the same block; the sequential path (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed `Signed-off-by` trailer. **Eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs; the current session's own line lands in the next ticket's Phase 8 commit - a known property, not a bug."
     },
     {
       "expected_target": "tr",
@@ -12692,6 +12782,16 @@
       "source_token": "default"
     },
     {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "a02c1ad599c275ea88a3d576bb3d60f6c9df84b8296f203d72a2e09182c5c4ec",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
+    },
+    {
       "expected_target": "mkdir",
       "generated_token": "mkdir",
       "kind": "operational",
@@ -13070,6 +13170,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "if"
+    },
+    {
+      "expected_target": "fi",
+      "generated_token": "fi",
+      "kind": "operational",
+      "occurrence_hash": "a57801a007bd2ebd0f2e73c5076d6b07e9b8a4387b669367cc36002a11907058",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "fi"
     },
     {
       "expected_target": "fi",
@@ -14630,16 +14740,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/qa.md"
-    },
-    {
-      "expected_target": "bin/ds-resolve-worktree",
-      "generated_token": "$AE_REPO_DIR/bin/ds-resolve-worktree",
-      "kind": "operational",
-      "occurrence_hash": "bb7ea679bbc10372477995b3834d5ec967748d1069671e9da1a0ca8c4951b1e0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "bin/ds-resolve-worktree"
     },
     {
       "expected_target": ".agentic/brief-session.json",
@@ -16310,6 +16410,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/learnings.md"
+    },
+    {
+      "expected_target": "then",
+      "generated_token": "then",
+      "kind": "operational",
+      "occurrence_hash": "d4cb1fa47b25a4d663af289ea92085a14e3958ef10f4c6c42eac2a910817b5b1",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "then"
     },
     {
       "expected_target": "content/references/tracker-writeback.md",

@@ -30,11 +30,16 @@ Downstream consumers: CI (bin-tests / pytest suites); any future edit to the
 
 Failure modes: fails if the fan-out span (bounded by heading anchors, not
                hardcoded line numbers) contains a `git -C $REPO checkout` or
-               `git -C $REPO merge` invocation, OR if either anchor heading
-               is not found (a structural drift that would otherwise let
-               this test silently stop covering anything - see
-               test_anchors_present_and_ordered, which is what "prove it is
-               not vacuous" cites).
+               `git -C $REPO merge` invocation IN ANY OF ITS QUOTING/BRACING
+               FORMS (`$REPO`, `"$REPO"`, `${REPO}`, `"${REPO}"` - the file's
+               own style mixes quoted and unquoted throughout this span, and
+               an earlier version of FORBIDDEN_PATTERNS matched only the
+               unquoted form, so a quoted violation inside the very span this
+               test bounds passed vacuously - Skeptic round-2 finding on
+               bcd21daf), OR if either anchor heading is not found (a
+               structural drift that would otherwise let this test silently
+               stop covering anything - see test_anchors_present_and_ordered,
+               which is what "prove it is not vacuous" cites).
 
 Performance: sub-second; one file read, two regex sweeps.
 """
@@ -53,12 +58,17 @@ END_ANCHOR = "## Phase 8.5: QA evidence (conditional)"
 
 # A primary-checkout HEAD mutation: checking out or merging a branch
 # directly in $REPO (as opposed to $INTEGRATION_WORKTREE or a per-unit
-# worktree path). Deliberately does NOT match `git -C "$INTEGRATION_WORKTREE"`
-# or `git -C ${REPO}/.agentic/worktrees/...` forms - those are the sanctioned
-# replacement mechanism this test exists to protect.
+# worktree path). Matches $REPO in any of its quoting/bracing forms actually
+# used in this file (bare, quoted, braced, quoted+braced) so a quoted
+# violation cannot slip past an unquoted-only pattern (see Failure modes
+# above). Deliberately does NOT match `git -C "$INTEGRATION_WORKTREE"` or
+# `git -C $REPO_DIR ...` (the trailing `\b`/lack of `_` in the REPO}?"? group
+# stops it matching `$REPO_DIR`) - those are the sanctioned mechanism this
+# test exists to protect, and an unrelated variable it must never flag.
+_REPO_REF = r'"?\$\{?REPO\}?"?'
 FORBIDDEN_PATTERNS = [
-    re.compile(r"git\s+-C\s+\$REPO\s+checkout\b"),
-    re.compile(r"git\s+-C\s+\$REPO\s+merge\b"),
+    re.compile(rf"git\s+-C\s+{_REPO_REF}\s+checkout\b"),
+    re.compile(rf"git\s+-C\s+{_REPO_REF}\s+merge\b"),
 ]
 
 
@@ -114,6 +124,49 @@ class TestFanOutSpanHasNoRepoHeadMutation(unittest.TestCase):
             "in the fan-out span - this reintroduces the Class 1 defect "
             "(conductor switching $REPO's HEAD instead of using a dedicated "
             "$INTEGRATION_WORKTREE). Offenders:\n" + "\n".join(offenders),
+        )
+
+    def test_forbidden_pattern_catches_every_quoting_form(self) -> None:
+        """Direct regex unit test, independent of file content: the pattern
+        itself must catch bare, quoted, braced, and quoted+braced $REPO -
+        this is what a future narrowing of FORBIDDEN_PATTERNS back to the
+        unquoted-only form would break."""
+        violations = [
+            'git -C $REPO checkout $FEATURE_BRANCH',
+            'git -C "$REPO" checkout $FEATURE_BRANCH',
+            'git -C ${REPO} checkout $FEATURE_BRANCH',
+            'git -C "${REPO}" checkout $FEATURE_BRANCH',
+            'git -C $REPO merge --no-ff x',
+            'git -C "$REPO" merge --no-ff x',
+        ]
+        for line in violations:
+            matched = any(p.search(line) for p in FORBIDDEN_PATTERNS)
+            self.assertTrue(matched, f"pattern failed to catch: {line!r}")
+
+        non_violations = [
+            'git -C $REPO_DIR checkout x',
+            'git -C "$INTEGRATION_WORKTREE" checkout x',
+            'git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b x y',
+        ]
+        for line in non_violations:
+            matched = any(p.search(line) for p in FORBIDDEN_PATTERNS)
+            self.assertFalse(matched, f"pattern falsely flagged: {line!r}")
+
+    def test_out_of_span_repo_checkout_is_correctly_ignored(self) -> None:
+        """The Trivial single-engineer path legitimately runs
+        `git -C $REPO checkout -b ...` (content/commands/ds-implement-
+        ticket.md's Trivial single-engineer path, well before the fan-out
+        span starts) - confirm the span extraction genuinely excludes it
+        rather than the forbidden-pattern check happening to not fire."""
+        text = _read_target()
+        start_idx = text.index(START_ANCHOR)
+        before_span = text[:start_idx]
+        self.assertRegex(
+            before_span,
+            re.compile(r"git\s+-C\s+\$REPO\s+checkout\s+-b"),
+            "expected the known Trivial-path out-of-span checkout to exist "
+            "before the span start - if this fails, the fixture assumption "
+            "is stale, not the test's own logic",
         )
 
     def test_integration_worktree_mechanism_present(self) -> None:

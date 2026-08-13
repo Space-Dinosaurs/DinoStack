@@ -1792,7 +1792,7 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Partial success path.** When one or more units fail and one or more succeed:
 1. Record which units are `done` vs `failed`/`blocked`.
-2. If done units are truly independent (no shared interface with failed units): merge done units into `FEATURE_BRANCH` sequentially in `merge_order`. Leave failed units' worktrees in place.
+2. If done units are truly independent (no shared interface with failed units): merge them into `FEATURE_BRANCH` in `merge_order`, inside `$INTEGRATION_WORKTREE` (see Merge phase above). Leave failed units' worktrees in place.
 3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. Apply the **task-state fold** first: `inputs` survives generation boundaries because it is on the fold's cross-generation whitelist, so the retry brief reads a coherent `inputs` even when the failed unit's fold spans more than one session. The retry brief must include: (a) the original task brief from the folded `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
 4. If the retry succeeds, merge and proceed to the Skeptic phase.
 5. If the retry fails a second time, escalate to human with the full failure history.
@@ -1800,13 +1800,23 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 4.5, field 6 = the unit's worktree diff; field 7 per §4.5) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches into `$INTEGRATION_WORKTREE` (see Merge phase below, run early here) - provisional until sign-off, since it stays unpushed until Phase 8 and `$REPO`'s HEAD is untouched. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation becomes the adversarial brief hint: pass it to this Skeptic so it knows the expected interaction boundaries.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. Run the Merge phase below NOW - the ONE time it runs here. Replaces the old separate, non-`FEATURE_BRANCH` scratch branch: provisionality now comes from staying unpushed until Phase 8, not branch identity. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate here (see below). Pass it the orchestration-planner's independence annotation as the brief hint.
 
-**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`, inside a **dedicated integration worktree**, never `$REPO` itself. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, run per unit before that unit's merge:
+**Merge phase (all-done join).** Runs exactly once per ticket, inside a **dedicated integration worktree** - never `$REPO`. For `integration` it already ran above; do NOT repeat it. For `per-unit` it runs here first, after per-unit Skeptics sign off, merging sub-branches sequentially in `merge_order`. **Apply the fold-before-merge gate before each unit** - see "Fold-before-merge and branch verification" below:
 
 ```bash
 INTEGRATION_WORKTREE="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}"
-git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b $FEATURE_BRANCH origin/$BASE_BRANCH
+# Same rule as the Elevated-path definition above (substitute
+# $INTEGRATION_WORKTREE/$FEATURE_BRANCH for $WORKTREE_PATH/$BRANCH_NAME).
+EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$FEATURE_BRANCH" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+if [ -n "$EXISTING_WT" ]; then
+  INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
+elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
+  git -C $REPO fetch origin
+  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -B $FEATURE_BRANCH origin/$FEATURE_BRANCH
+else
+  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b $FEATURE_BRANCH origin/$BASE_BRANCH
+fi
 
 # For each unit in merge_order sequence:
 git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
@@ -1816,10 +1826,10 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 # If that command outputs any file names, conflicts are present - apply N>2 conflict recovery below.
 ```
 
-**N>2 conflict recovery.** On merge conflict at any step:
+**N>2 conflict recovery.** On conflict at any step:
 1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
-2. Do not attempt remaining merges.
-3. Collect conflict files, all units' diffs, and the orchestration-planner output.
+2. Stop; do not merge further.
+3. Collect conflict files, all units' diffs, and the planner output.
 4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
@@ -1832,7 +1842,7 @@ git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 # If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
 ```
 
-**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output - this engineer has full context (all units' work is on the branch). The fix goes through a single Skeptic on the incremental diff before Phase 5 is declared complete; this does NOT replace Phase 6.
+**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output. The fix goes through a single Skeptic on the incremental diff before Phase 5 is complete; does NOT replace Phase 6.
 
 **Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
 
@@ -1847,7 +1857,7 @@ fi
 git -C $REPO worktree prune
 ```
 
-`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolves it by `$BRANCH_NAME` via `$AE_REPO_DIR/bin/ds-resolve-worktree`, same clean-status guard).
+`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`, same clean-status guard).
 
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `$AE_CORE_SKILL_ROOT/METHODOLOGY.md §Worktree Lifecycle`.
 
@@ -1857,7 +1867,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 ## Phase 6: Skeptic review
 
-**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`). This catches cross-unit interactions the per-unit Skeptics could not see. Phase 6 is NOT skipped for the `per-unit` strategy.
+**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic from Phase 5 IS the Phase 6 gate - do not spawn a second Skeptic. When `per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`), catching cross-unit interactions per-unit Skeptics could not see. Phase 6 is NOT skipped for `per-unit`.
 
 **Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
 
@@ -2345,7 +2355,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Sequential path:** Stage specific files and commit as described below.
 
-**Parallel path:** All commits were already made to sub-branches and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 should only handle post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` after the merge to check for unstaged fixup files. If non-empty, stage and commit them there; if empty, skip straight to push.
+**Parallel path:** All commits were already made and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 handles only post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` to check; if non-empty, stage and commit there; if empty, skip to push.
 
 **Only run the following commit block if `status --short` was non-empty (parallel path) or on the sequential path:**
 
