@@ -47,6 +47,18 @@ def _write_transcript(tmp_dir: Path, lines: list[dict]) -> Path:
     return transcript_path
 
 
+def _write_fixture_case(tmp_dir: Path, fixture_case: dict) -> Path:
+    """Write a fixture case (either structured `lines` or literal
+    `raw_lines`) to a real transcript file."""
+    if "raw_lines" in fixture_case:
+        transcript_path = tmp_dir / "transcript.jsonl"
+        transcript_path.write_text(
+            "\n".join(fixture_case["raw_lines"]) + "\n", encoding="utf-8"
+        )
+        return transcript_path
+    return _write_transcript(tmp_dir, fixture_case.get("lines", []))
+
+
 @pytest.fixture
 def restore_env():
     """Restore CLAUDE_CONFIG_DIR and cwd after a test that mutates them."""
@@ -60,16 +72,31 @@ def restore_env():
         os.environ["CLAUDE_CONFIG_DIR"] = old_env
 
 
-def test_shared_fixture_equivalence(tmp_path):
-    """Cross-language pin (Skeptic Minor 2): same fixture, same counts as
+@pytest.mark.parametrize(
+    "case_name",
+    ["interleaved-non-agent-results", "empty-transcript", "malformed-transcript"],
+)
+def test_shared_fixture_equivalence(tmp_path, case_name):
+    """Cross-language pin (Skeptic Minor 2, extended round-3 for the
+    failure paths per Skeptic Minor 1): same fixture case, same result as
     the JS detector's hooks/tests/test-overreach-detector.js Test 1."""
     fixture = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-    transcript_path = _write_transcript(tmp_path, fixture["lines"])
+    fixture_case = next(c for c in fixture["cases"] if c["name"] == case_name)
+    transcript_path = _write_fixture_case(tmp_path, fixture_case)
 
     result = _mod._measure_session(transcript_path)
-    assert result["conductor_tool_calls"] == fixture["expected"]["conductor_tool_calls"]
-    assert result["spawns"] == fixture["expected"]["live_or_completed_spawns"]
-    assert result["whitelisted_excluded"] == fixture["expected"]["whitelisted_reads_excluded"]
+    expected = fixture_case["expected"]
+
+    assert result["available"] == expected["available"]
+    if not expected["available"]:
+        assert result["conductor_tool_calls"] == 0
+        assert result["spawns"] == 0
+        assert result["whitelisted_excluded"] == 0
+        return
+
+    assert result["conductor_tool_calls"] == expected["conductor_tool_calls"]
+    assert result["spawns"] == expected["live_or_completed_spawns"]
+    assert result["whitelisted_excluded"] == expected["whitelisted_reads_excluded"]
 
 
 def test_window_binds_to_agent_result_only(tmp_path):

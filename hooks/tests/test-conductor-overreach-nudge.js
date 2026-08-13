@@ -360,7 +360,8 @@ console.log('\nTest 9: interleaved-non-agent-results (shared fixture, via the re
   const sessionId = 'overreach-session-009';
   const fixturePath = path.resolve(__dirname, 'fixtures', 'overreach-shared-transcript.json');
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-  const transcriptPath = writeTranscript(cwd, fixture.lines);
+  const fixtureCase = fixture.cases.find((c) => c.name === 'interleaved-non-agent-results');
+  const transcriptPath = writeTranscript(cwd, fixtureCase.lines);
   const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
   assert(stdout.trim() === '', 'no advisory: the fixture contains one spawn, so ratio_trigger stays false');
