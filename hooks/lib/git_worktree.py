@@ -13,11 +13,9 @@ Purpose: Shared helper that classifies whether a given directory is a
 
          Ported from enforce-worktree-write.py's `_is_git_worktree()`
          (PR #736, feat/enforce-worktree-write-guard-v3,
-         commit d8ff78859b96551bb83698e44370669b68a8922d) into this shared
-         module so both hooks share identical semantics instead of two
-         copies drifting - see MEMORY.md "DinoStack learnings never to
-         AGENTS.md" era notes on duplication-class fixes shipped this
-         session.
+         commit d8ff78859b96551bb83698e44370669b68a8922d, merged to main
+         as a860ac62) into this shared module so both hooks share
+         identical semantics instead of two copies drifting.
 
 Public API (module-level function, no class):
     is_git_worktree(caller_root: str) -> bool
@@ -50,12 +48,12 @@ Upstream deps: Python 3 stdlib only (os). No imports of any other
                under caller_root (isdir/isfile/open); never writes
                anything, never reads any other path.
 
-Downstream consumers: hooks/enforce-worktree-read.py (via
-                       `_is_git_worktree()` call site, gating the
-                       cross-boundary Read deny path) and
-                       hooks/enforce-worktree-write.py (same role for
-                       Write/Edit/MultiEdit) once that hook lands on
-                       main. Not an enforce-*.py hook itself and not a
+Downstream consumers: hooks/enforce-worktree-read.py (via its
+                       `_load_is_git_worktree()` dynamic-import wrapper,
+                       gating the cross-boundary Read deny path) and
+                       hooks/enforce-worktree-write.py (same wrapper
+                       pattern, same role for Write/Edit/MultiEdit). Not
+                       an enforce-*.py hook itself and not a
                        PreToolUse/Stop entry point - not registered in
                        ~/.claude/settings.json and not subject to
                        bin/ds-doctor's MANAGED_HOOK_BASENAMES or any

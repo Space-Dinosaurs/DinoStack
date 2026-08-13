@@ -128,7 +128,9 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                matching exemption.
 
 Performance: < 2 ms per call (in-memory JSON parse, a handful of path
-             operations, one optional small JSON config read, no network).
+             operations, one optional small JSON config read, one small
+             `.git` file read at most via the dynamically-imported
+             hooks/lib/git_worktree.py::is_git_worktree(), no network).
              Measured end-to-end (including interpreter startup) is ~37 ms
              per invocation; unlike its Task/Write-matched siblings, this
              hook is registered on the highest-frequency tool in the repo
