@@ -3,7 +3,11 @@
 /**
  * Purpose: Registered top-level Stop hook. Thin wrapper around
  *          hooks/lib/overreach-detector.js's computeOverreach: reads the
- *          Stop payload from stdin, resolves the configured (or calibrated
+ *          REAL Stop payload from stdin ({session_id, transcript_path, cwd,
+ *          hook_event_name, stop_hook_active} - there is no `transcript`
+ *          array field on the live payload; an earlier version read
+ *          payload.transcript, which does not exist, and was silently
+ *          inert in production), resolves the configured (or calibrated
  *          default) threshold, and on ratio_trigger appends a
  *          conductor_overreach event to .agentic/events.jsonl and emits an
  *          advisory additionalContext line. WARN-ONLY - never blocks the
@@ -15,8 +19,9 @@
  *
  * Upstream deps: Node built-ins (fs, path), hooks/lib/stdin-guard.js
  *                (readStdinGuarded), hooks/lib/overreach-detector.js
- *                (computeOverreach, DEFAULT_THRESHOLD). Reads
- *                [cwd]/.agentic/config.json (optional,
+ *                (computeOverreach, DEFAULT_THRESHOLD - reads and parses
+ *                payload.transcript_path itself, bounded by a size
+ *                ceiling). Reads [cwd]/.agentic/config.json (optional,
  *                conductor_overreach_threshold key; config-reversible).
  *
  * Downstream consumers: none - terminal hook. Appends to
@@ -24,18 +29,24 @@
  *                        and content/references/events-log.md consumers.
  *
  * Failure modes: fail-open on any error - missing/malformed stdin, missing
- *                fields, unreadable/malformed config, or a write failure on
- *                events.jsonl all result in a silent exit 0. No suppression-
- *                mute logic exists anywhere in this hook by design (a prior
- *                design that grepped the transcript for an injected
- *                harness-suppression phrase and muted the advisory was
- *                removed by Skeptic Critical finding - do not re-derive it,
- *                and do not grep the transcript for injected-prompt
- *                phrases). The advisory fires unconditionally whenever
- *                ratio_trigger is true, regardless of transcript content.
+ *                fields, unreadable/malformed config, an unavailable or
+ *                unparseable transcript (computeOverreach returns
+ *                available:false with a transcript_note in that case -
+ *                treated the same as ratio_trigger:false here, i.e. no
+ *                event, no advisory; never a fabricated zero-call
+ *                measurement mistaken for a real one), or a write failure
+ *                on events.jsonl all result in a silent exit 0. No
+ *                suppression-mute logic exists anywhere in this hook by
+ *                design (a prior design that grepped the transcript for an
+ *                injected harness-suppression phrase and muted the advisory
+ *                was removed by Skeptic Critical finding - do not
+ *                re-derive it, and do not grep the transcript for
+ *                injected-prompt phrases). The advisory fires
+ *                unconditionally whenever ratio_trigger is true, regardless
+ *                of transcript content.
  *
- * Performance: single stdin read + single transcript pass (see
- *              overreach-detector.js) + one best-effort file append.
+ * Performance: single stdin read + single bounded transcript file read/pass
+ *              (see overreach-detector.js) + one best-effort file append.
  *              No subprocess calls.
  */
 
@@ -73,7 +84,8 @@ function _resolveThreshold(cwd) {
  * @param {string} cwd
  * @param {string|null} sessionId
  * @param {{conductor_tool_calls:number, live_or_completed_spawns:number,
- *   ratio_trigger:boolean, whitelisted_reads_excluded:number}} result
+ *   ratio_trigger:boolean, whitelisted_reads_excluded:number,
+ *   transcript_note:string|null}} result
  */
 function _appendEvent(cwd, sessionId, result) {
   try {
@@ -93,6 +105,7 @@ function _appendEvent(cwd, sessionId, result) {
         live_or_completed_spawns: result.live_or_completed_spawns,
         ratio_trigger: result.ratio_trigger,
         whitelisted_reads_excluded: result.whitelisted_reads_excluded,
+        transcript_note: result.transcript_note,
       },
     });
     fs.appendFileSync(eventsPath, line + '\n');
@@ -122,16 +135,23 @@ async function run() {
       ? payload.session_id.trim()
       : null;
 
-    const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
-    const threshold = _resolveThreshold(cwd);
-    const result = computeOverreach(transcript, threshold);
+    const transcriptPath = (typeof payload.transcript_path === 'string' && payload.transcript_path.trim())
+      ? payload.transcript_path.trim()
+      : null;
 
+    const threshold = _resolveThreshold(cwd);
+    const result = computeOverreach(transcriptPath, threshold);
+
+    // available:false (unreadable/unparseable/oversized transcript) never
+    // fires ratio_trigger by construction (computeOverreach's own
+    // contract), so this check alone is sufficient to skip both the
+    // unavailable case and the genuine below-threshold case.
     if (!result.ratio_trigger) process.exit(0);
 
     _appendEvent(cwd, sessionId, result);
 
     const advisory =
-      `Advisory: this turn made ${result.conductor_tool_calls} investigation-shaped ` +
+      `Advisory: this session made ${result.conductor_tool_calls} investigation-shaped ` +
       'tool calls with zero subagent spawns; if this was diagnosis rather than ' +
       'fact-confirmation, consider whether it should have been delegated.';
 

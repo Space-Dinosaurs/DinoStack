@@ -1,0 +1,52 @@
+{
+  "_comment": "Cross-language equivalence fixture (Skeptic Minor 2 on PR #730): exercised by BOTH hooks/tests/test-overreach-detector.js and bin/tests/test_ds_measure_conductor_tool_calls.py, asserting byte-identical output from the JS detector (hooks/lib/overreach-detector.js) and the Python calibrator (bin/ds-measure-conductor-tool-calls) against the SAME transcript. Encodes the Critical-2 regression directly: three investigation calls (Read, Bash cat, Read) occur BEFORE any subagent spawn, each with its own (non-Agent) tool_result. Under the pre-fix bug (the post-spawn spot-check window reset on ANY tool_result, not just an Agent-tool's own result), the second and third calls were incorrectly whitelisted as 'post-spawn spot-checks' even though no spawn had happened yet - reducing conductor_tool_calls from the correct 3 to 1 and whitelisted_reads_excluded from the correct 0 to 2 for that segment. The fixture then adds a real Agent spawn (tool_use id agent-1) and its own tool_result (opens the window correctly), followed by two Read calls inside the 2-call spot-check window (correctly whitelisted) and a third Read call outside it (correctly counted), each separated by a NON-Agent tool_result that must not touch the window.",
+  "lines": [
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "pre-1", "name": "Read", "input": { "file_path": "/repo/src/a.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "pre-1" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "pre-2", "name": "Bash", "input": { "command": "cat /repo/src/b.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "pre-2" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "pre-3", "name": "Read", "input": { "file_path": "/repo/src/c.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "pre-3" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "agent-1", "name": "Agent", "input": { "prompt": "do the thing" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "agent-1" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "post-1", "name": "Read", "input": { "file_path": "/repo/src/d.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "post-1" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "post-2", "name": "Read", "input": { "file_path": "/repo/src/e.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "post-2" }
+    ] } },
+    { "message": { "role": "assistant", "content": [
+      { "type": "tool_use", "id": "post-3", "name": "Read", "input": { "file_path": "/repo/src/f.js" } }
+    ] } },
+    { "message": { "role": "user", "content": [
+      { "type": "tool_result", "tool_use_id": "post-3" }
+    ] } }
+  ],
+  "expected": {
+    "conductor_tool_calls": 4,
+    "live_or_completed_spawns": 1,
+    "whitelisted_reads_excluded": 2
+  }
+}
