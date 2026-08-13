@@ -123,6 +123,12 @@ hook installed separately:
   target resolves inside the primary checkout instead of the agent's own
   worktree; never fires on a conductor (main-session) read; disable via
   `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- [`enforce-worktree-write.py`](../hooks/enforce-worktree-write.py)
+  - PreToolUse (Write/Edit/MultiEdit); write-side companion to
+  `enforce-worktree-read.py` - denies a worktree-isolated subagent's
+  Write/Edit/MultiEdit when the target resolves inside the primary checkout
+  instead of the agent's own worktree; never fires on a conductor
+  (main-session) write; disable via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 
@@ -142,9 +148,10 @@ in an isolated git worktree branched from `main`
 ([content/sections/11-worktree-lifecycle.md](../content/sections/11-worktree-lifecycle.md)).
 This keeps the conductor's untracked scaffolding out of Worker commits and stops
 parallel Workers from contaminating one shared tree. It scopes **git state**,
-and, as of `enforce-worktree-read.py`, a subagent's `Read` calls - it does not
-isolate any other host filesystem access or the network. Leave isolation on;
-it is mandatory in the methodology and there is no in-place exception.
+and, as of `enforce-worktree-read.py`/`enforce-worktree-write.py`, a subagent's
+`Read` and `Write`/`Edit`/`MultiEdit` calls - it does not isolate any other
+host filesystem access (e.g. Bash) or the network. Leave isolation on; it is
+mandatory in the methodology and there is no in-place exception.
 
 ## Risk profiles
 

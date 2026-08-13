@@ -167,6 +167,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-shippable-edit.py",
     "enforce-skeptic-round-cap.py",
     "enforce-worktree-read.py",
+    "enforce-worktree-write.py",
     "conductor-overreach-nudge.js",
     "post-tool-use-capture-nudge.js",
     "session-end-wrap.js",
