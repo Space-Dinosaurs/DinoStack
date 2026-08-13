@@ -348,6 +348,7 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 - `.agentic/**` INVERTS the polarity: protected by default, disposable only for a small named set (`events.jsonl`/telemetry, `wrap/`, `codex-prompt-generation/`, `hud/`, cache dirs) - round 3's blanket protection measured `removed=0` here since this repo dogfoods itself and every worktree accumulates telemetry; `.agentic/events.jsonl` is salvaged into the primary repo before removal, and a failed salvage blocks removal rather than risking a silent loss
 - `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
 - Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or bare `ds-reap-worktrees --dry-run`/no-flags invocation
+- `bin/ds-reap-all` sweeps SEVERAL repos in one invocation - discovers repos via explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback, then runs `ds-reap-worktrees` once per repo sequentially, forwarding every pass-through flag verbatim; it owns no safety logic of its own
 
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
