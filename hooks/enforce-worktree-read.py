@@ -31,6 +31,18 @@ Purpose: PreToolUse hook that detects a worktree-isolated subagent reading a
            unnormalized prefix test on the two roots is not sufficient;
            all three operands (target, caller_root, primary_root) are
            realpath-normalized before the containment test.
+         - A proper-subdirectory `caller_root` is NOT by itself proof of
+           worktree isolation: an ordinary repo subdirectory, a
+           submodule, and an independent nested clone are all proper
+           subdirectories too, and none of them are worktree-isolated.
+           This hook additionally requires caller_root's `.git` entry to
+           match the genuine-linked-worktree shape (gitdir pointer
+           containing `/worktrees/`) via the shared
+           hooks/lib/git_worktree.py::is_git_worktree() helper before
+           treating caller_root as isolated - otherwise it fails open
+           (ALLOW), matching this hook's narrow-never-widen discipline.
+           Ported from enforce-worktree-write.py's `_is_git_worktree()`
+           (PR #736) so both hooks share identical semantics.
 
          Accepted limitations (intentional, not oversights):
          - Only fires on the `Read` tool. Grep, Glob, and Bash (e.g. `cat
@@ -62,7 +74,9 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
                is a normalized-path prefix test). Absent/malformed config
                is treated as an empty exemption list. Also a soft-
                dependency on the sibling hooks/lib/enforcement_log.py
-               fire-logging helper (dynamic import, fails open to a no-op).
+               fire-logging helper (dynamic import, fails open to a no-op)
+               and on hooks/lib/git_worktree.py's is_git_worktree()
+               (dynamic import, fails open to "not a worktree" -> ALLOW).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Read).
                       Wired via ~/.claude/settings.json by .claude/
@@ -91,6 +105,10 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
       unexpected topology): fail-open (ALLOW) - the "isolation worktrees
       live inside the primary root" assumption does not hold, so this
       hook has nothing reliable to enforce.
+    - caller_root IS a proper subdirectory of primary_root but is NOT a
+      genuine linked git worktree per is_git_worktree() (an ordinary
+      subdirectory, a submodule, or an independent nested clone): fail-
+      open (ALLOW) - there is no worktree-isolation boundary to defeat.
     - target path resolution raises (e.g. embedded null byte): fail-open
       (caught by the outer try/except).
     - target resolves outside primary_root entirely: fail-open - not
@@ -104,12 +122,15 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                JSON, tool_name == "Read", agent_id present (subagent),
                valid tool_input.file_path, a resolvable primary_root, a
                resolvable caller_root that is a proper subdirectory of
-               primary_root (genuine worktree isolation), a target inside
-               primary_root but NOT inside caller_root, and no matching
-               exemption.
+               primary_root AND a genuine linked git worktree per
+               is_git_worktree() (genuine worktree isolation), a target
+               inside primary_root but NOT inside caller_root, and no
+               matching exemption.
 
 Performance: < 2 ms per call (in-memory JSON parse, a handful of path
-             operations, one optional small JSON config read, no network).
+             operations, one optional small JSON config read, one small
+             `.git` file read at most via the dynamically-imported
+             hooks/lib/git_worktree.py::is_git_worktree(), no network).
              Measured end-to-end (including interpreter startup) is ~37 ms
              per invocation; unlike its Task/Write-matched siblings, this
              hook is registered on the highest-frequency tool in the repo
@@ -144,6 +165,28 @@ import json
 import os
 import sys
 from pathlib import Path
+
+
+def _load_is_git_worktree():
+    """Dynamic import of the shared hooks/lib/git_worktree.py helper,
+    mirroring _load_log_fire()'s pattern (avoids a hard package-relative
+    import so this hook stays runnable when invoked as a bare script by
+    the Claude Code hook runner). Falls back to a function that always
+    returns False (fail-open: treats caller_root as NOT a worktree, which
+    routes to this hook's ALLOW branch) if the sibling module cannot be
+    loaded."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "git_worktree.py"
+        spec = _ilu.spec_from_file_location("git_worktree", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod.is_git_worktree
+    except Exception:
+        return lambda *a, **k: False
+
 
 DENY_MESSAGE_TEMPLATE = (
     "Worktree-read guard: this worktree-isolated subagent (agent_id={agent_id!r}"
@@ -307,6 +350,14 @@ def main() -> None:
             # caller_root is not (or is trivially) inside primary_root -
             # the "worktrees live inside the primary root" assumption this
             # hook relies on does not hold here. Fail open.
+            sys.exit(0)
+
+        # caller_root being a proper subdirectory of primary_root is NOT
+        # by itself proof of worktree isolation - an ordinary repo
+        # subdirectory, a submodule, or an independent nested clone are
+        # all proper subdirectories too. Require the genuine-linked-
+        # worktree shape before treating caller_root as isolated.
+        if not _load_is_git_worktree()(caller_root):
             sys.exit(0)
 
         # Resolve the read target. Any failure here is caught by the outer

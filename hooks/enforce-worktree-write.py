@@ -28,17 +28,15 @@ Purpose: PreToolUse hook that detects a worktree-isolated subagent writing a
          risk profile than reads and an operator may want to exempt one
          axis without the other.
 
-         ONE DELIBERATE BEHAVIORAL DIVERGENCE from the read guard: this
-         hook additionally requires caller_root's `.git` entry to resolve
-         to a GENUINE LINKED worktree (via `_is_git_worktree()`'s gitdir-
-         pointer parsing) before treating caller_root as isolated - see
-         the Failure modes list below. `enforce-worktree-read.py` has no
-         such check and still treats ANY proper subdirectory of
-         primary_root as "worktree-isolated" regardless of whether it
-         carries a `.git` entry at all, so it retains the broader false-
-         positive this hook closed (an ordinary repo subdirectory, a
-         submodule, or a nested clone as caller_root all still deny on the
-         read guard). That gap is a separate unit's scope, not fixed here.
+         This hook requires caller_root's `.git` entry to resolve to a
+         GENUINE LINKED worktree (via the shared
+         hooks/lib/git_worktree.py::is_git_worktree() gitdir-pointer
+         parsing) before treating caller_root as isolated - see the
+         Failure modes list below. `enforce-worktree-read.py` shares this
+         exact helper and the same requirement (closed as a follow-up to
+         this hook's own check, ported into a shared module rather than
+         copy-pasted, so both hooks carry identical genuine-linked-
+         worktree semantics with no risk of the two drifting apart).
 
          Deliberately NOT merged into enforce-shippable-edit.py: that hook
          denies a conductor-direct (agent_id absent) edit against a
@@ -89,7 +87,9 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
                is a normalized-path prefix test). Absent/malformed config
                is treated as an empty exemption list. Also a soft-
                dependency on the sibling hooks/lib/enforcement_log.py
-               fire-logging helper (dynamic import, fails open to a no-op).
+               fire-logging helper (dynamic import, fails open to a no-op)
+               and on hooks/lib/git_worktree.py's is_git_worktree()
+               (dynamic import, fails open to "not a worktree" -> ALLOW).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       Edit, and MultiEdit). Wired via ~/.claude/settings.json
@@ -120,7 +120,7 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
       hook has nothing reliable to enforce.
     - caller_root is a proper subdirectory of primary_root but its `.git`
       entry does not resolve to a GENUINE LINKED worktree of this repo
-      (see _is_git_worktree()): fail-open (ALLOW). Covers three distinct
+      (see the shared is_git_worktree() helper): fail-open (ALLOW). Covers three distinct
       cases - (a) no `.git` entry at all, an ordinary repo subdirectory;
       (b) `.git` is a real DIRECTORY, an independent nested clone (`git
       init`/`git clone` run inside the primary checkout), not a worktree
@@ -143,7 +143,7 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                present (subagent), valid tool_input.file_path, a
                resolvable primary_root, a resolvable caller_root that is a
                proper subdirectory of primary_root AND resolves to a
-               genuine linked git worktree per _is_git_worktree() (not an
+               genuine linked git worktree per is_git_worktree() (not an
                ordinary subdirectory, a submodule, or a nested clone), a
                target inside primary_root but NOT inside caller_root, and
                no matching exemption.
@@ -275,48 +275,30 @@ def _relpath_or_none(target: str, root: str):
     return rel
 
 
-def _is_git_worktree(caller_root: str) -> bool:
-    """Return True iff caller_root's `.git` entry indicates it is a
-    GENUINE LINKED git worktree - not a submodule, and not an independent
-    nested clone that merely happens to live inside primary_root.
+def _load_is_git_worktree():
+    """Dynamic import of the shared hooks/lib/git_worktree.py helper,
+    mirroring _load_log_fire()'s pattern (avoids a hard package-relative
+    import so this hook stays runnable when invoked as a bare script by
+    the Claude Code hook runner). Falls back to a function that always
+    returns False (fail-open: treats caller_root as NOT a worktree, which
+    routes to this hook's ALLOW branch) if the sibling module cannot be
+    loaded.
 
-    A real linked worktree's `.git` is a FILE containing a line of the
-    form `gitdir: <path>`, where <path> contains a `/worktrees/` segment
-    (it points into the shared repo's `.git/worktrees/<name>` admin dir).
-    A submodule's `.git` is also a FILE, but its gitdir pointer contains a
-    `/modules/` segment instead (`.git/modules/<name>`) - a submodule is
-    not isolation-worktree-isolated and must ALLOW. A plain nested clone
-    (an independent `git init`/`git clone` some subagent happened to run
-    inside the primary checkout) has `.git` as a real DIRECTORY - also not
-    a worktree of this repo, must ALLOW.
-
-    Fails to False (treated as NOT a worktree -> caller ALLOWs) on any
-    directory-vs-file ambiguity, read error, or unparseable content -
-    matching this hook's fail-open discipline: this function only ever
-    narrows the deny path, never widens it.
-    """
-    git_path = os.path.join(caller_root, ".git")
+    Ported from a formerly-local `_is_git_worktree()` definition, now
+    shared with enforce-worktree-read.py via hooks/lib/git_worktree.py so
+    both hooks carry identical genuine-linked-worktree semantics instead
+    of two copies drifting."""
     try:
-        if os.path.isdir(git_path):
-            # Either the primary checkout's own .git (already excluded by
-            # the caller before this is reached) or an independent nested
-            # clone - neither is a linked worktree of this repo.
-            return False
-        if not os.path.isfile(git_path):
-            return False
-        with open(git_path, "r", encoding="utf-8", errors="strict") as f:
-            content = f.read()
-    except Exception:
-        return False
+        import importlib.util as _ilu
 
-    for line in content.splitlines():
-        line = line.strip()
-        if line.startswith("gitdir:"):
-            gitdir = line[len("gitdir:"):].strip()
-            normalized = gitdir.replace("\\", "/")
-            return "/worktrees/" in normalized
-    # No "gitdir:" line found - unparseable content, fail open.
-    return False
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "git_worktree.py"
+        spec = _ilu.spec_from_file_location("git_worktree", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod.is_git_worktree
+    except Exception:
+        return lambda *a, **k: False
 
 
 def main() -> None:
@@ -399,10 +381,11 @@ def main() -> None:
         # worktree-isolated), a submodule checkout, or an independent
         # nested clone gets treated as "worktree-isolated" and is denied
         # every write elsewhere in the repo, a false positive on the deny
-        # path for the three primary write tools. See _is_git_worktree()
-        # for the gitdir-pointer parsing that distinguishes a genuine
-        # linked worktree from those three cases.
-        if not _is_git_worktree(caller_root):
+        # path for the three primary write tools. See the shared
+        # hooks/lib/git_worktree.py::is_git_worktree() for the
+        # gitdir-pointer parsing that distinguishes a genuine linked
+        # worktree from those three cases.
+        if not _load_is_git_worktree()(caller_root):
             sys.exit(0)
 
         # Resolve the write target. Any failure here is caught by the outer
