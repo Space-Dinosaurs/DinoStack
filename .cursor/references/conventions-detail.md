@@ -163,7 +163,7 @@ Apply these rules to every external-facing comment:
 
 ### Ticket descriptions
 
-Lead with the Problem. These are soft targets, not hard caps: the bounds below bind only where every line earns its place, because the signal-per-line test (`conventions-detail.md:159`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic - a 7-line Problem that is all load-bearing passes, and a 3-line Problem that restates the ticket fails.
+Lead with the Problem. These are soft targets, not hard caps: the bounds below bind only where every line earns its place, because the signal-per-line test (`conventions-detail.md:160`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic - a 7-line Problem that is all load-bearing passes, and a 3-line Problem that restates the ticket fails.
 
 - **Problem:** soft target ≤ 5 lines.
 - **Acceptance Criteria:** soft target ≤ 8 bullets.
@@ -177,7 +177,7 @@ Per-line self-check: would a future reader need this line to know what to build,
 
 ### Commit messages
 
-Subject line: `type(scope): <imperative description>`, written in the imperative mood. The cap is on the whole subject INCLUDING the `type(scope):` prefix - ≤ 50 characters total, leaving roughly 25-35 characters for the description on typical scopes. A description that cannot fit pushes the detail into the body. Conventional git subject-line guidance: git truncates long subjects in tooling output, and 50 is the traditional subject cap. This is guidance, not a repo-precedent claim - measured subject lines in this repo run 64-116 characters.
+Subject line: `type(scope): <imperative description>`, written in the imperative mood. The cap is on the whole subject INCLUDING the `type(scope):` prefix - ≤ 50 characters total, leaving roughly 25-35 characters for the description on typical scopes. A description that cannot fit pushes the detail into the body. Conventional git subject-line guidance: git truncates long subjects in tooling output, and 50 is the traditional subject cap. This is guidance, not a repo-precedent claim - subjects in this repo routinely run 60-120+ characters.
 
 The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Co-Authored-By, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
 
