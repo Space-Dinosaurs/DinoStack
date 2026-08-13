@@ -19,15 +19,26 @@ Purpose: PreToolUse hook that detects a worktree-isolated subagent writing a
          the main tree, indistinguishable in the hook payload from a
          legitimate isolated engineer without this check.
 
-         This hook mirrors hooks/enforce-worktree-read.py field-for-field
-         (same measured-fact record; see hooks/AGENTS.md sections "Spawn
-         payload mechanics" and "Worktree isolation scope" for the full
-         detail this hook also relies on) but gates Write/Edit/MultiEdit
-         instead of Read, and uses a SEPARATE config exemption key
-         (`worktree_write_guard_exemptions`, not
+         This hook mirrors hooks/enforce-worktree-read.py's core measured-
+         fact record (see hooks/AGENTS.md sections "Spawn payload
+         mechanics" and "Worktree isolation scope") but gates
+         Write/Edit/MultiEdit instead of Read, and uses a SEPARATE config
+         exemption key (`worktree_write_guard_exemptions`, not
          `worktree_read_guard_exemptions`) because writes carry a different
          risk profile than reads and an operator may want to exempt one
          axis without the other.
+
+         ONE DELIBERATE BEHAVIORAL DIVERGENCE from the read guard: this
+         hook additionally requires caller_root's `.git` entry to resolve
+         to a GENUINE LINKED worktree (via `_is_git_worktree()`'s gitdir-
+         pointer parsing) before treating caller_root as isolated - see
+         the Failure modes list below. `enforce-worktree-read.py` has no
+         such check and still treats ANY proper subdirectory of
+         primary_root as "worktree-isolated" regardless of whether it
+         carries a `.git` entry at all, so it retains the broader false-
+         positive this hook closed (an ordinary repo subdirectory, a
+         submodule, or a nested clone as caller_root all still deny on the
+         read guard). That gap is a separate unit's scope, not fixed here.
 
          Deliberately NOT merged into enforce-shippable-edit.py: that hook
          denies a conductor-direct (agent_id absent) edit against a
@@ -107,12 +118,17 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
       unexpected topology): fail-open (ALLOW) - the "isolation worktrees
       live inside the primary root" assumption does not hold, so this
       hook has nothing reliable to enforce.
-    - caller_root is a proper subdirectory of primary_root but has no
-      `.git` entry (file or directory) of its own, i.e. it is an ordinary
-      repo subdirectory rather than a genuine git worktree: fail-open
-      (ALLOW) - there is no isolation boundary to defeat, and without this
-      check a subagent whose cwd merely happens to be a subdirectory would
-      be denied every write elsewhere in the repo.
+    - caller_root is a proper subdirectory of primary_root but its `.git`
+      entry does not resolve to a GENUINE LINKED worktree of this repo
+      (see _is_git_worktree()): fail-open (ALLOW). Covers three distinct
+      cases - (a) no `.git` entry at all, an ordinary repo subdirectory;
+      (b) `.git` is a real DIRECTORY, an independent nested clone (`git
+      init`/`git clone` run inside the primary checkout), not a worktree
+      of this repo; (c) `.git` is a FILE whose gitdir pointer contains a
+      `/modules/` segment rather than `/worktrees/`, a submodule
+      checkout. All three: there is no isolation boundary to defeat, and
+      without this check a subagent whose cwd happens to be one of these
+      would be denied every write elsewhere in the repo.
     - target path resolution raises (e.g. embedded null byte): fail-open
       (caught by the outer try/except).
     - target resolves outside primary_root entirely: fail-open - not
@@ -126,18 +142,23 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                JSON, tool_name in {Write, Edit, MultiEdit}, agent_id
                present (subagent), valid tool_input.file_path, a
                resolvable primary_root, a resolvable caller_root that is a
-               proper subdirectory of primary_root AND itself carries a
-               `.git` entry (genuine worktree isolation, not merely an
-               ordinary subdirectory), a target inside primary_root but
-               NOT inside caller_root, and no matching exemption.
+               proper subdirectory of primary_root AND resolves to a
+               genuine linked git worktree per _is_git_worktree() (not an
+               ordinary subdirectory, a submodule, or a nested clone), a
+               target inside primary_root but NOT inside caller_root, and
+               no matching exemption.
 
-Performance: < 2 ms per call (in-memory JSON parse, a handful of path
-             operations, one optional small JSON config read, no network).
-             Measured end-to-end (including interpreter startup) is
-             ~22 ms per invocation. This hook is registered on the same
-             three matchers (Write, Edit, MultiEdit) as
-             enforce-shippable-edit.py, so its per-call cost STACKS with
-             that hook's on every guarded call rather than replacing it.
+Performance: < 2 ms of the hook's own work per call (in-memory JSON
+             parse, a handful of path operations, one optional small JSON
+             config read, one small `.git` file read at most, no
+             network). Total wall time per invocation is dominated by the
+             Python interpreter's own startup cost, which is a property
+             of the invoking machine, not of this hook - no portable
+             millisecond figure is pinned here for that reason. This hook
+             is registered on the same three matchers (Write, Edit,
+             MultiEdit) as enforce-shippable-edit.py, so its per-call
+             interpreter-startup cost STACKS with that hook's on every
+             guarded call rather than replacing it.
 """
 
 # Kill-switch + recovery:
@@ -254,6 +275,50 @@ def _relpath_or_none(target: str, root: str):
     return rel
 
 
+def _is_git_worktree(caller_root: str) -> bool:
+    """Return True iff caller_root's `.git` entry indicates it is a
+    GENUINE LINKED git worktree - not a submodule, and not an independent
+    nested clone that merely happens to live inside primary_root.
+
+    A real linked worktree's `.git` is a FILE containing a line of the
+    form `gitdir: <path>`, where <path> contains a `/worktrees/` segment
+    (it points into the shared repo's `.git/worktrees/<name>` admin dir).
+    A submodule's `.git` is also a FILE, but its gitdir pointer contains a
+    `/modules/` segment instead (`.git/modules/<name>`) - a submodule is
+    not isolation-worktree-isolated and must ALLOW. A plain nested clone
+    (an independent `git init`/`git clone` some subagent happened to run
+    inside the primary checkout) has `.git` as a real DIRECTORY - also not
+    a worktree of this repo, must ALLOW.
+
+    Fails to False (treated as NOT a worktree -> caller ALLOWs) on any
+    directory-vs-file ambiguity, read error, or unparseable content -
+    matching this hook's fail-open discipline: this function only ever
+    narrows the deny path, never widens it.
+    """
+    git_path = os.path.join(caller_root, ".git")
+    try:
+        if os.path.isdir(git_path):
+            # Either the primary checkout's own .git (already excluded by
+            # the caller before this is reached) or an independent nested
+            # clone - neither is a linked worktree of this repo.
+            return False
+        if not os.path.isfile(git_path):
+            return False
+        with open(git_path, "r", encoding="utf-8", errors="strict") as f:
+            content = f.read()
+    except Exception:
+        return False
+
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("gitdir:"):
+            gitdir = line[len("gitdir:"):].strip()
+            normalized = gitdir.replace("\\", "/")
+            return "/worktrees/" in normalized
+    # No "gitdir:" line found - unparseable content, fail open.
+    return False
+
+
 def main() -> None:
     # Kill-switch: fail-open immediately before touching stdin.
     if os.environ.get("AE_WORKTREE_WRITE_GUARD_DISABLE") == "1":
@@ -327,17 +392,17 @@ def main() -> None:
             # hook relies on does not hold here. Fail open.
             sys.exit(0)
 
-        # caller_root must be a REAL git worktree, not merely any proper
-        # subdirectory of primary_root - otherwise a subagent whose cwd
-        # happens to be an ordinary repo subdirectory (e.g. it cd'd into
-        # content/ without ever being worktree-isolated) gets treated as
-        # "worktree-isolated" and is denied every write elsewhere in the
-        # repo, a false positive on the deny path for the three primary
-        # write tools. In a real `git worktree`, `.git` is a FILE containing
-        # a gitdir pointer (not a directory as in the primary checkout), so
-        # this check must accept both forms - os.path.exists() is true for
-        # either.
-        if not os.path.exists(os.path.join(caller_root, ".git")):
+        # caller_root must be a REAL LINKED git worktree, not merely any
+        # proper subdirectory of primary_root that happens to have SOME
+        # `.git` entry - otherwise a subagent whose cwd is an ordinary repo
+        # subdirectory (e.g. it cd'd into content/ without ever being
+        # worktree-isolated), a submodule checkout, or an independent
+        # nested clone gets treated as "worktree-isolated" and is denied
+        # every write elsewhere in the repo, a false positive on the deny
+        # path for the three primary write tools. See _is_git_worktree()
+        # for the gitdir-pointer parsing that distinguishes a genuine
+        # linked worktree from those three cases.
+        if not _is_git_worktree(caller_root):
             sys.exit(0)
 
         # Resolve the write target. Any failure here is caught by the outer

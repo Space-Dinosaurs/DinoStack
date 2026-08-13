@@ -69,6 +69,62 @@ def make_primary_and_ordinary_subdir():
     return primary, subdir
 
 
+def make_primary_and_submodule():
+    """Build a fake primary checkout with a SUBMODULE-shaped subdirectory:
+    a `.git` FILE whose gitdir pointer contains a `/modules/` segment
+    (not `/worktrees/`) - the real shape git writes for a submodule
+    checkout. Must ALLOW: a submodule is not a worktree of this repo."""
+    primary = os.path.realpath(tempfile.mkdtemp(prefix="test-wtwrite-primary-"))
+    os.makedirs(os.path.join(primary, "content"), exist_ok=True)
+    with open(os.path.join(primary, "content", "foo.md"), "w", encoding="utf-8") as f:
+        f.write("primary content\n")
+
+    submodule = os.path.join(primary, "vendor", "some-submodule")
+    os.makedirs(submodule, exist_ok=True)
+    with open(os.path.join(submodule, ".git"), "w", encoding="utf-8") as f:
+        f.write(
+            "gitdir: "
+            + os.path.join(primary, ".git", "modules", "vendor", "some-submodule")
+            + "\n"
+        )
+
+    return primary, submodule
+
+
+def make_primary_and_nested_clone():
+    """Build a fake primary checkout with a NESTED, fully-independent
+    `git clone`/`git init`-shaped subdirectory: `.git` is a real
+    DIRECTORY (not a file with a gitdir pointer). Must ALLOW: this is not
+    a worktree of the primary repo at all."""
+    primary = os.path.realpath(tempfile.mkdtemp(prefix="test-wtwrite-primary-"))
+    os.makedirs(os.path.join(primary, "content"), exist_ok=True)
+    with open(os.path.join(primary, "content", "foo.md"), "w", encoding="utf-8") as f:
+        f.write("primary content\n")
+
+    nested_clone = os.path.join(primary, "vendor", "nested-clone")
+    os.makedirs(os.path.join(nested_clone, ".git"), exist_ok=True)
+
+    return primary, nested_clone
+
+
+def make_primary_and_unparseable_git(content: str):
+    """Build a fake primary checkout with a subdirectory whose `.git` is a
+    FILE, but its content does not contain a parseable `gitdir:` line (or
+    is otherwise malformed). Must ALLOW: fail-open on anything
+    unparseable, matching this hook's stated discipline."""
+    primary = os.path.realpath(tempfile.mkdtemp(prefix="test-wtwrite-primary-"))
+    os.makedirs(os.path.join(primary, "content"), exist_ok=True)
+    with open(os.path.join(primary, "content", "foo.md"), "w", encoding="utf-8") as f:
+        f.write("primary content\n")
+
+    weird = os.path.join(primary, "weird-subdir")
+    os.makedirs(weird, exist_ok=True)
+    with open(os.path.join(weird, ".git"), "w", encoding="utf-8") as f:
+        f.write(content)
+
+    return primary, weird
+
+
 def run_hook(
     payload: str,
     primary_root: str | None = None,
@@ -242,6 +298,76 @@ check_allow(
         cwd=_ORD_SUBDIR,
     ),
     primary_root=_ORD_PRIMARY,
+)
+
+# ---------------------------------------------------------------------------
+# 2c. Subagent whose cwd is a SUBMODULE-shaped subdirectory (`.git` FILE
+#     whose gitdir pointer contains `/modules/`, not `/worktrees/`) -> ALLOW.
+#     A submodule checkout is not a linked worktree of this repo.
+# ---------------------------------------------------------------------------
+print("-- subagent cwd is a submodule-shaped subdirectory -> ALLOW --")
+_SUB_PRIMARY, _SUB_DIR = make_primary_and_submodule()
+check_allow(
+    "subagent cwd is a submodule checkout writing elsewhere in the primary checkout -> ALLOW",
+    make_payload(
+        "Write",
+        os.path.join(_SUB_PRIMARY, "content", "foo.md"),
+        agent_id="wk-1",
+        agent_type="engineer",
+        cwd=_SUB_DIR,
+    ),
+    primary_root=_SUB_PRIMARY,
+)
+
+# ---------------------------------------------------------------------------
+# 2d. Subagent whose cwd is a NESTED, fully-independent clone (`.git` is a
+#     real DIRECTORY, not a gitdir-pointer file) -> ALLOW. Not a worktree
+#     of the primary repo at all.
+# ---------------------------------------------------------------------------
+print("-- subagent cwd is a nested independent clone (.git directory) -> ALLOW --")
+_NC_PRIMARY, _NC_DIR = make_primary_and_nested_clone()
+assert os.path.isdir(os.path.join(_NC_DIR, ".git"))
+check_allow(
+    "subagent cwd is a nested independent clone writing elsewhere in the primary checkout -> ALLOW",
+    make_payload(
+        "Write",
+        os.path.join(_NC_PRIMARY, "content", "foo.md"),
+        agent_id="wk-1",
+        agent_type="engineer",
+        cwd=_NC_DIR,
+    ),
+    primary_root=_NC_PRIMARY,
+)
+
+# ---------------------------------------------------------------------------
+# 2e. Subagent whose cwd's `.git` FILE has unparseable content (no
+#     `gitdir:` line, or garbage) -> ALLOW (fail-open on anything
+#     unparseable, matching this hook's stated discipline).
+# ---------------------------------------------------------------------------
+print("-- subagent cwd has an unparseable .git file -> ALLOW (fail-open) --")
+_UP_PRIMARY, _UP_DIR = make_primary_and_unparseable_git("not a gitdir line at all\n")
+check_allow(
+    "subagent cwd has a .git file with no gitdir: line -> ALLOW",
+    make_payload(
+        "Write",
+        os.path.join(_UP_PRIMARY, "content", "foo.md"),
+        agent_id="wk-1",
+        agent_type="engineer",
+        cwd=_UP_DIR,
+    ),
+    primary_root=_UP_PRIMARY,
+)
+_UP2_PRIMARY, _UP2_DIR = make_primary_and_unparseable_git("gitdir: /some/unrelated/path\n")
+check_allow(
+    "subagent cwd has a .git file with a gitdir: line lacking /worktrees/ or /modules/ -> ALLOW",
+    make_payload(
+        "Write",
+        os.path.join(_UP2_PRIMARY, "content", "foo.md"),
+        agent_id="wk-1",
+        agent_type="engineer",
+        cwd=_UP2_DIR,
+    ),
+    primary_root=_UP2_PRIMARY,
 )
 
 # ---------------------------------------------------------------------------
