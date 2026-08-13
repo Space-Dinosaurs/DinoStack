@@ -119,6 +119,57 @@ else
   _fail "HEADING MISSING: '## Absence-claim scope axes' not found in content/references/delegation-detail.md - the pointer in $FILE now dangles; restore the target section or update the pointer."
 fi
 
+# Manifest-completeness guard (DS-169 round-2): every "## " section heading in
+# delegation-detail.md must be covered by the header "Contains:" list, so a
+# future section addition without a manifest update fails loudly. The exact
+# drift this guards: db8a6703 added "## Capability-unavailability scope axes"
+# with no manifest entry, and only a4595255 (post-Skeptic) added it - the
+# sibling heading-presence pin above could not catch that because it only
+# names the one heading it guards. A completeness check is the only shape
+# that catches an arbitrary new section. The manifest is a prose summary (a
+# wrapped, semicolon-delimited paragraph), not a 1:1 index - e.g. the
+# "Open Questions and Deferred Defaults" heading maps to the entry "Open
+# Questions / Deferred Defaults bucketing rules" - so the comparison is
+# word-level: every significant word (length > 3) of each heading must appear
+# in the normalized Contains text. A heading whose title words appear NOWHERE
+# in the list is an omitted section, exactly the db8a6703 class.
+DETAIL_REF=content/references/delegation-detail.md
+CONTAINS_TEXT="$(awk '/Contains:/{f=1} /^Public API:/{f=0} f' "$DETAIL_REF")"
+norm_manifest="$(printf '%s' "$CONTAINS_TEXT" | tr '[:upper:]' '[:lower:]' | tr '\n' ' ' | sed -E 's/[^a-z0-9]+/ /g')"
+
+# Explicit pin for the DS-169 section (mirrors the sibling heading pin above,
+# but on the manifest side): the entry that a4595255 added must stay live.
+if printf '%s' "$CONTAINS_TEXT" | grep -qF 'Capability-unavailability scope axes'; then
+  _pass "manifest entry for '## Capability-unavailability scope axes' present in Contains list"
+else
+  _fail "MANIFEST MISSING: 'Capability-unavailability scope axes' not found in the Contains: header list of $DETAIL_REF - a section was added without a manifest entry. Add it to the 'Contains:' list, matching the sibling 'Absence-claim scope axes' entry style."
+fi
+
+while IFS= read -r heading; do
+  h="${heading#\#\# }"
+  norm_h="$(printf '%s' "$h" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/ /g')"
+  # Documented exclusion: "Follow-up Ticket Creation Discipline" predates the
+  # Contains list and deliberately has no entry there; it is not a section
+  # added without a manifest update, so it is the one heading the guard skips.
+  if [ "$norm_h" = "follow up ticket creation discipline" ]; then
+    _pass "heading '$h' is the documented Contains-list exclusion"
+    continue
+  fi
+  missing=""
+  for w in $norm_h; do
+    [ "${#w}" -le 3 ] && continue
+    case " $norm_manifest " in
+      *" $w "*) ;;
+      *) missing="$missing $w" ;;
+    esac
+  done
+  if [ -z "$missing" ]; then
+    _pass "heading '$h' covered by Contains list"
+  else
+    _fail "MANIFEST MISSING '$h': its significant words [$missing] appear nowhere in the Contains: header list of $DETAIL_REF - a section was added without a manifest entry. Add it to the 'Contains:' list, matching the sibling 'Absence-claim scope axes' entry style."
+  fi
+done < <(grep '^## ' "$DETAIL_REF")
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
