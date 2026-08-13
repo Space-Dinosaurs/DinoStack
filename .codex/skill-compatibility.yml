@@ -222,6 +222,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "158d28c2a6fadba7aba43adcc24ce42019c3f473a949105fd21d5b50fa84155a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
+    },
+    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -390,16 +400,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Bash"
-    },
-    {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "2d284b487c0cc4547c0179c42fb924e7e9a54208803b351680d70b4a15e5ced3",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "implement-ticket",
@@ -972,6 +972,16 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, and the warn-only conductor-overreach Stop hook), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, run the conductor-overreach detector (no structured tool-call transcript is available in the Codex Stop payload), or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
+      "kind": "operational",
+      "occurrence_hash": "738ca48c7844833afd9273e8e91d895ce8bdd6f20b0f79458925853e69890dd6",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**Writer scope: `.agentic/events.jsonl` has five writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), the two spawn-telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion, added DS-160), and the registered Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, warn-only, fires only on `ratio_trigger`). Safety comes from append-only writes - no writer rewrites the file - not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark))."
+    },
+    {
       "expected_target": "brief",
       "generated_token": "$brief",
       "kind": "operational",
@@ -1460,16 +1470,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
-      "kind": "operational",
-      "occurrence_hash": "adc1f0fa9e00e7e354dd2669fa64beb37fe83cade81359cb9f8edca971769745",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Writer scope: `.agentic/events.jsonl` has four writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), and the two spawn-telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion, added DS-160). Safety comes from append-only writes - no writer rewrites the file - not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark))."
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",

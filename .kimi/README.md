@@ -95,3 +95,4 @@ This regenerates AGENTS.md and verifies symlinks. Run this after editing files i
 - **Agent definitions are reference material**: Kimi's `Agent` tool uses built-in subagent types (`coder`, `explore`, `plan`). The named agent roles from `content/agents/` are mapped to these types with detailed prompts rather than distinct subagent configurations.
 - **Hook scripts are manual**: Kimi requires hooks to be configured in `config.toml`. The installer does not modify `~/.kimi/config.toml` automatically.
 - **Global install copies SKILL.md**: The installer copies `SKILL.md` to `~/.kimi/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after updating `SKILL.md` itself.
+- **No `conductor_overreach` advisory**: Kimi Code CLI has no Stop hook mechanism, so the warn-only conductor-overreach detector (`hooks/conductor-overreach-nudge.js`) has no equivalent here.

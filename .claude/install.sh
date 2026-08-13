@@ -836,6 +836,24 @@ upsert_hook(
     "Stop hook enforce-turn-shape.py",
 )
 
+# conductor_overreach warn-only advisory nudge (DS unit DE). Registered AFTER
+# enforce-turn-shape.py. WARN-ONLY - never blocks the stop; a missing script
+# must not silently block every stop, so this uses the same GUARDED command
+# form as enforce-turn-shape.py above (`test -f ... && ... || exit 0`), not
+# a bare `node {path}` (see rationale at enforce-turn-shape.py's comment
+# above, and .claude/install.sh:779).
+CONDUCTOR_OVERREACH_CMD = (
+    f"test -f {hooks_root}/hooks/conductor-overreach-nudge.js && "
+    f"node {hooks_root}/hooks/conductor-overreach-nudge.js || exit 0"
+)
+
+upsert_hook(
+    stop_star["hooks"],
+    "conductor-overreach-nudge.js",
+    {"type": "command", "command": CONDUCTOR_OVERREACH_CMD, "timeout": 10},
+    "Stop hook conductor-overreach-nudge.js",
+)
+
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
 # can drain it. Find-or-create; re-running install must NOT duplicate it.

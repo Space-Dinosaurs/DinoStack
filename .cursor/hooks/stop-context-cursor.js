@@ -282,6 +282,17 @@ manually before ending a session.
     // Silent failure - matches every sibling port's convention.
   }
 
+  // conductor_overreach detection port (DS unit DE): same gap as the Codex
+  // and Gemini ports - the Claude Code detector (hooks/lib/
+  // overreach-detector.js's computeOverreach) needs a structured
+  // payload.transcript array of tool_use/tool_result blocks. Cursor's Stop
+  // payload instead carries an undocumented-format transcript_path (see
+  // readTranscriptExcerpt above), read only as a bounded raw-text tail
+  // excerpt, not structured tool-call data. Not wired here for the same
+  // reason. If a future Cursor payload exposes a structured tool-call
+  // transcript, require('../../hooks/lib/overreach-detector.js') and call
+  // computeOverreach(payload.transcript, threshold).
+
   exitOk();
 }
 

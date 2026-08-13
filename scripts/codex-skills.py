@@ -312,16 +312,19 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
 # $AGENTS_RAW) is itself a valid scope for this assertion.
 PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
-            r"\*\*Writer scope: `\.agentic/events\.jsonl` has four writers\*\*"
+            r"\*\*Writer scope: `\.agentic/events\.jsonl` has five writers\*\*"
             r".*?(?=\n\n)",
             (
                 "**Writer scope (Codex runtime boundary).** "
-                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the "
-                "conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex "
+                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the "
+                "conductor, the Stop hook, two spawn-telemetry hooks, and the warn-only "
+                "conductor-overreach Stop hook), but the current Codex "
                 f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "
-                "append `session_total` events, run the spawn-telemetry hooks, or mirror "
-                "project-local orchestration state. The project-local writer migration is "
-                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
+                "append `session_total` events, run the spawn-telemetry hooks, run the "
+                "conductor-overreach detector (no structured tool-call transcript is available "
+                "in the Codex Stop payload), or mirror project-local orchestration state. The "
+                "project-local writer migration is deferred to "
+                f"`{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
             ),
         ),
         # NOTE (Skeptic round 7 discovery, verified against the true reachability
