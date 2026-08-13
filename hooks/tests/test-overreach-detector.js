@@ -7,12 +7,14 @@
  *   1. shared-fixture-equivalence: loads hooks/tests/fixtures/
  *      overreach-shared-transcript.json (also exercised by
  *      bin/tests/test_ds_measure_conductor_tool_calls.py for cross-language
- *      equivalence), writes it as a real JSONL transcript file, and asserts
- *      computeOverreach's counts match the fixture's `expected` block
- *      exactly. This is the Critical-2 regression fixture: three
- *      investigation calls occur before any spawn, each with its own
- *      non-Agent tool_result - a broken window-reset-on-ANY-tool_result
- *      implementation would incorrectly whitelist two of them.
+ *      equivalence) and runs EVERY case in its `cases` array through
+ *      computeOverreach, asserting the result matches each case's
+ *      `expected` block exactly. The fixture covers both the Critical-2
+ *      regression (interleaved non-Agent tool_results before any spawn)
+ *      and, as of Skeptic round-3 Minor 1/2, the failure paths (an empty
+ *      transcript and a wholly malformed one) - pinning that both the JS
+ *      detector and the Python calibrator report `available:false` on
+ *      those two cases, not a real zero.
  *   2. window-binds-to-agent-result-only (isolated mutation-style check):
  *      directly constructs a block list where a non-Agent tool_result
  *      immediately precedes a Read call with no Agent spawn anywhere -
@@ -69,36 +71,68 @@ function writeTranscriptFile(lines) {
   return tmpFile;
 }
 
+/** Write a fixture case (either structured `lines` or literal `raw_lines`) to a real file. */
+function writeFixtureCase(fixtureCase) {
+  if (Array.isArray(fixtureCase.raw_lines)) {
+    const tmpFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'ae-overreach-detector-test-')),
+      'transcript.jsonl'
+    );
+    fs.writeFileSync(tmpFile, fixtureCase.raw_lines.join('\n') + '\n', 'utf8');
+    return tmpFile;
+  }
+  return writeTranscriptFile(fixtureCase.lines || []);
+}
+
 // ---------------------------------------------------------------------------
-// Test 1: shared-fixture-equivalence
+// Test 1: shared-fixture-equivalence (all cases, incl. failure paths)
 // ---------------------------------------------------------------------------
-console.log('\nTest 1: shared-fixture-equivalence (Critical-2 regression fixture)');
+console.log('\nTest 1: shared-fixture-equivalence (all cases, incl. failure paths)');
 {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'overreach-shared-transcript.json');
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-  const transcriptPath = writeTranscriptFile(fixture.lines);
 
-  const result = computeOverreach(transcriptPath, 1);
-  assert(result.available === true, 'fixture transcript parses as available');
-  assert(
-    result.conductor_tool_calls === fixture.expected.conductor_tool_calls,
-    `conductor_tool_calls === ${fixture.expected.conductor_tool_calls} `
-      + `(got ${result.conductor_tool_calls})`
-  );
-  assert(
-    result.live_or_completed_spawns === fixture.expected.live_or_completed_spawns,
-    `live_or_completed_spawns === ${fixture.expected.live_or_completed_spawns} `
-      + `(got ${result.live_or_completed_spawns})`
-  );
-  assert(
-    result.whitelisted_reads_excluded === fixture.expected.whitelisted_reads_excluded,
-    `whitelisted_reads_excluded === ${fixture.expected.whitelisted_reads_excluded} `
-      + `(got ${result.whitelisted_reads_excluded})`
-  );
-  assert(
-    result.ratio_trigger === false,
-    'ratio_trigger is false (a spawn occurred in this transcript)'
-  );
+  for (const fixtureCase of fixture.cases) {
+    const transcriptPath = writeFixtureCase(fixtureCase);
+    const result = computeOverreach(transcriptPath, 1);
+    const expected = fixtureCase.expected;
+    const label = fixtureCase.name;
+
+    assert(
+      result.available === expected.available,
+      `[${label}] available === ${expected.available} (got ${result.available})`
+    );
+
+    if (expected.available === false) {
+      assert(
+        result.conductor_tool_calls === 0
+          && result.live_or_completed_spawns === 0
+          && result.whitelisted_reads_excluded === 0,
+        `[${label}] all counts are 0 (never fabricated) when unavailable`
+      );
+      assert(
+        typeof result.transcript_note === 'string' && result.transcript_note.length > 0,
+        `[${label}] transcript_note is populated when unavailable`
+      );
+      continue;
+    }
+
+    assert(
+      result.conductor_tool_calls === expected.conductor_tool_calls,
+      `[${label}] conductor_tool_calls === ${expected.conductor_tool_calls} `
+        + `(got ${result.conductor_tool_calls})`
+    );
+    assert(
+      result.live_or_completed_spawns === expected.live_or_completed_spawns,
+      `[${label}] live_or_completed_spawns === ${expected.live_or_completed_spawns} `
+        + `(got ${result.live_or_completed_spawns})`
+    );
+    assert(
+      result.whitelisted_reads_excluded === expected.whitelisted_reads_excluded,
+      `[${label}] whitelisted_reads_excluded === ${expected.whitelisted_reads_excluded} `
+        + `(got ${result.whitelisted_reads_excluded})`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +224,8 @@ console.log('\nTest 7: transcript-file-too-large');
 {
   const fixturePath = path.resolve(__dirname, 'fixtures', 'overreach-shared-transcript.json');
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
-  const transcriptPath = writeTranscriptFile(fixture.lines);
+  const fixtureCase = fixture.cases.find((c) => c.name === 'interleaved-non-agent-results');
+  const transcriptPath = writeTranscriptFile(fixtureCase.lines);
   const tinyMaxBytes = 10; // smaller than the real file
   const result = computeOverreach(transcriptPath, 1, tinyMaxBytes);
   assert(result.available === false, 'available is false when the file exceeds maxBytes');

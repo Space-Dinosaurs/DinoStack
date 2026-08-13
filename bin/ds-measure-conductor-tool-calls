@@ -21,9 +21,18 @@ Purpose: Read-only calibration tool. Walks recent Claude Code session
 
 Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
             Prints a per-session table to stdout (session_id[:8],
-            conductor_tool_calls, spawns, whitelisted_excluded) followed by
-            a recommended THRESHOLD line. --json emits the same data as a
-            JSON object instead. Exit 0 always (advisory tool).
+            conductor_tool_calls, spawns, whitelisted_excluded, or "n/a
+            (unreadable)" for a transcript that yielded zero parsed
+            records) followed by a recommended THRESHOLD line. An
+            unreadable transcript (missing, empty, or wholly malformed -
+            zero parsed records) is EXCLUDED from both the zero-spawn and
+            >=1-spawn populations, reported only as a separate
+            "unreadable" count - mirroring hooks/lib/overreach-detector.js's
+            available/transcript_note split, so a session that could not be
+            measured is never folded into the zero-spawn population used to
+            recommend a threshold. --json emits the same data (plus
+            unreadable_count) as a JSON object instead. Exit 0 always
+            (advisory tool).
 
 Upstream deps: Python 3 stdlib only (json, sys, os, glob, argparse, pathlib,
                re). Resolves the Claude projects directory via
@@ -49,8 +58,15 @@ Downstream consumers: Operators calibrating conductor_overreach_threshold in
 
 Failure modes: never raises. A missing/unreadable projects directory prints
                "No transcripts found." and exits 0. Malformed JSONL lines
-               are skipped and counted. A session with zero assistant turns
-               contributes a zero row, not an error.
+               within an otherwise-readable transcript are skipped
+               individually. A transcript file that is missing, empty, or
+               wholly malformed (zero parsed records) is reported as
+               "unreadable" and excluded from both the zero-spawn and
+               >=1-spawn populations - it is never counted as a real
+               zero-call session (Skeptic round-3 fix: this previously
+               inflated the zero-spawn population and was the source of a
+               7-vs-5 zero-spawn discrepancy against the JS detector's
+               equivalent measurement over the same 60-file corpus).
 
 Performance: O(total transcript bytes) single pass per file; typically a few
              hundred ms for ~60 session files of a few MB each.
@@ -175,10 +191,23 @@ def _tool_input_path(tool_input: dict) -> str:
     return ""
 
 
-def _iter_blocks(transcript_path: Path):
-    """Yield ordered {type, name, id, tool_use_id, input} dicts from a
-    Claude Code session transcript JSONL file. Malformed lines are skipped.
+def _parse_transcript_blocks(transcript_path: Path) -> tuple[list[dict], int]:
+    """Read and parse a Claude Code transcript JSONL file into a flat
+    ordered block list, mirroring hooks/lib/overreach-detector.js's
+    parseTranscriptBlocks(). Returns (blocks, parsed_count) - parsed_count
+    is the number of JSONL lines that parsed as JSON AND carried a
+    `message.content` array (i.e. a genuine transcript record), NOT the
+    number of blocks extracted from them. A missing/unreadable file, an
+    empty file, or a file containing only malformed/non-transcript lines
+    all yield parsed_count == 0 - the caller (`_measure_session`) uses this
+    to distinguish "genuinely zero calls" from "could not measure at all",
+    mirroring the JS side's `available`/`transcript_note` split (Skeptic
+    round-3 Minor 1 on PR #730: an unparsed/empty/unreadable transcript was
+    previously counted as a real zero-spawn session, inflating the
+    zero-spawn population used for threshold calibration).
     """
+    blocks: list[dict] = []
+    parsed_count = 0
     try:
         with transcript_path.open("r", encoding="utf-8", errors="replace") as fh:
             for raw in fh:
@@ -195,29 +224,32 @@ def _iter_blocks(transcript_path: Path):
                 content = msg.get("content")
                 if not isinstance(content, list):
                     continue
+                parsed_count += 1
                 for block in content:
                     if not isinstance(block, dict):
                         continue
                     btype = block.get("type")
                     if btype == "tool_use":
-                        yield {
+                        blocks.append({
                             "type": "tool_use",
                             "name": block.get("name") or "",
                             "id": block.get("id"),
                             "input": block.get("input") or {},
-                        }
+                        })
                     elif btype == "tool_result":
-                        yield {
+                        blocks.append({
                             "type": "tool_result",
                             "tool_use_id": block.get("tool_use_id"),
-                        }
+                        })
     except OSError:
-        return
+        return [], 0
+    return blocks, parsed_count
 
 
-def _measure_session(transcript_path: Path) -> dict:
-    """Return {conductor_tool_calls, spawns, whitelisted_excluded} - the
-    SAME cumulative whole-transcript statistic computeOverreach gates on.
+def _compute_from_blocks(blocks: list[dict]) -> dict:
+    """Return {conductor_tool_calls, spawns, whitelisted_excluded} from an
+    in-memory ordered block list - the SAME cumulative whole-transcript
+    statistic computeOverreachFromBlocks gates on.
     """
     conductor_tool_calls = 0
     spawns = 0
@@ -234,7 +266,7 @@ def _measure_session(transcript_path: Path) -> dict:
     # tool_result.
     since_last_agent_result: int | None = None
 
-    for block in _iter_blocks(transcript_path):
+    for block in blocks:
         if block["type"] == "tool_result":
             producer = tool_name_by_id.get(block["tool_use_id"]) if block["tool_use_id"] else None
             if producer == SPAWN_TOOL_NAME:
@@ -287,6 +319,28 @@ def _measure_session(transcript_path: Path) -> dict:
     }
 
 
+def _measure_session(transcript_path: Path) -> dict:
+    """Return {available, conductor_tool_calls, spawns,
+    whitelisted_excluded}. `available` is False (all counts 0) when the
+    transcript is missing, unreadable, empty, or yields zero parsed
+    records - mirroring hooks/lib/overreach-detector.js's
+    available/transcript_note split. A row with available=False must NEVER
+    be folded into the zero-spawn population main() uses to recommend a
+    threshold; it is not a real zero-call session, it is an unmeasured one.
+    """
+    blocks, parsed_count = _parse_transcript_blocks(transcript_path)
+    if parsed_count == 0:
+        return {
+            "available": False,
+            "conductor_tool_calls": 0,
+            "spawns": 0,
+            "whitelisted_excluded": 0,
+        }
+    result = _compute_from_blocks(blocks)
+    result["available"] = True
+    return result
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="ds-measure-conductor-tool-calls")
     parser.add_argument("--limit", type=int, default=30,
@@ -318,11 +372,18 @@ def main(argv: list[str]) -> int:
             **m,
         })
 
+    # Unreadable rows (missing/empty/malformed transcript, zero parsed
+    # records) are excluded from BOTH the zero-spawn population and the
+    # >=1-spawn population - they are not a real zero-call session, they
+    # are an unmeasured one (Skeptic round-3 Minor 1 on PR #730).
+    unreadable_rows = [r for r in rows if not r["available"]]
+    available_rows = [r for r in rows if r["available"]]
+
     # Only zero-spawn sessions can ever trigger ratio_trigger (spawns===0
     # is required for the WHOLE transcript). Sessions with >=1 spawn are
     # reported for context but excluded from the threshold recommendation.
     zero_spawn_calls = sorted(
-        r["conductor_tool_calls"] for r in rows if r["spawns"] == 0
+        r["conductor_tool_calls"] for r in available_rows if r["spawns"] == 0
     )
     if zero_spawn_calls:
         observed_max = zero_spawn_calls[-1]
@@ -337,6 +398,7 @@ def main(argv: list[str]) -> int:
         print(json.dumps({
             "rows": rows,
             "sample_size": len(rows),
+            "unreadable_count": len(unreadable_rows),
             "zero_spawn_sample_size": len(zero_spawn_calls),
             "recommended_threshold": recommended,
         }, indent=2))
@@ -346,6 +408,9 @@ def main(argv: list[str]) -> int:
     print(header)
     print("-" * len(header))
     for r in rows:
+        if not r["available"]:
+            print(f"{r['session']:<10}{'n/a':>8}{'n/a':>8}{'n/a':>13}  (unreadable)")
+            continue
         print(
             f"{r['session']:<10}{r['conductor_tool_calls']:>8}"
             f"{r['spawns']:>8}{r['whitelisted_excluded']:>13}"
@@ -353,11 +418,15 @@ def main(argv: list[str]) -> int:
     print()
     print(f"Sample size: {len(rows)} transcripts "
           f"({len(zero_spawn_calls)} zero-spawn, "
-          f"{len(rows) - len(zero_spawn_calls)} with >=1 spawn).")
+          f"{len(available_rows) - len(zero_spawn_calls)} with >=1 spawn, "
+          f"{len(unreadable_rows)} unreadable).")
     print(
         "Only zero-spawn sessions can ever trigger ratio_trigger "
         "(spawns===0 is required for the whole transcript); the threshold "
-        "recommendation below is derived from the zero-spawn subset only."
+        "recommendation below is derived from the zero-spawn subset only. "
+        "Unreadable transcripts (missing, empty, or wholly malformed) are "
+        "excluded from every population - they are unmeasured, not a real "
+        "zero-call session."
     )
     print(f"Recommended THRESHOLD: {recommended}")
     if len(zero_spawn_calls) < 20:
