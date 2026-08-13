@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read-only calibration tool. Walks recent Claude Code session
+         transcripts and, per session/turn, counts conductor-issued
+         investigation-shaped tool calls (Read/Grep/Glob, plus read-shaped
+         Bash) that happen with zero subagent spawns, after subtracting a
+         mandated-preflight whitelist. Prints a per-session table and a
+         recommended conductor_overreach_threshold, to calibrate the Stop-hook
+         detector in hooks/lib/overreach-detector.js BEFORE any threshold is
+         hardcoded. Read-only: never mutates a transcript or config file.
+
+Public API: ds-measure-conductor-tool-calls [--limit N] [--json]
+            Prints a per-session table to stdout (session_id[:8], turns,
+            max_consecutive_conductor_calls_no_spawn, whitelisted_excluded)
+            followed by a recommended THRESHOLD line. --json emits the same
+            data as a JSON object instead. Exit 0 always (advisory tool).
+
+Upstream deps: Python 3 stdlib only (json, sys, os, glob, argparse, pathlib,
+               re). Resolves the Claude projects directory via
+               CLAUDE_CONFIG_DIR when set, else ~/.claude, matching the
+               cwd-hash + fallback-glob resolution pattern in
+               bin/ds-parse-subagent-usage (_project_hash_from_cwd).
+               Reads top-level *.jsonl session transcripts under
+               <config_dir>/projects/<project-hash>/ (main-session records
+               only - subagent turns live in a separate subagents/*.jsonl
+               sidecar per session and are NOT scanned here, since a
+               subagent's own tool calls are never conductor calls by
+               construction).
+
+Downstream consumers: Operators calibrating conductor_overreach_threshold in
+                       .agentic/config.json before enabling
+                       hooks/conductor-overreach-nudge.js. Not imported by
+                       any other module - standalone CLI.
+
+Failure modes: never raises. A missing/unreadable projects directory prints
+               "No transcripts found." and exits 0. Malformed JSONL lines
+               are skipped and counted. A session with zero assistant turns
+               contributes a zero row, not an error.
+
+Performance: O(total transcript bytes) single pass per file; typically a few
+             hundred ms for ~60 session files of a few MB each.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+# Tool names treated as "conductor investigation-shaped" tool calls.
+INVESTIGATION_TOOLS = {"Read", "Grep", "Glob"}
+
+# Read-shaped Bash command prefixes/binaries. Matched against the first
+# whitespace-delimited token of the command string (after stripping a
+# leading `cd ... && ` or similar - best-effort, not a full shell parser).
+READ_SHAPED_BASH_BINARIES = {
+    "git",  # only when subcommand is show/diff/log/status - checked below
+    "grep",
+    "rg",
+    "cat",
+    "head",
+    "tail",
+    "find",
+    "ls",
+    "wc",
+}
+READ_SHAPED_GIT_SUBCOMMANDS = {"show", "diff", "log", "status"}
+
+# Mandated-preflight whitelist: reads of these paths (by substring on the
+# tool_input file_path/path/pattern field) are excluded from the conductor
+# call count entirely.
+WHITELIST_PATH_SUBSTRINGS = (
+    ".agentic/context.md",
+    ".agentic/config.json",
+    ".agentic/events.jsonl",
+    ".agentic/skill-candidates.md",
+)
+# Capability-preflight reads: content/agents/*.md (capabilities blocks).
+WHITELIST_PATH_RE = re.compile(r"content/agents/[^/]+\.md$")
+
+# Subagent-spawn tool name. Measured against 60 real transcripts on this
+# harness (Claude Code v2.1.x): the spawn tool is named "Agent", not "Task"
+# (name collision risk with the unrelated TaskCreate/TaskUpdate/TaskStop/
+# TaskOutput todo-list tools, which must NOT be treated as spawns).
+TASK_TOOL_NAME = "Agent"
+
+# A Read/Grep/Glob call is treated as a "post-spawn spot-check" (whitelisted)
+# when it occurs within this many conductor tool_use events immediately
+# following a Task tool_result (subagent return).
+POST_SPAWN_SPOTCHECK_WINDOW = 2
+
+DEFAULT_THRESHOLD = 8
+
+
+def _project_hash_from_cwd(cwd: str) -> str:
+    return cwd.replace("/", "-")
+
+
+def _config_dir() -> Path:
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env:
+        return Path(env)
+    return Path(os.path.expanduser("~/.claude"))
+
+
+def _resolve_transcript_dir() -> Path | None:
+    base = _config_dir()
+    cwd = os.getcwd()
+    primary = base / "projects" / _project_hash_from_cwd(cwd)
+    if primary.is_dir():
+        return primary
+    # Fallback: glob for any project dir whose basename matches this repo's
+    # basename token, so the tool still works from a worktree subdirectory.
+    pattern = str(base / "projects" / "*")
+    candidates = sorted(glob.glob(pattern))
+    repo_token = Path(cwd).name.replace("/", "-")
+    for c in candidates:
+        if c.endswith(repo_token):
+            return Path(c)
+    return None
+
+
+def _is_whitelisted_path(value: str) -> bool:
+    if not value:
+        return False
+    for sub in WHITELIST_PATH_SUBSTRINGS:
+        if sub in value:
+            return True
+    if WHITELIST_PATH_RE.search(value):
+        return True
+    return False
+
+
+def _is_read_shaped_bash(cmd: str) -> bool:
+    if not cmd:
+        return False
+    cmd = cmd.strip()
+    # Best-effort: look at the first token of the first pipeline segment.
+    first_segment = re.split(r"[|;&]", cmd)[0].strip()
+    tokens = first_segment.split()
+    if not tokens:
+        return False
+    binary = os.path.basename(tokens[0])
+    if binary == "git":
+        return len(tokens) > 1 and tokens[1] in READ_SHAPED_GIT_SUBCOMMANDS
+    return binary in READ_SHAPED_BASH_BINARIES
+
+
+def _tool_input_path(tool_input: dict) -> str:
+    for key in ("file_path", "path", "pattern", "notebook_path"):
+        v = tool_input.get(key)
+        if isinstance(v, str):
+            return v
+    return ""
+
+
+def _iter_tool_use_events(transcript_path: Path):
+    """Yield (kind, payload) in file order.
+
+    kind is one of: 'tool_use', 'tool_result'.
+    'tool_use' payload: {"name": str, "input": dict}
+    'tool_result' payload: {} (only used to detect a Task return boundary,
+    which this transcript shape does not disambiguate by tool name, so we
+    conservatively treat every tool_result as a possible spawn-return
+    boundary for the spot-check window).
+    """
+    try:
+        with transcript_path.open("r", encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                msg = obj.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                content = msg.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "tool_use":
+                        yield ("tool_use", {
+                            "name": block.get("name"),
+                            "input": block.get("input") or {},
+                        })
+                    elif btype == "tool_result":
+                        yield ("tool_result", {})
+    except OSError:
+        return
+
+
+def _measure_session(transcript_path: Path) -> dict:
+    """Return {turns, max_consecutive_no_spawn, whitelisted_excluded}.
+
+    'turns' approximates by counting Task (spawn) tool_use events plus 1
+    (the calibration table's purpose is relative volume, not exact turn
+    boundaries - the transcript format does not cleanly demarcate
+    conductor "turns" independent of tool_use ordering).
+    """
+    consecutive = 0
+    max_consecutive = 0
+    spawns = 0
+    whitelisted_excluded = 0
+    since_last_result = None  # counts tool_use events since last tool_result
+
+    for kind, payload in _iter_tool_use_events(transcript_path):
+        if kind == "tool_result":
+            since_last_result = 0
+            continue
+
+        name = payload["name"]
+        tool_input = payload["input"]
+
+        if since_last_result is not None:
+            since_last_result += 1
+
+        if name == TASK_TOOL_NAME:
+            spawns += 1
+            consecutive = 0
+            since_last_result = None
+            continue
+
+        is_investigation = False
+        if name in INVESTIGATION_TOOLS:
+            is_investigation = True
+        elif name == "Bash":
+            cmd = tool_input.get("command") or ""
+            if _is_read_shaped_bash(cmd):
+                is_investigation = True
+
+        if not is_investigation:
+            continue
+
+        path_value = _tool_input_path(tool_input)
+        if _is_whitelisted_path(path_value):
+            whitelisted_excluded += 1
+            continue
+
+        if (
+            since_last_result is not None
+            and since_last_result <= POST_SPAWN_SPOTCHECK_WINDOW
+        ):
+            whitelisted_excluded += 1
+            continue
+
+        consecutive += 1
+        max_consecutive = max(max_consecutive, consecutive)
+
+    return {
+        "turns": spawns + 1,
+        "max_consecutive_conductor_calls_no_spawn": max_consecutive,
+        "whitelisted_excluded": whitelisted_excluded,
+    }
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="ds-measure-conductor-tool-calls")
+    parser.add_argument("--limit", type=int, default=30,
+                         help="Max session transcripts to scan (default 30).")
+    parser.add_argument("--json", action="store_true",
+                         help="Emit JSON instead of a printed table.")
+    args = parser.parse_args(argv)
+
+    transcript_dir = _resolve_transcript_dir()
+    if transcript_dir is None:
+        print("No transcripts found.")
+        return 0
+
+    files = sorted(
+        [p for p in transcript_dir.glob("*.jsonl")],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )[: args.limit]
+
+    if not files:
+        print("No transcripts found.")
+        return 0
+
+    rows = []
+    for f in files:
+        m = _measure_session(f)
+        rows.append({
+            "session": f.stem[:8],
+            **m,
+        })
+
+    values = [r["max_consecutive_conductor_calls_no_spawn"] for r in rows]
+    values.sort()
+    if values:
+        # Recommendation: max observed value + 1, floored at DEFAULT_THRESHOLD
+        # when the sample is thin (< 20 transcripts).
+        observed_max = values[-1]
+        recommended = max(observed_max + 1, DEFAULT_THRESHOLD if len(rows) < 20 else 0)
+        if len(rows) < 20:
+            recommended = max(recommended, DEFAULT_THRESHOLD)
+    else:
+        recommended = DEFAULT_THRESHOLD
+
+    if args.json:
+        print(json.dumps({
+            "rows": rows,
+            "sample_size": len(rows),
+            "recommended_threshold": recommended,
+        }, indent=2))
+        return 0
+
+    header = f"{'session':<10}{'turns':>8}{'max_no_spawn':>14}{'whitelisted':>13}"
+    print(header)
+    print("-" * len(header))
+    for r in rows:
+        print(
+            f"{r['session']:<10}{r['turns']:>8}"
+            f"{r['max_consecutive_conductor_calls_no_spawn']:>14}"
+            f"{r['whitelisted_excluded']:>13}"
+        )
+    print()
+    print(f"Sample size: {len(rows)} transcripts.")
+    print(f"Recommended THRESHOLD: {recommended}")
+    if len(rows) < 20:
+        print(
+            f"NOTE: sample < 20 transcripts; provisional default "
+            f"({DEFAULT_THRESHOLD}) floors the recommendation."
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

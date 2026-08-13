@@ -3,12 +3,12 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
          field-level data shapes for all active event types (spawn_start,
          spawn_complete, meta_review_complete, session_total,
-         tool_failure_workaround, tracker_writeback) plus the deprecated
-         conductor_direct block kept for historical reference, append
-         discipline, atomicity, retention, and consumer notes. Also documents
-         the per-developer session log (.agentic/session-log/) written by the
-         Stop hook, and the enforcement fire log
-         (.agentic/.enforcement-fires.jsonl) written by
+         tool_failure_workaround, tracker_writeback, conductor_overreach)
+         plus the deprecated conductor_direct block kept for historical
+         reference, append discipline, atomicity, retention, and consumer
+         notes. Also documents the per-developer session log
+         (.agentic/session-log/) written by the Stop hook, and the
+         enforcement fire log (.agentic/.enforcement-fires.jsonl) written by
          hooks/lib/enforcement_log.py.
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -35,7 +35,10 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
-                      bin/ds-cost team (reads .agentic/session-log/ for team rollup).
+                      bin/ds-cost team (reads .agentic/session-log/ for team rollup);
+                      hooks/conductor-overreach-nudge.js (the registered Stop hook that
+                      appends conductor_overreach); bin/ds-cost session/project (render
+                      the conductor_overreach ratio_trigger rollup line).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes
@@ -62,12 +65,13 @@ Performance: Standard.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 - `tracker_writeback`: emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback call site in `content/commands/ds-implement-ticket.md`. `agent: null`. `data` carries `site` (currently always `"W1"` - reserved for extension to W2-W7 if their own observability gap is ever addressed the same way), `outcome` (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`, `prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`), and `target_state` (the resolved `$TRACKER_STATE_IN_PROGRESS` value). Does not carry `session_uuid` - this is a boundary event rather than a spawn-bracketing one. Soft-fail (`2>/dev/null || true`); a missing or failing `ds-emit` never blocks Phase 1. **Coverage is narrower than it may read at a glance**: this fires one event per W1 gate evaluation the conductor actually reaches - it detects the case where the conductor reaches the gate and the gate declines (the `"skipped"` outcome and its reason code). It does NOT detect, and nothing currently emits a signal for, the case where the conductor never reaches the W1 prose at all.
+- `conductor_overreach`: emitted by the registered Stop hook `hooks/conductor-overreach-nudge.js` (a thin wrapper around the pure-function detector `hooks/lib/overreach-detector.js`) when `ratio_trigger` is true - the conductor made more than `conductor_overreach_threshold` (default 3; config-reversible via `.agentic/config.json`, calibrated by `bin/ds-measure-conductor-tool-calls` against 60 real session transcripts) investigation-shaped tool calls (`Read`/`Grep`/`Glob`, plus read-shaped `Bash` such as `git show/diff/log/status`, `grep`, `rg`, `cat`, `head`, `tail`, `find`, `ls`, `wc`) with zero subagent spawns, after subtracting a mandated-preflight whitelist (reads of `.agentic/context.md`, `.agentic/config.json`, `.agentic/events.jsonl`, `.agentic/skill-candidates.md`, `content/agents/*.md` capability-preflight reads, and post-spawn spot-check reads). `agent: null`, `task_id: null`. `data` carries `source` (always `"hook"`), `session_uuid`, `conductor_tool_calls` (int), `live_or_completed_spawns` (int, always `0` when `ratio_trigger` is true by construction), `ratio_trigger` (boolean), and `whitelisted_reads_excluded` (int). WARN-ONLY: the hook never blocks the stop; no suppression-mute logic exists anywhere in the detection path (a prior design that grepped the transcript for an injected harness-suppression phrase and muted the advisory was removed by Skeptic Critical finding - the advisory fires unconditionally on `ratio_trigger`, regardless of transcript content). **Non-redundancy note**: `spawn_start`/`spawn_complete` fire only when a spawn happens and carry no denominator for a no-spawn turn; `conductor_overreach` is the only event type carrying conductor tool-call volume for a turn that had zero spawns. `bin/ds-cost session`/`bin/ds-cost project` render a trended (by ISO week) rollup line of `ratio_trigger:true` counts when present.
 
 **`session_uuid` field (conductor-emitted events).** Four of the five active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`; the fifth, `tracker_writeback`, does not (see its own entry above - a boundary event rather than a spawn-bracketing one). This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` on every turn (the Stop hook fires once per turn, not once per session). **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
 ## Append discipline
 
-Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, and `hooks/subagent-stop-spawn-emit.js` (DS-160) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
+Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, `hooks/subagent-stop-spawn-emit.js` (DS-160), and `hooks/conductor-overreach-nudge.js` (the registered Stop hook that emits `conductor_overreach`) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
 
 ## Atomicity
 

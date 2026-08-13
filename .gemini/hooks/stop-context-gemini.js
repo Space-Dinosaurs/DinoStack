@@ -123,6 +123,16 @@ on abrupt termination (crashes, SIGKILL).
     // Silent failure - best-effort context save
   }
 
+  // conductor_overreach detection port (DS unit DE): same gap as the Codex
+  // port (.codex/hooks/stop-context-codex.js) - the Claude Code detector
+  // (hooks/lib/overreach-detector.js's computeOverreach) needs a
+  // structured payload.transcript array of tool_use/tool_result blocks,
+  // and Gemini's SessionEnd payload carries no such field (only cwd,
+  // session_id, last_assistant_message, model). Not wired here for the
+  // same reason. If a future Gemini payload exposes a structured tool-call
+  // transcript, require('../../hooks/lib/overreach-detector.js') and call
+  // computeOverreach(payload.transcript, threshold).
+
   // Gemini SessionEnd hook: exit cleanly
   process.stdout.write(successOutput);
   process.exit(0);

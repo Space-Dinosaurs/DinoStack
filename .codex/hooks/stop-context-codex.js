@@ -135,6 +135,18 @@ before ending a session.
     // Silent failure
   }
 
+  // conductor_overreach detection port (DS unit DE): the Claude Code
+  // hooks/conductor-overreach-nudge.js detector needs a structured
+  // tool_use transcript (payload.transcript, an array of message objects
+  // with tool_use/tool_result content blocks) to count conductor
+  // investigation calls vs spawns. Codex's Stop payload carries no such
+  // field - only cwd, session_id, last_assistant_message, and model (see
+  // step 3 above) - so there is no data to run computeOverreach() against.
+  // Not wired here; if a future Codex payload version exposes a structured
+  // tool-call transcript, require('../../hooks/lib/overreach-detector.js')
+  // and call computeOverreach(payload.transcript, threshold) the same way
+  // conductor-overreach-nudge.js does.
+
   // Codex Stop hook: must return JSON on stdout
   process.stdout.write(successOutput);
   process.exit(0);

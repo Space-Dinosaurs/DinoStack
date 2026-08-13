@@ -21,6 +21,10 @@ Public API: ds-cost session [<session_uuid>]
             acceptance criterion 12.
             `operator` reads the global mirror ~/.agentic/session-log/*.jsonl
             and aggregates by developer_id + project_slug across all projects.
+            `session` and `project` additionally print a trended
+            conductor_overreach (ratio_trigger=true) rollup line, by ISO
+            week, when any such events are present in the filtered event
+            set (see _conductor_overreach_summary).
 
 Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                subprocess, re). Optional pyyaml soft dependency for
@@ -131,6 +135,42 @@ def _add_tokens(dst: dict, src: dict) -> None:
 
 def _filter_events(events: list[dict], filt) -> list[dict]:
     return [e for e in events if filt(e)]
+
+
+def _conductor_overreach_summary(events: list[dict]) -> str | None:
+    """Render a trended rollup line for conductor_overreach events.
+
+    Counts conductor_overreach events with data.ratio_trigger == true (the
+    warn-only Stop-hook detector in hooks/conductor-overreach-nudge.js),
+    grouped by ISO week (YYYY-Www) for a simple trend view. Returns None
+    when no conductor_overreach events with ratio_trigger true are present
+    (nothing to show - a rollup section with an empty trend is noise, not
+    signal).
+    """
+    triggered = [
+        e for e in events
+        if e.get("event") == "conductor_overreach"
+        and bool((e.get("data") or {}).get("ratio_trigger"))
+    ]
+    if not triggered:
+        return None
+
+    by_week: dict[str, int] = {}
+    for e in triggered:
+        ts = e.get("ts") or ""
+        try:
+            d = _dt.datetime.fromisoformat(ts.replace("Z", "+00:00")).date()
+            iso_year, iso_week, _ = d.isocalendar()
+            key = f"{iso_year}-W{iso_week:02d}"
+        except ValueError:
+            key = "unknown"
+        by_week[key] = by_week.get(key, 0) + 1
+
+    trend = ", ".join(f"{wk}: {n}" for wk, n in sorted(by_week.items()))
+    return (
+        f"conductor_overreach (ratio_trigger=true): {len(triggered)} total "
+        f"({trend})."
+    )
 
 
 def _aggregate_by_agent(events: list[dict]) -> dict:
@@ -458,6 +498,9 @@ def cmd_session(args: argparse.Namespace) -> int:
     pricing, updated, perr = _load_pricing()
     agg = _aggregate_by_agent(events)
     sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    overreach_line = _conductor_overreach_summary(events)
+    if overreach_line:
+        print(overreach_line)
     return 0
 
 
@@ -493,6 +536,9 @@ def cmd_project(args: argparse.Namespace) -> int:
     pricing, updated, perr = _load_pricing()
     agg = _aggregate_by_agent(events)
     sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    overreach_line = _conductor_overreach_summary(events)
+    if overreach_line:
+        print(overreach_line)
     return 0
 
 
