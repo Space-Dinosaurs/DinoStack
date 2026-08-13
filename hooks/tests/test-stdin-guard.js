@@ -920,6 +920,7 @@ function testImporterScannerExactRegressions() {
     '.cursor/hooks/stop-context-cursor.js',
     '.gemini/hooks/stop-context-gemini.js',
     '.github/hooks/stop-context-copilot.js',
+    'hooks/conductor-overreach-nudge.js',
     'hooks/post-tool-use-capture-nudge.js',
     'hooks/pre-tool-use-spawn-emit.js',
     'hooks/session-end-wrap.js',

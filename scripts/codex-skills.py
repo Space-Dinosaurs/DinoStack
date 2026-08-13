@@ -312,16 +312,25 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
 # $AGENTS_RAW) is itself a valid scope for this assertion.
 PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
-            r"\*\*Writer scope: `\.agentic/events\.jsonl` has four writers\*\*"
+            r"\*\*Writer scope: `\.agentic/events\.jsonl` has five writers\*\*"
             r".*?(?=\n\n)",
             (
                 "**Writer scope (Codex runtime boundary).** "
-                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the "
-                "conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex "
+                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the "
+                "conductor, the Stop hook, two spawn-telemetry hooks, and the warn-only "
+                "conductor-overreach Stop hook), but the current Codex "
                 f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "
                 "append `session_total` events, run the spawn-telemetry hooks, or mirror "
-                "project-local orchestration state. The project-local writer migration is "
-                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
+                "project-local orchestration state. The conductor-overreach detector is not "
+                "ported here either, but NOT because the Codex Stop payload lacks a transcript - "
+                "it genuinely carries a `transcript_path` pointing at a real structured rollout "
+                "file (confirmed against the installed Codex CLI binary's own JSON schema "
+                "strings); the gap is that the rollout format is Codex's own schema "
+                "(`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's "
+                "`tool_use`/`tool_result` content-block shape the detector parses, so a port "
+                "needs a Codex-rollout-specific block parser that does not exist yet. The "
+                "project-local writer migration is deferred to "
+                f"`{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
             ),
         ),
         # NOTE (Skeptic round 7 discovery, verified against the true reachability

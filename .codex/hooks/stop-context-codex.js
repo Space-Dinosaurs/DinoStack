@@ -135,6 +135,32 @@ before ending a session.
     // Silent failure
   }
 
+  // conductor_overreach detection port (DS unit DE): RE-EVALUATED after an
+  // earlier version of this comment falsely claimed "no structured
+  // tool-call transcript is available in the Codex Stop payload" - that
+  // claim was never independently verified and was wrong on the first
+  // half. Direct evidence gathered this session: `strings` against the
+  // installed Codex CLI binary
+  // (~/.codex/packages/standalone/releases/<version>/bin/codex) shows
+  // Stop/SubagentStop hook payloads DO carry a `transcript_path`
+  // (`NullableString` in the payload JSON-schema), pointing at a real
+  // structured rollout `.jsonl` file (`rollout.jsonl` / `rollout-*.jsonl`,
+  // per the same binary's embedded strings). However, that rollout format
+  // is Codex's OWN schema, not Claude Code's - its JSONL records use a
+  // `RawPayloadKind` enum (`tool_invocation` / `tool_result` /
+  // `inference_request` / `inference_response` / `compaction_*` / ...)
+  // rather than Claude's `message.content[].type === 'tool_use'` /
+  // `'tool_result'` shape that
+  // hooks/lib/overreach-detector.js's parseTranscriptBlocks() parses. A
+  // genuine port therefore needs a Codex-rollout-specific block parser
+  // (mapping `tool_invocation` records to conductor tool calls and
+  // correlating `tool_result` records the same way), not a drop-in reuse
+  // of computeOverreach's file reader - that parser does not exist yet and
+  // is out of scope here. Not wired in this pass; a future port should
+  // write a `parseCodexRolloutBlocks(transcriptPath)` adapter that emits
+  // the same flat block shape parseTranscriptBlocks() does, then reuse
+  // computeOverreachFromBlocks() unchanged.
+
   // Codex Stop hook: must return JSON on stdout
   process.stdout.write(successOutput);
   process.exit(0);

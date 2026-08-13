@@ -74,7 +74,10 @@ The Stop hook is not the only non-conductor writer: `hooks/pre-tool-use-spawn-em
 (`PreToolUse(Task/Agent)`) appends a hook-emitted `spawn_start` mid-turn on
 every subagent spawn, and `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`,
 DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
-both fire while the conductor's turn is still in progress.
+both fire while the conductor's turn is still in progress. A fifth writer,
+`hooks/conductor-overreach-nudge.js` (also a Stop hook), appends a
+`conductor_overreach` event, but only when its `ratio_trigger` condition
+fires - see below.
 
 Subagent agents never emit events themselves; hooks firing on their spawns
 and completions do.
@@ -163,6 +166,47 @@ only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`,
 and `target_state`. Does not carry `session_uuid` - this is a boundary event,
 not a spawn-bracketing one.
 
+### conductor_overreach
+
+Emitted by the registered Stop hook `hooks/conductor-overreach-nudge.js`
+(warn-only; never blocks the stop) when the conductor made more than the
+configured `conductor_overreach_threshold` (default 12; config-reversible
+via `.agentic/config.json`) investigation-shaped tool calls
+(`Read`/`Grep`/`Glob`, plus read-shaped `Bash`) with zero subagent spawns,
+cumulatively across the ENTIRE session transcript - not a per-turn count.
+Since `ratio_trigger` requires zero spawns for the whole transcript, a
+session that spawns even once can never trigger for the rest of that
+session. The transcript is read from `payload.transcript_path` (the real
+Stop payload shape is `{session_id, transcript_path, cwd, hook_event_name,
+stop_hook_active}` - there is no `transcript` array field on the live
+payload), parsed as JSONL with a size ceiling and malformed-line tolerance,
+after subtracting a mandated-preflight whitelist (including a post-spawn
+spot-check window bound specifically to an Agent-tool spawn's own
+`tool_result` - any other tool's result must not open or extend it).
+
+**Calibration.** `bin/ds-measure-conductor-tool-calls` measures this exact
+cumulative whole-transcript statistic (not a per-turn or run-length proxy)
+against real session transcripts. The default of 12 is a provisional floor
+used when the zero-spawn sample (the only sessions where `ratio_trigger`
+can ever fire) is thin - re-run the calibrator on a larger sample before
+trusting the default in a new environment.
+
+Key `data` fields: `source` (always `"hook"`), `session_uuid`,
+`conductor_tool_calls`, `live_or_completed_spawns` (always `0` when this
+event fires), `ratio_trigger` (always `true` when this event fires),
+`whitelisted_reads_excluded`, `transcript_note` (string or `null` - mirrors
+`spawn_complete`'s `tokens_note`; always `null` on an event that actually
+fires, since `ratio_trigger` requires a successfully-read transcript;
+reserved so the detector's return shape never conflates "transcript
+unavailable" with "genuinely zero calls").
+
+**Non-redundancy.** `spawn_start`/`spawn_complete` fire only when a spawn
+happens and carry no denominator for a spawn-free session;
+`conductor_overreach` is the only event type carrying conductor tool-call
+volume for a session with zero spawns. `ds-cost session`/`ds-cost project`
+render a trended (by ISO week) rollup line of `ratio_trigger:true` counts
+when present.
+
 ## ds-cost
 
 `ds-cost` reads `events.jsonl` and the per-developer session logs to
@@ -181,9 +225,10 @@ all developers whose telemetry has landed on the branch via pull after merge.
 ## Practical notes
 
 **Append discipline.** No fsync, no lock file. Multiple writers append
-(conductor, the Stop hook, and the two spawn-telemetry hooks noted above) via
-`appendFileSync`/`>>`, each an `O_APPEND` write, so lines never interleave
-mid-write; no cross-writer locking is needed.
+(conductor, the Stop hook, the two spawn-telemetry hooks, and the
+conductor-overreach Stop hook, all noted above) via `appendFileSync`/`>>`,
+each an `O_APPEND` write, so lines never interleave mid-write; no
+cross-writer locking is needed.
 
 **Retention.** Not auto-rotated. Manual `mv events.jsonl events-prev.jsonl`
 if the file grows past concern. Roughly 50 KB per active session.
