@@ -2196,20 +2196,28 @@ check("fp4. Answer+Decision combo -> QUIET", is_quiet(rc, out))
 #    z4c/z4d), which tests that property without depending on the
 #    retired function.
 # ---------------------------------------------------------------------------
-# z. DS-159: identity-line TRAILING bare completion sentence suppresses the
-#    status-only ADVISORY without granting the `completion` WARRANT (same
-#    posture as DS-157's y-block above, for the sibling gap where the
-#    completion is the identity line's own second sentence, not the body's
-#    first paragraph). See hooks/enforce-turn-shape.py's
-#    _identity_line_trailing_completion docstring for the corpus method.
+# z. DS-159: identity-line TRAILING bare completion sentence used to
+#    suppress the status-only ADVISORY without granting the `completion`
+#    WARRANT (same posture as DS-157's y-block above, for the sibling gap
+#    where the completion is the identity line's own second sentence, not
+#    the body's first paragraph). DS-171: the status-only check and its
+#    suppression helper (formerly documented in
+#    _identity_line_trailing_completion's docstring) are RETIRED - see
+#    hooks/enforce-turn-shape.py's Purpose section. The blocking-path safety
+#    property this section verifies (a trailing bare-completion sentence
+#    must never grant the `completion` WARRANT) is unaffected by that
+#    retirement and remains checked directly via _classify_warrants below.
 # ---------------------------------------------------------------------------
 
 # z1. The reported symptom, reproduced verbatim: identity line "All three
 # shipped. Done." does NOT match _LEADING_COMPLETION_RE at position 0 (the
 # `\A` anchor never scans past "All three shipped." to reach the second
 # sentence "Done."), and the first BODY paragraph is a markdown table, not
-# prose, so _has_body_completion_declaration's DS-157 body-paragraph check
-# also misses it. Must be QUIET (was ADVISORY pre-fix).
+# prose. Pre-DS-171 this also missed the now-deleted
+# _has_body_completion_declaration's DS-157 body-paragraph check; post-
+# DS-171 the status-only check itself is gone, so the turn is QUIET
+# regardless of that mechanism. Must be QUIET (was ADVISORY pre-fix, still
+# QUIET post-DS-171 retirement).
 z1_msg = (
     "All three shipped. Done.\n"
     "\n"
@@ -2254,9 +2262,13 @@ check(
 # z3. REGRESSION (measured false positive, partial-word absorption): "Status
 # while it completes:" would match _LEADING_COMPLETION_RE.match (the regex's
 # optional trailing-word group silently absorbs the "s" in "completes"
-# before the terminal ":"), but _BARE_TRAILING_COMPLETION_RE's closed
-# single-word vocabulary correctly rejects it - "completes" is not
-# "complete"/"completed"/"done"/"finished".
+# before the terminal ":"). Pre-DS-171 the now-deleted
+# _BARE_TRAILING_COMPLETION_RE's closed single-word vocabulary correctly
+# rejected it as a suppression trigger - "completes" is not "complete"/
+# "completed"/"done"/"finished". Post-DS-171 the status-only check that
+# consumed that regex is gone, so the turn is QUIET regardless of that
+# mechanism; kept as a regression pin on the underlying `completion`
+# classification, not on the deleted regex.
 z3_msg = (
     "Validation still running. Status while it completes:\n"
     "\n"
