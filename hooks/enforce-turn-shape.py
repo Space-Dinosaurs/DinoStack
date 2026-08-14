@@ -924,79 +924,6 @@ _LEADING_COMPLETION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# DS-157. A TALLY/partial-progress header ("Three done, two building:",
-# "Four of seven done:") - structurally identical to a genuine leading
-# completion declaration (a short leading-words group, then "done", then
-# comma-joined trailing modifiers, then a terminal `:`), but it introduces a
-# MIXED breakdown of an overall still-in-progress turn, not a claim that
-# THIS turn's work is complete. Measured directly from the DS-157 corpus
-# (see _has_body_completion_declaration): "Three done, two building:" and
-# "Four of seven done:" both matched the leading-completion shape and were
-# both false positives, in both cases immediately followed by a table
-# showing some rows still building/queued. Scoped to a leading
-# number-word/digit specifically (not e.g. "Both units shipped." - two is a
-# pronoun there, not a tally count) so it does not reopen the identity-line
-# `_LEADING_COMPLETION_RE` path, which this constant is never used against.
-_TALLY_HEADER_RE = re.compile(
-    r"^\*{0,2}(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
-    r"(?:of\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-    r"(?:is\s+|are\s+)?(?:done|complete|completed)\b",
-    re.IGNORECASE,
-)
-
-# DS-159. A BARE trailing completion word as the identity line's OWN final
-# sentence - e.g. "All three shipped. Done." - deliberately narrow:
-# `_LEADING_COMPLETION_RE`'s `\A` anchor never scans past the identity
-# line's first sentence (see `_has_body_completion_declaration`'s
-# docstring for the DS-157 sibling gap this closes for the BODY case), so
-# a genuine completion declared as a SECOND sentence on the identity line
-# itself - rather than in the body's first paragraph - was equally
-# invisible. Consumed only by `_identity_line_trailing_completion` below,
-# itself only an ADVISORY-suppression input to
-# `_has_body_completion_declaration` - see that function's docstring for
-# why this never widens the BLOCKING `completion` WARRANT.
-#
-# Scoped to a single bare word (+ optional bold markers) precisely
-# because a general "match _LEADING_COMPLETION_RE against every later
-# sentence" was measured unsafe: against a ~12.8k-turn corpus
-# (`~/.claude/projects`, main-agent-only, isSidechain absent/false) it
-# produced 30 newly-granted matches, at least 2 confirmed false positives
-# ("Status while it completes:" - `_LEADING_COMPLETION_RE`'s optional
-# trailing-word group silently absorbed the "s" in "completes" via its
-# missing `\b`; "Both mechanical fixes are done. Now finalizing state
-# files..." - a genuine DS-156-round-1-class sub-item match on a MIDDLE
-# sentence of a still-in-progress turn). Restricting to only the FINAL
-# sentence removed the middle-sentence class but not "Will report when
-# done." (a future-tense promise, not a completion) or "Writing the file
-# complete." (extra words before "complete" reopening the same
-# `_LEADING_COMPLETION_RE` looseness). This closed-vocabulary bare-word
-# regex was re-measured against the same corpus at 3 newly-granted
-# matches, all 3 confirmed genuine ("Fix confirmed against live traffic.
-# Done.", "All three shipped. Done.", "All three PRs merged and verified
-# on `main`. Done."), 0 false positives, 0 losses.
-_BARE_TRAILING_COMPLETION_RE = re.compile(
-    r"\A\*{0,2}(?:done|complete|completed|finished)\*{0,2}[.!]\Z",
-    re.IGNORECASE,
-)
-
-# Splits a line into sentences on a terminal `.`/`!`/`:` followed by
-# whitespace - used only to isolate the identity line's OWN final
-# sentence for `_identity_line_trailing_completion` below. Deliberately
-# not fence-aware or otherwise general-purpose: the identity line is
-# always a single raw line by `_segment`'s construction.
-_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!:])\s+")
-
-
-def _identity_line_trailing_completion(identity_line: str) -> bool:
-    """True iff the identity line has more than one sentence AND its FINAL
-    sentence is a bare completion word (see `_BARE_TRAILING_COMPLETION_RE`).
-    See that constant's docstring for the corpus measurement behind the
-    narrow bare-word shape."""
-    sentences = _SENTENCE_BOUNDARY_RE.split(identity_line)
-    if len(sentences) < 2:
-        return False
-    return bool(_BARE_TRAILING_COMPLETION_RE.match(sentences[-1].strip()))
-
 # Best-effort "answer" warrant: a quoted fragment (>=8 chars inside the
 # quote marks) anywhere in the message. Deliberately loose - this is the
 # weakest of the four detectors by design (see module docstring). It
@@ -1215,10 +1142,15 @@ _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE = 8
 # colon-led clause ("What changed:", "Two things:") count as a spurious
 # unit boundary, inflating the unit count and sinking the words-per-unit
 # average below threshold on ordinary answer prose. This regex
-# intentionally does NOT split on `:` at all - it is deliberately NOT the
-# same regex _identity_line_trailing_completion uses, which has a
-# different, narrower domain (the single-line identity line only) and
-# must keep matching `:` there (unchanged, not touched by this fix).
+# intentionally does NOT split on `:` at all - it was deliberately NOT the
+# same regex `_identity_line_trailing_completion` used (that function had
+# a different, narrower domain - the single-line identity line only - and
+# had to keep matching `:` there). `_identity_line_trailing_completion`
+# and its supporting regexes (`_TALLY_HEADER_RE`,
+# `_BARE_TRAILING_COMPLETION_RE`, `_SENTENCE_BOUNDARY_RE`) were removed as
+# dead code once their only consumer, `_has_body_completion_declaration`,
+# was retired (DS-171) - this comment's comparison is kept for the
+# `:`-splitting design rationale it documents, not as a live cross-reference.
 _ANSWER_SENTENCE_SPLIT_RE = re.compile(r"[.!]\s+")
 
 # Common abbreviations whose internal `.` must not be treated as a
