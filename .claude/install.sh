@@ -537,6 +537,37 @@ if [[ "$SKILL_LINK_OK" != "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Output style: dinostack (DS-171)
+#
+# Copies (not symlinks - matches the DS-96/DS-104 absolutized-symlink
+# hazard avoidance already established for .claude/skills/dinostack/*) the
+# built output style to ~/.claude/output-styles/dinostack.md. Installed
+# unconditionally, idempotent (plain overwrite - a stale copy after a
+# methodology update would otherwise never refresh). Deliberately does NOT
+# select it: the `outputStyle` key in ~/.claude/settings.json is never
+# touched here. No ae_confirm() prompt - a file copy that requires
+# explicit /config selection to take effect is not a behavior change
+# requiring consent, matching the precedent of unprompted skill/command
+# installs elsewhere in this script.
+# ---------------------------------------------------------------------------
+
+AE_OUTPUT_STYLE_SRC="$SKILLS_SRC/output-styles/dinostack.md"
+AE_OUTPUT_STYLE_DST_DIR="$AE_CONFIG_DIR/output-styles"
+AE_OUTPUT_STYLE_DST="$AE_OUTPUT_STYLE_DST_DIR/dinostack.md"
+AE_OUTPUT_STYLE_INSTALLED=false
+
+if [[ -f "$AE_OUTPUT_STYLE_SRC" ]]; then
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  + output style: dinostack (would install to $AE_OUTPUT_STYLE_DST)"
+  else
+    mkdir -p "$AE_OUTPUT_STYLE_DST_DIR"
+    cp "$AE_OUTPUT_STYLE_SRC" "$AE_OUTPUT_STYLE_DST"
+    echo "  + output style: dinostack (installed, not selected - select via /config)"
+    AE_OUTPUT_STYLE_INSTALLED=true
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # Remove stale pre-rename skill symlink (agentic-engineering -> dinostack)
 #
 # The skill directory/name was renamed from "agentic-engineering" to
@@ -1976,6 +2007,9 @@ echo "Install complete."
 echo ""
 echo "  dinostack is installed. Open a new Claude Code session in any project,"
 echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
+if [[ "$AE_OUTPUT_STYLE_INSTALLED" == "true" ]]; then
+  echo "  The dinostack output style was installed but not selected - select it via /config."
+fi
 _ae_identity_guidance
 echo ""
 if [[ "$SKILL_LINK_OK" != "true" ]]; then

@@ -202,10 +202,10 @@ def check(label: str, condition: bool):
 
 # DS-155 round 3: the identity-line check is REMOVED (operator decision -
 # see hooks/enforce-turn-shape.py's module docstring "DS-155 round 3
-# history note"). FLAGGED_STATUS_ONLY_MSG replaces the round-1/round-2
-# "Done." placeholder everywhere a generically-flagged message is needed
-# (config toggle, loop guard, exit-code checks) - "Done." alone no longer
-# produces ANY finding now that there is no identity check to catch it.
+# history note"). FLAGGED_STATUS_ONLY_MSG is kept as a fixture (it no
+# longer flags anything post-DS-171 - see below) purely because deleting
+# it would ripple through every historical comment that names it; it is
+# no longer used to exercise any generic mechanism.
 FLAGGED_STATUS_ONLY_MSG = (
     IDENTITY_OK + "\n"
     "Did a first thing.\n"
@@ -213,13 +213,29 @@ FLAGGED_STATUS_ONLY_MSG = (
     "Did a third thing.\n"
 )
 
-# ---------------------------------------------------------------------------
-# c. status-only flag fires
-# ---------------------------------------------------------------------------
+# DS-171: FLAGGED_SPRAWL_MSG replaces FLAGGED_STATUS_ONLY_MSG everywhere a
+# generically-flagged (ADVISORY) message is needed to exercise a mechanism
+# unrelated to the specific finding text (config toggle, loop guard,
+# log_fire-once, exit-code checks) - the status-only check that used to
+# supply that role is retired, so FLAGGED_STATUS_ONLY_MSG alone no longer
+# produces ANY finding. FLAGGED_SPRAWL_MSG instead trips the sole
+# surviving advisory check, `_decision_item_sprawl_flag`, via a single
+# "## Operator decisions" item one line over ITEM_FREE_LINES.
+FLAGGED_SPRAWL_MSG = (
+    IDENTITY_OK + "\n"
+    "\n"
+    "## Operator decisions\n"
+    "- Proceed with the migration now.\n"
+    "  Continuation line one explaining why.\n"
+    "  Continuation line two explaining why.\n"
+    "  Continuation line three explaining why.\n"
+)
 
-status_only_msg = FLAGGED_STATUS_ONLY_MSG
-rc, out, err = run_hook(make_payload(status_only_msg))
-check("c. >2 body lines, no warrant -> ADVISORY (status-only)", is_advisory(rc, out, "status-only"))
+# ---------------------------------------------------------------------------
+# c. status-only flag: RETIRED (DS-171). See hooks/enforce-turn-shape.py's
+#    Purpose section - the status-only rule now lives in the `dinostack`
+#    output style, not this hook.
+# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # d. passes on a message containing '## Operator decisions'
@@ -288,8 +304,13 @@ bare_done_msg = (
 )
 rc, out, err = run_hook(make_payload(bare_done_msg))
 check(
-    "e2. bare 'merged' does NOT satisfy completion warrant -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
+    "e2. bare 'merged' does NOT satisfy completion warrant -> QUIET "
+    "(DS-171: status-only check retired, so the zero-warrant fallback is "
+    "now silent regardless; the underlying warrant-classification claim "
+    "is covered directly by section e's other cases and the c-* corpus "
+    "loop, both of which assert `_classify_warrants` without depending "
+    "on the retired hook-level distinction)",
+    is_quiet(rc, out),
 )
 
 bare_shipped_msg = (
@@ -300,8 +321,9 @@ bare_shipped_msg = (
 )
 rc, out, err = run_hook(make_payload(bare_shipped_msg))
 check(
-    "e3. bare 'shipped' does NOT satisfy completion warrant -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
+    "e3. bare 'shipped' does NOT satisfy completion warrant -> QUIET "
+    "(DS-171: status-only check retired)",
+    is_quiet(rc, out),
 )
 
 # ---------------------------------------------------------------------------
@@ -340,8 +362,17 @@ check("g2. identity + multiple Waiting: lines only -> QUIET", is_quiet(rc, out))
 # h. AE_TURN_SHAPE_GUARD_DISABLE=1 short-circuits to exit 0, no output
 # ---------------------------------------------------------------------------
 
-rc, out, err = run_hook(make_payload("Done."), env={"AE_TURN_SHAPE_GUARD_DISABLE": "1"})
-check("h. kill-switch set -> QUIET even on a flagged message", is_quiet(rc, out))
+# DS-171: "Done." no longer produces any finding at all (the status-only
+# check it used to trip is retired), so a kill-switch test built on it
+# would be vacuous - the switch could be entirely broken and this would
+# still pass. Swapped to FLAGGED_SPRAWL_MSG (the sole surviving advisory
+# check), with an h0 control proving the fixture is genuinely advisory
+# with the switch OFF, so h1's QUIET is attributable to the switch.
+rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG))
+check("h0. control: FLAGGED_SPRAWL_MSG without the kill switch -> ADVISORY", is_advisory(rc, out))
+
+rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG), env={"AE_TURN_SHAPE_GUARD_DISABLE": "1"})
+check("h1. kill-switch set -> QUIET even on a flagged message", is_quiet(rc, out))
 
 # ---------------------------------------------------------------------------
 # i. config toggle absent/false/true - absent means ON
@@ -364,8 +395,8 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     # i1. config.json absent entirely -> guard stays ON.
     i1_cwd = _fresh_cwd("i1")
-    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i1_cwd))
-    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "status-only"))
+    rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG, cwd=i1_cwd))
+    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "operator-decisions item sprawl"))
 
     # i2. config.json present, key explicitly false -> guard OFF.
     i2_cwd = _fresh_cwd("i2")
@@ -378,21 +409,21 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     i3_cwd = _fresh_cwd("i3")
     with open(os.path.join(i3_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": True}, f)
-    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i3_cwd))
-    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "status-only"))
+    rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG, cwd=i3_cwd))
+    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "operator-decisions item sprawl"))
 
     # i4. config.json present but key absent -> guard stays ON.
     i4_cwd = _fresh_cwd("i4")
     with open(os.path.join(i4_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"some_other_key": True}, f)
-    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i4_cwd))
-    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "status-only"))
+    rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG, cwd=i4_cwd))
+    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "operator-decisions item sprawl"))
 
 # ---------------------------------------------------------------------------
 # j. output is ALWAYS exit 0 regardless of findings
 # ---------------------------------------------------------------------------
 
-rc_flagged, _, _ = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG))
+rc_flagged, _, _ = run_hook(make_payload(FLAGGED_SPRAWL_MSG))
 rc_clean, _, _ = run_hook(make_payload(IDENTITY_COMPLETE))
 check("j1. exit code is 0 on a flagged turn", rc_flagged == 0)
 check("j2. exit code is 0 on a clean turn", rc_clean == 0)
@@ -485,8 +516,11 @@ apostrophe_msg = (
 )
 rc, out, err = run_hook(make_payload(apostrophe_msg))
 check(
-    "p. apostrophes do NOT satisfy the answer warrant -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
+    "p. apostrophes do NOT satisfy the answer warrant -> QUIET (DS-171: "
+    "status-only check retired, so this is silent regardless; kept as a "
+    "regression pin that no code path re-derives the answer warrant from "
+    "these apostrophes)",
+    is_quiet(rc, out),
 )
 
 # ---------------------------------------------------------------------------
@@ -532,7 +566,7 @@ def _run_main_with_stdin(payload: str, calls: list):
 
 
 _calls_flagged: list = []
-_out_flagged = _run_main_with_stdin(make_payload(FLAGGED_STATUS_ONLY_MSG), _calls_flagged)
+_out_flagged = _run_main_with_stdin(make_payload(FLAGGED_SPRAWL_MSG), _calls_flagged)
 check(
     "n1. log_fire called exactly once with hook_name='enforce-turn-shape', "
     "decision='allow_advisory' on a finding",
@@ -690,15 +724,8 @@ s1_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET) + "\n## Opera
 rc, out, err = run_hook(make_payload(s1_msg))
 check("s1. decision warrant, body at flat budget (10 lines) -> QUIET", is_quiet(rc, out))
 
-# s2. decision warrant, body ONE line OVER the flat budget (11 lines) ->
-# ADVISORY. (A9/flip: resized from the old 4-line boundary - see plan test
-# strategy table - to re-pin the new 10-line boundary.)
-s2_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET + 1) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
-rc, out, err = run_hook(make_payload(s2_msg))
-check(
-    "s2. decision warrant, body 1 line over flat budget -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
+# s2. RETIRED (DS-171): pinned the flat-budget-plus-one-line ADVISORY via
+# the now-deleted turn-charge volume check.
 
 # s3. completion warrant, body AT the flat budget (10 lines) -> QUIET.
 # (A9: relabeled from the old COMPLETION budget of 6.)
@@ -719,15 +746,8 @@ check(
     is_quiet(rc, out),
 )
 
-# s4b. Same shape resized to 11 lines, over the flat budget -> ADVISORY.
-# Keeps a genuine over-budget pin for the completion-warrant shape now that
-# s4 itself is QUIET.
-s4b_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(BASE_BODY_BUDGET + 1, label="State")
-rc, out, err = run_hook(make_payload(s4b_msg))
-check(
-    "s4b. completion warrant, 11-line body (over flat budget) -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
+# s4b. RETIRED (DS-171): pinned the over-flat-budget ADVISORY via the now-
+# deleted turn-charge volume check.
 
 # ---------------------------------------------------------------------------
 # c. DS-156 widened completion warrant (real-corpus-motivated, round 2 -
@@ -751,103 +771,43 @@ with open(
 ) as _cf:
     _completion_fixture = json.load(_cf)
 
+# DS-171: this loop previously routed each case through the hook and
+# distinguished QUIET (completion warrant granted, execution turn stays
+# under budget) from ADVISORY-status-only (completion warrant denied,
+# zero-warrant fallback). With the turn-charge volume check AND the
+# status-only check both retired, a completion turn is now QUIET
+# regardless of length, and a zero-warrant turn is ALSO now QUIET (silent
+# allow) - so the hook-level QUIET/ADVISORY distinction this loop depended
+# on no longer exists, and routing through the hook would make every case
+# assert the same (now-true) thing regardless of whether the corpus
+# fixture's completion-warrant classification is actually correct. This
+# loop now asserts `_classify_warrants`'s `completion` key directly
+# against each case's own template text (no filler needed - filler
+# existed only to route the message through the hook's QUIET/ADVISORY
+# split, never to influence the warrant itself), which is the actual
+# regression signal this corpus protects and is unaffected by DS-171.
 for _case in _completion_fixture["cases"]:
-    _expect_quiet = _case["expected"] == "quiet"
-    # DS-156: a QUIET-expected case is a completion-warrant EXECUTION turn -
-    # its filler must be recognized State: slot lines, or the general
-    # branch of _execution_prose_flag would BLOCK on generic "Detail N."
-    # narrative before the turn ever reaches QUIET. An ADVISORY-expected
-    # case is a ZERO-warrant turn (the completion warrant was vetoed or
-    # never granted) routing to the unchanged, raw-line _status_only_flag,
-    # which is unaffected by the shape check - its filler stays generic
-    # narrative exactly as before.
-    if _case["filler_lines"] > 0:
-        _filler = (
-            _status_slot_lines(_case["filler_lines"], label="State")
-            if _expect_quiet
-            else _nlines(_case["filler_lines"], prefix="Detail")
-        )
-    else:
-        _filler = ""
-    _msg = _case["template"] + "\n" + _filler
-    rc, out, err = run_hook(make_payload(_msg))
-    _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
+    _expect_completion = _case["expected"] == "quiet"
+    _case_warrants = _mod._classify_warrants(_case["template"])
     check(
         f"c-{_case['id']} ({_case['shape_class']}): {_case['source']} -> "
-        f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
-        _outcome_ok,
+        f"completion warrant {'GRANTED' if _expect_completion else 'DENIED'} (expected)",
+        _case_warrants["completion"] == _expect_completion,
     )
 
-# s5/s6/s6c DS-156 RE-DERIVATION: these used to pin the flat
-# BASE_BODY_BUDGET=10 boundary for an answer-warrant turn. DS-156
-# introduces a SEPARATE, much higher ANSWER_BODY_BUDGET=50 for Answer
-# turns specifically (Answer always wins the shape question, per §4) - a
-# 10-line answer turn was never close to interesting under the new
-# ceiling, so these are re-pinned against the ACTUAL boundary that now
-# governs Answer-turn volume.
-ANSWER_BODY_BUDGET = 50
-
-# s5. answer warrant, charge AT ANSWER_BODY_BUDGET (50 non-blank body
-# lines total, including the quoted line that supplies the warrant) ->
-# QUIET.
-s5_msg = (
-    IDENTITY_OK
-    + "\n"
-    + '"Here is the direct answer to your question."\n'
-    + _nlines(ANSWER_BODY_BUDGET - 1, prefix="Detail")
-)
-rc, out, err = run_hook(make_payload(s5_msg))
-check("s5. answer warrant, charge at ANSWER_BODY_BUDGET (50) -> QUIET", is_quiet(rc, out))
-
-# s6. answer warrant, charge ONE line OVER ANSWER_BODY_BUDGET (51) ->
-# ADVISORY, citing the answer-specific budget (50), never the flat
-# BASE_BODY_BUDGET (10) an execution turn would be held to.
-s6_msg = (
-    IDENTITY_OK
-    + "\n"
-    + '"Here is the direct answer to your question."\n'
-    + _nlines(ANSWER_BODY_BUDGET, prefix="Detail")
-)
-rc, out, err = run_hook(make_payload(s6_msg))
-check(
-    "s6. answer warrant, charge one line over ANSWER_BODY_BUDGET (51) -> "
-    "ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
-check(
-    "s6b. advisory cites the answer-specific budget (50), not the flat "
-    "execution-turn budget (10)",
-    "advisory budget is 50" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
-)
-
-# s6c. FALSE-POSITIVE-BY-DEFAULT gate (§9 length discipline): a body well
-# under the answer budget but well OVER the flat BASE_BODY_BUDGET stays
-# QUIET on an answer turn - proving the higher ceiling is genuinely in
-# effect, not merely documented. 20 lines is comfortably over
-# BASE_BODY_BUDGET=10 but comfortably under ANSWER_BODY_BUDGET=50.
-s6c_msg = (
-    IDENTITY_OK
-    + "\n"
-    + '"Here is the direct answer to your question."\n'
-    + _nlines(19, prefix="Detail")
-)
-rc, out, err = run_hook(make_payload(s6c_msg))
-check(
-    "s6c. answer turn, 20-line body (over the flat 10-line budget, well "
-    "under the 50-line answer budget) -> QUIET - proving length alone no "
-    "longer charges on an Answer turn",
-    is_quiet(rc, out),
-)
+# s5/s6/s6b/s6c: RETIRED (DS-171). Pinned the separate, higher
+# ANSWER_BODY_BUDGET=50 ceiling for Answer turns via the now-deleted
+# turn-charge volume check.
 
 # s5c. DS-156 CONTRAST (supersedes the deleted DS-151 "identical verdict"
-# fixture - warrant composition now changes far more than the budget
-# alone): an incidental quoted fragment does not just change WHICH BUDGET
-# applies, it changes the ENTIRE shape check that runs, because Answer
-# always wins the shape question (§4). The SAME narrative body -
-# "Also did thing N." lines, which are not a recognized State:/Running:/
-# Blocked:/Waiting: slot line - is QUIET as an Answer turn (routes to
-# _answer_relevance_flag + the 50-line ceiling, neither of which inspects
-# line SHAPE) but BLOCKS as a pure completion execution turn (routes to
+# fixture - warrant composition changes the entire enforcement posture,
+# not just a budget): an incidental quoted fragment does not just change
+# which check would apply, it changes whether ANY structural shape check
+# runs at all, because Answer always wins the shape question (§4). The
+# SAME narrative body - "Also did thing N." lines, which are not a
+# recognized State:/Running:/Blocked:/Waiting: slot line - is QUIET as an
+# Answer turn (DS-171: no hook check inspects Answer-turn shape any more)
+# but BLOCKS as a pure completion execution turn (routes to
 # _execution_prose_flag's general branch, which rejects unrecognized
 # status-region prose).
 s5c_with_quote_msg = (
@@ -939,12 +899,8 @@ check(
     is_quiet(rc, out),
 )
 
-s8_over_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(10, label="State") + "Waiting: nothing further.\n"
-rc, out, err = run_hook(make_payload(s8_over_msg))
-check(
-    "s8-over. same combo shape, 11 lines (over flat budget) -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
+# s8-over: RETIRED (DS-171). Pinned the over-flat-budget ADVISORY via the
+# now-deleted turn-charge volume check.
 
 # s9. same combo, AT the flat budget (9 prose + 1 Waiting: = 10 lines) ->
 # QUIET. (A9: relabeled from "at the completion budget (6 lines)" - the
@@ -1022,31 +978,17 @@ check(
     is_quiet(rc, out),
 )
 
-# s12. REGRESSION (DS-151 Skeptic Major finding 2a, exact adversarial
-# input, still pinned under the charge model): 30 lines of ORDINARY PROSE
-# wrapped in a single closed fence, plus 2 real body lines - under the old
-# unconditional exclusion this counted as 0 and passed silently (QUIET);
-# after the fix, the 10 lines beyond FENCE_FREE_LINES=20 count at full
-# weight, pushing the charge to 2 + 10 = 12, which exceeds the flat
-# BASE_BODY_BUDGET=10 -> ADVISORY.
-# DS-156: wrapper lines converted to recognized State: slot lines (same
-# reason as s11 above) - the fenced content itself is unaffected.
-s12_fence_lines = "\n".join(f"Prose line {i}, not code at all." for i in range(1, 31))
-s12_msg = (
-    IDENTITY_COMPLETE
-    + "\nState: here is the summary.\n```\n"
-    + s12_fence_lines
-    + "\n```\nState: done reporting.\n"
-)
-rc, out, err = run_hook(make_payload(s12_msg))
-check(
-    "s12. 30 prose lines in a closed fence (over FENCE_FREE_LINES) -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
+# s12: RETIRED (DS-171). Pinned the over-FENCE_FREE_LINES ADVISORY via the
+# now-deleted turn-charge volume check (that constant, too, is deleted).
 
-# s12b. Fence content AT the cap (exactly FENCE_FREE_LINES lines) stays
-# fully excluded -> QUIET, confirming the cap boundary itself (not just
-# "over the cap").
+# s12b. Fence content of FENCE_FREE_LINES lines (a local test-file sizing
+# constant only - the hook's own FENCE_FREE_LINES is deleted, DS-171)
+# stays fully excluded from the shape check -> QUIET. Post-DS-171 this is
+# true of fenced content of ANY length (there is no longer a volume check
+# to cross), so this fixture size is no longer a meaningful boundary - the
+# fixture is kept at its historical size rather than resized, since the
+# assertion (QUIET) is unconditionally true and still exercises the fence-
+# exclusion behavior of `_execution_prose_flag`'s general branch.
 s12b_fence_lines = "\n".join(f"Prose line {i}." for i in range(1, FENCE_FREE_LINES + 1))
 s12b_msg = (
     IDENTITY_COMPLETE
@@ -1137,64 +1079,14 @@ check(
 
 # ---------------------------------------------------------------------------
 # v. DS-151 new regression fixtures (verified escapes under the OLD,
-#    deleted per-warrant exclusion model). Test-strategy item 2: v1-v9 are
-#    all confirmed to produce a DIFFERENT verdict against the pre-DS-151
-#    hook (commit 40ba9ce4) than they assert here - see the fix summary
-#    for the recorded old-code failure list. v5b/v7b/v8/v9 are QUIET
-#    contrast/false-positive-gate fixtures, not escape fixtures, and are
-#    NOT required to differ from old-code behavior (old code was already
-#    QUIET on them too, correctly).
+#    deleted per-warrant exclusion model). DS-171: v1-v4, v6, v6b, and v7
+#    are DELETED - each pinned an outcome via the now-retired turn-charge
+#    volume check (`is_advisory(rc, out, "turn volume exceeded")` or a
+#    bare charge-count assertion), which no longer fires. v5/v5b/v7b/v8/
+#    v8b/v9 are KEPT: their assertions are QUIET/BLOCKING outcomes of the
+#    still-live `_execution_prose_flag`/`_decision_item_sprawl_flag`
+#    checks, unaffected by the volume-check retirement.
 # ---------------------------------------------------------------------------
-
-
-def _fence(n: int) -> str:
-    return "```\n" + "\n".join(f"fence content line {i}" for i in range(1, n + 1)) + "\n```"
-
-
-# v1. CF-1 gate: four 20-line CLOSED fences (aggregate 88 fenced nonblank
-# lines) -> ADVISORY, charge 69. Must be >=2 fences - a 1-fence fixture
-# passes under the old buggy per-fence-cap code too (s12b already pins
-# that boundary).
-v1_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(4)) + "\nState: complete.\n"
-rc, out, err = run_hook(make_payload(v1_msg))
-check(
-    "v1. CF-1 gate: four 20-line closed fences -> ADVISORY, charge 69",
-    is_advisory(rc, out, "charge is 69"),
-)
-
-# v2. Minimal multiplication case: two 20-line closed fences -> ADVISORY,
-# charge 25.
-v2_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(2)) + "\nState: complete.\n"
-rc, out, err = run_hook(make_payload(v2_msg))
-check(
-    "v2. two 20-line closed fences (minimal multiplication case) -> ADVISORY, charge 25",
-    is_advisory(rc, out, "charge is 25"),
-)
-
-# v3. CF-2 escape: 40 preamble lines under the heading, no item marker at
-# all -> ADVISORY. Under the old "stop counting at the heading" design
-# this region had NO accounting at all.
-v3_msg = IDENTITY_OK + "\n\n## Operator decisions\n" + "\n".join(f"Preamble narrative line {i}." for i in range(1, 41)) + "\n"
-rc, out, err = run_hook(make_payload(v3_msg))
-check(
-    "v3. 40 preamble lines under the heading, no item marker -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
-
-# v4. CF-2 escape, distinct shape from v3: a decisions block with no
-# markers at all (short unstructured narrative, no bullets/numbers)
-# -> ADVISORY once it exceeds the flat budget.
-v4_msg = (
-    IDENTITY_OK
-    + "\n\n## Operator decisions\n"
-    + "\n".join(f"Unstructured narrative line {i} with no bullet or number." for i in range(1, 13))
-    + "\n"
-)
-rc, out, err = run_hook(make_payload(v4_msg))
-check(
-    "v4. decisions block with no markers at all -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
 
 # v5. CF-2 indented-item escape: a 40-line item indented at column 2 ->
 # ADVISORY. The OLD _DECISION_ITEM_START_RE was column-0 anchored, so an
@@ -1224,36 +1116,6 @@ v5b_msg = (
 )
 rc, out, err = run_hook(make_payload(v5b_msg))
 check("v5b. 40 separate one-line indented items -> QUIET (item count unbounded)", is_quiet(rc, out))
-
-# v6. Amendment A8: a fenced '## Operator decisions' heading + 40 prose
-# lines produces ZERO warrants under step-7's narrowed detection domain
-# (the heading is invisible while fenced, and nothing else in the message
-# supplies a warrant) - so _volume_flag's zero-warrant early return fires,
-# and the advisory comes from _status_only_flag instead. Re-specified per
-# A8 to assert the finding it ACTUALLY produces.
-v6_prose = "\n".join(f"Prose line {i} inside the fence." for i in range(1, 41))
-v6_msg = IDENTITY_OK + "\n```\n## Operator decisions\n" + v6_prose + "\n```\n"
-rc, out, err = run_hook(make_payload(v6_msg))
-check(
-    "v6 (A8 re-spec). fenced heading + 40 prose, zero warrants -> ADVISORY "
-    "(status-only), NOT a volume finding",
-    is_advisory(rc, out, "status-only"),
-)
-check(
-    "v6b. fenced-heading case does NOT produce a volume finding",
-    "turn volume exceeded" not in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
-)
-
-# v7. Amendment A1's fat-vs-well-formed distinction: 30 "Waiting:"-shaped
-# lines that EXCEED WAITING_LINE_MAX_CHARS (fat) -> ADVISORY. A fat
-# Waiting: line is never well-formed regardless of stoppage_sole, so it
-# charges 1 like ordinary prose.
-v7_msg = IDENTITY_OK + "\n" + "\n".join("Waiting: " + ("x" * 150) + f" item {i}" for i in range(1, 31)) + "\n"
-rc, out, err = run_hook(make_payload(v7_msg))
-check(
-    "v7. 30 fat (>WAITING_LINE_MAX_CHARS) Waiting: lines -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
 
 # v7b. CONTRAST (not an escape fixture): 50 well-formed Waiting: lines,
 # sole warrant -> QUIET. Confirms the free pool is genuinely unbounded by
@@ -1403,38 +1265,19 @@ check(
 #    u1/u2 (bare BODY_BUDGET_ANSWER / BODY_BUDGET_ANSWER_WEAK_FALLBACK
 #    constant pins) are DELETED along with the constants they pinned - both
 #    were deleted-mechanism pins with no behavioral coupling, the exact
-#    defect class named in the ticket. u3/u4 below assert the fence-cap and
-#    per-item-cap BOUNDARIES through the hook's actual QUIET/ADVISORY
-#    output; the module is imported only to SIZE the fixtures precisely at
-#    the constants' current values, never to compare an integer directly.
+#    defect class named in the ticket. u3 (the fence-cap boundary,
+#    FENCE_FREE_LINES/BASE_BODY_BUDGET) is likewise DELETED as of DS-171 -
+#    both constants and the volume check that consumed them are gone. u4
+#    below asserts the per-item-cap BOUNDARY, which still exists
+#    (`_decision_item_sprawl_flag` is not retired), through the hook's
+#    actual QUIET/ADVISORY output; the module is imported only to SIZE the
+#    fixture precisely at the constant's current value, never to compare
+#    an integer directly.
 # ---------------------------------------------------------------------------
 
 _spec = importlib.util.spec_from_file_location("enforce_turn_shape", HOOK_PATH)
 _hook_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_hook_mod)
-
-# u3. fence-cap boundary, asserted behaviorally. Content of exactly
-# FENCE_FREE_LINES nonblank lines inside a single closed fence, plus one
-# completion-warrant line, stays fully free (charge 1) -> QUIET. Content
-# comfortably over the cap (enough to also cross BASE_BODY_BUDGET on its
-# own) -> ADVISORY. (A flat +1-line-over-cap probe would NOT necessarily
-# flip under the new flat whole-message budget - s12/s12b already pin the
-# tighter over/at-cap contrast for that reason.)
-_u3_at_cap = "\n".join(f"boundary fence line {i}" for i in range(1, _hook_mod.FENCE_FREE_LINES + 1))
-u3_at_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_at_cap + "\n```\nState: complete.\n"
-rc, out, err = run_hook(make_payload(u3_at_msg))
-check("u3a. fence content exactly AT FENCE_FREE_LINES -> QUIET (fully free)", is_quiet(rc, out))
-
-_u3_over_cap = "\n".join(
-    f"boundary fence line {i}" for i in range(1, _hook_mod.FENCE_FREE_LINES + _hook_mod.BASE_BODY_BUDGET + 5)
-)
-u3_over_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_over_cap + "\n```\nState: complete.\n"
-rc, out, err = run_hook(make_payload(u3_over_msg))
-check(
-    "u3b. fence content well over FENCE_FREE_LINES (enough to also cross the "
-    "flat budget) -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
 
 # u4. per-item-cap boundary, asserted behaviorally. An item of exactly
 # MAX_LINES_PER_DECISION_ITEM lines is compliant (no sprawl finding); one
@@ -1493,14 +1336,17 @@ def _read_counter_state(cwd: str) -> dict:
 
 with tempfile.TemporaryDirectory() as lg_tmp_dir:
     lg_real = os.path.realpath(lg_tmp_dir)
-    # DS-155 round 3: flagged_msg is FLAGGED_STATUS_ONLY_MSG, not the bare
-    # "Done." these L. fixtures used pre-DS-155 - "Done." was flagged by
-    # the now-fully-DELETED identity-line check (not merely the round-2
-    # exemption around it), so restoring the literal round-1 string would
-    # make every is_advisory() assertion below fail. The round-2-only
-    # scaffolding (_write_fake_git_branch calls) IS fully reverted/removed
-    # here, per instruction - it existed solely to scope that exemption.
-    flagged_msg = FLAGGED_STATUS_ONLY_MSG
+    # DS-155 round 3: flagged_msg must be something that reliably produces
+    # an ADVISORY finding, not the bare "Done." these L. fixtures used
+    # pre-DS-155 - "Done." was flagged by the now-fully-DELETED
+    # identity-line check. DS-171: FLAGGED_STATUS_ONLY_MSG no longer
+    # produces any finding at all (the status-only check it tripped is
+    # retired) - swapped for FLAGGED_SPRAWL_MSG, which trips the sole
+    # surviving advisory check (`_decision_item_sprawl_flag`). The
+    # round-2-only scaffolding (_write_fake_git_branch calls) IS fully
+    # reverted/removed here, per instruction - it existed solely to scope
+    # that exemption.
+    flagged_msg = FLAGGED_SPRAWL_MSG
 
     # L1. Layer 1: stop_hook_active=true on a flagged message -> QUIET.
     rc, out, err = run_hook(
@@ -1514,7 +1360,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     os.makedirs(os.path.join(cap_dir, ".agentic"), exist_ok=True)
     _make_counter_state(cap_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
-    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "status-only"))
+    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "operator-decisions item sprawl"))
     check("L2b. counter incremented to 2", _read_counter_state(cap_dir)["count"] == 2)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
     check("L2c. counter at CAP=2 -> QUIET (advisory halted)", is_quiet(rc, out))
@@ -1541,7 +1387,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
             }
         )
     )
-    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "status-only"))
+    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "operator-decisions item sprawl"))
 
     # L4. A clean turn resets the counter -> next flagged turn advisories
     # again. Seeded at CAP-1 (below the cap) so the clean turn is classifiable
@@ -1555,7 +1401,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     check("L4a. clean turn -> QUIET (no advisory)", is_quiet(rc, out))
     check("L4b. clean turn resets counter to 0", _read_counter_state(clean_reset_dir)["count"] == 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=clean_reset_dir))
-    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "status-only"))
+    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "operator-decisions item sprawl"))
 
     # L5. Counter write failure (unwritable .agentic/) -> QUIET, fail-open.
     unwrite_dir = os.path.join(lg_real, "unwritable_cwd")
@@ -1723,8 +1569,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     )
     check(
         "w2b. narrative-creep body (~3 words/unit), statement transcript -> "
-        "ADVISORY (status-only), signal 2 does not recall narrative-creep noise",
-        is_advisory(rc, out, "status-only"),
+        "QUIET (DS-171: status-only check retired, so this is silent "
+        "regardless of signal 2; kept as a regression pin that the "
+        "bonus/signal-2 machinery itself is unaffected)",
+        is_quiet(rc, out),
     )
 
     # w3. No transcript_path at all -> transcript bonus unavailable, but
@@ -1743,9 +1591,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # body signal 2 correctly does not recognize as explanatory.
     rc, out, err = run_hook(json.dumps({"last_assistant_message": NARRATIVE_CREEP_BODY}))
     check(
-        "w3b. no transcript_path, narrative-creep body -> ADVISORY (status-only), "
-        "today's behavior preserved for non-explanatory bodies",
-        is_advisory(rc, out, "status-only"),
+        "w3b. no transcript_path, narrative-creep body -> QUIET (DS-171: "
+        "status-only check retired)",
+        is_quiet(rc, out),
     )
 
     # w3c. Boundary fixture pinned at exactly 7.9 words/unit (one word below
@@ -1754,9 +1602,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # ADVISORY (status-only).
     rc, out, err = run_hook(json.dumps({"last_assistant_message": BOUNDARY_PROSE_ANSWER}))
     check(
-        "w3c. boundary body at 7.9 words/unit, no transcript -> ADVISORY (status-only), "
-        "signal 2 stays below threshold",
-        is_advisory(rc, out, "status-only"),
+        "w3c. boundary body at 7.9 words/unit, no transcript -> QUIET "
+        "(DS-171: status-only check retired)",
+        is_quiet(rc, out),
     )
 
     # w4. A tool_result-only trailing "user" line (real CC transcripts record
@@ -1789,19 +1637,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_quiet(rc, out),
     )
 
-    # w5. The bonus grants the `answer` warrant but does NOT buy an
-    # unbounded free-line pool - a reply over the answer-specific
-    # ANSWER_BODY_BUDGET (50, DS-156 - not the flat BASE_BODY_BUDGET of 10
-    # an execution turn is held to) still fires the volume check.
-    long_answer = IDENTITY_OK + "\n" + _nlines(51, prefix="Line")
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": long_answer, "transcript_path": question_transcript})
-    )
-    check(
-        "w5. answer bonus does not exempt a reply over ANSWER_BODY_BUDGET (50) "
-        "-> ADVISORY (turn volume exceeded)",
-        is_advisory(rc, out, "turn volume exceeded"),
-    )
+    # w5. RETIRED (DS-171): this pinned that the transcript answer bonus
+    # does not buy an unbounded free-line pool, via the now-deleted
+    # ANSWER_BODY_BUDGET volume check. The volume rule now lives in the
+    # `dinostack` output style, not this hook.
 
     # w6. REGRESSION (DS-155 round 2, Major 1 demonstrated repro): operator
     # asks a genuine question, then TWO intervening assistant TEXT turns
@@ -1838,8 +1677,16 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": stale_question_transcript})
     )
     check(
-        "w6. stale question (2 intervening assistant turns) -> ADVISORY (status-only), bonus withheld",
-        is_advisory(rc, out, "status-only"),
+        "w6. stale question (2 intervening assistant turns) -> QUIET (DS-171: "
+        "status-only check retired; kept as a regression pin that the "
+        "recency gate correctly withholds the bonus - w6a below pins the "
+        "bonus directly)",
+        is_quiet(rc, out),
+    )
+    check(
+        "w6a. bonus withheld directly (_transcript_answer_bonus returns "
+        "False for this stale-question transcript)",
+        _mod._transcript_answer_bonus(stale_question_transcript, stale_status_only) is False,
     )
 
     # w6b. Companion positive control: IDENTICAL shape, but the current
@@ -1993,8 +1840,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         )
     )
     check(
-        "w9. current turn's own entry not yet on disk -> ADVISORY (status-only), correctly stale-by-one",
-        is_advisory(rc, out, "status-only"),
+        "w9. current turn's own entry not yet on disk -> QUIET (DS-171: "
+        "status-only check retired; kept as a regression pin that the "
+        "staleness classification itself is unaffected)",
+        is_quiet(rc, out),
     )
 
     # w10. REGRESSION (DS-155 round 4): the tool_use-pending flag must be
@@ -2036,8 +1885,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     )
     check(
         "w10. tool_use attribution is scoped to ONE preceding text entry, not the whole window "
-        "-> ADVISORY (status-only), turn A still detected as intervening",
-        is_advisory(rc, out, "status-only"),
+        "-> QUIET (DS-171: status-only check retired; kept as a "
+        "regression pin that turn A is still detected as intervening)",
+        is_quiet(rc, out),
     )
 
     # ---------------------------------------------------------------------
@@ -2127,32 +1977,38 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     # Advisory-recall fix: this gate exists to test the TRANSCRIPT-derived
     # staleness classification (_has_intervening_assistant_turn), not body
-    # shape. NARRATIVE_CREEP_BODY (not PLAIN_PROSE_ANSWER) is used as the
-    # final answer text so signal 2 (`_status_only_prose_is_explanatory`)
-    # never independently recalls it - PLAIN_PROSE_ANSWER's whole-body
-    # shape (8.0 words/unit) would otherwise satisfy signal 2 regardless of
-    # transcript staleness and collapse every "advisory" expectation below
-    # to QUIET, defeating what this gate actually measures.
+    # shape or hook-level advisory posture. NARRATIVE_CREEP_BODY (not
+    # PLAIN_PROSE_ANSWER) is used as the final answer text so signal 2
+    # (the retired `_status_only_prose_is_explanatory`) never independently
+    # recalls it either way.
+    #
+    # DS-171: previously this asserted the hook's QUIET/ADVISORY(status-
+    # only) posture, which distinguished "bonus granted" from "bonus
+    # withheld" only because the withheld case fell through to the
+    # (now-retired) status-only advisory. With that advisory gone, both
+    # outcomes at the hook level would be QUIET regardless of the bonus,
+    # which would make this gate vacuous - so it now asserts
+    # `_transcript_answer_bonus` directly, which is the actual signal this
+    # gate exists to protect and is unaffected by DS-171.
     for _sample in _corpus_fixture["samples"]:
         _replay_transcript = _build_corpus_replay_transcript(tmp_dir, _sample, NARRATIVE_CREEP_BODY)
-        rc, out, err = run_hook(
-            json.dumps({"last_assistant_message": "", "transcript_path": _replay_transcript})
-        )
-        _expect_quiet = _sample["expected"] == "quiet"
-        _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
+        _expect_bonus = _sample["expected"] == "quiet"
+        _bonus_granted = _mod._transcript_answer_bonus(_replay_transcript, NARRATIVE_CREEP_BODY)
         check(
             f"corpus-replay {_sample['id']} ({_sample['shape_class']}) -> "
-            f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
-            _outcome_ok,
+            f"answer bonus {'GRANTED' if _expect_bonus else 'WITHHELD'} (expected)",
+            _bonus_granted == _expect_bonus,
         )
 
 
 # ---------------------------------------------------------------------------
 # DS-156. Required §9 hook-contract coverage: _execution_prose_flag
-# (BLOCKING), _answer_relevance_flag (ADVISORY), ANSWER_BODY_BUDGET,
-# STATUS_LINE_MAX_CHARS, and the false-positive discipline the module
-# docstring's governing principle demands (a guard that fires on correct,
-# fully-warranted turns is worse than no hook at all).
+# (BLOCKING), STATUS_LINE_MAX_CHARS, and the false-positive discipline the
+# module docstring's governing principle demands (a guard that fires on
+# correct, fully-warranted turns is worse than no hook at all).
+# DS-171: `_answer_relevance_flag`/ANSWER_BODY_BUDGET coverage below is
+# retired along with the check itself - the relevance/volume rules now
+# live in the `dinostack` output style, not this hook.
 # ---------------------------------------------------------------------------
 
 # n3. log_fire() logs decision='deny' (not 'allow_advisory') on a
@@ -2172,8 +2028,9 @@ check(
 )
 
 # ds156-a. Answer turn with a long, substantive body -> QUIET, proving
-# length alone no longer charges (spec item a). Deliberately well over
-# BASE_BODY_BUDGET (10) but comfortably under ANSWER_BODY_BUDGET (50).
+# length alone does not charge - DS-171 (the volume check that produced
+# this proof is retired; a hook-level advisory can no longer fire on
+# length at all, which is a strictly stronger version of the same claim).
 ds156_a_msg = (
     IDENTITY_OK
     + '\n"The root cause is a stale cache entry keyed on mtime and size."\n'
@@ -2182,33 +2039,11 @@ ds156_a_msg = (
 rc, out, err = run_hook(make_payload(ds156_a_msg))
 check("ds156-a. answer turn, 16-line substantive body -> QUIET (length alone does not charge)", is_quiet(rc, out))
 
-# ds156-b. Answer turn opening with a filler phrase -> ADVISORY naming ban
-# 2. Per §4/§9 an Answer turn has NO identity line - the prose IS the
-# payload, so the ban-2 opening-anchor check is exercised against the
-# TRUE start of the message, matching the module's own "Worked example -
-# an Answer turn" (no identity line at all).
-ds156_b_msg = (
-    'Good question. "The root cause is a stale cache entry."\n'
-    + "Clearing the cache between runs fixes it.\n"
-)
-rc, out, err = run_hook(make_payload(ds156_b_msg))
-check(
-    "ds156-b. answer turn opens with a filler phrase -> ADVISORY naming ban 2",
-    is_advisory(rc, out, "relevance ban 2"),
-)
-
-# ds156-c. Answer turn ending with a recap phrase -> ADVISORY naming ban 5.
-ds156_c_msg = (
-    IDENTITY_OK
-    + '\n"The root cause is a stale cache entry keyed on mtime and size."\n'
-    + "Clearing the cache between runs fixes it.\n\n"
-    + "To summarize, clear the cache between runs.\n"
-)
-rc, out, err = run_hook(make_payload(ds156_c_msg))
-check(
-    "ds156-c. answer turn closes with a recap phrase -> ADVISORY naming ban 5",
-    is_advisory(rc, out, "relevance ban 5"),
-)
+# ds156-b/ds156-c (relevance bans 2/5 on an Answer turn): RETIRED (DS-171).
+# `_answer_relevance_flag` and the `_OPENING_FILLER_RE`/`_CLOSING_RECAP_RE`
+# phrase lists it consumed are deleted - the relevance rule now lives in
+# the `dinostack` output style. See hooks/enforce-turn-shape.py's Purpose
+# section.
 
 # ds156-d. Answer+Decision combo: prose above, '## Operator decisions'
 # last -> QUIET, proving the precedence rule (Answer always wins the
@@ -2350,292 +2185,16 @@ rc, out, err = run_hook(make_payload(ds156_d_msg))
 check("fp4. Answer+Decision combo -> QUIET", is_quiet(rc, out))
 
 # ---------------------------------------------------------------------------
-# y. DS-157: body-paragraph completion declaration suppresses the
-#    status-only ADVISORY without granting the `completion` WARRANT (never
-#    routes to the BLOCKING _execution_prose_flag path). See
-#    hooks/enforce-turn-shape.py's _has_body_completion_declaration
-#    docstring for the corpus method and the blocking-path safety analysis.
-# ---------------------------------------------------------------------------
-
-# y1. The reported symptom, reproduced verbatim in shape: identity line
-# "Both units shipped." does NOT itself match _LEADING_COMPLETION_RE
-# ("shipped" has no trailing completion-adjacent word before the period),
-# but the FIRST body paragraph opens with a genuine leading completion
-# declaration.
-y1_msg = (
-    "Both units shipped.\n"
-    "\n"
-    "**DS-156 is done.** `_execution_prose_flag` is live and blocking on "
-    "main, all markers removed.\n"
-    "\n"
-    "What changed for you:\n"
-    "\n"
-    "- Execution turns are now structurally incapable of carrying prose.\n"
-    "- Answer turns stay conversational.\n"
-)
-rc, out, err = run_hook(make_payload(y1_msg))
-check(
-    "y1. DS-157 reported symptom - identity line misses, first body "
-    "paragraph is a genuine completion declaration -> QUIET (was ADVISORY "
-    "pre-fix)",
-    is_quiet(rc, out),
-)
-
-# y2. Second corpus-derived true positive: "Cleaned up." (identity line -
-# "cleaned" is not in _LEADING_COMPLETION_RE's past-participle verb list)
-# followed by a bulleted "**Done:**" paragraph.
-y2_msg = (
-    "Cleaned up.\n"
-    "\n"
-    "**Done:**\n"
-    "- Killed any dev servers.\n"
-    "- Removed both agent worktrees.\n"
-    "- Deleted the scratch branches.\n"
-)
-rc, out, err = run_hook(make_payload(y2_msg))
-check(
-    "y2. 'Cleaned up.' + first-paragraph '**Done:**' bullet list -> QUIET",
-    is_quiet(rc, out),
-)
-
-# y3. REGRESSION (round 1 false positive, tally header): "Three done, two
-# building:" matches the leading-completion SHAPE but is a partial tally,
-# not a whole-turn completion claim - _TALLY_HEADER_RE excludes it. Must
-# stay ADVISORY (status-only), not be suppressed.
-y3_msg = (
-    "**AUT-295 merged and closed** (deploy).\n"
-    "\n"
-    "Three done, two building:\n"
-    "\n"
-    "| Ticket | State |\n"
-    "|---|---|\n"
-    "| AUT-407 | Merged |\n"
-    "| AUT-415 | Building |\n"
-)
-rc, out, err = run_hook(make_payload(y3_msg))
-check(
-    "y3. tally header ('Three done, two building:') is NOT suppressed -> "
-    "ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
-)
-
-# y4. REGRESSION (round 2 false positive, sub-item trap): the first
-# paragraph is a genuine-shaped completion declaration, but the SAME turn's
-# second paragraph is still in progress ("**In progress:**") - the
-# extended _CONTINUING_WORK_PHRASE_RE veto must catch this.
-y4_msg = (
-    "Fix round running. Where things stand:\n"
-    "\n"
-    "**Done and independently verified:** the feature works end to end.\n"
-    "Handles the empty/failed cases without breaking.\n"
-    "\n"
-    "**In progress:** the two remaining Majors.\n"
-    "Deduplicating the shared fetch across both routes.\n"
-)
-rc, out, err = run_hook(make_payload(y4_msg))
-check(
-    "y4. first-paragraph completion declaration vetoed by a later "
-    "'**In progress:**' paragraph -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
-)
-
-# y5. REGRESSION (round 3 false positive, bare-noun continuing signal): the
-# existing 'is/are still running' phrase does not match a bare-noun subject
-# ("Review running on #639", "Two loose ends still open") - the DS-157
-# veto additions must.
-y5_msg = (
-    "ad-hoc · main · [phase: skeptic-review]\n"
-    "\n"
-    "Split done.\n"
-    "\n"
-    "**#639 is open** with the deferral alone.\n"
-    "\n"
-    "Review running on #639, briefed on the one risk that matters.\n"
-    "\n"
-    "Two loose ends still open: the pre-commit hook fix, and Plan B's "
-    "review.\n"
-)
-# y5a. Signal 1 (DS-157's `_has_body_completion_declaration`) still
-# correctly withholds its OWN suppression here - the veto phrases keep
-# doing their job at the unit level, unchanged by the advisory-recall fix.
-check(
-    "y5a. signal 1 (_has_body_completion_declaration) still vetoed by "
-    "'Review running on #639' / 'still open' - DS-157 behavior unchanged",
-    _mod._has_body_completion_declaration(y5_msg) is False,
-)
-# y5b. ADVISORY-RECALL FIX (measured, deliberate consequence): this body is
-# genuine, well-formed multi-paragraph prose (avg 8.25 words/unit, above
-# _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE) - signal 2
-# (`_status_only_prose_is_explanatory`) independently recognizes it as
-# explanatory, per the architect's exact-code design
-# (`_is_answer_shaped_prose` reused against the whole body, with no
-# continuing-work veto consulted - see that function's own docstring).
-# The WHOLE-HOOK verdict therefore flips from y5's pre-fix ADVISORY to
-# QUIET, even though signal 1 alone (y5a) still withholds its suppression.
-# This is consistent with y1/y2's true positives above: a real,
-# well-developed status report is recalled by signal 2 regardless of
-# whether it also happens to mention other still-open work.
-rc, out, err = run_hook(make_payload(y5_msg))
-check(
-    "y5b. whole-hook verdict on the same body -> QUIET (signal 2 "
-    "independently recalls genuine multi-paragraph prose, DS-157's veto "
-    "notwithstanding - see y5a for signal 1's unchanged behavior)",
-    is_quiet(rc, out),
-)
-
-# y6. BLOCKING-PATH SAFETY REGRESSION (the ticket's central concern): the
-# y1 shape must NEVER grant the `completion` WARRANT, even though
-# _has_body_completion_declaration is True for it - only _status_only_flag
-# may consume that signal. Pinned directly against the module's warrant
-# dict, not just the hook's observable QUIET/ADVISORY behavior, so a future
-# change that threads the signal into _classify_warrants is caught even if
-# it happens to still test QUIET on this fixture (e.g. because some other
-# warrant also fires).
-_y1_warrants = _mod._classify_warrants(y1_msg)
-check(
-    "y6a. _has_body_completion_declaration is True for the y1 fixture "
-    "(precondition for y6b/y6c to be meaningful)",
-    _mod._has_body_completion_declaration(y1_msg) is True,
-)
-check(
-    "y6b. the `completion` warrant key is NOT granted for the y1 fixture",
-    _y1_warrants["completion"] is False,
-)
-# y6c. Directly verifies the blocking-path danger this ticket required be
-# analyzed: simulating the y1 warrant dict with `completion` forced True
-# trips _execution_prose_flag (BLOCKING) on this exact genuine-completion
-# turn (its bulleted detail lines are not State:/Running:/Blocked:/Waiting:
-# slot lines). Pins a property of `_execution_prose_flag` under a
-# synthetic warrant dict, NOT a guarantee that _classify_warrants itself
-# never grants `completion` here - that guarantee is y6b's job.
-_y1_warrants_if_granted = dict(_y1_warrants)
-_y1_warrants_if_granted["completion"] = True
-check(
-    "y6c. _execution_prose_flag BLOCKS the y1 fixture under a synthetic "
-    "completion=True warrant dict - shows why y6b's fix must NOT widen "
-    "the warrant",
-    _mod._execution_prose_flag(y1_msg, _y1_warrants_if_granted) is not None,
-)
-
-# y7. REGRESSION (DS-157 round 2, Skeptic Major 1): a genuine completion
-# turn whose body separately mentions OTHER, unrelated work as "still
-# open" must NOT lose the `completion` WARRANT. Round 1's shipped
-# "still open" phrase caused exactly this false-positive class on real
-# corpus turns (all 10 measured instances described a backlog/PR/ticket
-# list, never the turn's own dependent work) - round 2 dropped the phrase
-# outright. Pinned directly against `_classify_warrants`, not just
-# QUIET/ADVISORY, so a future re-addition of an unscoped "still open" (or
-# similar backlog-vocabulary) phrase is caught even if some other warrant
-# happens to still make the turn look QUIET.
-y7_msg = (
-    "**Done.** The plan is complete and closed out.\n"
-    "\n"
-    "Still open and unstarted, in priority order: **THU-85** (urgent), "
-    "**THU-90** (next).\n"
-)
-_y7_warrants = _mod._classify_warrants(y7_msg)
-check(
-    "y7. a genuine completion turn mentioning unrelated backlog work as "
-    "'still open' still gets the `completion` WARRANT (no longer vetoed)",
-    _y7_warrants["completion"] is True,
-)
-
-# y8. CHARACTERIZATION (DS-157 round 2, Skeptic Major 1's demonstrated
-# latent hard-block path; RE-DERIVED DS-158). When a genuine
-# `stoppage`+`completion` turn's body ALSO contains a (correctly-kept)
-# continuing-work veto phrase ("CI running on #640" inside its own
-# Waiting: line), losing the `completion` warrant flips `stoppage_sole`
-# True, routing the turn onto _execution_prose_flag's sole-stoppage
-# branch. Before DS-158 this branch was fence-blind AND recognized ONLY
-# Waiting: lines, so it BLOCKED the well-formed State:/Running:/Blocked:
-# lines the general branch would have permitted - documented then as a
-# latent, out-of-scope mechanism. DS-158 widens the sole-stoppage branch
-# to also permit well-formed State:/Running:/Blocked: slot lines (the
-# same "here is my status and here is what I'm blocked on" fix as
-# elsewhere in this ticket), which resolves this exact latent mechanism
-# as a side effect: this turn is now well-formed on the sole-stoppage
-# branch too, so it stays QUIET.
-y8_msg = (
-    "Conductor\n"
-    "State: work complete.\n"
-    "Running: nothing.\n"
-    "Blocked: none.\n"
-    "Waiting: your review. CI running on #640.\n"
-)
-_y8_warrants = _mod._classify_warrants(y8_msg)
-check(
-    "y8a. the 'CI running on #640' Waiting-line mention flips "
-    "`completion` to False (the veto still fires, as intended)",
-    _y8_warrants["completion"] is False,
-)
-_y8_stoppage_sole = _y8_warrants["stoppage"] and not (
-    _y8_warrants["decision"] or _y8_warrants["completion"]
-)
-check(
-    "y8b. losing `completion` makes this a sole-stoppage turn",
-    _y8_stoppage_sole is True,
-)
-check(
-    "y8c. DS-158: the sole-stoppage branch now PERMITS the well-formed "
-    "State:/Running:/Blocked: lines too, resolving the formerly-latent "
-    "hard-block as a side effect of the sole-stoppage widening",
-    _mod._execution_prose_flag(y8_msg, _y8_warrants) is None,
-)
-
-# y9. REGRESSION (DS-157 round 3, Skeptic Major): the "in progress"
-# narrowing to `\*\*in\s+progress:?\*\*` (round 2) has a discriminating
-# property that round 1's bare `\bin\s+progress\b` form does not have -
-# it must NOT veto a genuine completion turn that separately mentions an
-# UNRELATED ticket's tracker status as plain, non-bold "In Progress". The
-# bare form vetoes this (matching the tracker-status prose); the
-# bold-anchored form does not (no `**...**` wrapping here). y6's fixture
-# at this file's y1/y6 block uses `**In progress:**` (bold), which
-# matches BOTH the bare and the narrowed forms and so cannot discriminate
-# between them - this fixture avoids bold entirely so it only matches the
-# bare form. Mutation-verified: reverting `_CONTINUING_WORK_PHRASE_RE`'s
-# `\*\*in\s+progress:?\*\*` alternative back to round 1's bare
-# `\bin\s+progress\b` must turn this assertion red; restoring the
-# narrowed form must turn it green again.
-y9_msg = (
-    "**Done.** The migration is complete and merged.\n"
-    "\n"
-    "AUT-577 is still In Progress in another session, unrelated to this "
-    "work.\n"
-)
-_y9_warrants = _mod._classify_warrants(y9_msg)
-check(
-    "y9. a genuine completion turn mentioning an unrelated ticket's "
-    "plain (non-bold) 'In Progress' tracker status still gets the "
-    "`completion` WARRANT (the bold-anchored narrowing does not veto "
-    "plain prose)",
-    _y9_warrants["completion"] is True,
-)
-
-# y10. REGRESSION (DS-157 round 4, Skeptic Minor 1): the colon-optionality
-# axis of `\*\*in\s+progress:?\*\*` was unpinned - y4 only exercises the
-# colon-present form ("**In progress:**"); no fixture exercised bold
-# "**In progress**" written WITHOUT a trailing colon. Same shape as y4
-# (a genuine first-paragraph completion declaration, vetoed by a later
-# still-continuing paragraph) but with the colon dropped, so this
-# assertion can only pass if the `:?` stays optional. Mutation-verified:
-# tightening `:?` to a mandatory colon must turn this assertion red;
-# restoring `:?` must turn it green again.
-y10_msg = (
-    "Fix round running. Where things stand:\n"
-    "\n"
-    "**Done and independently verified:** the feature works end to end.\n"
-    "Handles the empty/failed cases without breaking.\n"
-    "\n"
-    "**In progress** the two remaining Majors.\n"
-    "Deduplicating the shared fetch across both routes.\n"
-)
-rc, out, err = run_hook(make_payload(y10_msg))
-check(
-    "y10. first-paragraph completion declaration vetoed by a later "
-    "'**In progress**' (no colon) paragraph -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
-)
-
+# y. DS-157: RETIRED (DS-171). This section tested
+#    `_has_body_completion_declaration`, which suppressed the status-only
+#    ADVISORY on a genuine body-paragraph completion declaration. Both
+#    the function and the status-only check it fed are deleted - see
+#    hooks/enforce-turn-shape.py's Purpose section. The blocking-path
+#    safety property this section also verified (a body completion
+#    declaration must never grant the `completion` WARRANT) remains
+#    covered directly via `_classify_warrants` in section z below (z4b/
+#    z4c/z4d), which tests that property without depending on the
+#    retired function.
 # ---------------------------------------------------------------------------
 # z. DS-159: identity-line TRAILING bare completion sentence suppresses the
 #    status-only ADVISORY without granting the `completion` WARRANT (same
@@ -2685,9 +2244,11 @@ z2_msg = (
 rc, out, err = run_hook(make_payload(z2_msg))
 check(
     "z2. non-bare, non-final trailing sentence ('Both mechanical fixes "
-    "are done. Now finalizing...') is NOT suppressed -> ADVISORY "
-    "(status-only)",
-    is_advisory(rc, out, "status-only"),
+    "are done. Now finalizing...') is NOT suppressed -> QUIET (DS-171: "
+    "status-only check retired, so this is now silent regardless; kept "
+    "as a regression pin that no code path re-derives a completion "
+    "warrant from this shape)",
+    is_quiet(rc, out),
 )
 
 # z3. REGRESSION (measured false positive, partial-word absorption): "Status
@@ -2706,20 +2267,20 @@ z3_msg = (
 rc, out, err = run_hook(make_payload(z3_msg))
 check(
     "z3. 'Status while it completes:' (partial-word, not a bare "
-    "completion token) is NOT suppressed -> ADVISORY (status-only)",
-    is_advisory(rc, out, "status-only"),
+    "completion token) is NOT suppressed -> QUIET (DS-171: status-only "
+    "check retired, so this is now silent regardless; kept as a "
+    "regression pin on the underlying classification)",
+    is_quiet(rc, out),
 )
 
 # z4. BLOCKING-PATH SAFETY REGRESSION (this ticket's central concern,
 # mirrors y6 above): the z1 shape must NEVER grant the `completion`
-# WARRANT, even though _has_body_completion_declaration is True for it -
-# only _status_only_flag may consume the DS-159 signal.
+# WARRANT. DS-171: z4a (which pinned `_has_body_completion_declaration(
+# z1_msg) is True` as the precondition for z4b/z4c) is DELETED along with
+# that retired function - see hooks/enforce-turn-shape.py's Purpose
+# section. z4b/z4c/z4d below test `_classify_warrants`/
+# `_execution_prose_flag` directly and are unaffected.
 _z1_warrants = _mod._classify_warrants(z1_msg)
-check(
-    "z4a. _has_body_completion_declaration is True for the z1 fixture "
-    "(precondition for z4b/z4c to be meaningful)",
-    _mod._has_body_completion_declaration(z1_msg) is True,
-)
 check(
     "z4b. the `completion` warrant key is NOT granted for the z1 fixture",
     _z1_warrants["completion"] is False,
@@ -3460,11 +3021,12 @@ check(
 # mb1-creep. A heading exemption cannot itself launder an UNBOUNDED
 # sprawl of heading-formatted narrative-creep past the STRUCTURAL check
 # for free: 8 short pings, each disguised as its own heading, all become
-# recognized/skipped, so _execution_prose_flag returns None (quiet) - but
-# the separate CHARGE model (_turn_charge/_volume_flag) is untouched by
-# the heading exemption and still charges each one, so the pre-existing
-# ADVISORY volume backstop still fires. Proves the "recognized, not
-# exempt from volume" bound the exemption's own docstring names.
+# recognized/skipped, so _execution_prose_flag returns None (quiet).
+# DS-171: mb1-creep2 (which pinned that the separate turn-charge volume
+# check still caught this sprawl) is DELETED along with that check - see
+# hooks/enforce-turn-shape.py's Purpose section and its markdown-heading
+# comment block, which now discloses this axis as genuinely unbounded by
+# any hook-level check (the rule moved to the `dinostack` output style).
 mb1_creep_lines = ["## Also did thing {}.".format(i) for i in range(1, 13)]
 mb1_creep_msg = IDENTITY_COMPLETE + "\n" + "\n".join(mb1_creep_lines) + "\n"
 _mb1_creep_warrants = _mod._classify_warrants(mb1_creep_msg)
@@ -3472,12 +3034,6 @@ check(
     "mb1-creep1. _execution_prose_flag does NOT block a heading-formatted "
     "narrative-creep sprawl (the structural check alone cannot see it)",
     _mod._execution_prose_flag(mb1_creep_msg, _mb1_creep_warrants) is None,
-)
-check(
-    "mb1-creep2. the SAME heading-formatted sprawl still trips the "
-    "ADVISORY turn-volume check (charge model is unaffected by the "
-    "heading exemption - the bound the exemption relies on)",
-    _mod._volume_flag(mb1_creep_msg, _mb1_creep_warrants) is not None,
 )
 
 # mb2. Real-corpus turn_0314 shape: a completion turn whose status region
@@ -3523,9 +3079,10 @@ check(
     not bool(_mod._TABLE_ROW_RE.match("ran cmd | grep foo")),
 )
 
-# mb2-creep. Same laundering-bound proof as mb1-creep, for table rows:
-# a table-formatted creep sprawl escapes the structural check but still
-# charges through the volume check.
+# mb2-creep. Same laundering-bound proof as mb1-creep, for table rows: a
+# table-formatted creep sprawl escapes the structural check. DS-171:
+# mb2-creep2 (turn-charge volume check) is deleted - see mb1-creep's note
+# above.
 mb2_creep_lines = ["| Also did thing {} | done |".format(i) for i in range(1, 13)]
 mb2_creep_msg = IDENTITY_COMPLETE + "\n" + "\n".join(mb2_creep_lines) + "\n"
 _mb2_creep_warrants = _mod._classify_warrants(mb2_creep_msg)
@@ -3533,11 +3090,6 @@ check(
     "mb2-creep1. _execution_prose_flag does NOT block a table-formatted "
     "narrative-creep sprawl",
     _mod._execution_prose_flag(mb2_creep_msg, _mb2_creep_warrants) is None,
-)
-check(
-    "mb2-creep2. the SAME table-formatted sprawl still trips the "
-    "ADVISORY turn-volume check",
-    _mod._volume_flag(mb2_creep_msg, _mb2_creep_warrants) is not None,
 )
 
 # mb1-len / mb2-len (Skeptic Major 1). A SINGLE arbitrarily long
