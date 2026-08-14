@@ -678,7 +678,7 @@ def _raw_payload(tmp: str, diff_line: str, what_to_review: str | None = None) ->
     }
 
 
-# The exact hyphen-bullet form at content/references/skeptic-protocol.md:340
+# The exact hyphen-bullet form at content/references/skeptic-protocol.md:347
 # ("- Diff under review: <as today>") and the bold-bullet form real spawn
 # briefs use ("- **Diff under review:**") are both included below - the
 # verification round's own prompt used the latter and the pre-fix hook

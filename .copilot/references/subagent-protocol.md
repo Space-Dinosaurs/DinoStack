@@ -402,6 +402,8 @@ Two track agents spawned in parallel in the same directory. Track A checks out i
 
 **Softening adversarial briefs** — When passing a domain adversarial brief to a Worker (for The Skeptic Protocol), the main agent must pass it verbatim. Summarizing or softening the brief degrades adversarial independence.
 
+**Priming adversarial briefs with conductor hypotheses** - Injecting a conductor-composed suspicion, hypothesis, or attention-steer ("look hard at X, I think it's wrong") into a Skeptic spawn brief or Global-context field 7. This is the inverse failure to softening: instead of weakening the brief, it manufactures findings where the conductor guessed and suppresses independent discovery everywhere else. There is no carve-out for an operator-attributed steer - see `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the full rule, the falsifiability distinction from subagent-sourced content, and why no legitimate capability is lost.
+
 **Treating small edits as self-verifying** — Deciding that a small change doesn't need delegation because "it's only a couple of lines." The 1–2 line threshold for direct action applies only when the correct output is immediately apparent without reading any other file and no Elevated signals are present. Any edit involving Elevated signals must be delegated regardless of size.
 
 ---

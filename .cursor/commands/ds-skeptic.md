@@ -39,7 +39,7 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table]
+**Adversarial brief:** [Paste verbatim from the selection table] (neutral only - no conductor hypothesis, suspicion, or attention-steer; see skeptic-protocol.md Section 7 "Neutrality requirement (independent of completeness)")
 
 ## Global-context inputs
 
@@ -49,7 +49,7 @@ You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/s
 4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
 5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
 6. Diff under review: [git diff command OR file paths]
-7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line, OR "n/a - <reason>"]
+7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line, OR "n/a - <reason>"] [Neutrality: provenance-tagged factual claims only - never a conductor hypothesis or suspicion. See skeptic-protocol.md Section 7 "Neutrality requirement".]
 
 See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics. A bare `n/a` is invalid - every `n/a` needs `n/a - <reason>`.
 

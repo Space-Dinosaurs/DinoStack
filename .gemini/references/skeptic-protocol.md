@@ -266,6 +266,8 @@ On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6
 
 **Rejected design (signed rationale, recorded as a remark):** field 7's value is required to carry the claim-bearing text itself, not a pointer to it - a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths.
 
+**Neutrality:** field 7 carries provenance-tagged factual claims only - never a conductor hypothesis, suspicion, or attention-steer. See Section 7 "Neutrality requirement (independent of completeness)" below for the full rule, the completeness/neutrality distinction, and worked examples.
+
 ### Enumerated `n/a` rationale set
 
 A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the shape `n/a - <reason>`. The strings below are the canonical, preferred wording for their recurring situations and MUST be used verbatim when one applies. This list is not exhaustive: a situation none of them covers may supply its own `n/a - <reason>` string, provided the reason is specific and truthful for the unit under review (see Step 0 check 2 below for how this is assessed).
@@ -528,6 +530,43 @@ The adversarial brief defines the threat model the Skeptic must adopt. It is wri
 The brief should be specific to the domain and threat model of the work being reviewed. Generic briefs produce generic findings.
 
 **Brief extension:** The primary agent may extend a template brief with domain-specific additions: *"In addition to the above, also consider: [domain-specific concerns]."* The primary agent must never remove or soften any language from the selected template. Extension is additive only.
+
+### Neutrality requirement (independent of completeness)
+
+The Global-context input set (Section 4.5) and the adversarial brief exist to give the Skeptic everything it needs to review independently - never to tell it what to conclude. Two axes govern this text and they do not trade off against each other:
+
+- **Completeness** (Section 4.5 Step 0): every mandated field must be present, and every `n/a` must carry a specific, truthful reason. An incomplete brief is a BLOCKED spawn regardless of neutrality.
+- **Neutrality** (this rule): the brief and field 7 carry no conductor hypothesis, suspicion, or attention-steer - no sentence naming a suspected root cause, a specific file or path the conductor believes is wrong, or an instruction to "look hard at" one area over another. A brief can be complete and neutral at once; omitting a mandated field is never a route to neutrality, and adding a steer is never a route to completeness.
+
+Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the provenance test (`content/sections/04-risk-classification.md` §The provenance test) - it discloses provenance-tagged FACTUAL claims the conductor already asserted elsewhere in the spawn prompt (a value, path, count, or resolved-issue rationale), auditable per `content/agents/skeptic.md` Step 3.7. It is not a channel for new claims composed for the review itself. Inside a Skeptic or reviewer spawn brief specifically, an untagged hypothesis is omitted entirely, never rephrased as a question - see `content/sections/04-risk-classification.md` §The provenance test for the resident-surface statement of this exception.
+
+**The banned shape.** A conductor-composed pre-formed conclusion about what is specifically wrong - naming a location, file, function, or root cause the conductor itself believes to be broken - is banned, whether stated as fact, as suspicion, or as a leading question. This is the CONDUCTOR-COMPOSED test: the defect is the conductor composing an unverified belief and injecting it as if it were independent input, not the mere presence of a specific location in the text.
+
+**Not banned: verified facts and subagent-sourced content.** Two shapes look similar to the banned shape but are not it, because both are falsifiable against an artifact other than the conductor's own say-so:
+1. A provenance-tagged factual claim (`[verified: file:line]`, `[verified-local: ...]`) - a verified fact, not a belief, and may legitimately name a location.
+2. Content sourced from and explicitly attributed to a named returning subagent - e.g. `[per <agent>, unverified]`, an Engineer's `DONE_WITH_CONCERNS` stated concerns passed through per `content/commands/ds-implement-ticket.md` Step 5 ("The Engineer's stated concerns become additional context for the next Skeptic spawn"), or a named subagent's recommended adversarial-brief text (e.g. an architect plan's own "Adversarial brief recommendation") passed through as written. These may name a specific location or a pre-formed conclusion, because the conclusion is not the conductor's own - it points at a named agent whose actual return exists in the session transcript, so the attribution is auditable by the operator or a post-hoc transcript review even though a worktree-isolated Skeptic cannot open that return itself; a false attribution is already a provenance-test violation.
+
+**No carve-out for operator-attribution - that specific channel remains banned.** This is NOT the same case as (2) above, and the distinction is load-bearing: `[per <agent>, unverified]` names a returning agent whose actual output exists in the session transcript and is auditable against what it says; a bare `Per operator instruction: <text>` names no checkable artifact at all - there is no returned output to compare it against, so it is exactly as unfalsifiable as an unattributed conductor hypothesis, just wearing a label. A conductor cannot manufacture falsifiability by attribution alone; only an attribution that points at an independently checkable artifact (a subagent's own return) counts. Legitimate operator-directed scoping is still served without this carve-out: ticket/Brief text already flows through Global-context fields 1-2 with its own path-based provenance, and a category-level Brief extension (above) covers a genuine domain concern.
+
+**What is not a steer** (illustrative, not exhaustive - the test is CONDUCTOR-COMPOSED vs. VERIFIED-OR-SOURCED-AND-ATTRIBUTED, not membership in this list): a resolved-issues preflight entry restating a prior finding; a domain-specific brief extension naming a category of concern rather than a specific suspected defect; a per-consumer impact table entry; an Engineer's `DONE_WITH_CONCERNS` concerns passed through attributed to the Engineer; and a named subagent's recommended adversarial brief passed through attributed to that agent.
+
+**Worked examples:**
+
+```
+Bad:  "Look hard at the error classifier in retry.py - I think the
+       exponential backoff resets on the wrong condition."
+Good: "Review the diff for correctness of retry/backoff logic across
+       all touched files. [resolved-issues preflight and Global-context
+       inputs carry no additional steer]"
+Good (sourced pass-through): "Per Engineer DONE_WITH_CONCERNS: 'the
+       retry backoff in retry.py may reset on the wrong condition -
+       I ran out of time to verify.' [attributed to the Engineer's
+       own return, independently checkable against it]"
+```
+
+The bad form names a specific file and a specific pre-formed conclusion as the conductor's own belief before the Skeptic has looked; even reframed as a question, it remains banned. The first good form states a concern category without pre-naming the location or the defect. The second good form also names a location and a pre-formed conclusion, but is not banned - it is attributed to the Engineer's actual return rather than composed by the conductor, and the Skeptic can verify or discount it against that return.
+
+**Mechanical enforcement (recommendation, not implemented).** A PreToolUse hook could gate an Agent/Task spawn where `subagent_type == "skeptic"` and scan `tool_input.prompt` for steer-shaped phrases before allowing the spawn (precedent: `hooks/enforce-tier.py` and `hooks/enforce-skeptic-round-cap.py` already parse spawn-prompt text; gating on payload content, not inferred capability, is permitted per `hooks/AGENTS.md` §No gating on inferred session capability). Recommended posture: **start advisory, not blocking.** Semantic steer-phrase detection has a materially higher false-positive surface than the structural/regex hooks in this class - it must distinguish a banned conductor hypothesis from (a) legitimate resolved-issues preflight restatement, (b) a category-level brief extension, (c) field 7's mandated provenance-tagged disclosures, and (d) attributed subagent-sourced pass-through (`DONE_WITH_CONCERNS`, recommended briefs). A blocking hook with an immature false-positive rate would either deadlock legitimate spawns or train operators to route around it. Ship a warn-only advisory check first, log fires to `.agentic/.enforcement-fires.jsonl`, measure the false-positive rate over real sessions, and promote to blocking only after that data exists and a separate operator decision authorizes it. Building the hook itself is out of scope for this ticket.
 
 **Active search requirement:** The Skeptic agent enforces this internally - Step 5 of its evaluation process is a brief coverage check, and the required "Active search:" line is part of its sign-off format. The orchestrator does not need to inject this instruction. Providing the adversarial brief is sufficient - the agent applies it actively by design.
 
