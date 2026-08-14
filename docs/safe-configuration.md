@@ -104,9 +104,16 @@ hook installed separately:
   checks the conductor's final turn against the fixed-shape/warranted-turn
   rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag`
   (a non-Answer turn's structural shape) is BLOCKING and can block the stop,
-  injecting a directive to reshape the turn; `_answer_relevance_flag`
-  (opening-preamble/closing-recap phrasing on an Answer turn) remains
-  advisory-only and only logs a finding. See
+  injecting a directive to reshape the turn; `_decision_item_sprawl_flag`
+  (operator-decisions per-item shape) remains advisory-only and only logs a
+  finding. As of DS-171, three prior checks are retired from this hook and
+  live instead in the `dinostack` Claude Code output style
+  (`content/output-styles/dinostack.md`, select via `/config`): the
+  answer relevance check (`_answer_relevance_flag`,
+  opening-preamble/closing-recap), the zero-warrant status-only check
+  (`_status_only_flag`), and the whole-message turn-volume check
+  (`_turn_charge`/`_volume_flag`) - the output style additionally carries a
+  fourth rule, self-narrating candor, with no prior hook-mechanized form. See
   `content/references/conductor-turn-format.md` for the full contract.
   Controlled by
   `turn_shape_guard_enabled` in `.agentic/config.json`, default `true`

@@ -3,10 +3,11 @@
 # Public API: invoked as `bash .claude/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/sections/,
 #               content/SKILL.md, content/project-scaffolding.yml, content/templates/,
-#               scripts/build-methodology.sh, .claude/skills/dinostack/SKILL.frontmatter.yaml,
+#               content/output-styles/, scripts/build-methodology.sh,
+#               .claude/skills/dinostack/SKILL.frontmatter.yaml,
 #               .claude/commands.frontmatter/ (optional per-command frontmatter sidecars).
 # Downstream consumers: .claude/commands/, .claude/skills/dinostack/{SKILL.md,METHODOLOGY.md,references/,
-#                       project-scaffolding.yml,templates/}.
+#                       project-scaffolding.yml,templates/,output-styles/}.
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
 # Side-effects: removes stale .claude/commands/*.md files whose basename no longer matches any
 #               content/commands/*.md source (e.g. after a command rename or deletion upstream).
@@ -157,5 +158,12 @@ for TMPL_SRC in "$CONTENT"/templates/.agentic/*; do
     ln "$TMPL_SRC" "$TMPL_DST"
   fi
 done
+
+# output-styles/: plain copy (not hardlink) from content/ - a leaf artifact
+# with no downstream re-consumption inside .claude/skills/dinostack/, unlike
+# content/rules/*.md, so a copy is correct and matches the pattern below
+# rather than the hardlink pattern above.
+mkdir -p "$SKILL_DST/output-styles"
+cp "$CONTENT/output-styles/dinostack.md" "$SKILL_DST/output-styles/dinostack.md"
 
 echo "Claude adapter build complete."

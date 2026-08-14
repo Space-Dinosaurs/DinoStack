@@ -30,7 +30,7 @@ PASS=0
 FAIL=0
 
 _fail() {
-  echo "FAIL: $1" >&2
+  printf 'FAIL: %b\n' "$1" >&2
   FAIL=$((FAIL + 1))
 }
 
@@ -1074,6 +1074,139 @@ else
 fi
 
 rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 20: check_output_style_staleness (DS-171 round 4, Skeptic Minor 5).
+# Own isolated TEMP_HOME/FAKE_REPO, independent of the fixtures above.
+# ---------------------------------------------------------------------------
+T20_HOME="$(mktemp -d)"
+T20_REPO="$T20_HOME/fake-DinoStack"
+mkdir -p "$T20_REPO/.git" "$T20_REPO/.claude/skills/dinostack/output-styles"
+echo "built style v1" > "$T20_REPO/.claude/skills/dinostack/output-styles/dinostack.md"
+
+mkdir -p "$T20_HOME/.agentic"
+cat > "$T20_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20_REPO"
+}
+EOF
+
+t20_invoke() {
+  (
+    HOME="$T20_HOME"
+    export HOME
+    python3 "$DOCTOR" "$@"
+  ) > "$T20_HOME/.out" 2>&1
+  echo $? > "$T20_HOME/.exit"
+}
+
+# 20a: not installed at all -> SKIP, never FAIL
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style:.*not installed"; then
+  _pass "T20a output_style: not-installed reported as SKIP"
+else
+  _fail "T20a output_style: not-installed should be SKIP\n$OUT"
+fi
+
+# 20b: installed but stale -> FIX finding in read-only mode
+mkdir -p "$T20_HOME/.claude/output-styles"
+echo "stale installed copy" > "$T20_HOME/.claude/output-styles/dinostack.md"
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^FIX output_style:.*is stale relative to"; then
+  _pass "T20b output_style: stale installed copy reported as FIX"
+else
+  _fail "T20b output_style: stale copy should be reported as FIX\n$OUT"
+fi
+
+# 20c: --fix refreshes the installed copy to match repo_dir exactly
+t20_invoke --fix
+if diff -q "$T20_REPO/.claude/skills/dinostack/output-styles/dinostack.md" "$T20_HOME/.claude/output-styles/dinostack.md" >/dev/null 2>&1; then
+  _pass "T20c output_style: --fix refreshed the installed copy to match repo_dir"
+else
+  _fail "T20c output_style: installed copy still does not match repo_dir after --fix"
+fi
+
+# 20d: idempotent - a second read-only scan after --fix reports OK, not FIX
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^OK output_style:.*matches repo_dir"; then
+  _pass "T20d output_style: subsequent scan after --fix reports OK (current)"
+else
+  _fail "T20d output_style: subsequent scan after --fix should report OK\n$OUT"
+fi
+
+rm -rf "$T20_HOME"
+
+# 20e: built output style missing from repo_dir entirely -> SKIP, never FAIL
+# (DS-171 round 5, Skeptic Minor 5 - the src-missing branch had no coverage).
+T20E_HOME="$(mktemp -d)"
+T20E_REPO="$T20E_HOME/fake-DinoStack"
+mkdir -p "$T20E_REPO/.git"
+# Deliberately do NOT create .claude/skills/dinostack/output-styles/dinostack.md.
+
+mkdir -p "$T20E_HOME/.agentic"
+cat > "$T20E_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20E_REPO"
+}
+EOF
+
+(
+  HOME="$T20E_HOME"
+  export HOME
+  python3 "$DOCTOR"
+) > "$T20E_HOME/.out" 2>&1
+
+OUT=$(cat "$T20E_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style:.*built output style not found in repo_dir"; then
+  _pass "T20e output_style: built style missing from repo_dir reported as SKIP"
+else
+  _fail "T20e output_style: missing built style should be SKIP, not FAIL\n$OUT"
+fi
+
+rm -rf "$T20E_HOME"
+
+# 20f: installed copy present but unreadable -> WARN, not a crash or FAIL
+# (DS-171 round 5, Skeptic Minor 5 - the unreadable-file branch had no
+# coverage). Skipped when running as root, since root ignores file mode
+# bits and the induced read failure would never occur.
+if [[ "$(id -u)" != "0" ]]; then
+  T20F_HOME="$(mktemp -d)"
+  T20F_REPO="$T20F_HOME/fake-DinoStack"
+  mkdir -p "$T20F_REPO/.git" "$T20F_REPO/.claude/skills/dinostack/output-styles"
+  echo "built style v1" > "$T20F_REPO/.claude/skills/dinostack/output-styles/dinostack.md"
+
+  mkdir -p "$T20F_HOME/.agentic"
+  cat > "$T20F_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20F_REPO"
+}
+EOF
+
+  mkdir -p "$T20F_HOME/.claude/output-styles"
+  echo "installed copy" > "$T20F_HOME/.claude/output-styles/dinostack.md"
+  chmod 000 "$T20F_HOME/.claude/output-styles/dinostack.md"
+
+  (
+    HOME="$T20F_HOME"
+    export HOME
+    python3 "$DOCTOR"
+  ) > "$T20F_HOME/.out" 2>&1
+
+  OUT=$(cat "$T20F_HOME/.out")
+  if echo "$OUT" | grep -q "^WARN output_style:.*could not compare"; then
+    _pass "T20f output_style: unreadable installed copy reported as WARN"
+  else
+    _fail "T20f output_style: unreadable installed copy should be WARN\n$OUT"
+  fi
+
+  chmod 644 "$T20F_HOME/.claude/output-styles/dinostack.md"
+  rm -rf "$T20F_HOME"
+else
+  _pass "T20f output_style: unreadable-file WARN branch skipped (running as root)"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

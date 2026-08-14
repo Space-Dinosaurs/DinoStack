@@ -1016,8 +1016,10 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 # unit (DS-156), the skeptic-round-cap unit, and the worktree-write-guard
 # unit, 10 of them call log_fire, split 9 deny + 2 allow_advisory -
 # `enforce-turn-shape.py` is the one hook in both subsets, since it logs
-# `"deny"` from its blocking execution-turn check and `"allow_advisory"`
-# from its advisory-only answer-turn check):
+# `"deny"` from its blocking execution-turn check (`_execution_prose_flag`)
+# and `"allow_advisory"` from its advisory-only operator-decisions
+# per-item check (`_decision_item_sprawl_flag`; DS-171 retired the
+# advisory-only answer-turn check this comment used to describe):
 #   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
 #   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)

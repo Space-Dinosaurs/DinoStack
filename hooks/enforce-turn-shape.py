@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
-         checks the SHAPE of the conductor's final assistant message
+Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
+         that checks the SHAPE of the conductor's final assistant message
          against the turn-shape contract in
          content/references/conductor-turn-format.md §9 (the hook
          contract) / content/sections/02-delegation.md ("Operator
-         decisions go last in the turn"). As of DS-156 this hook is NO
-         LONGER uniformly advisory: it runs two checks with DIFFERENT
-         enforcement postures.
+         decisions go last in the turn"). As of DS-171 this hook runs
+         exactly TWO checks, with DIFFERENT enforcement postures.
 
            - `_execution_prose_flag` (execution-turn structural shape,
              REPLACES the deleted `_forced_yield_flag`) is BLOCKING BY
@@ -20,33 +19,36 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
              than narrative-creep noise - see that function's own
              docstring for the two false-positive reports that motivated
              the split and why blocking is still the default.
-           - `_answer_relevance_flag` (Answer-turn opening-preamble/
-             closing-recap phrasing) remains ADVISORY-ONLY - it always
-             exits 0 and surfaces via `additionalContext` on the next
-             turn, exactly the posture the WHOLE hook carried before
-             DS-156. `_status_only_flag` (zero-warrant turns; now
-             suppressed by TWO advisory-only signals, DS-157's
-             `_has_body_completion_declaration` and the advisory-recall
-             fix's `_status_only_prose_is_explanatory` - see that
-             function's docstring), the turn-charge volume check, and the
-             operator-decisions per-item sprawl check also remain
-             advisory-only, unchanged in posture.
+           - `_decision_item_sprawl_flag` (operator-decisions per-item
+             shape) remains ADVISORY-ONLY, unchanged in posture.
 
-         Why the split, not one posture for both: `_execution_prose_flag`
-         is a structural predicate with no phrase matching or inference
-         involved - a false positive requires the conductor to have
-         actually violated the shape, and advisory enforcement of exactly
-         this structural problem shipped three times (DS-122, DS-151,
-         DS-155) without the prose ever going away. `_answer_relevance_flag`
-         stays advisory because its two mechanized bans are curated phrase
-         lists, not semantic detectors, and blocking a genuine answer over
-         an opening phrase like "Good question" is a real friction cost.
-         DS-158's advisory carve-out for answer-shaped prose is narrower
-         than a blanket downgrade for exactly this reason: it applies only
-         to the one sub-finding measured to fire on real answers (see
-         `_is_answer_shaped_prose`), and the narrative-creep case that
-         motivated blocking in the first place (DS-122/DS-151/DS-155)
-         stays blocking by default. See
+         DS-171 (left-shift): the three checks that were previously
+         ADVISORY-ONLY here - `_status_only_flag` (zero-warrant turns),
+         the turn-charge volume check, and `_answer_relevance_flag`
+         (Answer-turn opening-preamble/closing-recap phrasing) - are
+         RETIRED from this hook, not merely disabled. Measured
+         2026-08-03..08-14 (.agentic/.enforcement-fires.jsonl, 1017
+         fires): 985 advisory / 32 deny, and the advisory volume never
+         changed conductor behavior in a way a REACTIVE post-hoc nudge
+         could - the rule needed to be seen BEFORE the turn was written,
+         not after. The rule itself is not gone: it moved to the
+         always-injected `dinostack` Claude Code output style
+         (content/output-styles/dinostack.md, built by .claude/build.sh,
+         installed but not auto-selected by .claude/install.sh), plus a
+         new self-narrating-candor ban the operator added at the same
+         time. content/references/conductor-turn-format.md remains the
+         normative statement of the rule for every non-Claude-Code
+         harness (Codex, Gemini, Cursor, Kimi, OpenCode), which have no
+         output-style mechanism and therefore see no proactive nudge at
+         all - unchanged from the status quo, since the retired hook
+         checks only ever ran under Claude Code.
+
+         Why `_execution_prose_flag` alone stays blocking:
+         it is a structural predicate with no phrase matching or
+         inference involved - a false positive requires the conductor to
+         have actually violated the shape, and advisory enforcement of
+         exactly this structural problem shipped three times (DS-122,
+         DS-151, DS-155) without the prose ever going away. See
          content/references/conductor-turn-format.md's Hook contract
          section for the full rationale and the operator decision that
          overrode the architect's blanket-advisory recommendation.
@@ -82,10 +84,13 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
          canonical shape stays documented in
          content/references/conductor-turn-format.md alone.
 
-         Four checks, run in this fixed order:
+         Checks, run in this fixed order (DS-171: only the warrant
+         classification, the DS-156 three-way routing, and the two
+         checks below remain in this hook - see the Purpose section
+         above for what retired):
 
          1. Warrant classification (RUNS FIRST, and is AUTHORITATIVE over
-            checks 2a-4 below): classifies which of
+            checks 2a/2b/3 below): classifies which of
             four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
                              (DS-156 checked this for the same narrow-
@@ -176,13 +181,24 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
                              every real multi-paragraph prose completion
                              report in the DS-157 corpus fails (it permits
                              only State:/Running:/Blocked:/Waiting: slot
-                             lines, never narrative bullets). Instead this
-                             shape is recognized ONE LEVEL DOWN, inside
-                             _status_only_flag only (see that function) -
-                             it suppresses the ADVISORY status-only nag
-                             without ever entering the warrant dict above or
-                             the blocking classification path in step 2
-                             below.
+                             lines, never narrative bullets). Before DS-171,
+                             this shape was instead recognized ONE LEVEL
+                             DOWN, inside the now-deleted _status_only_flag
+                             (via the now-deleted
+                             _has_body_completion_declaration), which
+                             suppressed that check's own ADVISORY status-
+                             only nag without ever entering the warrant
+                             dict above or the blocking classification path
+                             in step 2 below. DS-171 deleted
+                             _status_only_flag outright, so this hook no
+                             longer suppresses anything for this shape; the
+                             underlying status-only rule is carried by the
+                             `dinostack` Claude Code output style instead
+                             (see the Purpose section above), and
+                             content/references/conductor-turn-format.md's
+                             Hook contract section documents the residual
+                             gap for non-Claude-Code harnesses, which have
+                             no output-style mechanism.
               - answer:     a quoted fragment of the operator's immediately
                              preceding message, OR (DS-155)
                              _transcript_answer_bonus finding that the
@@ -223,8 +239,10 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
             "Classification order" bullet). Answer always wins the shape
             question, regardless of what else co-fires:
 
-            (a) Answer turn (`answer` warrant PRESENT): routes to
-                `_answer_relevance_flag` only (ADVISORY - see below).
+            (a) Answer turn (`answer` warrant PRESENT): DS-171 - no hook
+                check runs here any more (`_answer_relevance_flag` is
+                retired, see the Purpose section); the relevance rule is
+                now carried by the `dinostack` output style.
 
             (b) Execution turn (`answer` ABSENT, at least one of
                 decision/stoppage/completion PRESENT): routes to
@@ -265,50 +283,37 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
                   unaffected by the DS-158 carve-out.
 
             (c) Zero-warrant turn (neither Answer nor any of
-                decision/stoppage/completion present): routes to
-                `_status_only_flag` only (ADVISORY, unchanged) - fires
-                when the message has MORE than ~1-2 lines of prose
-                outside the identity line, UNLESS one of two
-                advisory-only signals recognizes the body as something
-                that should not nag: DS-157's
-                `_has_body_completion_declaration` (a genuine completion
-                report), or (advisory-recall fix) the newer
-                `_status_only_prose_is_explanatory` (a genuine,
-                developed answer - reuses `_is_answer_shaped_prose`
-                against the whole body). Both signals are consumed
-                EXCLUSIVELY by `_status_only_flag`, never enter
-                `_classify_warrants`'s dict, and therefore cannot move a
-                turn onto the BLOCKING `_execution_prose_flag` path -
-                see each function's own docstring for why widening the
-                `answer`/`completion` WARRANTS directly was measured and
-                rejected while this zero-warrant-only recall path is
-                safe.
+                decision/stoppage/completion present): DS-171 - no hook
+                check runs here any more (`_status_only_flag`,
+                `_has_body_completion_declaration`, and
+                `_status_only_prose_is_explanatory` are all retired, see
+                the Purpose section); the status-only rule is now carried
+                by the `dinostack` output style.
 
-            Known implementation seam (DS-151 amendment A7, still true
-            post-DS-156 for the two ADVISORY-only leaves (a) and (c)):
-            `_status_only_flag` still operates on the raw, unsegmented
-            body-line list (`_body_after_identity_line`), NOT on
-            `_segment`'s fence-aware structure that `_execution_prose_flag`
-            and checks 3/4 below consume. `_execution_prose_flag` itself
-            DOES use `_segment`/`_regions` on its general branch (this is
-            new structural coverage DS-156 adds), but keeps the raw-line
-            domain on its sole-stoppage branch to stay predicate-identical
-            to the deleted `_forced_yield_flag`.
+            Known implementation seam (DS-151 amendment A7, historical -
+            the two ADVISORY-only leaves (a) and (c) it referred to are
+            retired as of DS-171; kept here for the git-blame trail):
+            the retired `_status_only_flag` operated on the raw,
+            unsegmented body-line list (`_body_after_identity_line`), NOT
+            on `_segment`'s fence-aware structure that
+            `_execution_prose_flag` and check 3 below consume.
+            `_execution_prose_flag` itself DOES use `_segment`/`_regions`
+            on its general branch (this is new structural coverage DS-156
+            adds), but keeps the raw-line domain on its sole-stoppage
+            branch to stay predicate-identical to the deleted
+            `_forced_yield_flag`.
 
-         3. Turn-charge volume check (DS-151): a mechanical backstop for
-            the "1-3 status lines per turn" promise in
-            content/references/conductor-turn-format.md, which was
-            previously enforced by prose only. Rewritten from a
-            three-region EXCLUSION model (status / fenced / decisions each
-            independently "excluded" from the count, subject to per-warrant
-            budgets) to a single whole-message non-negative CHARGE model -
-            see "Charge model" below. The single comparison
-            `charge(message) > BASE_BODY_BUDGET` replaces the deleted
-            per-warrant BODY_BUDGET_* table entirely. Skipped entirely when
-            zero warrants are present - that case is already exclusively
-            owned by the status-only flag (2a).
+         2b. Turn-charge volume check: RETIRED (DS-171). Previously a
+            mechanical backstop for the "1-3 status lines per turn"
+            promise in content/references/conductor-turn-format.md - see
+            the Purpose section above for why it moved to the
+            `dinostack` output style instead of staying a reactive,
+            post-hoc Stop-hook nudge. `_turn_charge`/`_volume_flag` and
+            the BASE_BODY_BUDGET/FENCE_FREE_LINES/WAITING_LINE_MAX_CHARS/
+            ANSWER_BODY_BUDGET constants that fed them are deleted, not
+            merely disabled.
 
-         4. Operator-decisions item-sprawl check: flags any single
+         3. Operator-decisions item-sprawl check: flags any single
             "## Operator decisions" item (a numbered or bulleted top-level
             line, with continuation lines - INCLUDING fenced content,
             amendment A2 - folded in) whose line count exceeds
@@ -320,149 +325,30 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
             same rule mandates - a different axis from the banned count
             cap, not a restatement of it.
 
-         Checks 3 and 4 both consume the shared _segment/_regions/
-         _decision_items helpers - the single source of truth for fence and
-         region structure. This is deliberate: two independent parsers
-         drifting apart (the old _count_core_body_lines and the old
-         _decision_item_sprawl_flag each re-parsed the text separately) is
-         exactly what produced the DS-151 CF-2 convergence failure.
+         Check 2's general branch (`_execution_prose_flag`) and check 3
+         (`_decision_item_sprawl_flag`) both consume the shared
+         _segment/_regions/_decision_items helpers - the single source of
+         truth for fence and region structure. This is deliberate: two
+         independent parsers drifting apart (the old
+         _count_core_body_lines and the old _decision_item_sprawl_flag
+         each re-parsed the text separately) is exactly what produced the
+         DS-151 CF-2 convergence failure.
 
          ---------------------------------------------------------------
-         Charge model (DS-151 rewrite; replaces the deleted per-warrant
-         exclusion model entirely)
+         Charge model (DS-151 rewrite; RETIRED DS-171)
          ---------------------------------------------------------------
 
-         Core decision: replace the three-region exclusion model with a
-         single whole-message non-negative CHARGE model. Every non-blank
-         body line contributes a charge of 0 or 1, or participates in a
-         bounded free pool; nothing is ever subtracted below zero, and no
-         line's presence ever reduces another line's charge. Both DS-151
-         convergence failures were "a region was subtracted out and the
-         subtraction had no aggregate bound" - under a charge model there
-         is nothing to subtract, so that defect class has no
-         representation. Every free line must be attributable to one of
-         exactly three named, individually-capped allowances (fenced
-         content, well-formed sole-stoppage Waiting: lines, decision-item
-         shape) plus the always-free "## Operator decisions" heading line
-         itself - adding a new free region is a visible, reviewable act
-         (see hooks/tests/test-turn-charge-model.py invariant I6).
-
-         charge = status_charge + fence_charge + decisions_charge
-
-         status_charge    = count of unfenced, non-blank status-region
-                             lines that are NOT a well-formed Waiting: line.
-                             well-formed = matches the Waiting: shape AND is
-                             <= WAITING_LINE_MAX_CHARS characters. A
-                             well-formed Waiting: line charges 0 ONLY when
-                             `stoppage` is the SOLE warrant present
-                             (amendment A1) - otherwise it charges 1 like
-                             any other line. The "unbounded Waiting: line
-                             count" promise
-                             (content/references/conductor-turn-format.md:64)
-                             is scoped to the sole-stoppage forced-yield
-                             shape, not to every turn that happens to
-                             mention a Waiting: line: an unconditional
-                             exclusion here would reopen an unbounded
-                             per-instance free pool inside a
-                             fully-warranted turn (identity + 40
-                             short-but-well-formed Waiting: lines + a
-                             decision heading previously charged 0 under an
-                             earlier, unamended draft of this model - the
-                             same defect class the charge model exists to
-                             close).
-         fence_charge     = max(0, fenced_nonblank_lines_in_status_region -
-                             FENCE_FREE_LINES). The free pool is AGGREGATE
-                             across every fence in the status region, not
-                             per-fence - this is what makes CF-1 (multiplying
-                             free lines by pasting many separate fences)
-                             structurally impossible: there is one scalar
-                             pool, computed once, not one pool per fence.
-                             Splitting one long fence into many short ones
-                             therefore gains nothing (verified,
-                             hooks/tests/test-turn-charge-model.py
-                             invariant I7). Scoped to the STATUS region
-                             specifically, not literally "every fence in
-                             the message": fenced content INSIDE a decision
-                             item is charged through decisions_charge
-                             instead (next paragraph). An aggregate pool
-                             spanning both regions would double-charge that
-                             content and could push `charge` above
-                             `nonblank_body_lines`, violating invariant I8.
-                             An unmatched trailing fence opener is never
-                             validly closed, so its lines are ordinary
-                             unfenced prose per _segment - no special case
-                             needed; a previously-latched "unclosed fence
-                             swallows everything to EOF" bug is
-                             structurally impossible here.
-         decisions_charge = non_item_line_count (every non-blank line under
-                             the heading not folded into a recognized item -
-                             fenced or not, full weight, no free pool: non-
-                             recognition fails toward charging, not toward
-                             free, which is why all three DS-151 CF-2
-                             verified escapes close at once)
-                             + sum(max(0, item_line_count - ITEM_FREE_LINES)
-                             for each item). item_line_count folds in every
-                             non-blank line after an item-start marker,
-                             INCLUDING fenced lines (amendment A2 - a prior
-                             draft of this rewrite silently excluded fenced
-                             continuation lines from an item's count, which
-                             reopened an unbounded-fenced-content-inside-an-
-                             item bypass). A fenced paste inside a decision
-                             item is not a way to grow that item for free;
-                             it is, however, still charged only once (via
-                             decisions_charge, not fence_charge - see above).
-
-         Free pools are named, bounded, and NOT uniformly "aggregate per
-         message" (amendment A5, correcting an earlier draft's overly broad
-         claim to that effect): the fence pool (FENCE_FREE_LINES) is
-         aggregate across the status region; the item allowance
-         (ITEM_FREE_LINES) is PER ITEM, with an unbounded item count
-         (disclosed below); the well-formed-Waiting: allowance
-         (WAITING_LINE_MAX_CHARS) is PER LINE, also with an unbounded line
-         count when stoppage is the sole warrant (by design). The
-         "## Operator decisions" heading line itself is always free (0
-         charge, counted in neither region).
-
-         Warrant-keyed budgets are deleted as unsound, not merely replaced:
-         every warrant token is conductor-authored, so a warrant-keyed
-         budget was self-serviceable; the deleted `answer` budget was worse
-         than self-serviceable, since its only detector
-         (_QUOTED_FRAGMENT_RE) fires on any incidental 8+ char quoted
-         fragment, so most substantive turns acquired the most generous
-         budget by accident. Replacement: a flat BASE_BODY_BUDGET plus
-         structurally-verified free pools - the only way to write more
-         without charge is to write the shapes the spec mandates. Warrant
-         classification survives for _status_only_flag and
-         _forced_yield_flag, and (via amendment A1) to gate the
-         sole-stoppage Waiting: free pool inside _turn_charge.
-
-         Named accepted limits (must be stated, never claimed closed):
-           - Item-shaped status prose is undetectable by any line-counting
-             model: a conductor can move status narration below the
-             heading, format it as <=ITEM_FREE_LINES-line items, and buy
-             unbounded free lines, because item COUNT is unbounded by
-             design. content/sections/02-delegation.md forbids this by
-             CONTENT ("Nothing follows the heading: no status line, no next
-             steps, no caveats") - a semantic rule no mechanical check can
-             enforce.
-           - A legitimate paste over FENCE_FREE_LINES aggregate lines in
-             the status region charges its excess (a 40-line diff pasted
-             into the status region charges 20 and fires). Spec-aligned,
-             not a defect: content/references/conductor-turn-format.md:282
-             routes that content to the PR body, plan artifact, or memory
-             file instead.
-           - (amendment A10) No character bound exists on ordinary prose
-             lines: a verbose turn written as long paragraphs still charges
-             1 per non-blank line regardless of that line's length -
-             inherited from the underlying line-counting model, not
-             introduced by this rewrite. Only Waiting: lines carry a
-             character bound (WAITING_LINE_MAX_CHARS), because only
-             Waiting: lines can ever be unboundedly free; an ordinary prose
-             line is never free regardless of length, so a character cap on
-             it would add complexity without closing any bypass.
+         This section documented the turn-charge volume model
+         (`_turn_charge`/`_volume_flag`, plus the BASE_BODY_BUDGET/
+         FENCE_FREE_LINES/WAITING_LINE_MAX_CHARS/ANSWER_BODY_BUDGET
+         constants) - all deleted as of DS-171. See the Purpose section
+         above for what replaced it (the `dinostack` output style) and
+         why. The full historical model description is preserved in git
+         history at the commit that retired it; it is not repeated here
+         since it documents code that no longer exists.
 
          This ordering (warrant classification is authoritative; checks
-         2a/2b/3/4 are all downstream of it) is the whole design. Two prior
+         2 and 3 are all downstream of it) is the whole design. Two prior
          review rounds rejected an earlier version of this hook that fired
          on correct, fully-warranted turns - a guard that fires on correct
          behavior trains the conductor to ignore its own feedback channel,
@@ -477,8 +363,9 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159) that
 
          A two-layer loop guard bounds how often this hook can re-invoke the
          model - via a BLOCK (`_execution_prose_flag`, DS-156) or an
-         ADVISORY (`_answer_relevance_flag`/`_status_only_flag`/volume/
-         sprawl) - mirroring the sibling enforce-no-abdication.py. On the
+         ADVISORY (the decision-sprawl check, or a DS-158-downgraded
+         `_execution_prose_flag` finding) - mirroring the sibling
+         enforce-no-abdication.py. On the
          Claude Code harness, a Stop hook's block (or `additionalContext`
          advisory) re-invokes the model immediately (it does not wait for a
          user turn); when the conductor is blocked on a user decision it has
@@ -534,10 +421,9 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             unrecognized-line finding to ADVISORY when the content is
             answer-shaped prose (see that function's docstring and
             `_is_answer_shaped_prose`). On any advisory-routed finding -
-            whether from `_answer_relevance_flag`, `_status_only_flag`,
-            the volume check, the decision-sprawl check, or a DS-158
-            downgraded `_execution_prose_flag` finding - emits exactly one
-            JSON object:
+            whether from the decision-sprawl check or a DS-158 downgraded
+            `_execution_prose_flag` finding - emits exactly one JSON
+            object:
               {"hookSpecificOutput": {"hookEventName": "Stop",
                                        "additionalContext": "TURN-SHAPE: <finding>"}}
             `additionalContext` (not `systemMessage`) is used deliberately -
@@ -639,35 +525,28 @@ COUNTER_FILENAME = ".turn-shape-guard-fire-count"
 # State file format: single JSON object {"count": N, "last_user_msg_count": M}
 
 # ---------------------------------------------------------------------------
-# Turn-charge model constants (DS-151 rewrite)
+# Shape-check constants (DS-151 origin; DS-171 retired the turn-charge
+# volume model - BASE_BODY_BUDGET, FENCE_FREE_LINES, WAITING_LINE_MAX_CHARS,
+# and ANSWER_BODY_BUDGET are GONE, along with _turn_charge/_volume_flag that
+# consumed them. The volume RULE (keep execution-turn status slots short;
+# keep Answer-turn prose free of runaway padding) is not gone - it moved to
+# the always-injected `dinostack` Claude Code output style
+# (content/output-styles/dinostack.md), with content/references/
+# conductor-turn-format.md staying the normative cross-harness statement of
+# the rule itself. What remains here is the structural SHAPE constants that
+# still gate `_execution_prose_flag` (BLOCKING) and
+# `_decision_item_sprawl_flag` (advisory, unaffected by this retirement).
 # ---------------------------------------------------------------------------
 #
-# See the module docstring's "Charge model" section for the normative
-# charge definition and the amendment (A1-A10) rationale behind each value.
-# Grounding for each constant (from the DS-151 architect plan's "Budget
-# grounding" table):
+# See the module docstring's "Charge model" section (historical) and
+# content/references/conductor-turn-format.md for the normative rule
+# statements.
 #
-#   - BASE_BODY_BUDGET=10: round-2 verified realistic 7-line completion and
-#     7-line answer turns both fired at 6 under the old model; 10 leaves 3
-#     lines margin. The ticket symptom ("15+ line prose turns") fires at 10
-#     with 5 lines margin. >= the old largest budget (6), so nothing quiet
-#     today becomes noisy.
-#   - FENCE_FREE_LINES=20 (aggregate, was 20 PER FENCE under the old model):
-#     bounded by two pinned fixtures - a 20-line fence must stay QUIET
-#     (F >= 14) and a 30-line fence must stay ADVISORY (F <= 23); 20 sits
-#     inside [14, 23] and is the incumbent value, so this is a scope change
-#     (per-fence -> aggregate), not a magnitude change.
 #   - ITEM_FREE_LINES=3: content/sections/02-delegation.md via
 #     content/references/conductor-turn-format.md - "the recommended
 #     action, one line of why, and the reversal offer" is three
 #     conceptual components, one line each.
-#   - WAITING_LINE_MAX_CHARS=120: measured from worked examples (44 and 47
-#     chars) and a test fixture (38 chars) in conductor-turn-format.md -
-#     ~2.5x the longest honest example.
-BASE_BODY_BUDGET = 10  # flat; warrant-independent
-FENCE_FREE_LINES = 20  # AGGREGATE across the status region's fences
 ITEM_FREE_LINES = 3  # per Operator-decisions item
-WAITING_LINE_MAX_CHARS = 120  # a Waiting: line longer than this is prose
 
 # DS-156. Bounds two distinct things, on every execution-turn branch of
 # _execution_prose_flag: the identity line at position 1 (both branches),
@@ -676,18 +555,10 @@ WAITING_LINE_MAX_CHARS = 120  # a Waiting: line longer than this is prose
 # content/references/conductor-turn-format.md's "STATUS_LINE_MAX_CHARS ...
 # is defined exactly once, here" paragraph for the full normative
 # definition and rationale. Deliberately does NOT bound Waiting: lines in
-# the shape check (see WAITING_LINE_MAX_CHARS above, which governs the
-# advisory volume check only) - importing this bound onto Waiting: lines
-# would convert the hook's only forced-yield path from a silent pass into
-# a block, a behavior change nobody has authorized.
+# the shape check - importing this bound onto Waiting: lines would convert
+# the hook's only forced-yield path from a silent pass into a block, a
+# behavior change nobody has authorized.
 STATUS_LINE_MAX_CHARS = 200
-
-# DS-156. The Answer-turn volume ceiling: a runaway-generation backstop,
-# never a shaping constraint (content/references/conductor-turn-format.md
-# section 4/9 explicitly uncaps Answer-turn length). 5x BASE_BODY_BUDGET,
-# a deliberately loose multiple chosen to sit well above a realistic
-# detailed answer while still catching sustained runaway output.
-ANSWER_BODY_BUDGET = 50
 
 # Kept as its own name (rather than inlining ITEM_FREE_LINES everywhere) so
 # external references to the per-item cap keep a stable, descriptive name.
@@ -748,14 +619,13 @@ _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
 #   2. VOLUME (many separate SHORT recognized heading/table lines, each
 #      individually within STATUS_LINE_MAX_CHARS). A well-formed-length
 #      recognized line is skipped by this STRUCTURAL shape check
-#      (_execution_prose_flag) but is NOT exempted from the separate
-#      CHARGE model (_turn_charge/_volume_flag) below - every such line
-#      still charges 1 status-region line there (neither pattern is
-#      referenced anywhere in _turn_charge), so an unbounded SPRAWL of
-#      short heading- or table-formatted lines still trips the existing
-#      ADVISORY turn-volume check at BASE_BODY_BUDGET (see
-#      hooks/tests/test-enforce-turn-shape.py's mb1-creep/mb2-creep).
-#      This axis is a LINE-COUNT budget only - it does not, and never
+#      (_execution_prose_flag) - historically this was also charged by
+#      the turn-charge CHARGE model (_turn_charge/_volume_flag), which
+#      DS-171 retired (see the module docstring's Purpose section); an
+#      unbounded SPRAWL of short heading- or table-formatted lines is no
+#      longer bounded by any hook-level volume check. The volume RULE
+#      itself is unchanged - it is now carried by the `dinostack` output
+#      style instead. This axis is a LINE-COUNT budget only - it does not, and never
 #      did, bound the CONTENT LENGTH of an individual line; axis 1 above
 #      is what closes that. Recognition is also NOT a fixed label
 #      vocabulary the way State:/Running:/Blocked: is - a well-formed-
@@ -775,33 +645,6 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 # INVENTED label ... FAILS CLOSED" disclosure - this is a fixed-set shape
 # test, never a content-legitimacy test.
 _STATUS_SLOT_LINE_RE = re.compile(r"^\s*(?:state|running|blocked)\s*:\s*\S", re.IGNORECASE)
-
-# DS-156. Answer-turn relevance ban 2 (opening preamble) - a curated
-# phrase list, not a semantic detector (content/references/
-# conductor-turn-format.md §5/§9). Anchored to the very start of the
-# (stripped) message via \A so mid-answer lexical overlap with these
-# phrases is never mistaken for an opening preamble. Tolerates a leading
-# markdown bold/italic wrapper ("**Good question.**").
-_OPENING_FILLER_RE = re.compile(
-    r"\A\s*\*{0,2}(?:"
-    r"good\s+question|great\s+question|"
-    r"let\s+me\s+(?:look\s+into|check|take\s+a\s+look\s+at|dig\s+into)\s+(?:that|this)|"
-    r"here'?s\s+what\s+i\s+found|"
-    r"happy\s+to\s+(?:help|answer)(?:\s+with\s+that)?|"
-    r"sure(?:,|!|\.)|of\s+course(?:,|!|\.)"
-    r")\b",
-    re.IGNORECASE,
-)
-
-# DS-156. Answer-turn relevance ban 5 (closing recap) - a curated phrase
-# list, checked ONLY against the final non-blank line/paragraph of the
-# message (a "closing" recap by definition sits at the end, not
-# incidentally reusing one of these phrases mid-answer).
-_CLOSING_RECAP_RE = re.compile(
-    r"\b(?:to\s+(?:summarize|recap|sum\s+up)|in\s+summary|in\s+short|"
-    r"that'?s\s+(?:the|my|a)\s+(?:summary|recap))\b",
-    re.IGNORECASE,
-)
 
 # Terminal-completion signal, ANYWHERE in the domain (identity line + body).
 # "[phase: complete]" or an unambiguous terminal-completion phrase.
@@ -1092,79 +935,6 @@ _LEADING_COMPLETION_RE = re.compile(
     re.IGNORECASE,
 )
 
-# DS-157. A TALLY/partial-progress header ("Three done, two building:",
-# "Four of seven done:") - structurally identical to a genuine leading
-# completion declaration (a short leading-words group, then "done", then
-# comma-joined trailing modifiers, then a terminal `:`), but it introduces a
-# MIXED breakdown of an overall still-in-progress turn, not a claim that
-# THIS turn's work is complete. Measured directly from the DS-157 corpus
-# (see _has_body_completion_declaration): "Three done, two building:" and
-# "Four of seven done:" both matched the leading-completion shape and were
-# both false positives, in both cases immediately followed by a table
-# showing some rows still building/queued. Scoped to a leading
-# number-word/digit specifically (not e.g. "Both units shipped." - two is a
-# pronoun there, not a tally count) so it does not reopen the identity-line
-# `_LEADING_COMPLETION_RE` path, which this constant is never used against.
-_TALLY_HEADER_RE = re.compile(
-    r"^\*{0,2}(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
-    r"(?:of\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
-    r"(?:is\s+|are\s+)?(?:done|complete|completed)\b",
-    re.IGNORECASE,
-)
-
-# DS-159. A BARE trailing completion word as the identity line's OWN final
-# sentence - e.g. "All three shipped. Done." - deliberately narrow:
-# `_LEADING_COMPLETION_RE`'s `\A` anchor never scans past the identity
-# line's first sentence (see `_has_body_completion_declaration`'s
-# docstring for the DS-157 sibling gap this closes for the BODY case), so
-# a genuine completion declared as a SECOND sentence on the identity line
-# itself - rather than in the body's first paragraph - was equally
-# invisible. Consumed only by `_identity_line_trailing_completion` below,
-# itself only an ADVISORY-suppression input to
-# `_has_body_completion_declaration` - see that function's docstring for
-# why this never widens the BLOCKING `completion` WARRANT.
-#
-# Scoped to a single bare word (+ optional bold markers) precisely
-# because a general "match _LEADING_COMPLETION_RE against every later
-# sentence" was measured unsafe: against a ~12.8k-turn corpus
-# (`~/.claude/projects`, main-agent-only, isSidechain absent/false) it
-# produced 30 newly-granted matches, at least 2 confirmed false positives
-# ("Status while it completes:" - `_LEADING_COMPLETION_RE`'s optional
-# trailing-word group silently absorbed the "s" in "completes" via its
-# missing `\b`; "Both mechanical fixes are done. Now finalizing state
-# files..." - a genuine DS-156-round-1-class sub-item match on a MIDDLE
-# sentence of a still-in-progress turn). Restricting to only the FINAL
-# sentence removed the middle-sentence class but not "Will report when
-# done." (a future-tense promise, not a completion) or "Writing the file
-# complete." (extra words before "complete" reopening the same
-# `_LEADING_COMPLETION_RE` looseness). This closed-vocabulary bare-word
-# regex was re-measured against the same corpus at 3 newly-granted
-# matches, all 3 confirmed genuine ("Fix confirmed against live traffic.
-# Done.", "All three shipped. Done.", "All three PRs merged and verified
-# on `main`. Done."), 0 false positives, 0 losses.
-_BARE_TRAILING_COMPLETION_RE = re.compile(
-    r"\A\*{0,2}(?:done|complete|completed|finished)\*{0,2}[.!]\Z",
-    re.IGNORECASE,
-)
-
-# Splits a line into sentences on a terminal `.`/`!`/`:` followed by
-# whitespace - used only to isolate the identity line's OWN final
-# sentence for `_identity_line_trailing_completion` below. Deliberately
-# not fence-aware or otherwise general-purpose: the identity line is
-# always a single raw line by `_segment`'s construction.
-_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!:])\s+")
-
-
-def _identity_line_trailing_completion(identity_line: str) -> bool:
-    """True iff the identity line has more than one sentence AND its FINAL
-    sentence is a bare completion word (see `_BARE_TRAILING_COMPLETION_RE`).
-    See that constant's docstring for the corpus measurement behind the
-    narrow bare-word shape."""
-    sentences = _SENTENCE_BOUNDARY_RE.split(identity_line)
-    if len(sentences) < 2:
-        return False
-    return bool(_BARE_TRAILING_COMPLETION_RE.match(sentences[-1].strip()))
-
 # Best-effort "answer" warrant: a quoted fragment (>=8 chars inside the
 # quote marks) anywhere in the message. Deliberately loose - this is the
 # weakest of the four detectors by design (see module docstring). It
@@ -1188,19 +958,20 @@ _QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|^>\s*\S.{6,}', re.MULTILINE)
 # bulleted ("-", "*", "+") line, allowing up to 3 leading spaces (DS-151:
 # was column-0 anchored, which let an indented item escape recognition -
 # CF-2's indented-item bypass) followed by whitespace then non-whitespace.
-# Used by _decision_items (consumed by both _turn_charge and
-# _decision_item_sprawl_flag).
+# Used by _decision_items (consumed by _decision_item_sprawl_flag; also
+# consumed pre-DS-171 by the now-deleted _turn_charge).
 _DECISION_ITEM_START_RE = re.compile(r"^ {0,3}(?:\d+[.)]|[-*+])\s+\S")
 
 
 def _body_after_identity_line(text: str) -> list:
     """Return all lines AFTER the first non-blank (identity) line.
 
-    Raw-line path, deliberately NOT fence-aware - used only by
-    _status_only_flag and _forced_yield_flag. See the module docstring's
-    "Known implementation seam" note (DS-151 amendment A7) for why those
-    two checks stay on this path rather than _segment's fence-aware
-    structure.
+    Raw-line path, deliberately NOT fence-aware - DS-171: its former
+    consumers (_status_only_flag, _forced_yield_flag) are both deleted;
+    the sole live consumer today is _execution_prose_flag's sole-stoppage
+    branch. See the module docstring's "Known implementation seam" note
+    (DS-151 amendment A7) for why that branch stays on this raw-line path
+    rather than _segment's fence-aware structure.
     """
     lines = text.splitlines()
     seen_identity = False
@@ -1216,8 +987,9 @@ def _body_after_identity_line(text: str) -> list:
 
 # ---------------------------------------------------------------------------
 # Shared structural helpers (DS-151): single source of truth for fence and
-# region structure, consumed by _classify_warrants, _turn_charge, and
-# _decision_item_sprawl_flag.
+# region structure, consumed by _classify_warrants and
+# _decision_item_sprawl_flag; also consumed pre-DS-171 by the now-deleted
+# _turn_charge.
 # ---------------------------------------------------------------------------
 
 
@@ -1226,8 +998,8 @@ def _segment(text: str) -> tuple:
     identity line. Fenced = inside a MATCHED ``` pair, inclusive of both
     delimiters. An unmatched trailing opener is NOT fenced (fail closed).
     Single source of truth for fence structure - _regions, _decision_items,
-    _classify_warrants, and _turn_charge all consume this; none re-parses
-    fence structure independently."""
+    and _classify_warrants all consume this; none re-parses fence structure
+    independently. DS-171: _turn_charge, a former consumer, is deleted."""
     lines = text.splitlines()
     idx = len(lines)
     identity_line = ""
@@ -1305,8 +1077,9 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     message looks like a direct question) so a plain-prose reply to a
     direct question satisfies the warrant without needing a quoted
     fragment. Defaults to False so every existing single-argument call
-    site (including hooks/tests/test-turn-charge-model.py's direct
-    _turn_charge(text) calls) is unaffected."""
+    site is unaffected. DS-171: hooks/tests/test-turn-charge-model.py, a
+    former such call site (via the now-deleted _turn_charge), is deleted
+    along with the function it tested."""
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
@@ -1322,212 +1095,6 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
         "completion": completion_claimed and not _has_continuing_work_signal(domain_text),
         "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)) or answer_bonus,
     }
-
-
-def _has_body_completion_declaration(text: str) -> bool:
-    """DS-157. True iff the FIRST unfenced paragraph immediately following
-    the identity line opens with a leading completion declaration (the same
-    shape `_LEADING_COMPLETION_RE` recognizes on the identity line itself),
-    the domain carries no continuing-work signal, and that paragraph is not
-    a tally/partial-progress header.
-
-    ADVISORY-ONLY consumer, deliberately: this feeds `_status_only_flag`
-    ONLY (suppresses the nag on a genuine completion report whose identity
-    line does not itself carry a recognizable leading declaration - see the
-    reported symptom below). It is NEVER folded into `_classify_warrants`'s
-    `completion` key, and therefore never grants the `completion` WARRANT
-    or routes a turn onto the BLOCKING `_execution_prose_flag` path. This is
-    a deliberate, measured design choice, not an oversight - see "Why not
-    widen the warrant" below.
-
-    Reported symptom (DS-157, ticket: repo-local ad-hoc): "Both units
-    shipped.\\n\\n**DS-156 is done.** ..." was flagged status-only. The
-    identity line "Both units shipped." does not match
-    `_LEADING_COMPLETION_RE` - "shipped" is a recognized leading
-    past-participle, but the pattern requires a completion-adjacent word
-    (live/deployed/merged/complete/done/cleaned up) within 40 characters
-    after it, and none follows before the sentence ends. The genuine
-    completion declaration, "**DS-156 is done.**", is in the body's first
-    paragraph, not the identity line - `_LEADING_COMPLETION_RE`'s `\\A`
-    anchor deliberately never scans past position 1 (DS-156 round 1 found
-    an anywhere-scoped version of this pattern false-positives on completed
-    SUB-ITEMS inside still-in-progress turns).
-
-    Corpus method: same population as `_LEADING_COMPLETION_RE`'s DS-156
-    corpus history (`~/.claude/projects`, main-agent-only final turns,
-    isSidechain absent/false; re-run for DS-157 at 3,564 files / 3,901
-    main-agent candidate final turns, 970 currently flagged status-only -
-    the corpus is a live, growing directory, so these are point-in-time
-    figures, not a reproducible constant).
-
-    Round 1 (REJECTED): matched the leading-completion shape against the
-    first line of ANY unfenced paragraph anywhere in the body, gated only
-    by the existing `_has_continuing_work_signal`. 15 of 970 status-only
-    turns newly matched; independently hand-labelling all 15 found 4 false
-    positives (26.7%) - all four reproducing DS-156 round 1's exact defect
-    class one position over: a genuinely short, sentence-complete
-    completion-shaped header ("Three done, two building:", "Four of seven
-    done:", "**Done and approved:**") describing progress on only PART of a
-    still-in-progress turn, or a full turn whose OVERALL state was still
-    in-progress two paragraphs later ("Fix round running. ... **Done and
-    independently verified:** the feature works. ... **In progress:** the
-    two Majors ..."). None of the 4 were on the identity line, matching the
-    "anywhere-scoped body match reopens the sub-item trap" pattern the
-    identity-line anchor was originally built to close.
-
-    Round 2: restricted the domain to the FIRST unfenced paragraph
-    immediately after the identity line only (not "any paragraph"), and
-    added a `_TALLY_HEADER_RE` exclusion for a leading number-word/digit
-    tally shape. This alone eliminated 2 of the 4 round-1 false positives
-    (the ones whose match was NOT the first paragraph) but left 2 survivors
-    whose match WAS the first paragraph: the tally-header case ("Three
-    done, two building:") and the sub-item case ("**Done and independently
-    verified:**" as literally paragraph 1, with "**In progress:**" as
-    paragraph 2 of the SAME still-in-progress turn).
-
-    Round 3: the tally survivor is closed by `_TALLY_HEADER_RE` (added in
-    this round). The sub-item survivor, plus a THIRD false positive found
-    while re-measuring round 2's fix on the full 970-turn population
-    ("Split done. ... Review running on #639 ... Two loose ends still
-    open."), are closed by extending `_CONTINUING_WORK_PHRASE_RE` with four
-    phrases measured directly from these real false positives: "in
-    progress", "review(s) running", "running on", "still open". This round's
-    OWN measurement was one-directional (see below) and missed a defect in
-    its own fix.
-
-    Round 4 / DS-157 round 2 (current, Skeptic Major 1/Minor 1): round 3's
-    measurement above tracked only `_status_only_flag` newly going quiet -
-    it never measured turns that newly START firing, nor (the actual bug)
-    that `_CONTINUING_WORK_PHRASE_RE` is ALSO consumed by
-    `_classify_warrants` (`_classify_warrants:1113`) to veto the
-    `completion` WARRANT itself, a path round 3's safety analysis never
-    mentioned. Re-measured all three directions on the full main-agent
-    population (3,937 final turns, 324 matching any of round 3's four
-    phrases) with each phrase isolated against a pre-DS-157 3-phrase
-    baseline:
-      - "review(s) running" / "running on": 0 status-only newly-quiet, 2
-        newly-firing (both inspected, both genuine ongoing work); 0
-        completion-warrant gains, 1 loss (inspected, genuine - "a cleanup
-        pass is running on three Minors"). KEPT unchanged.
-      - "in progress": 0 status-only newly-quiet, 2 newly-firing; 0
-        completion-warrant gains, 7 losses - ALL 7 inspected and ALL 7
-        false positives (a tracker STATUS VALUE for an OTHER ticket, e.g.
-        "AUT-577 still In Progress in another session", never this turn's
-        own work). NARROWED to the exact bold-wrapped shape the one
-        genuine motivating case actually has (`\\*\\*in\\s+progress:?\\*\\*`) -
-        re-measured at 0 of the 7 false positives while still catching the
-        motivating case. The regex itself has no positional constraint (it
-        matches bold-wrapped `**In progress**` anywhere, not only as a
-        markdown sub-heading) - see this file's `_CONTINUING_WORK_PHRASE_RE`
-        docstring for the full caveat.
-      - "still open": 0 status-only newly-quiet, 2 newly-firing; 0
-        completion-warrant gains, 10 losses - ALL 10 inspected and ALL 10
-        false positives (backlog/PR/ticket-list vocabulary describing OTHER
-        work, e.g. "Still open, in priority order: **THU-85** ..."). Its
-        one real motivating instance is already caught by the co-occurring
-        "running on" phrase in the same message, so nothing was lost by
-        dropping it. DROPPED outright, per this file's stated discipline of
-        deletion over a narrowed rewrite when nothing is load-bearing on
-        the claim (no single recurring shape separates "still open" true
-        positives from false positives in this corpus, unlike "in
-        progress"'s bold-wrapped shape).
-    Net status-only-advisory effect of this round's fix, all four phrases
-    combined vs the round-3 shipped set: 0 change in newly-quiet (dropping
-    "still open"/narrowing "in progress" removes no legitimate suppression,
-    since neither ever independently produced one in this population), 2
-    fewer newly-firing false vetoes eliminated (the "in progress"/"still
-    open" instances that had been vetoing genuine completions on unrelated
-    grounds). Net completion-warrant effect: 17 of 18 measured full-
-    population warrant losses eliminated (7 "in progress" + 10 "still
-    open"), 1 genuine loss ("running on") retained correctly.
-    `_execution_prose_flag` block/pass delta across this same population:
-    0 in both directions (no measured turn's execution-path outcome
-    changed). See `_CONTINUING_WORK_PHRASE_RE`'s own docstring for the
-    phrase-to-instance mapping. A completion declared later than the first
-    body paragraph remains a disclosed, unrecognised residual (see
-    `_LEADING_COMPLETION_RE`'s "Known residual gap" comment and case A9 in
-    `hooks/tests/fixtures/turn-shape-completion-corpus.json`).
-
-    Why not widen the `completion` WARRANT instead (the blocking-path
-    safety analysis this ticket required): every one of the 6 confirmed
-    true positives is a multi-paragraph prose report with bulleted detail
-    ("- Killed any dev servers...", "- Removed both agent worktrees..."),
-    not a terse `State:`/`Running:`/`Blocked:`/`Waiting:` slot-line turn.
-    Granting the `completion` warrant would route each of them onto
-    `_execution_prose_flag`'s GENERAL branch (§4/§9,
-    content/references/conductor-turn-format.md), which permits ONLY
-    recognized slot lines or `Waiting:` lines in the unfenced status
-    region - every one of those bullet lines is "unrecognized" under that
-    whitelist and would BLOCK. Verified by execution against the reported
-    example with the warrant granted synthetically: `_execution_prose_flag`
-    returns a blocking finding ("unrecognized line in the status region").
-    Widening the warrant would therefore convert today's advisory nag into
-    a hard BLOCK on the exact turns it is meant to help - objectively worse
-    than the status quo. Suppressing only `_status_only_flag`'s advisory
-    output, without granting the warrant, is the safe fix: it silences the
-    nag on a genuine completion report without moving that report onto a
-    structural shape check it was never written to satisfy.
-
-    DS-159 addendum: this function ALSO now returns True when the
-    completion declaration is the identity line's OWN final sentence
-    (`_identity_line_trailing_completion`) rather than the body's first
-    paragraph - see the reported symptom "All three shipped. Done.\\n\\n|
-    ticket | what landed |\\n..." (a markdown table, not prose, as the
-    first body paragraph). Same "why not widen the warrant" analysis
-    applies and was re-verified: synthetically granting `completion` for
-    this exact example still returns `_execution_prose_flag`'s blocking
-    finding (the table row is an unrecognized status-region line), so this
-    stays an advisory-only addition, same as the rest of this function.
-    """
-    identity_line, body = _segment(text)
-    unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
-    domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
-    if _has_continuing_work_signal(domain_text):
-        return False
-
-    if _identity_line_trailing_completion(identity_line):
-        return True
-
-    paragraphs = []
-    current = []
-    for line in unfenced_lines:
-        if not line.strip():
-            if current:
-                paragraphs.append(current)
-                current = []
-            continue
-        current.append(line)
-    if current:
-        paragraphs.append(current)
-    if not paragraphs:
-        return False
-
-    first_line = paragraphs[0][0].strip()
-    if _TALLY_HEADER_RE.match(first_line):
-        return False
-    return bool(_LEADING_COMPLETION_RE.match(first_line))
-
-
-def _status_only_flag(text: str, warrants: dict) -> bool:
-    """Fires when the message exceeds ~1-2 lines of prose outside the
-    identity line AND carries none of the four warrants, AND (DS-157) the
-    body's first paragraph is not itself a recognized completion
-    declaration - see `_has_body_completion_declaration`'s docstring for
-    why that check suppresses only this advisory, never the `completion`
-    WARRANT itself - AND (advisory-recall fix) the body is not itself
-    answer-shaped explanatory prose - see
-    `_status_only_prose_is_explanatory`'s docstring for why that check,
-    too, suppresses only this advisory and never the `answer` WARRANT.
-    Raw-line path for the line-count test - see the module docstring's
-    "Known implementation seam" note."""
-    if any(warrants.values()):
-        return False
-    if _has_body_completion_declaration(text):
-        return False
-    if _status_only_prose_is_explanatory(text):
-        return False
-    body_lines = [ln for ln in _body_after_identity_line(text) if ln.strip()]
-    return len(body_lines) > 2
 
 
 # DS-158 (round 2 Skeptic Major, residual-false-positive fix): minimum
@@ -1589,10 +1156,15 @@ _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE = 8
 # colon-led clause ("What changed:", "Two things:") count as a spurious
 # unit boundary, inflating the unit count and sinking the words-per-unit
 # average below threshold on ordinary answer prose. This regex
-# intentionally does NOT split on `:` at all - it is deliberately NOT the
-# same regex _identity_line_trailing_completion uses, which has a
-# different, narrower domain (the single-line identity line only) and
-# must keep matching `:` there (unchanged, not touched by this fix).
+# intentionally does NOT split on `:` at all - it was deliberately NOT the
+# same regex `_identity_line_trailing_completion` used (that function had
+# a different, narrower domain - the single-line identity line only - and
+# had to keep matching `:` there). `_identity_line_trailing_completion`
+# and its supporting regexes (`_TALLY_HEADER_RE`,
+# `_BARE_TRAILING_COMPLETION_RE`, `_SENTENCE_BOUNDARY_RE`) were removed as
+# dead code once their only consumer, `_has_body_completion_declaration`,
+# was retired (DS-171) - this comment's comparison is kept for the
+# `:`-splitting design rationale it documents, not as a live cross-reference.
 _ANSWER_SENTENCE_SPLIT_RE = re.compile(r"[.!]\s+")
 
 # Common abbreviations whose internal `.` must not be treated as a
@@ -1659,35 +1231,28 @@ def _is_answer_shaped_prose(lines) -> bool:
     block-line strings, NOT a single joined blob - see
     `_execution_prose_flag`'s per-block call site, round-2 Major 1 fix)
     average at least _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE words per unit
-    (see `_answer_prose_units`). Two consumers:
+    (see `_answer_prose_units`). Sole live consumer as of DS-171:
 
-      - `_execution_prose_flag`'s general branch (the original, WARRANT-
-        adjacent consumer): decides whether ONE contiguous block of
-        unrecognized status-region lines is narrative-creep-shaped (a
-        sprawl of short templated status pings averages only a handful
-        of words per unit even when there are many of them, and still
-        fails HERE regardless of how many other blocks the turn has) -
-        see that function's docstring for how this combines with the
-        whole-turn unit-count floor to produce the final ADVISORY/
-        BLOCKING decision.
-      - `_status_only_prose_is_explanatory` (advisory-recall fix,
-        repo-local ad-hoc ticket): reuses this SAME predicate against the
-        WHOLE unsegmented body (via `_body_after_identity_line`, one
-        block) to decide whether a zero-warrant turn's body is a
-        genuine, developed answer that the `_status_only_flag` nag
-        should stay silent on. This is bounded-safe in a way that a
-        prior, REJECTED proposal to widen the `answer` WARRANT with this
-        same predicate was not: `_status_only_prose_is_explanatory` never
-        enters `_classify_warrants`'s dict, so it cannot change
-        `is_answer_turn`/`is_execution_turn` routing and cannot move a
-        single turn onto the BLOCKING `_execution_prose_flag` path -
-        it is consumed exclusively by `_status_only_flag`, which is
-        already ADVISORY-ONLY and was already suppressible by warrants
-        genuinely present. Widening the `answer` warrant itself with
-        whole-body `_is_answer_shaped_prose` was measured and rejected
-        (it exempted 4 of 5 real narrative-creep turns that correctly
-        BLOCK) - that risk does not apply here because the result never
-        reaches warrant classification at all.
+      - `_execution_prose_flag`'s general and sole-stoppage branches (the
+        original, WARRANT-adjacent consumer): decides whether ONE
+        contiguous block of unrecognized status-region lines is
+        narrative-creep-shaped (a sprawl of short templated status pings
+        averages only a handful of words per unit even when there are
+        many of them, and still fails HERE regardless of how many other
+        blocks the turn has) - see that function's docstring for how
+        this combines with the whole-turn unit-count floor to produce
+        the final ADVISORY/BLOCKING decision.
+
+    DS-171: a second, now-deleted consumer, `_status_only_prose_is_
+    explanatory` (an advisory-recall fix for the also-deleted
+    `_status_only_flag`), used to reuse this SAME predicate against the
+    WHOLE unsegmented body to decide whether a zero-warrant turn's body
+    was a genuine, developed answer that the status-only nag should stay
+    silent on. Both functions are gone along with the zero-warrant check
+    itself; a prior, separately-rejected proposal to widen the `answer`
+    WARRANT with this same predicate (it exempted 4 of 5 real
+    narrative-creep turns that correctly BLOCK, when measured) remains
+    rejected and is unaffected by either deletion.
 
     DS-159 (real false positive: a real multi-paragraph conductor
     answer, terse in this repo's own mandated style, routinely produces
@@ -1724,67 +1289,6 @@ def _is_answer_shaped_prose(lines) -> bool:
     return avg_words >= _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE
 
 
-def _status_only_prose_is_explanatory(text: str) -> bool:
-    """Signal 2 (advisory-recall fix, repo-local ad-hoc ticket) - the
-    SECOND, independent zero-warrant suppression signal alongside DS-157's
-    `_has_body_completion_declaration`. ADVISORY-ONLY: consumed ONLY by
-    `_status_only_flag`. Never contributes to the `answer` warrant, never
-    enters `_classify_warrants`'s dict, never influences
-    `is_answer_turn`/`is_execution_turn` routing - because routing depends
-    solely on that dict, this predicate is structurally unreachable from
-    any BLOCK-eligible turn. That is the entire safety argument for reusing
-    `_is_answer_shaped_prose` here; preserve it exactly on any future edit
-    to this function.
-
-    Measured motivation: over a 320-turn real-transcript corpus, 37 turns
-    were flagged status-only and 29 (78%) were false positives - turns
-    opening with substantive multi-sentence answers that neither
-    `_QUOTED_FRAGMENT_RE` (needs an 8+ char DOUBLE-quoted fragment; zero of
-    the 37 have one, while 32/37 use backtick spans it cannot see) nor
-    `_transcript_answer_bonus` (needs the preceding operator message to
-    look like a question; real directives like "go ahead"/"continue" are
-    not questions, so it grants only 4/37, independently reconfirmed by
-    truncating each of the 37 turns' real source transcript to its own
-    `source_line_idx` and calling `_transcript_answer_bonus` directly)
-    could recall. Under a correctly truncated live-transcript simulation,
-    33/37 still fired. Widening either of those two `answer`-warrant
-    signals directly was measured and REJECTED: feeding backticks into the
-    `answer` warrant exempts 4 of 5 real narrative-creep turns that
-    correctly BLOCK, and reusing `_is_answer_shaped_prose` to widen the
-    `answer` warrant grants all 5. This function reuses the same predicate
-    but keeps it off the warrant path entirely, so neither rejected
-    failure mode applies.
-
-    Reconciling the two corpus figures (this function does NOT consult
-    `_transcript_answer_bonus` or any transcript at all, so this is a
-    body-shape-only measurement): re-running the same 37 turns through
-    THIS function alone (no transcript context, matching how
-    `_status_only_flag` calls it) recalls 35 of 37 to quiet, leaving 2
-    flagged. Of the 6-turn gap between the hand-labelled 29 false
-    positives and the measured 35: 4 are exactly the bonus-recallable
-    turns above (confirmed by name via the same real-transcript
-    reconfirmation) - already NOT "false positives needing a new fix" by
-    the original classification's own logic, but independently recalled
-    here too because a turn substantial enough to read as an answer to a
-    real question is also substantial enough to clear this function's
-    words-per-unit floor. The remaining 2 were presumably among the 8
-    turns the original hand-review judged genuinely terse (no existing
-    recall path), yet this function's mechanical average recalls them
-    anyway - a measured, not contradictory, over-recall relative to that
-    hand-review's conservative bar; a direct hand-audit of all 35 recalled
-    turns found every one averaging well above threshold (10.5-43.7
-    words/unit), none borderline or narrative-creep-shaped. The 2 turns
-    still flagged post-fix are unambiguous single-sentence status pings.
-
-    Reuses `_is_answer_shaped_prose` against the WHOLE unsegmented body
-    (`_body_after_identity_line`, one contiguous block - not fence-aware,
-    matching `_status_only_flag`'s own raw-line domain) rather than a
-    per-block scan, since there is no BLOCKING path here to protect from a
-    laundering bypass the way `_execution_prose_flag`'s general branch
-    must guard against."""
-    return _is_answer_shaped_prose(_body_after_identity_line(text))
-
-
 def _execution_prose_flag(text: str, warrants: dict):
     """Return (finding string, is_blocking bool), or None. Implements
     content/references/conductor-turn-format.md §4's execution-turn
@@ -1797,8 +1301,10 @@ def _execution_prose_flag(text: str, warrants: dict):
 
     Called ONLY for execution turns (answer warrant ABSENT, at least one
     of decision/stoppage/completion PRESENT) - see main()'s three-way
-    classification gate; a zero-warrant turn routes to _status_only_flag
-    instead, and an Answer turn routes to _answer_relevance_flag instead.
+    classification gate; DS-171: a zero-warrant turn and an Answer turn
+    both now hit a no-op branch instead (their former routes,
+    _status_only_flag and _answer_relevance_flag respectively, are both
+    deleted - see the module docstring's Purpose section).
 
     On BOTH branches below, the identity line at position 1 is checked
     for LENGTH ONLY, never shape, against STATUS_LINE_MAX_CHARS - the
@@ -2083,155 +1589,6 @@ def _execution_prose_flag(text: str, warrants: dict):
     return finding, True
 
 
-def _turn_charge(text: str, warrants: dict = None) -> tuple:
-    """(charge, breakdown). breakdown keys: status, fence, decisions,
-    fence_lines, items, waiting_ok, nonblank.
-
-    See the module docstring's "Charge model" section for the normative
-    charge definition, including why fence_charge is scoped to the status
-    region rather than literally "every fence in the message" (required to
-    satisfy invariant I8 in hooks/tests/test-turn-charge-model.py - an
-    aggregate pool spanning both regions would double-charge fenced content
-    inside a decision item, since that content is already charged via
-    decisions_charge).
-
-    warrants (DS-155): optional already-computed warrant dict. When
-    omitted (every existing test-turn-charge-model.py call site passes
-    only `text`), recomputed internally via _classify_warrants(text) -
-    identical to pre-DS-155 behavior. main()/_volume_flag pass their own
-    already-computed dict so the transcript-derived answer_bonus (see
-    _classify_warrants) is applied exactly once and consistently, rather
-    than recomputed here without it.
-    """
-    identity_line, body = _segment(text)
-    status_lines, decisions_lines, heading_present = _regions(body)
-    if warrants is None:
-        warrants = _classify_warrants(text)
-    stoppage_sole = warrants["stoppage"] and not (
-        warrants["decision"] or warrants["completion"] or warrants["answer"]
-    )
-
-    status_charge = 0
-    waiting_ok = 0
-    fenced_nonblank_status = 0
-    for line, is_fenced in status_lines:
-        if not line.strip():
-            continue
-        if is_fenced:
-            fenced_nonblank_status += 1
-            continue
-        stripped = line.strip()
-        well_formed_waiting = (
-            bool(_WAITING_LINE_RE.match(line)) and len(stripped) <= WAITING_LINE_MAX_CHARS
-        )
-        if well_formed_waiting and stoppage_sole:
-            waiting_ok += 1
-            continue
-        status_charge += 1
-
-    fence_charge = max(0, fenced_nonblank_status - FENCE_FREE_LINES)
-
-    items, non_item_count = _decision_items(decisions_lines)
-    decisions_charge = non_item_count + sum(max(0, count - ITEM_FREE_LINES) for _, count in items)
-
-    nonblank = sum(1 for line, _ in body if line.strip())
-
-    charge = status_charge + fence_charge + decisions_charge
-    breakdown = {
-        "status": status_charge,
-        "fence": fence_charge,
-        "decisions": decisions_charge,
-        "fence_lines": fenced_nonblank_status,
-        "items": len(items),
-        "waiting_ok": waiting_ok,
-        "nonblank": nonblank,
-    }
-    return charge, breakdown
-
-
-def _volume_flag(text: str, warrants: dict):
-    """Return a finding string, or None.
-
-    Returns None when zero warrants are present - that case is already
-    exclusively owned by _status_only_flag, and a second finding for the
-    same defect would just be noise.
-
-    DS-156: on an Answer turn (warrants["answer"] True - §4's "Answer
-    always wins the shape question" rule applies here too, regardless of
-    which other warrant(s) co-fire), this does NOT short-circuit to
-    no-charge. It compares a flat non-blank-line count (none of the
-    execution-turn free-pool machinery - status slots, Waiting: lines,
-    decision items - constrains Answer-turn shape) against the separate,
-    deliberately high ANSWER_BODY_BUDGET ceiling. On an execution turn,
-    unchanged from DS-151: flags iff _turn_charge(text)[0] >
-    BASE_BODY_BUDGET - see the module docstring's "Charge model" section.
-    """
-    if not any(warrants.get(name) for name in ("decision", "stoppage", "completion", "answer")):
-        return None
-
-    charge, breakdown = _turn_charge(text, warrants)
-
-    if warrants.get("answer"):
-        answer_charge = breakdown["nonblank"]
-        if answer_charge <= ANSWER_BODY_BUDGET:
-            return None
-        return (
-            "turn volume exceeded: answer turn charge is {charge} non-blank "
-            "lines, advisory budget is {budget} (runaway-generation "
-            "backstop, not a shaping constraint)"
-        ).format(charge=answer_charge, budget=ANSWER_BODY_BUDGET)
-
-    if charge <= BASE_BODY_BUDGET:
-        return None
-
-    return (
-        "turn volume exceeded: charge is {charge}, budget is {budget} "
-        "(status {status}, fenced overflow {fence} of {fence_lines} fenced "
-        "lines, decisions {decisions}; {waiting_ok} well-formed Waiting: "
-        "lines and the first {free_fence} fenced lines are free)"
-    ).format(
-        charge=charge,
-        budget=BASE_BODY_BUDGET,
-        status=breakdown["status"],
-        fence=breakdown["fence"],
-        fence_lines=breakdown["fence_lines"],
-        decisions=breakdown["decisions"],
-        waiting_ok=breakdown["waiting_ok"],
-        free_fence=FENCE_FREE_LINES,
-    )
-
-
-def _answer_relevance_flag(text: str):
-    """Return a finding string, or None. ADVISORY (DS-156) - implements
-    content/references/conductor-turn-format.md §5's relevance bans 2
-    (opening preamble) and 5 (closing recap) against Answer-turn prose,
-    via curated phrase-list regexes. Bans 1, 3, 4, 6 are deliberately NOT
-    mechanized - see the module docstring / §9's non-mechanization
-    rationale. Called ONLY when the Answer warrant is present (an
-    execution turn has no prose region for these bans to inspect)."""
-    stripped = text.strip()
-    if not stripped:
-        return None
-    opening = _OPENING_FILLER_RE.match(stripped)
-    if opening:
-        return (
-            "answer turn: opens with a preamble phrase (relevance ban 2) - "
-            '"{}"'
-        ).format(opening.group(0).strip())
-    # Ban 5 is scoped to the CLOSING of the answer, not incidental
-    # mid-answer reuse of one of these phrases - checked against the
-    # final non-blank paragraph only.
-    paragraphs = [p for p in stripped.split("\n\n") if p.strip()]
-    tail = paragraphs[-1] if paragraphs else stripped
-    recap = _CLOSING_RECAP_RE.search(tail)
-    if recap:
-        return (
-            "answer turn: closes with a recap of what was just said "
-            '(relevance ban 5) - "{}"'
-        ).format(recap.group(0))
-    return None
-
-
 def _decision_item_sprawl_flag(text: str):
     """Return a finding string, or None.
 
@@ -2242,9 +1599,12 @@ def _decision_item_sprawl_flag(text: str):
     fenced content per amendment A2): each item must fit within
     ITEM_FREE_LINES (aliased MAX_LINES_PER_DECISION_ITEM) lines, matching
     the mandated "recommended action, one line of why, and the reversal
-    offer" shape (content/references/conductor-turn-format.md:83). Stays
-    ADDITIONAL to the volume check: a lone over-long item can be under the
-    whole-message BASE_BODY_BUDGET while still violating per-item shape.
+    offer" shape (content/references/conductor-turn-format.md:83). This
+    is an independent axis from overall turn volume (the turn-charge
+    volume check was retired in DS-171, see the module docstring's
+    Purpose section - that rule now lives in the `dinostack` output
+    style): a lone over-long item can violate per-item shape regardless
+    of whole-turn length.
     """
     _, body = _segment(text)
     _, decisions_lines, heading_present = _regions(body)
@@ -2843,13 +2203,23 @@ def main() -> None:
         block_finding = None
         advisory_findings = []
 
+        # DS-171: the explicit three-way structure is kept even though
+        # branches (a) and (c) are now no-ops, because the three-way
+        # split itself (content/references/conductor-turn-format.md §9's
+        # "Classification order" bullet) is asserted as intentional
+        # elsewhere in this file and in that reference doc - collapsing
+        # it to a two-way if/else would silently drop that documented
+        # invariant from the code even though it makes no behavioral
+        # difference today.
         if is_answer_turn:
-            # 2. Answer-turn relevance check (ADVISORY).
-            relevance_finding = _answer_relevance_flag(msg_text)
-            if relevance_finding:
-                advisory_findings.append(relevance_finding)
+            # 2a. Answer-turn relevance check: RETIRED (DS-171) - no hook
+            # check runs here any more; the relevance rule (opening
+            # preamble / closing recap bans) is now carried by the
+            # `dinostack` Claude Code output style. See the module
+            # docstring's Purpose section.
+            pass
         elif is_execution_turn:
-            # 2. Execution-turn structural shape check. This REPLACES the
+            # 2b. Execution-turn structural shape check. This REPLACES the
             # deleted _forced_yield_flag. DS-158: no longer uniformly
             # BLOCKING - _execution_prose_flag now returns (finding,
             # is_blocking) so its general branch can downgrade a genuine
@@ -2864,25 +2234,22 @@ def main() -> None:
                 else:
                     advisory_findings.append(finding_text)
         else:
-            # 2. Zero-warrant turn: status-only flag (ADVISORY, unchanged).
-            if _status_only_flag(msg_text, warrants):
-                advisory_findings.append(
-                    "status-only turn - no decision/stoppage/completion/answer warrant present"
-                )
+            # 2c. Zero-warrant turn: status-only flag RETIRED (DS-171) -
+            # no hook check runs here any more; the status-only rule is
+            # now carried by the `dinostack` output style. See the module
+            # docstring's Purpose section.
+            pass
 
-        # 3/4. Turn-charge volume check and operator-decisions per-item
-        # sprawl check (both DS-151, both ADVISORY, both unaffected by
-        # DS-156 other than _volume_flag's Answer-turn re-budget). Skipped
-        # when the execution-turn shape check already blocked - a blocked
-        # turn gets one directive to reshape, not an additional advisory
-        # pile-on. _volume_flag already returns None on a zero-warrant
-        # turn; _decision_item_sprawl_flag already returns None when no
+        # 3. Operator-decisions per-item sprawl check (DS-151, ADVISORY).
+        # The turn-charge volume check that used to run alongside this
+        # (DS-151, ADVISORY) was retired in DS-171 - see the module
+        # docstring's Purpose section; the rule now lives in the
+        # `dinostack` output style. Skipped when the execution-turn shape
+        # check already blocked - a blocked turn gets one directive to
+        # reshape, not an additional advisory pile-on.
+        # _decision_item_sprawl_flag already returns None when no
         # '## Operator decisions' heading is present.
         if block_finding is None:
-            volume_finding = _volume_flag(msg_text, warrants)
-            if volume_finding:
-                advisory_findings.append(volume_finding)
-
             decision_sprawl_finding = _decision_item_sprawl_flag(msg_text)
             if decision_sprawl_finding:
                 advisory_findings.append(decision_sprawl_finding)
