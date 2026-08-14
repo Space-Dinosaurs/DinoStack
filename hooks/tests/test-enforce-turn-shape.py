@@ -819,8 +819,9 @@ s5c_with_quote_msg = (
 rc, out, err = run_hook(make_payload(s5c_with_quote_msg))
 check(
     "s5c. incidental quote grants the answer warrant, which wins the shape "
-    "question -> QUIET (routes to _answer_relevance_flag, not the "
-    "structural shape check)",
+    "question -> QUIET (routes past the structural shape check entirely; "
+    "before DS-171 this routed to the now-retired _answer_relevance_flag, "
+    "which has since been deleted with no replacement hook check)",
     is_quiet(rc, out),
 )
 

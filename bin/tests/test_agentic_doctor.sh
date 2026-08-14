@@ -1139,6 +1139,75 @@ fi
 
 rm -rf "$T20_HOME"
 
+# 20e: built output style missing from repo_dir entirely -> SKIP, never FAIL
+# (DS-171 round 5, Skeptic Minor 5 - the src-missing branch had no coverage).
+T20E_HOME="$(mktemp -d)"
+T20E_REPO="$T20E_HOME/fake-DinoStack"
+mkdir -p "$T20E_REPO/.git"
+# Deliberately do NOT create .claude/skills/dinostack/output-styles/dinostack.md.
+
+mkdir -p "$T20E_HOME/.agentic"
+cat > "$T20E_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20E_REPO"
+}
+EOF
+
+(
+  HOME="$T20E_HOME"
+  export HOME
+  python3 "$DOCTOR"
+) > "$T20E_HOME/.out" 2>&1
+
+OUT=$(cat "$T20E_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style:.*built output style not found in repo_dir"; then
+  _pass "T20e output_style: built style missing from repo_dir reported as SKIP"
+else
+  _fail "T20e output_style: missing built style should be SKIP, not FAIL\n$OUT"
+fi
+
+rm -rf "$T20E_HOME"
+
+# 20f: installed copy present but unreadable -> WARN, not a crash or FAIL
+# (DS-171 round 5, Skeptic Minor 5 - the unreadable-file branch had no
+# coverage). Skipped when running as root, since root ignores file mode
+# bits and the induced read failure would never occur.
+if [[ "$(id -u)" != "0" ]]; then
+  T20F_HOME="$(mktemp -d)"
+  T20F_REPO="$T20F_HOME/fake-DinoStack"
+  mkdir -p "$T20F_REPO/.git" "$T20F_REPO/.claude/skills/dinostack/output-styles"
+  echo "built style v1" > "$T20F_REPO/.claude/skills/dinostack/output-styles/dinostack.md"
+
+  mkdir -p "$T20F_HOME/.agentic"
+  cat > "$T20F_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20F_REPO"
+}
+EOF
+
+  mkdir -p "$T20F_HOME/.claude/output-styles"
+  echo "installed copy" > "$T20F_HOME/.claude/output-styles/dinostack.md"
+  chmod 000 "$T20F_HOME/.claude/output-styles/dinostack.md"
+
+  (
+    HOME="$T20F_HOME"
+    export HOME
+    python3 "$DOCTOR"
+  ) > "$T20F_HOME/.out" 2>&1
+
+  OUT=$(cat "$T20F_HOME/.out")
+  if echo "$OUT" | grep -q "^WARN output_style:.*could not compare"; then
+    _pass "T20f output_style: unreadable installed copy reported as WARN"
+  else
+    _fail "T20f output_style: unreadable installed copy should be WARN\n$OUT"
+  fi
+
+  chmod 644 "$T20F_HOME/.claude/output-styles/dinostack.md"
+  rm -rf "$T20F_HOME"
+else
+  _pass "T20f output_style: unreadable-file WARN branch skipped (running as root)"
+fi
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

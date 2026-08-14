@@ -6,13 +6,18 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          candor) out of `hooks/enforce-turn-shape.py` and into the
          always-injected `dinostack` Claude Code output style
          (`content/output-styles/dinostack.md`). That rule set is then
-         RESTATED, by name, at six separate sites with no mechanical check
+         RESTATED, by name, at nine separate sites with no mechanical check
          tying them together: `docs/index.html`, `README.md`,
          `docs/configuration-reference.md`, `docs/safe-configuration.md`
          (the latter two added round 4, Skeptic Minor 2),
-         `hooks/enforce-turn-shape.py`'s module docstring, and
-         `content/references/conductor-turn-format.md`'s DS-171 note. This
-         is exactly the shape that caused DS-171 round 2's Skeptic Critical
+         `hooks/enforce-turn-shape.py`'s module docstring,
+         `content/references/conductor-turn-format.md`'s DS-171 note, and
+         `content/references/risk-config-and-tiers.md`,
+         `content/references/conventions-detail.md`, and
+         `content/commands/ds-init-project.md` (added round 5, Skeptic
+         Major 1 - these three had been retiring only the answer-relevance
+         check by name and omitting status-only and volume). This is
+         exactly the shape that caused DS-171 round 2's Skeptic Critical
          (a stale cross-file assertion nothing pinned) - this spec closes
          the same gap for the rule-SET NAME, not just the
          retired-mechanism prose already fixed in round 3. Round 4
@@ -28,12 +33,15 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          `**N. ...**`). Both are asserted to agree with each other, and
          each named topic is asserted present, AND no topic the style no
          longer defines is asserted stale-present (modulo hyphen/space
-         normalization), at each of the six sites above.
+         normalization), at each of the nine sites above.
 
 Upstream deps: content/output-styles/dinostack.md (derived source of truth);
                docs/index.html; README.md; docs/configuration-reference.md;
                docs/safe-configuration.md; hooks/enforce-turn-shape.py;
-               content/references/conductor-turn-format.md.
+               content/references/conductor-turn-format.md;
+               content/references/risk-config-and-tiers.md;
+               content/references/conventions-detail.md;
+               content/commands/ds-init-project.md.
 
 Downstream consumers: CI (bin-tests / pytest bin/tests/); a human reviewer
                        of any PR that renames, adds, or removes a
@@ -64,6 +72,9 @@ HOOK_PATH = REPO_ROOT / "hooks" / "enforce-turn-shape.py"
 CTF_PATH = REPO_ROOT / "content" / "references" / "conductor-turn-format.md"
 CONFIG_REF_PATH = REPO_ROOT / "docs" / "configuration-reference.md"
 SAFE_CONFIG_PATH = REPO_ROOT / "docs" / "safe-configuration.md"
+RISK_CONFIG_PATH = REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md"
+CONVENTIONS_DETAIL_PATH = REPO_ROOT / "content" / "references" / "conventions-detail.md"
+DS_INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
 
 # The closed universe of topics this rule set has ever named (DS-171: status-
 # only, volume, answer relevance, self-narrating candor). Used only to detect
@@ -179,6 +190,12 @@ def test_index_html_names_full_rule_set(rule_set_topics):
         "dinostack output style"
     )
     card_text = text[text.index(marker):]
+    # Scope to this one card, not the whole rest of the file - without an
+    # end delimiter this passes vacuously the moment any topic word
+    # recurs anywhere later in index.html (DS-171 round 5, Skeptic Minor 4).
+    next_card = card_text.find("</div>", 1)
+    if next_card != -1:
+        card_text = card_text[: next_card + len("</div>")]
     _assert_topics_present(INDEX_PATH, card_text, rule_set_topics)
     _assert_no_stale_topics(INDEX_PATH, card_text, rule_set_topics)
 
@@ -256,3 +273,51 @@ def test_conductor_turn_format_names_full_rule_set(rule_set_topics):
         note_text = note_text[:next_para]
     _assert_topics_present(CTF_PATH, note_text, rule_set_topics)
     _assert_no_stale_topics(CTF_PATH, note_text, rule_set_topics)
+
+
+def test_risk_config_and_tiers_names_full_rule_set(rule_set_topics):
+    text = RISK_CONFIG_PATH.read_text(encoding="utf-8")
+    marker = "`turn_shape_guard_enabled`"
+    assert marker in text, (
+        f"{RISK_CONFIG_PATH} must contain the '{marker}' config entry "
+        "describing what moved to the dinostack output style"
+    )
+    entry_text = text[text.index(marker):]
+    # Scope to this one bullet, not the whole rest of the file.
+    next_bullet = entry_text.find("\n- `", 1)
+    if next_bullet != -1:
+        entry_text = entry_text[:next_bullet]
+    _assert_topics_present(RISK_CONFIG_PATH, entry_text, rule_set_topics)
+    _assert_no_stale_topics(RISK_CONFIG_PATH, entry_text, rule_set_topics)
+
+
+def test_conventions_detail_names_full_rule_set(rule_set_topics):
+    text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
+    marker = "`turn_shape_guard_enabled`"
+    assert marker in text, (
+        f"{CONVENTIONS_DETAIL_PATH} must contain the '{marker}' config entry "
+        "describing what moved to the dinostack output style"
+    )
+    entry_text = text[text.index(marker):]
+    # Scope to this one bullet, not the whole rest of the file.
+    next_bullet = entry_text.find("\n- `", 1)
+    if next_bullet != -1:
+        entry_text = entry_text[:next_bullet]
+    _assert_topics_present(CONVENTIONS_DETAIL_PATH, entry_text, rule_set_topics)
+    _assert_no_stale_topics(CONVENTIONS_DETAIL_PATH, entry_text, rule_set_topics)
+
+
+def test_ds_init_project_names_full_rule_set(rule_set_topics):
+    text = DS_INIT_PROJECT_PATH.read_text(encoding="utf-8")
+    marker = "`turn_shape_guard_enabled`"
+    assert marker in text, (
+        f"{DS_INIT_PROJECT_PATH} must contain the '{marker}' config entry "
+        "describing what moved to the dinostack output style"
+    )
+    entry_text = text[text.index(marker):]
+    # Scope to this one bullet, not the whole rest of the file.
+    next_bullet = entry_text.find("\n- `", 1)
+    if next_bullet != -1:
+        entry_text = entry_text[:next_bullet]
+    _assert_topics_present(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
+    _assert_no_stale_topics(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)

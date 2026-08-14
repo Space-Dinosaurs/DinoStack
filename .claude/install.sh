@@ -839,12 +839,16 @@ upsert_hook(
     "Stop hook enforce-no-abdication.py",
 )
 
-# Turn-shape guard (DS-122; DS-156). Checks the shape of the conductor's
-# final assistant message (warrant classification, execution-turn structural
-# shape, answer-turn phrasing). As of DS-156 NOT uniformly advisory: the
-# execution-turn structural check (_execution_prose_flag) can block the
-# stop; the answer-turn phrasing check (_answer_relevance_flag) stays
-# advisory-only and surfaces via additionalContext.
+# Turn-shape guard (DS-122; DS-156; DS-171). Checks the shape of the
+# conductor's final assistant message. As of DS-156 NOT uniformly advisory:
+# the execution-turn structural check (_execution_prose_flag) can block the
+# stop; the operator-decisions per-item shape check (_decision_item_sprawl_flag)
+# remains advisory-only and surfaces via additionalContext. As of DS-171 the
+# former answer-turn phrasing check (_answer_relevance_flag), the zero-warrant
+# status-only check (_status_only_flag), and the turn-volume check
+# (_turn_charge/_volume_flag) are all deleted from this hook - those rules
+# now live in the dinostack Claude Code output style (installed below),
+# not here.
 # Registered AFTER enforce-no-abdication.py.
 # Default ON (turn_shape_guard_enabled must be explicitly false in
 # .agentic/config.json to disable). Disable via:
