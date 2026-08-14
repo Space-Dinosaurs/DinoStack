@@ -16,7 +16,10 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          `content/references/conventions-detail.md`, and
          `content/commands/ds-init-project.md` (added round 5, Skeptic
          Major 1 - these three had been retiring only the answer-relevance
-         check by name and omitting status-only and volume). This is
+         check by name and omitting status-only and volume), and
+         `docs/components.md` (added round 6, Skeptic Major - this site
+         had never been added to this guard and was found stating an
+         entirely stale description of the retired mechanism). This is
          exactly the shape that caused DS-171 round 2's Skeptic Critical
          (a stale cross-file assertion nothing pinned) - this spec closes
          the same gap for the rule-SET NAME, not just the
@@ -41,7 +44,7 @@ Upstream deps: content/output-styles/dinostack.md (derived source of truth);
                content/references/conductor-turn-format.md;
                content/references/risk-config-and-tiers.md;
                content/references/conventions-detail.md;
-               content/commands/ds-init-project.md.
+               content/commands/ds-init-project.md; docs/components.md.
 
 Downstream consumers: CI (bin-tests / pytest bin/tests/); a human reviewer
                        of any PR that renames, adds, or removes a
@@ -75,6 +78,7 @@ SAFE_CONFIG_PATH = REPO_ROOT / "docs" / "safe-configuration.md"
 RISK_CONFIG_PATH = REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md"
 CONVENTIONS_DETAIL_PATH = REPO_ROOT / "content" / "references" / "conventions-detail.md"
 DS_INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
+COMPONENTS_PATH = REPO_ROOT / "docs" / "components.md"
 
 # The closed universe of topics this rule set has ever named (DS-171: status-
 # only, volume, answer relevance, self-narrating candor). Used only to detect
@@ -321,3 +325,22 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
         entry_text = entry_text[:next_bullet]
     _assert_topics_present(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
     _assert_no_stale_topics(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
+
+
+def test_components_names_full_rule_set(rule_set_topics):
+    text = COMPONENTS_PATH.read_text(encoding="utf-8")
+    marker = "`turn_shape_guard_enabled`"
+    assert marker in text, (
+        f"{COMPONENTS_PATH} must contain the '{marker}' config entry "
+        "describing what moved to the dinostack output style"
+    )
+    entry_text = text[text.index(marker):]
+    # docs/components.md packs every toggle into one inline comma-separated
+    # paragraph (no leading "\n- `" bullet marker like the other sites) -
+    # scope to this one parenthetical by finding the ")," that closes it
+    # and precedes the next backtick-quoted config key.
+    next_entry = entry_text.find("), `", 1)
+    if next_entry != -1:
+        entry_text = entry_text[: next_entry + 1]
+    _assert_topics_present(COMPONENTS_PATH, entry_text, rule_set_topics)
+    _assert_no_stale_topics(COMPONENTS_PATH, entry_text, rule_set_topics)
