@@ -228,7 +228,7 @@ The brief defines the **threat model** the Skeptic must adopt. It is domain-spec
 
 - The primary agent writes it (or extends a template) and passes it to both Worker and Skeptic **verbatim**
 - The agent must not soften, summarize, or editorialize the brief
-- Nor may it inject a conductor hypothesis, suspicion, or attention-steer - neutrality and completeness are independent axes, with no carve-out for an attributed steer
+- Nor may it inject a conductor hypothesis, suspicion, or attention-steer - neutrality and completeness are independent axes, with no carve-out for an operator-attributed steer
 - Templates exist for: auth, API endpoints, crypto, DB migrations, data pipelines, smart contracts, architecture docs, general code review
 
 <div class="callout">
