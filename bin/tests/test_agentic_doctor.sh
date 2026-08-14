@@ -30,7 +30,7 @@ PASS=0
 FAIL=0
 
 _fail() {
-  echo "FAIL: $1" >&2
+  printf 'FAIL: %b\n' "$1" >&2
   FAIL=$((FAIL + 1))
 }
 
