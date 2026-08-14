@@ -1076,6 +1076,70 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 20: check_output_style_staleness (DS-171 round 4, Skeptic Minor 5).
+# Own isolated TEMP_HOME/FAKE_REPO, independent of the fixtures above.
+# ---------------------------------------------------------------------------
+T20_HOME="$(mktemp -d)"
+T20_REPO="$T20_HOME/fake-DinoStack"
+mkdir -p "$T20_REPO/.git" "$T20_REPO/.claude/skills/dinostack/output-styles"
+echo "built style v1" > "$T20_REPO/.claude/skills/dinostack/output-styles/dinostack.md"
+
+mkdir -p "$T20_HOME/.agentic"
+cat > "$T20_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T20_REPO"
+}
+EOF
+
+t20_invoke() {
+  (
+    HOME="$T20_HOME"
+    export HOME
+    python3 "$DOCTOR" "$@"
+  ) > "$T20_HOME/.out" 2>&1
+  echo $? > "$T20_HOME/.exit"
+}
+
+# 20a: not installed at all -> SKIP, never FAIL
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style:.*not installed"; then
+  _pass "T20a output_style: not-installed reported as SKIP"
+else
+  _fail "T20a output_style: not-installed should be SKIP\n$OUT"
+fi
+
+# 20b: installed but stale -> FIX finding in read-only mode
+mkdir -p "$T20_HOME/.claude/output-styles"
+echo "stale installed copy" > "$T20_HOME/.claude/output-styles/dinostack.md"
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^FIX output_style:.*is stale relative to"; then
+  _pass "T20b output_style: stale installed copy reported as FIX"
+else
+  _fail "T20b output_style: stale copy should be reported as FIX\n$OUT"
+fi
+
+# 20c: --fix refreshes the installed copy to match repo_dir exactly
+t20_invoke --fix
+if diff -q "$T20_REPO/.claude/skills/dinostack/output-styles/dinostack.md" "$T20_HOME/.claude/output-styles/dinostack.md" >/dev/null 2>&1; then
+  _pass "T20c output_style: --fix refreshed the installed copy to match repo_dir"
+else
+  _fail "T20c output_style: installed copy still does not match repo_dir after --fix"
+fi
+
+# 20d: idempotent - a second read-only scan after --fix reports OK, not FIX
+t20_invoke
+OUT=$(cat "$T20_HOME/.out")
+if echo "$OUT" | grep -q "^OK output_style:.*matches repo_dir"; then
+  _pass "T20d output_style: subsequent scan after --fix reports OK (current)"
+else
+  _fail "T20d output_style: subsequent scan after --fix should report OK\n$OUT"
+fi
+
+rm -rf "$T20_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

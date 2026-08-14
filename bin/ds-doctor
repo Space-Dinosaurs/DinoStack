@@ -8,10 +8,13 @@ Purpose: Inspect global dinostack install health and (with --fix)
          (reverse direction), that hook commands in ~/.claude/settings.json
          point into repo_dir, that every managed hook script referenced in
          settings.json actually exists on disk (orphaned-hook detection),
-         that the repo_dir pre-commit hook is wired, and that the
+         that the repo_dir pre-commit hook is wired, that the
          session-stable hooks snapshot (DS-54) is not dormant relative to the
          checkout's live hook source (never_migrated / half_applied /
-         stale_but_stable - see check_hooks_snapshot_staleness). With --fix,
+         stale_but_stable - see check_hooks_snapshot_staleness), and (DS-171
+         round 4) that the installed `dinostack` output style
+         (~/.claude/output-styles/dinostack.md) is not stale relative to
+         repo_dir's built copy - see check_output_style_staleness. With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
          in settings.json (atomic read-merge-write); when the expected
          in-repo target for an ours-to-own symlink no longer exists at all
@@ -30,8 +33,14 @@ Purpose: Inspect global dinostack install health and (with --fix)
          actionable "re-run that adapter's install.sh" message rather than
          claiming it resolved. The orphaned-hook check is read-only
          (FAIL only, no --fix repair - the fix is restoring the script or
-         re-running install.sh). Otherwise never invokes install.sh, never
-         touches real files or foreign symlinks. NOTE: the reverse
+         re-running install.sh). For output-style staleness, --fix
+         overwrites the installed copy with repo_dir's current bytes (a
+         plain-file refresh, not a symlink repoint - the artifact is a
+         copy by design, see check_output_style_staleness; this is the one
+         real, non-symlink file --fix is allowed to overwrite, and only
+         because it is itself install.sh's own generated copy target, not
+         operator content). Otherwise never invokes install.sh, never
+         touches any OTHER real file or a foreign symlink. NOTE: the reverse
          ~/.local/bin stale-link check (check_local_bin_stale) is
          checked-out-tree-relative, not just rename-relative - on an older
          commit or a feature branch where a given bin/ tool does not yet
@@ -119,6 +128,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -380,6 +390,27 @@ class Doctor:
                     os.remove(str(dst))
             except Exception as exc:
                 self.fail(kind, f"could not remove stale {dst}: {exc}")
+                self.mark_unfixable(dst)
+
+    def refresh_stale_copy(self, kind: str, src: Path, dst: Path) -> None:
+        """Announce and (if fix mode) refresh a plain-file COPY (not a
+        symlink) that has drifted from its repo_dir source - e.g. the
+        installed `dinostack` output style, which `.claude/install.sh`
+        installs via a plain overwrite copy, not a symlink (DS-96/DS-104
+        absolutized-symlink hazard avoidance already established for
+        `.claude/skills/dinostack/*` - copies sidestep it entirely for this
+        artifact). Overwrites dst with src's current bytes.
+
+        Prints: FIX copy: <dst> stale relative to <src>
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, performs the copy.
+        """
+        if self.fix:
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(str(src), str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not refresh {dst}: {exc}")
                 self.mark_unfixable(dst)
 
     def has_unresolved_findings(self) -> bool:
@@ -1264,6 +1295,56 @@ def _installed_harnesses():
     return installed or None
 
 
+# ---------------------------------------------------------------------------
+# Check (f3): installed dinostack output style is current (DS-171 round 4,
+# Skeptic Minor 5)
+# ---------------------------------------------------------------------------
+
+
+def check_output_style_staleness(doc: Doctor) -> None:
+    """Compare ~/.claude/output-styles/dinostack.md (installed by
+    `.claude/install.sh`, a plain copy - not a symlink, deliberately
+    sidestepping the DS-96/DS-104 absolutized-symlink hazard already
+    established for `.claude/skills/dinostack/*`) against
+    `<repo_dir>/.claude/skills/dinostack/output-styles/dinostack.md` (the
+    built source `install.sh` copies from). `install.sh` copies
+    unconditionally and idempotently on every run, so before this check
+    existed the installed copy's currency was bounded only by how recently
+    `install.sh` last ran - the same DS-54 dogfooding-gap class
+    `check_hooks_snapshot_staleness` closes for hooks, but nothing
+    previously checked this artifact at all. Absence of either file is a
+    SKIP, not a FAIL: a repo_dir that predates DS-171 (no built style yet)
+    or an install that has never installed the style is a known state, not
+    drift.
+    """
+    src = doc.repo_dir / ".claude" / "skills" / "dinostack" / "output-styles" / "dinostack.md"
+    dst = _home() / ".claude" / "output-styles" / "dinostack.md"
+
+    if not src.is_file():
+        doc.skip("output_style", src, "built output style not found in repo_dir")
+        return
+    if not dst.is_file():
+        doc.skip("output_style", dst, "not installed (re-run install.sh to install)")
+        return
+
+    try:
+        src_bytes = src.read_bytes()
+        dst_bytes = dst.read_bytes()
+    except Exception as exc:
+        doc.warn("output_style", f"could not compare {src} and {dst}: {exc}")
+        return
+
+    if src_bytes == dst_bytes:
+        doc.ok("output_style", f"{dst} matches repo_dir (current)")
+        return
+
+    # Mirrors repoint_symlink's convention: always announce the finding as
+    # FIX, and only perform the actual repair in live-fix mode.
+    doc._emit("FIX", f"output_style: {dst} is stale relative to {src}")
+    if doc.fix:
+        doc.refresh_stale_copy("output_style", src, dst)
+
+
 def check_cross_harness(doc: "Doctor") -> None:
     """Validate the cross-harness team stack: configs, harnesses, model handles."""
     at = _load_agentic_team_module()
@@ -1462,6 +1543,9 @@ def main() -> int:
 
     # (f2) DS-54 hooks-snapshot staleness
     check_hooks_snapshot_staleness(doc)
+
+    # (f3) installed dinostack output style currency (DS-171 round 4)
+    check_output_style_staleness(doc)
 
     # (g) cross-harness team stack (opt-in via --cross-harness)
     if args.cross_harness:
