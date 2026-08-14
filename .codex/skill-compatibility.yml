@@ -4512,16 +4512,6 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "1ae8611097fdd91eb611665f3ca0884bad193840688ed8bd790cae63006ef4e5",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_REVERT_RISK",
       "kind": "display-only",
@@ -5360,6 +5350,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "28a4ea33291b34ef864722e6bf988615babe84945f0d1f108265692841cfba19",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -15610,6 +15610,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/context.md"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "whole",
+      "kind": "display-only",
+      "occurrence_hash": "c7313300657e92dadb5894b7c257268dc572a74704537526264deed54c846b5b",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "whole"
     },
     {
       "expected_target": "hashed-source-occurrence",

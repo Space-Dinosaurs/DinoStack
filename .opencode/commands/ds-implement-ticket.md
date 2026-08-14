@@ -502,19 +502,19 @@ Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before 
 
 Caller supplies:
 - `TICKET_TITLE` - one-line summary of the work
-- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known
+- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known; lead with Problem; ≈15-line soft total (§Ticket descriptions, conventions-detail.md)
 - `TICKET_TYPE` - `feature` | `bug` | `task`
 
 Helper returns:
-- `CREATED_TICKET_ID` - e.g. DS-42; empty string on failure
-- `CREATED_TICKET_URL` - empty string on failure
+- `CREATED_TICKET_ID` - e.g. DS-42; empty on failure
+- `CREATED_TICKET_URL` - empty on failure
 - `CREATE_STATUS` - `created` | `skipped` | `failed`
-- `CREATE_ERROR` - error message string, or null on success
+- `CREATE_ERROR` - error message, or null on success
 **Collision pre-check (runs BEFORE the create branches):**
 
-Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, same exported symbols, same DB tables/migrations, or same shared utility/config that the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis that prevents two parallel sessions from colliding on the same file - the failure mode where a boundary gets retrofitted AFTER the ticket already exists instead of at creation time.
+Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, exported symbols, DB tables/migrations, or shared utility/config the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis: agree the boundary at creation, don't retrofit it after the ticket exists.
 
-Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies but relies on the conductor's own scope knowledge rather than a scan).
+Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies via the conductor's scope knowledge rather than a scan).
 
 Decision:
 
@@ -531,11 +531,11 @@ Decision:
 
 The boundary section is binding, not advisory: it travels with the ticket into the tracker so the other session sees it on its next pull. If the conductor cannot determine a clean boundary (the two tickets genuinely own the same lines with no split), STOP before creating and surface the conflict to the operator for a manual scope-split.
 
-The scan is a single tracker query (one API roundtrip, paginated to the project/team). It is cheap and runs only at create time - it does not run on every phase transition.
+The scan is a single tracker query (one API roundtrip, paginated to the project/team), cheap, create-time only - not on every phase transition.
 
 **Branch on TRACKER:**
 
-- **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (a prefix string like "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; use the existing `## Linear` `Team:` resolution that the rest of this command uses. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
+- **`TRACKER == linear`**: call `mcp__linear__save_issue` with NO `id` field (save_issue creates when no id is supplied - this matches the repo's existing Linear convention; do NOT use a `createIssue` tool, it does not exist). Pass `title`=TICKET_TITLE, `description`=TICKET_BODY, and the Linear team. IMPORTANT team-source note: the `## Linear` section's `Team:` field resolves to `TICKET_PREFIX` (e.g. "DS"), but save_issue needs the Linear team key/id - if only a prefix is available, resolve the actual team via the Linear team-list tool. Do NOT invent a `## Linear Team` heading; reuse the existing `Team:` resolution. On success read `issue.identifier` -> CREATED_TICKET_ID, `issue.url` -> CREATED_TICKET_URL, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed, CREATE_ERROR=\<msg\>.
 
 - **`TRACKER == jira`**: call `mcp__mcp-atlassian__jira_create_issue` (naming-consistent with the existing `mcp__mcp-atlassian__jira_*` family used elsewhere in this file). Pass `project_key`=TICKET_PREFIX, `summary`=TICKET_TITLE, `description`=TICKET_BODY, `issue_type` mapped from TICKET_TYPE (feature -> "Story", bug -> "Bug", task -> "Task"; omit to accept project default if uncertain). On success read the returned issue key -> CREATED_TICKET_ID, construct CREATED_TICKET_URL as `<JIRA_BASE_URL>/browse/<CREATED_TICKET_ID>`, CREATE_STATUS=created. On MCP error: CREATE_STATUS=failed.
 
@@ -2329,6 +2329,7 @@ else
   # NL assigned before the string (not inside a heredoc) so variable expansion works.
   NL=$'
 '
+  # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
   COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
   git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
 fi
@@ -2640,7 +2641,7 @@ Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-e
 - `QA_EVIDENCE_URLS` is non-empty
 - the unit's risk class - taken from the conductor's in-context risk classification (declared at Phase 2/3) and the architect plan - is NOT one of: security, auth, crypto, payments, or Elevated-correctness
 
-Default is "false". When the risk class is ambiguous, use "false". (Conservative: a false default just keeps the existing append-after-Summary behavior; it never leads with evidence on a security/correctness unit.) This is derived in-context by the conductor; it is not stored in or read from a state file.
+Default is "false"; use "false" when ambiguous. (Conservative: a false default keeps the existing append-after-Summary behavior; it never leads with evidence on a security/correctness unit.) Derived in-context by the conductor; not stored in or read from a state file.
 
 Compose the `[TRACKER_REFERENCE_BLOCK]` based on the resolved `TRACKER`, then run the `gh pr create` command with that block included in the body.
 
@@ -2666,7 +2667,7 @@ Omit the tracker reference block entirely. The PR body will have only Summary, T
 
 Open as draft PR. GitHub does not request reviewers on a draft; reviewers are assigned in Phase 10b after CI passes.
 
-Authoring rule: §External Comment Discipline in `content/rules/conventions.md` applies - lead with the result, bullets over prose, cut anything the diff already shows.
+Authoring rule: §External Comment Discipline in `content/rules/conventions.md` applies - lead with the result, bullets over prose, cut anything the diff already shows. Summary ≤ 5 single-line bullets; QA Evidence/tracker ref/Test plan excluded (§Assembled PR bodies).
 
 Run:
 
