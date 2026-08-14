@@ -966,11 +966,12 @@ _DECISION_ITEM_START_RE = re.compile(r"^ {0,3}(?:\d+[.)]|[-*+])\s+\S")
 def _body_after_identity_line(text: str) -> list:
     """Return all lines AFTER the first non-blank (identity) line.
 
-    Raw-line path, deliberately NOT fence-aware - used only by
-    _status_only_flag and _forced_yield_flag. See the module docstring's
-    "Known implementation seam" note (DS-151 amendment A7) for why those
-    two checks stay on this path rather than _segment's fence-aware
-    structure.
+    Raw-line path, deliberately NOT fence-aware - DS-171: its former
+    consumers (_status_only_flag, _forced_yield_flag) are both deleted;
+    the sole live consumer today is _execution_prose_flag's sole-stoppage
+    branch. See the module docstring's "Known implementation seam" note
+    (DS-151 amendment A7) for why that branch stays on this raw-line path
+    rather than _segment's fence-aware structure.
     """
     lines = text.splitlines()
     seen_identity = False
@@ -997,8 +998,8 @@ def _segment(text: str) -> tuple:
     identity line. Fenced = inside a MATCHED ``` pair, inclusive of both
     delimiters. An unmatched trailing opener is NOT fenced (fail closed).
     Single source of truth for fence structure - _regions, _decision_items,
-    _classify_warrants, and _turn_charge all consume this; none re-parses
-    fence structure independently."""
+    and _classify_warrants all consume this; none re-parses fence structure
+    independently. DS-171: _turn_charge, a former consumer, is deleted."""
     lines = text.splitlines()
     idx = len(lines)
     identity_line = ""
@@ -1076,8 +1077,9 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     message looks like a direct question) so a plain-prose reply to a
     direct question satisfies the warrant without needing a quoted
     fragment. Defaults to False so every existing single-argument call
-    site (including hooks/tests/test-turn-charge-model.py's direct
-    _turn_charge(text) calls) is unaffected."""
+    site is unaffected. DS-171: hooks/tests/test-turn-charge-model.py, a
+    former such call site (via the now-deleted _turn_charge), is deleted
+    along with the function it tested."""
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
@@ -1229,35 +1231,28 @@ def _is_answer_shaped_prose(lines) -> bool:
     block-line strings, NOT a single joined blob - see
     `_execution_prose_flag`'s per-block call site, round-2 Major 1 fix)
     average at least _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE words per unit
-    (see `_answer_prose_units`). Two consumers:
+    (see `_answer_prose_units`). Sole live consumer as of DS-171:
 
-      - `_execution_prose_flag`'s general branch (the original, WARRANT-
-        adjacent consumer): decides whether ONE contiguous block of
-        unrecognized status-region lines is narrative-creep-shaped (a
-        sprawl of short templated status pings averages only a handful
-        of words per unit even when there are many of them, and still
-        fails HERE regardless of how many other blocks the turn has) -
-        see that function's docstring for how this combines with the
-        whole-turn unit-count floor to produce the final ADVISORY/
-        BLOCKING decision.
-      - `_status_only_prose_is_explanatory` (advisory-recall fix,
-        repo-local ad-hoc ticket): reuses this SAME predicate against the
-        WHOLE unsegmented body (via `_body_after_identity_line`, one
-        block) to decide whether a zero-warrant turn's body is a
-        genuine, developed answer that the `_status_only_flag` nag
-        should stay silent on. This is bounded-safe in a way that a
-        prior, REJECTED proposal to widen the `answer` WARRANT with this
-        same predicate was not: `_status_only_prose_is_explanatory` never
-        enters `_classify_warrants`'s dict, so it cannot change
-        `is_answer_turn`/`is_execution_turn` routing and cannot move a
-        single turn onto the BLOCKING `_execution_prose_flag` path -
-        it is consumed exclusively by `_status_only_flag`, which is
-        already ADVISORY-ONLY and was already suppressible by warrants
-        genuinely present. Widening the `answer` warrant itself with
-        whole-body `_is_answer_shaped_prose` was measured and rejected
-        (it exempted 4 of 5 real narrative-creep turns that correctly
-        BLOCK) - that risk does not apply here because the result never
-        reaches warrant classification at all.
+      - `_execution_prose_flag`'s general and sole-stoppage branches (the
+        original, WARRANT-adjacent consumer): decides whether ONE
+        contiguous block of unrecognized status-region lines is
+        narrative-creep-shaped (a sprawl of short templated status pings
+        averages only a handful of words per unit even when there are
+        many of them, and still fails HERE regardless of how many other
+        blocks the turn has) - see that function's docstring for how
+        this combines with the whole-turn unit-count floor to produce
+        the final ADVISORY/BLOCKING decision.
+
+    DS-171: a second, now-deleted consumer, `_status_only_prose_is_
+    explanatory` (an advisory-recall fix for the also-deleted
+    `_status_only_flag`), used to reuse this SAME predicate against the
+    WHOLE unsegmented body to decide whether a zero-warrant turn's body
+    was a genuine, developed answer that the status-only nag should stay
+    silent on. Both functions are gone along with the zero-warrant check
+    itself; a prior, separately-rejected proposal to widen the `answer`
+    WARRANT with this same predicate (it exempted 4 of 5 real
+    narrative-creep turns that correctly BLOCK, when measured) remains
+    rejected and is unaffected by either deletion.
 
     DS-159 (real false positive: a real multi-paragraph conductor
     answer, terse in this repo's own mandated style, routinely produces
@@ -1306,8 +1301,10 @@ def _execution_prose_flag(text: str, warrants: dict):
 
     Called ONLY for execution turns (answer warrant ABSENT, at least one
     of decision/stoppage/completion PRESENT) - see main()'s three-way
-    classification gate; a zero-warrant turn routes to _status_only_flag
-    instead, and an Answer turn routes to _answer_relevance_flag instead.
+    classification gate; DS-171: a zero-warrant turn and an Answer turn
+    both now hit a no-op branch instead (their former routes,
+    _status_only_flag and _answer_relevance_flag respectively, are both
+    deleted - see the module docstring's Purpose section).
 
     On BOTH branches below, the identity line at position 1 is checked
     for LENGTH ONLY, never shape, against STATUS_LINE_MAX_CHARS - the
