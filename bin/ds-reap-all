@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+"""
+Purpose: Cross-repo sweep wrapper around `bin/ds-reap-worktrees`. That tool
+         cleans stale worktrees for exactly ONE repo per invocation
+         (`--repo <path>`, default cwd) - operators with several project
+         checkouts had no single command to sweep all of them. This tool
+         discovers a set of repos (explicit `--repo`, a root-directory
+         scan, or a config-file fallback), invokes the underlying tool once
+         per repo sequentially, and reports a combined summary. It contains
+         NO removal logic of its own - every safety gate (locked, dirty,
+         self, age floor, protected content, branch evidence,
+         --archive-unproven) lives entirely in `ds-reap-worktrees` and is
+         reused unmodified via subprocess.
+
+Public API (CLI):
+  ds-reap-all [--repo <path> ...] [root ...] [--depth N] [--timeout SECS]
+              [--dry-run] [--explain] [--count-only] [--no-gh]
+              [--min-age-hours <n>] [--strict-ignored] [--archive-unproven]
+              [--base <ref>]
+
+  --repo <path>          Explicit repo to sweep. Repeatable. Combines
+                          ADDITIVELY with any positional root directories
+                          given in the same invocation (both are explicit
+                          sources); the config-file fallback is used only
+                          when NEITHER --repo nor a positional root is
+                          given at all.
+  root ...               Positional root directories. Each root's children
+                          are scanned (to --depth levels) for git repos (a
+                          `.git` dir or file at that level). Non-git
+                          directories are skipped silently; nothing beneath
+                          a directory once identified as a repo is scanned
+                          further.
+  --depth N               Scan depth from each root. Default 1 (immediate
+                          children only). Max 3.
+  --timeout SECS          Per-repo subprocess timeout. Default 300. A
+                          timeout is reported as that repo's error; the
+                          sweep continues with the remaining repos.
+  --dry-run, --explain, --count-only, --no-gh, --min-age-hours <n>,
+  --strict-ignored, --archive-unproven, --base <ref>
+                          Forwarded verbatim to every `ds-reap-worktrees`
+                          invocation. This tool never reimplements or
+                          reinterprets any of their semantics - the
+                          per-repo tool owns all safety logic.
+
+  With no arguments at all, `~/.agentic/reap-all.json` is read (shape
+  `{"roots": [...], "repos": [...]}`, either key optional). If neither CLI
+  args nor the config file yield any repo, usage is printed and the tool
+  exits 2.
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, subprocess, sys,
+               pathlib). The sibling `ds-reap-worktrees` binary, located
+               next to this script's OWN resolved path (`Path(__file__).
+               resolve().parent` - follows a PATH symlink back to the real
+               bin/ directory, same discipline `ds-reap-worktrees` itself
+               uses for `worktree_model.py`), falling back to `ds-reap-
+               worktrees` on PATH if no sibling is found. `git` (CLI - one
+               `git rev-parse --show-toplevel` subprocess call PER
+               DISCOVERED TARGET, run from `RepoTarget.__init__`: this
+               validates both an explicit `--repo` AND every repo the
+               depth scan already found via a `.git` existence check, so
+               a scanned target still pays one subprocess call to confirm
+               it. N discovered targets means N `git` subprocess calls,
+               not merely one per explicit `--repo`).
+               `DS_REAP_ALL_UNDERLYING_TOOL` env var, when set, overrides
+               tool resolution entirely - test-only hook, never part of
+               the public CLI surface, lets bin/tests/test_ds_reap_all.py
+               substitute a fake stub without touching PATH or the real
+               sibling file. When set, `main()` prints a loud
+               `underlying-tool override active: <path>` NOTE to stderr so
+               the override is never silently active in real output.
+
+Downstream consumers: none yet (new tool). Intended for direct operator
+                      invocation (`ds-reap-all ~/Documents/Development` or
+                      a configured `~/.agentic/reap-all.json`), not wired
+                      into any automatic call site.
+
+Failure modes: exits 0 when zero repos errored AND zero root-discovery
+               errors. Exits 1 when at least one of: (a) a discovered
+               repo failed discovery (an explicit `--repo` that is not a
+               directory or not a git repository), (b) a repo failed
+               invocation (nonzero `ds-reap-worktrees` exit, subprocess
+               timeout, or an unexpected exception), or (c) a positional
+               root directory did not exist at all (`root-errors` in the
+               summary line) - one repo's or root's failure never halts
+               the sweep; every other repo/root is still attempted. Exits
+               2 on a usage error: no repos were discovered at all AND no
+               root errors occurred either (no --repo, no roots, no
+               usable config) - a bad root is always a reported error
+               (exit 1), never silently treated as "nothing to do" (exit
+               2). Never removes anything itself - all removal logic and
+               its own failure/retry semantics belong to
+               `ds-reap-worktrees`. A malformed config file (`"repos"` or
+               `"roots"` present but not a list, or containing a non-
+               string element) is reported to stderr and treated as
+               empty for that key - never an uncaught exception.
+
+Performance: one subprocess invocation of `ds-reap-worktrees` per
+             discovered repo, run sequentially (never parallel - keeps
+             per-repo output legible and avoids concurrent git/gh
+             rate-limit contention across repos), each bounded by
+             `--timeout` (default 300s). The depth scan itself is pure
+             `pathlib` directory listing (no subprocess calls), but EVERY
+             resulting target - explicit or scanned - then pays one `git
+             rev-parse --show-toplevel` subprocess call in
+             `RepoTarget.__init__` to confirm it, so total `git`
+             subprocess calls scale with N discovered targets, not with
+             N explicit `--repo` flags alone.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+_BIN_DIR = Path(__file__).resolve().parent
+
+_DEFAULT_TIMEOUT_SECONDS = 300.0
+_MAX_DEPTH = 3
+
+_CONFIG_PATH = Path("~/.agentic/reap-all.json").expanduser()
+
+#: Pass-through boolean flags forwarded verbatim to ds-reap-worktrees when
+#: set. Named here once so the forwarding logic and the summary-line
+#: composition can never disagree about which flags exist.
+_PASS_THROUGH_BOOL_FLAGS = (
+    "dry_run",
+    "explain",
+    "count_only",
+    "no_gh",
+    "strict_ignored",
+    "archive_unproven",
+)
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="ds-reap-all",
+        description="Cross-repo sweep wrapper around ds-reap-worktrees.",
+    )
+    p.add_argument("roots", nargs="*", default=[], help="Root directories to scan for git repos.")
+    p.add_argument("--repo", action="append", default=[], help="Explicit repo to sweep. Repeatable.")
+    p.add_argument("--depth", type=int, default=1, choices=[1, 2, 3])
+    p.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
+
+    # Pass-through flags - forwarded verbatim, never reinterpreted.
+    p.add_argument("--dry-run", dest="dry_run", action="store_true")
+    p.add_argument("--explain", action="store_true")
+    p.add_argument("--count-only", dest="count_only", action="store_true")
+    p.add_argument("--no-gh", dest="no_gh", action="store_true")
+    p.add_argument("--min-age-hours", dest="min_age_hours", default=None)
+    p.add_argument("--strict-ignored", dest="strict_ignored", action="store_true")
+    p.add_argument("--archive-unproven", dest="archive_unproven", action="store_true")
+    p.add_argument("--base", dest="base", default=None)
+
+    return p.parse_args(argv)
+
+
+def _forwarded_flags(args: argparse.Namespace) -> List[str]:
+    """The exact argv fragment forwarded to every `ds-reap-worktrees`
+    invocation - built once so the subprocess call and the summary line's
+    echoed flag set can never drift apart.
+    """
+    flags: List[str] = []
+    for name in _PASS_THROUGH_BOOL_FLAGS:
+        if getattr(args, name):
+            flags.append("--" + name.replace("_", "-"))
+    if args.min_age_hours is not None:
+        flags += ["--min-age-hours", str(args.min_age_hours)]
+    if args.base is not None:
+        flags += ["--base", str(args.base)]
+    return flags
+
+
+# --------------------------------------------------------------------------
+# Repo discovery
+# --------------------------------------------------------------------------
+
+
+class RepoTarget:
+    """One repo the sweep will attempt (or has already rejected at
+    discovery time). `canonical` is the resolved path used for dedup
+    (`Path.resolve()` - the `pwd -P` equivalent: follows symlinks,
+    normalizes `..`/`.`)."""
+
+    def __init__(self, path: str, source: str):
+        self.path = path
+        self.source = source  # "explicit" | "scan" | "config"
+        self.canonical: Optional[Path] = None
+        self.discovery_error: Optional[str] = None
+
+        try:
+            self.canonical = Path(path).expanduser().resolve()
+        except OSError as exc:
+            self.discovery_error = f"could not resolve path: {exc}"
+            return
+
+        if not self.canonical.is_dir():
+            self.discovery_error = f"not a directory: {path}"
+            return
+
+        proc = subprocess.run(
+            ["git", "-C", str(self.canonical), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            self.discovery_error = f"not a git repository: {path}"
+
+
+def _is_git_dir(path: Path) -> bool:
+    git_marker = path / ".git"
+    return git_marker.is_dir() or git_marker.is_file()
+
+
+def _scan_root(root: Path, depth: int) -> Tuple[List[Path], int]:
+    """Returns `(found_repos, skipped_not_git)`. Scans `root`'s children to
+    `depth` levels (depth 1 = immediate children only). A directory that IS
+    a git repo is added and never descended into further. A directory that
+    is NOT a git repo and has no more depth budget to descend is counted
+    as `skipped_not_git`; one still eligible to descend further (depth
+    remaining > 1) is explored instead of counted, since it may itself
+    contain a repo at a deeper level.
+    """
+    found: List[Path] = []
+    skipped_not_git = 0
+
+    def walk(directory: Path, remaining_depth: int) -> None:
+        nonlocal skipped_not_git
+        try:
+            children = sorted(p for p in directory.iterdir() if p.is_dir())
+        except OSError:
+            return
+        for child in children:
+            if _is_git_dir(child):
+                found.append(child)
+                continue
+            if remaining_depth > 1:
+                walk(child, remaining_depth - 1)
+            else:
+                skipped_not_git += 1
+
+    walk(root, depth)
+    return found, skipped_not_git
+
+
+def discover_repos(args: argparse.Namespace) -> Tuple[List[RepoTarget], int, List[str]]:
+    """Returns `(targets, skipped_not_git, root_errors)`.
+
+    Explicit `--repo` entries and positional root directories are
+    ADDITIVE explicit sources - both are honored when both are given in
+    the same invocation, and the result is deduped by canonical path
+    (see `dedupe`). The config-file fallback (`~/.agentic/reap-all.json`)
+    is consulted ONLY when neither an explicit `--repo` nor a positional
+    root was given at all.
+    """
+    explicit_repo_paths: List[str] = list(args.repo)
+    root_paths: List[str] = list(args.roots)
+    skipped_not_git = 0
+    root_errors: List[str] = []
+
+    if not explicit_repo_paths and not root_paths:
+        config = _load_config()
+        explicit_repo_paths = _config_string_list(config, "repos")
+        root_paths = _config_string_list(config, "roots")
+
+    targets: List[RepoTarget] = [RepoTarget(p, "explicit") for p in explicit_repo_paths]
+
+    for root_str in root_paths:
+        root = Path(root_str).expanduser()
+        if not root.is_dir():
+            root_errors.append(f"root not a directory: {root_str}")
+            continue
+        found, skipped = _scan_root(root, args.depth)
+        skipped_not_git += skipped
+        for repo_path in found:
+            targets.append(RepoTarget(str(repo_path), "scan"))
+
+    return targets, skipped_not_git, root_errors
+
+
+def _load_config() -> Dict:
+    if not _CONFIG_PATH.is_file():
+        return {}
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(
+            f"ds-reap-all: could not read config {_CONFIG_PATH}: {exc}; treating as empty.",
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(data, dict):
+        print(
+            f"ds-reap-all: config {_CONFIG_PATH} must be a JSON object - got {data!r}; "
+            "treating as empty.",
+            file=sys.stderr,
+        )
+        return {}
+    return data
+
+
+def _config_string_list(config: Dict, key: str) -> List[str]:
+    """Returns `config[key]` as a `List[str]`, or `[]` when the key is
+    absent. A present-but-malformed value (not a list at all - e.g.
+    `null` or a bare string, both of which `list(...)` would otherwise
+    either crash on or silently explode into one entry per character -
+    or a list containing a non-string element) is reported to stderr and
+    treated as empty for that key, never an uncaught exception and never
+    silently misinterpreted.
+    """
+    if key not in config:
+        return []
+    value = config[key]
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        print(
+            f"ds-reap-all: ~/.agentic/reap-all.json field \"{key}\" must be a list of strings "
+            f"- got {value!r}; ignoring this field.",
+            file=sys.stderr,
+        )
+        return []
+    return list(value)
+
+
+def dedupe(targets: List[RepoTarget]) -> List[RepoTarget]:
+    """First-seen-wins dedup by canonical resolved path. A target whose
+    path could not be resolved at all (`canonical is None`) is never
+    deduped against anything else - it is kept as its own distinct
+    (already-errored) entry so its discovery error is still reported.
+    """
+    seen: set = set()
+    result: List[RepoTarget] = []
+    for target in targets:
+        if target.canonical is None:
+            result.append(target)
+            continue
+        if target.canonical in seen:
+            continue
+        seen.add(target.canonical)
+        result.append(target)
+    return result
+
+
+# --------------------------------------------------------------------------
+# Per-repo invocation
+# --------------------------------------------------------------------------
+
+
+def _resolve_reap_worktrees() -> str:
+    """Resolves the underlying `ds-reap-worktrees` binary to invoke.
+    `DS_REAP_ALL_UNDERLYING_TOOL`, when set, overrides this entirely - a
+    test-only hook (never documented in the public CLI surface above) that
+    lets the test suite substitute a fake stub executable without touching
+    PATH or the real sibling file, and without reimplementing any of this
+    function's own resolution semantics."""
+    override = os.environ.get("DS_REAP_ALL_UNDERLYING_TOOL")
+    if override:
+        return override
+    sibling = _BIN_DIR / "ds-reap-worktrees"
+    if sibling.is_file():
+        return str(sibling)
+    return "ds-reap-worktrees"
+
+
+def run_one_repo(tool: str, repo_path: str, forwarded: List[str], timeout: float) -> Dict:
+    """Invokes `ds-reap-worktrees --repo <repo_path> <forwarded>` as a
+    subprocess. Returns a dict with `ok`, `returncode`, `stdout`,
+    `stderr`, `detail`. Never raises - a subprocess failure, timeout, or
+    unexpected exception is captured and reported as this repo's own
+    error so it never halts the sweep.
+    """
+    cmd = [tool, "--repo", repo_path, *forwarded]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "detail": f"timed out after {timeout}s",
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "detail": f"could not invoke {tool}: {exc}",
+        }
+
+    ok = proc.returncode == 0
+    detail = "" if ok else f"exited {proc.returncode}"
+    return {"ok": ok, "returncode": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr, "detail": detail}
+
+
+# --------------------------------------------------------------------------
+# main
+# --------------------------------------------------------------------------
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    override = os.environ.get("DS_REAP_ALL_UNDERLYING_TOOL")
+    if override:
+        print(f"NOTE: underlying-tool override active: {override}", file=sys.stderr)
+
+    targets, skipped_not_git, root_errors = discover_repos(args)
+    targets = dedupe(targets)
+
+    for err in root_errors:
+        print(f"ds-reap-all: {err}", file=sys.stderr)
+
+    if not targets and not root_errors:
+        print(
+            "ds-reap-all: no repos discovered. Usage: ds-reap-all [--repo <path> ...] "
+            "[root ...] - or configure ~/.agentic/reap-all.json with a \"roots\" and/or "
+            "\"repos\" list.",
+            file=sys.stderr,
+        )
+        return 2
+
+    forwarded = _forwarded_flags(args)
+    tool = _resolve_reap_worktrees()
+
+    repos_swept = 0
+    repos_errored = 0
+
+    for target in targets:
+        header_path = target.canonical if target.canonical is not None else target.path
+        print(f"== {header_path} ({target.source}) ==")
+
+        if target.discovery_error is not None:
+            print(f"ds-reap-all: {target.discovery_error}", file=sys.stderr)
+            repos_errored += 1
+            continue
+
+        result = run_one_repo(tool, str(target.canonical), forwarded, args.timeout)
+        repos_swept += 1
+        if result["stdout"]:
+            print(result["stdout"], end="" if result["stdout"].endswith("\n") else "\n")
+        if result["stderr"]:
+            print(result["stderr"], end="" if result["stderr"].endswith("\n") else "\n", file=sys.stderr)
+        if not result["ok"]:
+            repos_errored += 1
+            print(f"ds-reap-all: repo {header_path} failed: {result['detail']}", file=sys.stderr)
+
+    flags_echo = " ".join(forwarded) if forwarded else "(none)"
+    root_error_count = len(root_errors)
+    print(
+        f"ds-reap-all: repos={len(targets)} swept={repos_swept} errored={repos_errored} "
+        f"root-errors={root_error_count} skipped-not-git={skipped_not_git} flags={flags_echo}"
+    )
+
+    if repos_errored or root_error_count:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

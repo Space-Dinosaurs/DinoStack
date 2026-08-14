@@ -123,6 +123,25 @@ on abrupt termination (crashes, SIGKILL).
     // Silent failure - best-effort context save
   }
 
+  // conductor_overreach detection port (DS unit DE): NOT INDEPENDENTLY
+  // VERIFIED this session - no Gemini CLI is installed on the machine this
+  // was written on, so (unlike the Codex port, where `strings` against the
+  // installed binary confirmed a real `transcript_path` field pointing at
+  // a structured rollout file) there is no direct evidence either way
+  // about whether Gemini's SessionEnd payload carries a transcript_path or
+  // equivalent structured field. An earlier version of this comment
+  // asserted "the payload carries no such field" as settled fact without
+  // ever having checked - that claim is withdrawn as unverified, not
+  // reasserted. What is true today, mechanically: this port currently only
+  // extracts cwd/session_id/last_assistant_message/model (see step 3
+  // above) and does not attempt to read a transcript-path-shaped field.
+  // Before porting hooks/lib/overreach-detector.js's computeOverreach
+  // here, a future change should first capture a real Gemini SessionEnd
+  // payload (e.g. a temporary hook that dumps stdin to a file) to
+  // determine whether a structured transcript is available at all, and if
+  // so in what schema - Gemini need not match either Claude's or Codex's
+  // shape.
+
   // Gemini SessionEnd hook: exit cleanly
   process.stdout.write(successOutput);
   process.exit(0);

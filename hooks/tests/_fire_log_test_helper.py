@@ -100,6 +100,18 @@ def run_hook_with_raising_log_fire(
         os.path.join(lib_dir, "enforcement_log.py"), "w", encoding="utf-8"
     ) as f:
         f.write(_RAISING_STUB)
+    # Also copy the real git_worktree.py alongside the raising stub, for
+    # hooks (currently only enforce-worktree-read.py) that dynamically
+    # import it at the same lib/ path - without this, the copied hook's
+    # own is_git_worktree() import fails-open to "not a worktree", which
+    # would falsely turn an expected DENY into an ALLOW in this helper's
+    # test cases and has nothing to do with the raising-log_fire behavior
+    # under test here.
+    real_git_worktree_path = os.path.join(_HOOKS_DIR, "lib", "git_worktree.py")
+    if os.path.isfile(real_git_worktree_path):
+        shutil.copyfile(
+            real_git_worktree_path, os.path.join(lib_dir, "git_worktree.py")
+        )
 
     run_cwd = cwd or tempfile.mkdtemp(prefix="test-raising-log-fire-cwd-")
     env = os.environ.copy()

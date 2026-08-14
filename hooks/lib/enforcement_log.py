@@ -36,7 +36,7 @@ Upstream deps: Python 3 stdlib only (json, os, datetime). No external
                [cwd]/.agentic/ with os.makedirs(exist_ok=True) if absent).
                Never reads any file.
 
-Downstream consumers: the nine enforce-*.py PreToolUse/Stop hooks that
+Downstream consumers: the ten enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
                        enforce-askuserquestion-default.py,
                        enforce-background-spawn.py,
@@ -44,15 +44,16 @@ Downstream consumers: the nine enforce-*.py PreToolUse/Stop hooks that
                        enforce-planning-artifact-spawn.py,
                        enforce-shippable-edit.py,
                        enforce-skeptic-round-cap.py, enforce-tier.py,
-                       enforce-turn-shape.py, and enforce-worktree-read.py.
+                       enforce-turn-shape.py, enforce-worktree-read.py,
+                       and enforce-worktree-write.py.
                        enforce-turn-shape.py is the first Stop-event
-                       consumer; the other eight are PreToolUse.
+                       consumer; the other nine are PreToolUse.
                        enforce-no-abdication.py is deliberately NOT a
                        consumer - it keeps its own pre-existing counter
                        file (.abdication-guard-fire-count) with different
                        semantics (a cumulative count + loop-guard state,
                        not a fire log) completely unchanged; this module
-                       is purely additive telemetry for the other nine
+                       is purely additive telemetry for the other ten
                        and must never be repurposed to touch that file.
 
 Failure modes: Fully fail-open and silent, matching every enforce-*.py

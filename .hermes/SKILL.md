@@ -382,7 +382,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve twenty-two project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve twenty-three project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -472,7 +472,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-l
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /ds-wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: `.agentic/events.jsonl` has four writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), and the two spawn-telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion, added DS-160). Safety comes from append-only writes - no writer rewrites the file - not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
+**Writer scope: `.agentic/events.jsonl` has five writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), the two spawn-telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion, added DS-160), and the registered Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, warn-only, fires only on `ratio_trigger`). Safety comes from append-only writes - no writer rewrites the file - not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -482,7 +482,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-l
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -1101,7 +1101,7 @@ When spawning `engineer`, include:
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
 
-**Fan-out spawning.** When fan-out is active (N >= 2 parallel units), the conductor reads `unit_slug`, `merge_order`, and `skeptic_strategy` from the orchestration-planner's JSONL block at Phase 5 to determine worktree naming (`${FEATURE_BRANCH}-${unit_slug}`), merge ordering (sequential by `merge_order` value), and Skeptic review strategy (`per-unit` spawns one Skeptic per unit in parallel; `integration` defers to a single Skeptic after all units merge onto a scratch integration branch). All N engineers are spawned in a single message (parallel, background). The `task_id` field in each engineer's execution contract uses the format `<ticket_id>-<unit_slug>` for multi-unit correlation.
+**Fan-out spawning.** When fan-out is active (N >= 2 parallel units), the conductor reads `unit_slug`, `merge_order`, and `skeptic_strategy` from the orchestration-planner's JSONL block at Phase 5 to determine worktree naming (`${FEATURE_BRANCH}-${unit_slug}`), merge ordering (sequential by `merge_order` value), and Skeptic review strategy (`per-unit` spawns one Skeptic per unit in parallel; `integration` defers to a single Skeptic after all units merge, inside a dedicated integration worktree, onto `FEATURE_BRANCH` itself). All N engineers are spawned in a single message (parallel, background). The `task_id` field in each engineer's execution contract uses the format `<ticket_id>-<unit_slug>` for multi-unit correlation.
 
 **HUD file writes (P1 fan-out).** When fan-out Workers are active (P1), each Worker writes phase transition updates to `.agentic/hud/<worker-id>.json`. The `worker_id` is provided in the spawn prompt alongside `task_id`. The conductor reads all HUD files on demand to produce an aggregate status display. The Stop hook (or conductor post-completion cleanup) removes the Worker's HUD file on normal exit. HUD files not updated within 5 minutes should be treated as stale (`[stale]`) when the conductor reads them.
 
@@ -2702,7 +2702,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** in a consumer project - `/ds-init-project` Step 9's default-deny `.agentic/*` umbrella (delegated to `ds-migrate apply` against `content/project-scaffolding.yml`) carries an explicit `!.agentic/config.json` negation, like `qa.md` and `deploy.md`. (DinoStack's own repo is the methodology's source, not a consumer of it, and does not commit its own `.agentic/config.json` - this repo's root `.gitignore` umbrella has no such negation.) It is seeded with defaults by `/ds-init-project`. Twenty-two toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** in a consumer project - `/ds-init-project` Step 9's default-deny `.agentic/*` umbrella (delegated to `ds-migrate apply` against `content/project-scaffolding.yml`) carries an explicit `!.agentic/config.json` negation, like `qa.md` and `deploy.md`. (DinoStack's own repo is the methodology's source, not a consumer of it, and does not commit its own `.agentic/config.json` - this repo's root `.gitignore` umbrella has no such negation.) It is seeded with defaults by `/ds-init-project`. Twenty-three toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -2726,6 +2726,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -3618,7 +3619,9 @@ This section holds the mechanical hook detail behind the "Named agents" rule in 
 
 **Planning-artifact hook.** The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence.
 
-**Worktree-read hook (DS-150).** A worktree-isolated subagent is meant to reason only against the files inside its own worktree branch; a plain `Read` into the primary checkout defeats isolation silently and surfaces much later as "why did this engineer act on code that isn't in its diff?" On Claude Code this is enforced by a `PreToolUse(Read)` hook (`hooks/enforce-worktree-read.py`, wired by `.claude/install.sh`) that denies a subagent's (`agent_id` present) `Read` when the target resolves inside `CLAUDE_PROJECT_DIR` (the primary root) but outside the payload's `cwd` (the agent's own worktree root, `caller_root`) - and only when `caller_root` is itself a genuine worktree-isolated subdirectory of the primary root. All three operands (target, `caller_root`, `primary_root`) are `realpath`-normalized before the containment test, since isolation worktrees live *inside* the primary root and an unnormalized prefix test is not sufficient. A main-session call (`agent_id` absent) and a non-isolated subagent (`caller_root == primary_root`) always allow - this hook never denies conductor reads. Config-driven exemptions read from `worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`, ships empty. Fail-open on any error; set `AE_WORKTREE_READ_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule in `hooks/AGENTS.md` §Worktree isolation scope.
+**Worktree-read hook (DS-150).** A worktree-isolated subagent is meant to reason only against the files inside its own worktree branch; a plain `Read` into the primary checkout defeats isolation silently and surfaces much later as "why did this engineer act on code that isn't in its diff?" On Claude Code this is enforced by a `PreToolUse(Read)` hook (`hooks/enforce-worktree-read.py`, wired by `.claude/install.sh`) that denies a subagent's (`agent_id` present) `Read` when the target resolves inside `CLAUDE_PROJECT_DIR` (the primary root) but outside the payload's `cwd` (the agent's own worktree root, `caller_root`) - and only when `caller_root` is both a proper subdirectory of the primary root AND a genuine linked git worktree per the shared `hooks/lib/git_worktree.py::is_git_worktree()` helper (gitdir pointer containing `/worktrees/`; a subdirectory-only test would also match an ordinary repo subdirectory, a submodule, or an independent nested clone, denying legitimate reads from any of them). All three operands (target, `caller_root`, `primary_root`) are `realpath`-normalized before the containment test, since isolation worktrees live *inside* the primary root and an unnormalized prefix test is not sufficient. A main-session call (`agent_id` absent) and a non-isolated subagent (`caller_root == primary_root`) always allow - this hook never denies conductor reads. Config-driven exemptions read from `worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`, ships empty. Fail-open on any error; set `AE_WORKTREE_READ_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule in `hooks/AGENTS.md` §Worktree isolation scope.
+
+**Worktree-write hook.** The write-side companion to the worktree-read hook, closing a gap the read hook and `enforce-shippable-edit.py` cannot: a subagent whose worktree was cleaned up mid-task and silently fell back to the primary checkout (`AGENTS.md`'s "across sequential spawns in one task the worktree is cleaned up between them and subsequent Workers fall back to the main tree" note) still carries a present, non-blank `agent_id`, so `enforce-shippable-edit.py`'s agent_id-absence check never fires, and the fallback lands shippable edits directly on the primary checkout. On Claude Code this is enforced by a `PreToolUse(Write/Edit/MultiEdit)` hook (`hooks/enforce-worktree-write.py`, wired by `.claude/install.sh`) that mirrors the read hook's `caller_root`/`primary_root` derivation and `realpath` normalization, denying only when the target resolves inside the primary checkout but outside the agent's own worktree-isolated `caller_root`. One deliberate divergence from the read hook: this hook additionally requires `caller_root`'s `.git` entry to resolve to a genuine LINKED worktree (its gitdir pointer contains a `/worktrees/` segment, not `/modules/`, and is not itself a real directory) before treating it as isolated - an ordinary repo subdirectory, a submodule checkout, or an independent nested clone as `caller_root` all fail open (ALLOW) here. The read hook has no such check and still treats any proper subdirectory of `primary_root` as isolated regardless of its `.git` state, so it retains that broader false positive. Deliberately kept as a separate hook, not merged into `enforce-shippable-edit.py`, since that hook is fail-open-CRITICAL (a false deny there blocks every conductor Write/Edit/MultiEdit for the whole session) and must not be perturbed by a second, unrelated deny axis. Uses a SEPARATE config-driven exemption key, `worktree_write_guard_exemptions` in `<primary_root>/.agentic/config.json` (not the read hook's `worktree_read_guard_exemptions` - writes carry a different risk profile). Fail-open on any error; set `AE_WORKTREE_WRITE_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule in `hooks/AGENTS.md` §Worktree isolation scope.
 
 **Fan-out `skeptic_strategy` block.** When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.
 
@@ -3874,12 +3877,12 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
          field-level data shapes for all active event types (spawn_start,
          spawn_complete, meta_review_complete, session_total,
-         tool_failure_workaround, tracker_writeback) plus the deprecated
-         conductor_direct block kept for historical reference, append
-         discipline, atomicity, retention, and consumer notes. Also documents
-         the per-developer session log (.agentic/session-log/) written by the
-         Stop hook, and the enforcement fire log
-         (.agentic/.enforcement-fires.jsonl) written by
+         tool_failure_workaround, tracker_writeback, conductor_overreach)
+         plus the deprecated conductor_direct block kept for historical
+         reference, append discipline, atomicity, retention, and consumer
+         notes. Also documents the per-developer session log
+         (.agentic/session-log/) written by the Stop hook, and the
+         enforcement fire log (.agentic/.enforcement-fires.jsonl) written by
          hooks/lib/enforcement_log.py.
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -3906,7 +3909,10 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
-                      bin/ds-cost team (reads .agentic/session-log/ for team rollup).
+                      bin/ds-cost team (reads .agentic/session-log/ for team rollup);
+                      hooks/conductor-overreach-nudge.js (the registered Stop hook that
+                      appends conductor_overreach); bin/ds-cost session/project (render
+                      the conductor_overreach ratio_trigger rollup line).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes
@@ -3933,12 +3939,13 @@ Performance: Standard.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 - `tracker_writeback`: emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback call site in `content/commands/ds-implement-ticket.md`. `agent: null`. `data` carries `site` (currently always `"W1"` - reserved for extension to W2-W7 if their own observability gap is ever addressed the same way), `outcome` (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`, `prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`), and `target_state` (the resolved `$TRACKER_STATE_IN_PROGRESS` value). Does not carry `session_uuid` - this is a boundary event rather than a spawn-bracketing one. Soft-fail (`2>/dev/null || true`); a missing or failing `ds-emit` never blocks Phase 1. **Coverage is narrower than it may read at a glance**: this fires one event per W1 gate evaluation the conductor actually reaches - it detects the case where the conductor reaches the gate and the gate declines (the `"skipped"` outcome and its reason code). It does NOT detect, and nothing currently emits a signal for, the case where the conductor never reaches the W1 prose at all.
+- `conductor_overreach`: emitted by the registered Stop hook `hooks/conductor-overreach-nudge.js` (a thin wrapper around the pure-function detector `hooks/lib/overreach-detector.js`) when `ratio_trigger` is true - the conductor made more than `conductor_overreach_threshold` (default 12; config-reversible via `.agentic/config.json`) investigation-shaped tool calls (`Read`/`Grep`/`Glob`, plus read-shaped `Bash` such as `git show/diff/log/status`, `grep`, `rg`, `cat`, `head`, `tail`, `find`, `ls`, `wc`) with zero subagent spawns, cumulatively across the ENTIRE session transcript (not a per-turn count, and not a max-consecutive-run-length count - `ratio_trigger` requires zero spawns for the whole transcript, so a session that spawns even once can never trigger again for the rest of that session, regardless of how many investigation calls follow), after subtracting a mandated-preflight whitelist (reads of `.agentic/context.md`, `.agentic/config.json`, `.agentic/events.jsonl`, `.agentic/skill-candidates.md`, `content/agents/*.md` capability-preflight reads, and post-spawn spot-check reads - a Read/Grep/Glob call within 2 conductor tool_use events immediately following the tool_result of an Agent-tool spawn SPECIFICALLY; a tool_result from any other tool must never open or extend this window). The transcript is read from `payload.transcript_path` (the real Claude Code Stop payload shape is `{session_id, transcript_path, cwd, hook_event_name, stop_hook_active}` - there is no `transcript` array field), parsed as JSONL with a size ceiling (20 MiB) and malformed-line tolerance. **Calibration**: `bin/ds-measure-conductor-tool-calls` measures this exact cumulative whole-transcript statistic (not a proxy) against real session transcripts on the operator's machine; the default of 12 is a provisional floor chosen when the zero-spawn sample (the only sessions where `ratio_trigger` can ever fire) was thin (fewer than 20 zero-spawn sessions observed) - re-run the calibrator on a larger sample before trusting the default in a new environment. `agent: null`, `task_id: null`. `data` carries `source` (always `"hook"`), `session_uuid`, `conductor_tool_calls` (int), `live_or_completed_spawns` (int, always `0` when `ratio_trigger` is true by construction), `ratio_trigger` (boolean), `whitelisted_reads_excluded` (int), and `transcript_note` (string or `null` - mirrors `spawn_complete`'s `tokens_note` pattern: `null` on every event actually emitted today, since `ratio_trigger` can only be true when the transcript was successfully read; reserved for a future diagnostic emission path and to keep `computeOverreach`'s return shape honest - an unreadable/unparseable/oversized transcript returns `available:false` with a populated `transcript_note` rather than a zero-filled accumulator indistinguishable from a real zero-call session). WARN-ONLY: the hook never blocks the stop; no suppression-mute logic exists anywhere in the detection path (a prior design that grepped the transcript for an injected harness-suppression phrase and muted the advisory was removed by Skeptic Critical finding - the advisory fires unconditionally on `ratio_trigger`, regardless of transcript content). **Non-redundancy note**: `spawn_start`/`spawn_complete` fire only when a spawn happens and carry no denominator for a spawn-free session; `conductor_overreach` is the only event type carrying conductor tool-call volume for a session with zero spawns. `bin/ds-cost session`/`bin/ds-cost project` render a trended (by ISO week) rollup line of `ratio_trigger:true` counts when present.
 
 **`session_uuid` field (conductor-emitted events).** Four of the five active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`; the fifth, `tracker_writeback`, does not (see its own entry above - a boundary event rather than a spawn-bracketing one). This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` on every turn (the Stop hook fires once per turn, not once per session). **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
 ## Append discipline
 
-Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, and `hooks/subagent-stop-spawn-emit.js` (DS-160) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
+Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, `hooks/subagent-stop-spawn-emit.js` (DS-160), and `hooks/conductor-overreach-nudge.js` (the registered Stop hook that emits `conductor_overreach`) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
 
 ## Atomicity
 
@@ -3993,7 +4000,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 ## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
 
-Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by nine of the ten `hooks/enforce-*.py` PreToolUse/Stop hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
+Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by ten of the eleven `hooks/enforce-*.py` PreToolUse/Stop hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
 
 **Canonical line schema (4 fields, one JSON object per line):**
 
@@ -4002,8 +4009,8 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 ```
 
 - `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
-- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the nine consumer hooks enumerated below.
-- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (eight hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, `enforce-turn-shape.py`, `enforce-worktree-read.py`) and `"allow_advisory"` (two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`). `enforce-turn-shape.py` (DS-156) is the one hook that can log EITHER value, depending on which of its two checks fired: `_execution_prose_flag` (BLOCKING, execution-turn structural shape) logs `"deny"`; `_answer_relevance_flag` (ADVISORY, answer-turn opening-preamble/closing-recap phrasing) logs `"allow_advisory"`.
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the ten consumer hooks enumerated below.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (nine hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, `enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`) and `"allow_advisory"` (two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`). `enforce-turn-shape.py` (DS-156) is the one hook that can log EITHER value, depending on which of its two checks fired: `_execution_prose_flag` (BLOCKING, execution-turn structural shape) logs `"deny"`; `_answer_relevance_flag` (ADVISORY, answer-turn opening-preamble/closing-recap phrasing) logs `"allow_advisory"`.
 - `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
 
 **No session correlation.** Unlike `events.jsonl`, this file carries no `session_uuid` or equivalent field - `log_fire()` writes only `cwd`-scoped, not session-scoped. A tally over this file is therefore a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted away), never a single-session count. Any consumer reporting this file's contents (e.g. `/ds-wrap` Part D.5 signal 3(b)) must state this scope explicitly.
@@ -5529,7 +5536,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         twenty-two-toggle project config catalog (behavioral toggles only);
+         twenty-three-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -5565,7 +5572,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve twenty-two project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve twenty-three project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -5589,6 +5596,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-two project-level o
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). Controls the Stop hook (`hooks/enforce-turn-shape.py`) that checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (structural shape of a non-Answer turn) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both; also disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 
 #### Graph-derived risk signal
 
@@ -7126,7 +7134,7 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 **Fan-out Skeptic strategy mapping.** When the parallel fan-out primitive is active (N >= 2 independent units from the orchestration-planner), the planner's `skeptic_strategy` field is the authoritative source for which review mode applies:
 
 - **`per-unit`**: each unit gets its own Skeptic reviewing that unit's individual diff (against `BASE_BRANCH`). Skeptics for independent units can be spawned in a single message (parallel) - they are reviewing non-overlapping diffs and there is no interference. This is the strategy when all units in the group are fully independent per the heuristic above.
-- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/ds-implement-ticket` Phase 6 guard).
+- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged, inside a dedicated integration worktree, onto `FEATURE_BRANCH` itself (never `$REPO` - see `/ds-implement-ticket` Phase 5's Merge phase). Provisionality comes from staying unpushed until Phase 8, not from a separate branch name. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/ds-implement-ticket` Phase 6 guard).
 - **`multi-dimensional`**: reserved for high-stakes Elevated units where correctness, security, and performance must all be reviewed in a single pass. The conductor fans out three reviewers in one message (parallel, background): a correctness-Skeptic, a `security-auditor`, and a `perf-analyst` - all reviewing the same diff simultaneously. The conductor then synthesizes all findings before opening any fix loop. This mirrors the `/simplify` fan-out pattern (see Section 12) applied to review rather than cleanup. Use `multi-dimensional` only for units in security-sensitive domains: authentication, payments, data migrations, crypto, secrets management, or any path where a correctness bug and a security flaw could coexist undetected. Sign-off requires all three reviewers to clear - a single open Critical or Major finding from any reviewer blocks completion.
 
 The orchestration-planner's classification (written into the JSONL block at planning time) governs which strategy the conductor applies at Phase 5. The conductor reads `skeptic_strategy` from the planner's JSONL block - it does not re-derive the strategy from plan prose or apply the heuristic itself at execution time.
@@ -8470,7 +8478,7 @@ Failure-mode table:
 | Failure | Cause | Recovery |
 |---|---|---|
 | push rejected, non-fast-forward | origin/$BRANCH_NAME moved since worktree seeded | fetch; then (a) cherry-pick $ENGINEER_SHA onto fresh checkout of origin/$BRANCH_NAME and push NEW SHA by-SHA, or (b) re-spawn fix-pass engineer with current branch tip per the branching logic above. NEVER force-push (blanket-denied for conductor and subagents; chat authorization cannot clear it). |
-| Engineer worktree silently started from main (branching logic not applied / DS-123) | mis-populated create_commands or harness fallback quirk | Do NOT push the SHA directly - main-based, could silently revert intervening branch commits. Fetch, checkout origin/$BRANCH_NAME in scratch location, cherry-pick $ENGINEER_SHA; if the cherry-pick conflicts, re-delegate to a correctly-seeded engineer rather than resolving it conductor-side (no conductor-exempt path exists for shippable-tree conflict resolution - conventions.md's shippable/exempt classifier and `enforce-shippable-edit.py` both deny it); push resulting SHA by-SHA. |
+| Engineer worktree silently started from main (branching logic not applied / DS-123) | mis-populated create_commands or harness fallback quirk | Do NOT push the SHA directly - main-based, could silently revert intervening branch commits. Never resolve this by checking out `origin/$BRANCH_NAME` in the primary checkout ($REPO) - fetch, then `git -C $REPO worktree add <scratch-path> origin/$BRANCH_NAME` to create a dedicated scratch worktree, cherry-pick $ENGINEER_SHA there; if the cherry-pick conflicts, re-delegate to a correctly-seeded engineer rather than resolving it conductor-side (no conductor-exempt path exists for shippable-tree conflict resolution - conventions.md's shippable/exempt classifier and `enforce-shippable-edit.py` both deny it); push resulting SHA by-SHA; remove the scratch worktree afterward. |
 | DCO fails on pushed commit | commit without -s, or cherry-pick trailer mismatch | Amend BEFORE push: `git commit --amend -s --no-edit`, push new SHA. Never amend a commit already on the shared remote tip - re-derive and re-push. |
 | Strict checks: base moved since last green run | orthogonal, governed by near-merge rebase policy | Unchanged: `gh pr update-branch --rebase` before merge. NOT eliminated by this mechanic. |
 
@@ -13758,6 +13766,8 @@ Clean up stale git worktrees and local branches in the current repository. Cover
 
 **The `SKIP_UNPROVEN` class and `--archive-unproven` (round 5).** A worktree can pass every other gate (clean, unlocked, past the age floor, not self, not protected-content) and STILL never resolve, because its branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly refuses to call that `ELIGIBLE` (the round-4 measurement against this repo's own live checkout found this to be the dominant remaining blocker once the `.agentic/` correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0 because most of the remaining worktrees carry exactly this class of branch - default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches). Left alone, `SKIP_UNPROVEN` worktrees accumulate indefinitely - nothing ever resolves them. `--archive-unproven` (OPT-IN, NEVER the default) extends this repo's own precedent for the identical problem on BRANCHES - `bin/ds-branch-prune` archived 75 unprovable branches into one verified `git bundle` before deleting them (DS-153, `.agentic/branch-archive/`) - to WORKTREES, but only to an explicit whitelist within `SKIP_UNPROVEN`, never the whole bucket (round 6 correction): only `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` qualify - `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set. Separately, a PER-ENTRY `gh pr list` query failure (auth fine, that one call errored/timed out/rate-limited) is reported as its OWN `SKIP_PR_QUERY_ERROR` outcome - never `SKIP_UNPROVEN` at all - so it is never eligible for `--archive-unproven` in the first place, not merely excluded from the whitelist: a query failure is a distinct fact from "no PR exists" and must never be treated as proof of anything (round-7/8 correction; see `bin/ds-reap-worktrees`'s own module docstring, Removal predicate gate 9). It also refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it cannot distinguish a genuinely-unprovable branch from one behind an open PR. For every whitelisted entry, it archives the full branch into a verified `git bundle` under `.agentic/worktree-archive/` (never removing anything if the bundle create or verify fails), salvages telemetry (same guard as the plain removal path - a failed salvage also blocks removal), then removes the worktree and prints the exact restore command. It removes the worktree only, never the branch - branch deletion remains `bin/ds-branch-prune`'s job. `.agentic/worktree-archive/` is gitignored (same `/.agentic/*` umbrella as `.agentic/reaped-telemetry/`, no new carve-out) and grows unbounded - pruning it is the operator's own responsibility, exactly like `.agentic/branch-archive/`. See `bin/ds-reap-worktrees`'s own module docstring ("Archiving unproven branches") for the full mechanism.
 
+**Sweeping multiple repos: `bin/ds-reap-all`.** `ds-reap-worktrees` operates on exactly one repo per invocation (`--repo <path>`, default cwd). `ds-reap-all` is a thin wrapper for an operator with several project checkouts: it discovers a set of repos - explicit `--repo <path>` (repeatable), a root-directory scan (positional root args, depth-1 children by default, `--depth` up to 3), or a `~/.agentic/reap-all.json` fallback (`{"roots": [...], "repos": [...]}`), consulted when neither `--repo` nor a positional root is given - then invokes `ds-reap-worktrees` once per repo sequentially, forwarding every pass-through flag (`--dry-run`, `--explain`, `--count-only`, `--no-gh`, `--min-age-hours`, `--strict-ignored`, `--archive-unproven`, `--base`) verbatim. It contains no removal logic of its own; every safety gate described above remains entirely owned by `ds-reap-worktrees` and is reused unmodified. One repo's failure (bad path, timeout, nonzero exit) never halts the sweep - it is reported and the remaining repos are still attempted.
+
 Use proactively after finishing a task, when a PR is merged, when worktrees are accumulating, or any time you want to confirm the repo is in a clean state. Also invoke when the user says "prune worktrees", "clean up branches", "tidy the repo", or "remove stale worktrees". Works in any git repo.
 
 ## Execution model
@@ -17056,7 +17066,7 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Partial success path.** When one or more units fail and one or more succeed:
 1. Record which units are `done` vs `failed`/`blocked`.
-2. If done units are truly independent (no shared interface with failed units): merge done units into `FEATURE_BRANCH` sequentially in `merge_order`. Leave failed units' worktrees in place.
+2. If done units are truly independent (no shared interface with failed units): merge them into `FEATURE_BRANCH` in `merge_order`, inside `$INTEGRATION_WORKTREE` (see Merge phase above). Leave failed units' worktrees in place.
 3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. Apply the **task-state fold** first: `inputs` survives generation boundaries because it is on the fold's cross-generation whitelist, so the retry brief reads a coherent `inputs` even when the failed unit's fold spans more than one session. The retry brief must include: (a) the original task brief from the folded `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
 4. If the retry succeeds, merge and proceed to the Skeptic phase.
 5. If the retry fails a second time, escalate to human with the full failure history.
@@ -17064,25 +17074,36 @@ After all engineers return, append an output-only entry per unit: write `worker_
 
 **Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = the unit's worktree diff; field 7 per §4.5) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. Run the Merge phase below NOW - the ONE time it runs here. Replaces the old separate, non-`FEATURE_BRANCH` scratch branch: provisionality now comes from staying unpushed until Phase 8, not branch identity. Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to `$INTEGRATION_WORKTREE`'s `HEAD`, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff; field 7 per §4.5). This Skeptic IS the Phase 6 gate here (see below). Pass it the orchestration-planner's independence annotation as the brief hint.
 
-**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, which runs per unit immediately before that unit's merge command:
+**Merge phase (all-done join).** Runs exactly once per ticket, inside a **dedicated integration worktree** - never `$REPO`. For `integration` it already ran above; do NOT repeat it. For `per-unit` it runs here first, after per-unit Skeptics sign off, merging sub-branches sequentially in `merge_order`. **Apply the fold-before-merge gate before each unit** - see "Fold-before-merge and branch verification" below:
 
 ```bash
-git -C $REPO checkout $FEATURE_BRANCH
+INTEGRATION_WORKTREE="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}"
+# Same rule as the Elevated-path definition above (substitute
+# $INTEGRATION_WORKTREE/$FEATURE_BRANCH for $WORKTREE_PATH/$BRANCH_NAME).
+EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$FEATURE_BRANCH" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+if [ -n "$EXISTING_WT" ]; then
+  INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
+elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
+  git -C $REPO fetch origin
+  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -B $FEATURE_BRANCH origin/$FEATURE_BRANCH
+else
+  git -C $REPO worktree add "$INTEGRATION_WORKTREE" -b $FEATURE_BRANCH origin/$BASE_BRANCH
+fi
 
 # For each unit in merge_order sequence:
-git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
+git -C "$INTEGRATION_WORKTREE" merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 # After each merge, check for conflicts before continuing:
-# git -C $REPO diff --name-only --diff-filter=U
+# git -C "$INTEGRATION_WORKTREE" diff --name-only --diff-filter=U
 # If that command outputs any file names, conflicts are present - apply N>2 conflict recovery below.
 ```
 
-**N>2 conflict recovery.** On merge conflict at any step:
-1. `git -C $REPO merge --abort`
-2. Do not attempt remaining merges.
-3. Collect conflict files, all units' diffs, and the orchestration-planner output.
+**N>2 conflict recovery.** On conflict at any step:
+1. `git -C "$INTEGRATION_WORKTREE" merge --abort`
+2. Stop; do not merge further.
+3. Collect conflict files, all units' diffs, and the planner output.
 4. Spawn a single engineer with a conflict-resolution brief: all units' complete changes, the conflict markers, and explicit instruction to implement all units sequentially in a single worktree targeting `FEATURE_BRANCH`.
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
@@ -17095,7 +17116,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 # If the branch name does not match ${FEATURE_BRANCH}-${unit_slug}, abort that unit's merge and escalate.
 ```
 
-**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `FEATURE_BRANCH` root. If the integration check fails, spawn one engineer on `FEATURE_BRANCH` with the integration failure output. This engineer has full context (all units' work is on the branch). The resulting fix goes through a single Skeptic on the incremental diff before Phase 5 is declared complete. The integration fix Skeptic does NOT replace Phase 6.
+**Post-merge integration quality check.** After all N merges complete cleanly on `FEATURE_BRANCH`, run `$QUALITY_CMD` from `$INTEGRATION_WORKTREE` (never `$REPO`). If it fails, spawn one engineer pointed at `$INTEGRATION_WORKTREE` with the failure output. The fix goes through a single Skeptic on the incremental diff before Phase 5 is complete; does NOT replace Phase 6.
 
 **Worktree cleanup.** After all merges succeed (or after escalation, to prevent stale worktree accumulation):
 
@@ -17110,6 +17131,8 @@ fi
 git -C $REPO worktree prune
 ```
 
+`$INTEGRATION_WORKTREE` is removed post-push by Phase 8's "Isolation worktree cleanup" block (resolved by `$BRANCH_NAME`, same clean-status guard).
+
 For full worktree cleanup rules (isolation worktrees, feature worktrees, stale branch pruning), see `METHODOLOGY.md §Worktree Lifecycle`.
 
 **Merge-conflict re-route and loop iteration:** If a merge conflict re-route occurred above and the re-routed Engineer's output then goes through Skeptic review in Phase 6, the conflict re-route counts as iteration 1 of the Phase 6 loop. Do not double-count: the conflict-resolution Engineer pass is the first fix pass; Phase 6 initializes its `iteration` counter at 1 to reflect this.
@@ -17118,7 +17141,7 @@ For full worktree cleanup rules (isolation worktrees, feature worktrees, stale b
 
 ## Phase 6: Skeptic review
 
-**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic that reviewed the combined diff in Phase 5 IS the Phase 6 gate. Do not spawn a second Skeptic - Phase 6 is complete when the integration Skeptic signs off. When `SKEPTIC_STRATEGY: per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $REPO diff origin/$BASE_BRANCH..HEAD`). This is a full-picture review that catches cross-unit interactions the per-unit Skeptics could not see (emergent behaviors, combined diff scope). Phase 6 is NOT skipped for the `per-unit` strategy.
+**Phase 6 guard (fan-out integration Skeptic).** When fan-out was active in Phase 5 and `SKEPTIC_STRATEGY: integration`, the integration Skeptic from Phase 5 IS the Phase 6 gate - do not spawn a second Skeptic. When `per-unit`, Phase 6 fires as normal - a Skeptic reviews the combined diff from `BASE_BRANCH` after all merges (`git -C $INTEGRATION_WORKTREE diff origin/$BASE_BRANCH..HEAD`), catching cross-unit interactions per-unit Skeptics could not see. Phase 6 is NOT skipped for `per-unit`.
 
 **Tracker writeback (W2)** — fires on iteration 1 only: if `TRACKER != none` AND this is the first Skeptic spawn in Phase 6 (not a re-route from a prior engineer fix pass), invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`. Fire-and-forget.
 
@@ -17606,7 +17629,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 
 **Sequential path:** Stage specific files and commit as described below.
 
-**Parallel path:** All commits were already made to sub-branches and merged in Phase 5. Phase 8 should only handle any post-merge fixup files that were not captured in the sub-branch commits. Run `git -C $REPO status --short` after the merge to check for any unstaged post-merge fixup files. If output is non-empty, stage and commit those files. If output is empty, skip the stage-and-commit step and proceed directly to push.
+**Parallel path:** All commits were already made and merged in Phase 5, inside `$INTEGRATION_WORKTREE`. Phase 8 handles only post-merge fixup files not captured in the sub-branch commits. Run `git -C "$INTEGRATION_WORKTREE" status --short` to check; if non-empty, stage and commit there; if empty, skip to push.
 
 **Only run the following commit block if `status --short` was non-empty (parallel path) or on the sequential path:**
 
@@ -17615,7 +17638,11 @@ Stage specific files - never `git add -A` or `git add .`:
 ```bash
 # @harness:phase8-commit-and-telemetry
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
-git -C $REPO add [specific files]
+
+# Fan-out = $INTEGRATION_WORKTREE ($REPO's HEAD never switches). Sequential = $REPO.
+if [ -n "$INTEGRATION_WORKTREE" ] && [ -d "$INTEGRATION_WORKTREE" ]; then COMMIT_CHECKOUT="$INTEGRATION_WORKTREE"; else COMMIT_CHECKOUT="$REPO"; fi
+
+git -C "$COMMIT_CHECKOUT" add [specific files]
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
@@ -17625,8 +17652,8 @@ if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then
 DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
 
 # Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
-SO_NAME=$(git -C $REPO config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-SO_EMAIL=$(git -C $REPO config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
+SO_NAME=$(git -C "$COMMIT_CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
+SO_EMAIL=$(git -C "$COMMIT_CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
 
 if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
   echo "WARNING: git user.name or user.email not set; skipping commit to avoid malformed DCO trailer."
@@ -17635,7 +17662,7 @@ else
   NL=$'
 '
   COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
-  git -C $REPO commit -m "$COMMIT_MSG"
+  git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
 fi
 
 # --- Telemetry commit (soft-fail throughout) ---
@@ -17650,19 +17677,22 @@ except: print('true')
 if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
 
-  # Resolve PR_CHECKOUT: the checkout that holds the PR branch.
-  # Fan-out path: $REPO is on $FEATURE_BRANCH after the "Merge phase (all-done join)" checkout.
-  # Single-engineer paths: engineer return supplies WORKTREE_PATH.
-  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
+  # PR_CHECKOUT: fan-out reuses COMMIT_CHECKOUT; single-engineer uses WORKTREE_PATH.
+  if [ "$COMMIT_CHECKOUT" != "$REPO" ]; then
+    PR_CHECKOUT="$COMMIT_CHECKOUT"
+  elif [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
     PR_CHECKOUT="$REPO"
   elif [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     PR_CHECKOUT="$WORKTREE_PATH"
-    # Copy file into the worktree (git cannot stage files outside the work tree).
-    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
-    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
   else
     echo "WARNING: telemetry commit skipped - cannot resolve PR checkout for branch $BRANCH_NAME"
     PR_CHECKOUT=""
+  fi
+
+  # Copy file into the worktree (git cannot stage outside the work tree).
+  if [ -n "$PR_CHECKOUT" ] && [ "$PR_CHECKOUT" != "$REPO" ]; then
+    mkdir -p "$PR_CHECKOUT/.agentic/session-log/"
+    cp "$SESSION_LOG_SRC" "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" 2>/dev/null || true
   fi
 
   # HEAD-branch guard (safety floor: never commit to the wrong branch).
@@ -17702,7 +17732,7 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
         fi
       fi
     fi
-    # Push only on single-engineer paths (fan-out push handled in its own block).
+    # Push here when PR_CHECKOUT != $REPO; sequential falls to the final push below.
     if [ "$PR_CHECKOUT" != "$REPO" ]; then
       git -C "$PR_CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || true
     fi
@@ -17710,6 +17740,8 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
 fi
 # --- End telemetry commit ---
 
+# $BRANCH_NAME is shared across all of $REPO's worktrees (only HEAD
+# differs), so this is correct even though fan-out never switches HEAD.
 git -C $REPO push -u origin [BRANCH_NAME]
 
 # --- Isolation worktree cleanup (post-push) ---
@@ -17766,7 +17798,7 @@ fi
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
-**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the "Merge phase (all-done join)" `git checkout $FEATURE_BRANCH`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard above - if either is empty the telemetry commit is skipped (staged file unstaged) with a visible WARNING, never emitting a malformed `Signed-off-by` trailer. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
+**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE`; single-engineer uses `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file in before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a warning, never affecting the feature commit. Fan-out and single-engineer-worktree paths push in the same block; sequential (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed trailer. **Eventual consistency:** the Phase 8 commit only has sessions that ended before it runs; the current session's line lands in the next ticket's commit - known, not a bug.
 
 **Point-of-use defeated-negation check.** Before staging, the block runs `ds-migrate verify-commit-path .agentic/session-log/<developer_id>.jsonl --project-root $PR_CHECKOUT`. This is the exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based negation-defeat detection: `_compute_negations_defeated` must synthesize candidate probe paths for the 2 directory-form negations (`!.agentic/session-log/` and its `/**` twin) when no real file exists yet, and a defeater keyed to an unguessed name returns "ok" undetected - see that function's docstring for the full residual. At this exact commit site the target path is already known, so no guessing is needed. Exit 1 (a negation targets this path but git still reports it ignored) prints a visible `ERROR:` line and skips the commit this run - loud, unlike the silent `git add` no-op this replaces. Exit 0 covers both a genuinely reachable path and a path this project's `.gitignore` never attempted to reach at all (e.g. DinoStack's own repo, which categorically excludes `.agentic/*` by decision with zero negations) - neither is a defect, and the existing `git add` / `diff --cached --quiet` handling below is unchanged for both. Exit 2 (git missing, not a worktree, or an untrusted check result) is treated the same as exit 0 - a tooling-unavailability soft-fail must never itself block a commit that would otherwise have succeeded.
 
@@ -19967,7 +19999,8 @@ Seed with these documented defaults exactly:
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
   "turn_shape_guard_enabled": true,
-  "worktree_read_guard_exemptions": []
+  "worktree_read_guard_exemptions": [],
+  "worktree_write_guard_exemptions": []
 }
 ```
 
@@ -19996,6 +20029,7 @@ Seed with these documented defaults exactly:
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for full semantics.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive default). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING and can block the stop; `_answer_relevance_flag` (opening-preamble/closing-recap phrasing on an Answer turn) remains advisory-only and only logs. Set to `false` to opt out of both. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
 - `worktree_read_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). Each entry is a path prefix relative to the primary checkout root; a `Read` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent reading outside its own worktree. Read by `hooks/enforce-worktree-read.py` (PreToolUse(Read) guard, DS-150); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_READ_GUARD_DISABLE=1`.
+- `worktree_write_guard_exemptions` - list of strings, default `[]` (empty, no built-in entries). SEPARATE from `worktree_read_guard_exemptions` - writes carry a different risk profile than reads. Each entry is a path prefix relative to the primary checkout root; a `Write`/`Edit`/`MultiEdit` target whose normalized-relative-path starts with an exempt prefix (path-segment aware) is allowed even when it would otherwise be flagged as a worktree-isolated subagent writing outside its own worktree. Read by `hooks/enforce-worktree-write.py` (PreToolUse(Write/Edit/MultiEdit) guard); absent/malformed config is treated as an empty list. Disable the guard entirely per-session via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)

@@ -375,7 +375,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `$AE_PROJECT_DIR/.agentic/config.json` to resolve twenty-two project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `$AE_PROJECT_DIR/.agentic/config.json` to resolve twenty-three project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -465,7 +465,7 @@ For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jso
 
 `$AE_PROJECT_DIR/.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, $wrap completion, finding fix). The file is gitignored.
 
-**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.
+**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, and the warn-only conductor-overreach Stop hook), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -475,7 +475,7 @@ For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jso
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `$AE_REPO_DIR/content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `$AE_REPO_DIR/content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 

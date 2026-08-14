@@ -297,7 +297,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         rule."""
         target = self.repo / "content/sections/09-events-log.md"
         text = target.read_text(encoding="utf-8")
-        anchor = "**Writer scope: `.agentic/events.jsonl` has four writers**"
+        anchor = "**Writer scope: `.agentic/events.jsonl` has five writers**"
         self.assertIn(anchor, text, "fixture repo's canonical opener must match the live anchor")
         target.write_text(text.replace(anchor, "**Writer scope: something else entirely**"), encoding="utf-8")
 

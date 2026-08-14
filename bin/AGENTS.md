@@ -1,6 +1,6 @@
 # bin/
 
-Eighteen CLI entry points (14 Python, 2 Bash, 2 Node) that the dinostack
+Nineteen CLI entry points (15 Python, 2 Bash, 2 Node) that the dinostack
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -29,6 +29,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-memory` | Python | Query `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md`; return compact Markdown summaries. |
 | `ds-migrate` | Python | Apply additive project scaffolding migrations (`check` / `apply` / `diff` subcommands). |
 | `ds-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
+| `ds-reap-all` | Python | Cross-repo sweep wrapper around `ds-reap-worktrees`: discovers repos (explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback), invokes the per-repo tool sequentially, and reports a combined summary. Contains no removal logic of its own - every safety gate lives in `ds-reap-worktrees`, reused unmodified via subprocess. |
 | `ds-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `ds-tracker` | Python | Manage the project-local, gitignored `.agentic/tracker.yml` tracker-config overlay (`init` / `show` / `set` / `resolve` / `path`), merged field-by-field over the `AGENTS.md` tracker resolution chain. |
 | `ds-update` | Python | Non-interactive updater: fetch origin, rebuild adapters (forcing the loop even when `old_head==new_head` if the local DS-54 hooks-snapshot has diverged from the live checkout), reset version-check cache, run `ds-doctor --fix`. |

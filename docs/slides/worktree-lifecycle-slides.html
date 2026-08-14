@@ -1320,6 +1320,7 @@ hr {
 <li><code>.agentic/**</code> INVERTS the polarity: protected by default, disposable only for a small named set (<code>events.jsonl</code>/telemetry, <code>wrap/</code>, <code>codex-prompt-generation/</code>, <code>hud/</code>, cache dirs) - round 3's blanket protection measured <code>removed=0</code> here since this repo dogfoods itself and every worktree accumulates telemetry; <code>.agentic/events.jsonl</code> is salvaged into the primary repo before removal, and a failed salvage blocks removal rather than risking a silent loss</li>
 <li><code>--count-only</code> is the mode both passive triggers use automatically - <code>ds-base-sync</code>'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single <code>git worktree list</code> call, no network, no per-entry evaluation</li>
 <li>Neither passive trigger ever removes anything - actual removal stays an explicit <code>/ds-cleanup-worktrees</code> or bare <code>ds-reap-worktrees --dry-run</code>/no-flags invocation</li>
+<li><code>bin/ds-reap-all</code> sweeps SEVERAL repos in one invocation - discovers repos via explicit <code>--repo</code>, a root-directory scan, or a <code>~/.agentic/reap-all.json</code> fallback, then runs <code>ds-reap-worktrees</code> once per repo sequentially, forwarding every pass-through flag verbatim; it owns no safety logic of its own</li>
 </ul>
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
