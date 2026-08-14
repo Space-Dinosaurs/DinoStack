@@ -23,13 +23,17 @@ none of these - "engineer spawned, continuing" - should not be written at
 all. Say nothing and keep working; the next turn is whichever warrant fires
 next.
 
-**2. Keep it short.** On an execution turn, the status region
-(`State:`/`Running:`/`Blocked:`/`Waiting:`) is capped at 1-3 lines - there
-are only three named slots, one line each. `## Operator decisions`, when
-present, is additional to that cap, not counted against it. On an Answer
-turn, length itself is not the discipline - relevance is (rule 3 below). A
-long answer to a hard question is correct; a three-line answer padded with
-filler is not.
+**2. Keep it short.** On an execution turn, the `State:`/`Running:`/
+`Blocked:` status slots are capped at 1-3 lines total - there are only
+three named slots, one line each. `Waiting:` lines are a separate,
+unbounded case: when a stoppage on background work is the sole reason for
+the turn, the status region drops `State:`/`Running:`/`Blocked:` entirely
+and instead carries one `Waiting:` line per agent - however many that is,
+not re-capped at 1-3. `## Operator decisions`, when present, is additional
+to the status-slot cap, not counted against it. On an Answer turn, length
+itself is not the discipline - relevance is (rule 3 below). A long answer
+to a hard question is correct; a three-line answer padded with filler is
+not.
 
 **3. No opening preamble, no closing recap.** On an Answer turn, do not
 open with a preamble before the substance - no "Good question", "Let me

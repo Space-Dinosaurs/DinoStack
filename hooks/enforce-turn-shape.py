@@ -181,13 +181,24 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
                              every real multi-paragraph prose completion
                              report in the DS-157 corpus fails (it permits
                              only State:/Running:/Blocked:/Waiting: slot
-                             lines, never narrative bullets). Instead this
-                             shape is recognized ONE LEVEL DOWN, inside
-                             _status_only_flag only (see that function) -
-                             it suppresses the ADVISORY status-only nag
-                             without ever entering the warrant dict above or
-                             the blocking classification path in step 2
-                             below.
+                             lines, never narrative bullets). Before DS-171,
+                             this shape was instead recognized ONE LEVEL
+                             DOWN, inside the now-deleted _status_only_flag
+                             (via the now-deleted
+                             _has_body_completion_declaration), which
+                             suppressed that check's own ADVISORY status-
+                             only nag without ever entering the warrant
+                             dict above or the blocking classification path
+                             in step 2 below. DS-171 deleted
+                             _status_only_flag outright, so this hook no
+                             longer suppresses anything for this shape; the
+                             underlying status-only rule is carried by the
+                             `dinostack` Claude Code output style instead
+                             (see the Purpose section above), and
+                             content/references/conductor-turn-format.md's
+                             Hook contract section documents the residual
+                             gap for non-Claude-Code harnesses, which have
+                             no output-style mechanism.
               - answer:     a quoted fragment of the operator's immediately
                              preceding message, OR (DS-155)
                              _transcript_answer_bonus finding that the
@@ -947,8 +958,8 @@ _QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|^>\s*\S.{6,}', re.MULTILINE)
 # bulleted ("-", "*", "+") line, allowing up to 3 leading spaces (DS-151:
 # was column-0 anchored, which let an indented item escape recognition -
 # CF-2's indented-item bypass) followed by whitespace then non-whitespace.
-# Used by _decision_items (consumed by both _turn_charge and
-# _decision_item_sprawl_flag).
+# Used by _decision_items (consumed by _decision_item_sprawl_flag; also
+# consumed pre-DS-171 by the now-deleted _turn_charge).
 _DECISION_ITEM_START_RE = re.compile(r"^ {0,3}(?:\d+[.)]|[-*+])\s+\S")
 
 
@@ -975,8 +986,9 @@ def _body_after_identity_line(text: str) -> list:
 
 # ---------------------------------------------------------------------------
 # Shared structural helpers (DS-151): single source of truth for fence and
-# region structure, consumed by _classify_warrants, _turn_charge, and
-# _decision_item_sprawl_flag.
+# region structure, consumed by _classify_warrants and
+# _decision_item_sprawl_flag; also consumed pre-DS-171 by the now-deleted
+# _turn_charge.
 # ---------------------------------------------------------------------------
 
 
