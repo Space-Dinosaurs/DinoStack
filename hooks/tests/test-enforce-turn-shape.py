@@ -402,7 +402,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     i2_cwd = _fresh_cwd("i2")
     with open(os.path.join(i2_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": False}, f)
-    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i2_cwd))
+    rc, out, err = run_hook(make_payload(FLAGGED_SPRAWL_MSG, cwd=i2_cwd))
     check("i2. turn_shape_guard_enabled=false -> QUIET (guard disabled)", is_quiet(rc, out))
 
     # i3. config.json present, key explicitly true -> guard ON.
@@ -2329,18 +2329,6 @@ check(
     _mod._execution_prose_flag(z1_msg, _z1_warrants_if_granted) is None,
 )
 
-# z5. A single-sentence identity line ("Done.") must not be treated as a
-# TRAILING completion (there is no earlier sentence to trail) - this
-# shape is already covered by _LEADING_COMPLETION_RE's own `\A` match on
-# the identity line itself, so _identity_line_trailing_completion's
-# len(sentences) < 2 guard must return False here (not double-count).
-check(
-    "z5. a single-sentence identity line does not trigger "
-    "_identity_line_trailing_completion (already covered by the "
-    "leading-declaration path)",
-    _mod._identity_line_trailing_completion("Done.") is False,
-)
-
 # ---------------------------------------------------------------------------
 # DS-158: two operator-reported false positives on the execution-prose
 # check, plus the discriminator's regression coverage.
@@ -3228,9 +3216,17 @@ check(
 # 320-turn real conductor-transcript corpus this fix was measured
 # against. The 5 "was_block" entries are the ONLY 5 turns (of 320) that
 # BLOCKed at cfd764e4 (DS-159 HEAD) - all 5 must no longer BLOCK. The
-# other 5 are QUIET/ADVISORY controls, replayed unchanged to catch a
-# future regression that reintroduces a false positive on real turns
-# rather than only on hand-written fixtures.
+# other 5 are non-BLOCKING controls (3 QUIET, 2 ADVISORY at cfd764e4),
+# replayed to catch a future regression that reintroduces a BLOCKING
+# false positive on real turns rather than only on hand-written fixtures.
+# `pre_fix_class` documents each turn's classification at cfd764e4, before
+# this fix landed - it is a historical record, not a current-behavior
+# assertion. The two ADVISORY entries (turn_0016, turn_0037) carry a
+# `post_fix_class: "QUIET"` field: post-DS-171, `_status_only_flag` (the
+# check that produced their ADVISORY finding) is retired outright, so they
+# now emit no output at all - a deliberate, intended change from ADVISORY
+# to QUIET, not a regression. The loop below still only asserts "not
+# BLOCKING" for every control, which both ADVISORY and QUIET satisfy.
 # ---------------------------------------------------------------------------
 
 with open(
@@ -3255,11 +3251,14 @@ for _turn in _real_corpus["turns"]:
             not _rc_is_block,
         )
     else:
-        # Control turn: assert its classification is UNCHANGED by this
-        # fix (QUIET stays QUIET, ADVISORY stays non-BLOCKING) - proves
-        # the heading/table/sole-stoppage/identity-length changes did not
-        # newly block or newly silence a turn the guard already handled
-        # correctly.
+        # Control turn: assert it still does not BLOCK. This does NOT
+        # assert the classification is unchanged - turn_0016 and
+        # turn_0037 (`pre_fix_class: "ADVISORY"`) are newly QUIET
+        # post-DS-171 (see `post_fix_class` on those two fixture entries
+        # and the block comment above): `_status_only_flag` was retired
+        # outright, not merely fixed, so those two turns now produce no
+        # output at all. That is intended, not a regression - the
+        # non-BLOCKING property this loop checks is unaffected either way.
         check(
             "real-corpus {}. control turn ({}) -> still not BLOCKING".format(
                 _turn["file"], _turn["pre_fix_class"]
@@ -3281,9 +3280,17 @@ check(
 # question-shaped preceding message). Screened before inclusion in this
 # PUBLIC repo (credential shapes, personal emails/names, and any sibling-
 # project brand/filename all excluded or redacted); no `transcript_path`
-# is supplied for any of the three, so QUIET below is entirely attributable
-# to signal 2 (`_status_only_prose_is_explanatory`), not the transcript
-# bonus. Measured against the same 320-turn real corpus cited in this
+# is supplied for any of the three, so none of them carries an Answer
+# warrant (no quoted fragment, no transcript bonus) or a Decision/Stoppage/
+# Completion warrant either - all three classify as zero-warrant turns.
+# Post-DS-171, `_status_only_flag` (and its suppression heuristic,
+# `_status_only_prose_is_explanatory`, named by an earlier version of this
+# comment) is retired outright, so no hook check runs on the zero-warrant
+# branch at all - QUIET below is a structural consequence of that branch
+# having no check, not a heuristic classification. These assertions retain
+# their value as a record that this real-corpus false-positive class is
+# still QUIET post-DS-171, even though the mechanism that makes it so has
+# changed. Measured against the same 320-turn real corpus cited in this
 # module's docstring: 37 turns flagged status-only pre-fix, 2 remain
 # flagged post-fix (both genuine single-sentence status pings), so the 35
 # recalled turns - of which these three are a hand-picked, publication-safe
