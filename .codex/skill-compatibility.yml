@@ -4512,16 +4512,6 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "1ae8611097fdd91eb611665f3ca0884bad193840688ed8bd790cae63006ef4e5",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_REVERT_RISK",
       "kind": "display-only",
@@ -4750,6 +4740,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "/browse",
+      "kind": "display-only",
+      "occurrence_hash": "1eed5782fa3b6f928fa9a2000499673557828c952fd30374531220bf951d93ea",
+      "resolution_mode": "display-only",
+      "scope": "display-only",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/browse"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -5360,6 +5360,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "28a4ea33291b34ef864722e6bf988615babe84945f0d1f108265692841cfba19",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -13133,16 +13143,6 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
-      "generated_token": "/browse",
-      "kind": "display-only",
-      "occurrence_hash": "a4d25f4824be26eeefa4be0a2be348b030546396495bfa60a1b10933571ae74c",
-      "resolution_mode": "display-only",
-      "scope": "display-only",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/browse"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",
       "occurrence_hash": "a4ed60ee3a1bf5b2bc26c0b82607ca9f060a2b6c52e81e8dd8aee4e008f25607",
@@ -13930,16 +13930,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "elif"
-    },
-    {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "ae326510afd69656d9288835046d5ae45f02c0c124efd77932de56b164efa0da",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Task"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -15613,6 +15603,16 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
+      "generated_token": "whole",
+      "kind": "display-only",
+      "occurrence_hash": "c7313300657e92dadb5894b7c257268dc572a74704537526264deed54c846b5b",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "whole"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
       "generated_token": "pr",
       "kind": "display-only",
       "occurrence_hash": "c745bb30374d1ada2a53d304f6432406075f8882f39c079cd1499d979445645a",
@@ -16560,6 +16560,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "if"
+    },
+    {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d78fb90397b70c4dfd970b61fbd497b07e283b2c7f0fbb1934d02cc2e3fc6546",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Task"
     },
     {
       "expected_target": "wrap",
