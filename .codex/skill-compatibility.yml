@@ -342,16 +342,6 @@
       "source_token": "Agent"
     },
     {
-      "expected_target": "Agent",
-      "generated_token": "Agent",
-      "kind": "semantic-reference",
-      "occurrence_hash": "20414f0d398a5b7e62e44471d75b8717717e44b554d9254ffcfce9b8f854b425",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Agent"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -510,6 +500,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
+      "expected_target": "git worktree add",
+      "generated_token": "the explicit Codex worktree bootstrap contract above",
+      "kind": "operational",
+      "occurrence_hash": "39266e352678c4783481c42ce06d2f369bff5eb49bbdbef7ce88139ba99c513c",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "isolation: \"worktree\""
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -732,6 +732,16 @@
       "source_token": "hooks/enforce-no-abdication.py"
     },
     {
+      "expected_target": ".claude/worktrees/*",
+      "generated_token": "$AE_REPO_DIR/.claude/worktrees/*",
+      "kind": "operational",
+      "occurrence_hash": "58beeecf23759eaa518600ac6d36f52b65d080e46b89ff839db2fc6048bdac8d",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".claude/worktrees/*"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -850,16 +860,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
-    },
-    {
-      "expected_target": ".claude/worktrees/*",
-      "generated_token": "$AE_REPO_DIR/.claude/worktrees/*",
-      "kind": "operational",
-      "occurrence_hash": "64ba768d285166c019a2ed2ebde69d88f43738218c61071a376d81e9e3af93b5",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/worktrees/*"
     },
     {
       "expected_target": "Task",
@@ -1022,6 +1022,16 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
+      "expected_target": "content/commands/ds-cleanup-worktrees.md",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
+      "kind": "operational",
+      "occurrence_hash": "7b75ff8cfc850d524d09d7af7a0b58aa6c40291df44b206ea1a344b6a7c6a584",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "`/ds-cleanup-worktrees`"
+    },
+    {
       "expected_target": "Agent",
       "generated_token": "Agent",
       "kind": "semantic-reference",
@@ -1050,6 +1060,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/presets.yml"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "7e1ebb3ee9af75fc72b5e4af61e94806e6d2594408f44ab58e0649a1fcc0192a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/skeptic-protocol.md",
@@ -1422,16 +1442,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "a9f7599b8863427bc913ec6131e8c3c3c11f2592f060daa3b6e8d8f15b72dffd",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "content/references/risk-config-and-tiers.md",
       "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
       "kind": "operational",
@@ -1582,16 +1592,6 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "git worktree add",
-      "generated_token": "the explicit Codex worktree bootstrap contract above",
-      "kind": "operational",
-      "occurrence_hash": "b5e9f0bd3a2772f87c20dea0b03f9b0e36ab81d2466b2f7af7f92063e7eec20c",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "isolation: \"worktree\""
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -1650,6 +1650,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/activation-detail.md"
+    },
+    {
+      "expected_target": "bin/ds-reap-worktrees",
+      "generated_token": "$AE_REPO_DIR/bin/ds-reap-worktrees",
+      "kind": "operational",
+      "occurrence_hash": "bce85ec093988da927d43f78b241ba391d2a595dc7a27cea9ba93fe8fe616528",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-reap-worktrees"
     },
     {
       "expected_target": "content/references/capture-classification.md",
@@ -1750,16 +1760,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/simplify"
-    },
-    {
-      "expected_target": "content/commands/ds-cleanup-worktrees.md",
-      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
-      "kind": "operational",
-      "occurrence_hash": "ca3d1304b093d99879e9d63945a6af88adc11ecfd044bad436b77dd1bf6bff2b",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "`/ds-cleanup-worktrees`"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -2060,6 +2060,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
+    },
+    {
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "e2dd80592ef54119518e0805d427e94d1f42aa462f2a0bbcf677c85dade42b5e",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Agent"
     },
     {
       "expected_target": "content/references/task-state-file.md",

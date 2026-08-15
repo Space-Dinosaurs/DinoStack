@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
 Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
-         predicate (DS-worktree-reaper). The command file's Steps 2-4 have
-         always been prose an operator must read and execute by hand;
-         nothing in the codebase ever invoked it automatically, which is
-         the single largest confirmed cause of worktree accumulation (33
-         non-root worktrees measured in this repo alone, oldest from
-         2026-07-09; see the ticket brief for the full diagnosis). This
-         tool makes that predicate a real, machine-invocable command so it
-         can be wired into `bin/ds-base-sync` (advisory --count-only) and a
-         SessionStart nudge (--count-only), in addition to remaining
-         operator-invocable.
+         predicate (DS-worktree-reaper). As of the round-9 command-file
+         collapse, `content/commands/ds-cleanup-worktrees.md` Step 2
+         invokes this tool directly instead of hand-spelling the predicate
+         as prose - closing the single largest confirmed cause of worktree
+         accumulation (33 non-root worktrees measured in this repo alone,
+         oldest from 2026-07-09, back when nothing in the codebase invoked
+         the predicate automatically at all; see the ticket brief for the
+         full diagnosis). This tool is also wired into `bin/ds-base-sync`
+         (advisory --count-only) and a SessionStart nudge (--count-only),
+         in addition to remaining operator-invocable directly.
 
          Round-2 Skeptic (1 Critical, 6 Major) rewrite. The v1 removal
          predicate was a bespoke, second copy of evidence semantics that
@@ -20,8 +20,8 @@ Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
          second copy entirely and delegates the LOCKED/DIRTY/branch-
          evidence decision to `bin/tests/worktree_model.py`'s
          `disposition_for` - the same function `content/commands/
-         ds-cleanup-worktrees.md` Steps 3/4 already cite as normative for
-         live worktree removal - so this tool can no longer diverge from
+         ds-cleanup-worktrees.md` Step 2 now invokes this tool to run,
+         rather than restating - so this tool can no longer diverge from
          it. See "Removal predicate" below for the full gate order,
          including three additional safety floors `disposition_for` does
          not know about (self-worktree, age, and gitignored-content).
@@ -330,10 +330,10 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, shutil, subprocess,
                docstring's Removal predicate section for why no second
                copy of that logic exists here after round-2).
 
-Downstream consumers: content/commands/ds-cleanup-worktrees.md (this tool
-                      is the executable form of that command's Steps 2-4
-                      predicate; the command file remains the
-                      operator-readable prose entry point);
+Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
+                      invokes this tool directly - this tool IS the
+                      predicate, not a second copy of it; the command file
+                      remains the operator-readable prose entry point);
                       bin/ds-base-sync (advisory --count-only report
                       appended to its tail, non-blocking, never mutates -
                       the one guaranteed post-merge trigger point);
