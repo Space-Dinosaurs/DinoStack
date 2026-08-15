@@ -16,7 +16,9 @@
  *   hooks/session-end-wrap.js, hooks/wrap-daemon.js,
  *   hooks/lib/skill-candidate-detector.js, hooks/lib/state-mark.js,
  *   hooks/lib/capture-gap.js, hooks/lib/context-rollup.js,
- *   bin/ds-wrap-acquire-lock, bin/ds-wrap-release-lock
+ *   bin/ds-wrap-acquire-lock, bin/ds-wrap-release-lock,
+ *   .copilot/hooks/stop-context-copilot.js, .github/hooks/stop-context-copilot.js,
+ *   .cursor/hooks/stop-context-cursor.js
  *
  * Failure modes: never throws. EACCES/ENOENT at any level along the walk is
  *   treated as "not found here, keep walking". If no `.git` ancestor is
