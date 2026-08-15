@@ -3937,7 +3937,11 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render
-                      the conductor_overreach ratio_trigger rollup line).
+                      the conductor_overreach ratio_trigger rollup line);
+                      bin/ds-agentic-repair (checks for the FILENAME
+                      `.enforcement-fires.jsonl` as one of several runtime-state
+                      markers used to classify a phantom `.agentic/` tree as a
+                      stray - existence-only, never reads or parses its content).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes

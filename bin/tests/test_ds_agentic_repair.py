@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""
+Purpose: pytest suite for bin/ds-agentic-repair - the phantom `.agentic/`
+    tree finder/repairer (post-PR-#745 cwd-drift cleanup, DS-agentic-
+    repair). Exercises the three-layer classification predicate
+    (`classify()`) directly against hermetic fixture trees (no real `git`
+    subprocess needed - `hooks/lib/repo_root.py`'s repo-root check is a
+    pure `.git`-EXISTENCE check, so a fixture only needs to create a
+    `.git` FILE or directory at the right path, never a working repo), and
+    the end-to-end CLI (report-only default, `--fix` repair, idempotency,
+    dedup) via `main()` invoked in-process against a tmp_path tree.
+
+    Every fixture lives entirely under pytest's own `tmp_path` - never
+    against this repo's real `.agentic/` and never against `~/.agentic`
+    (the global store), per the ticket brief.
+
+Public API: none (test module; `python3 -m pytest bin/tests/
+    test_ds_agentic_repair.py -q`).
+
+Upstream deps: bin/ds-agentic-repair (module under test, loaded via
+    importlib.util.spec_from_file_location since it has no `.py`
+    extension - the same loading mechanism pytest's own bin/tests/
+    conftest-less collection already relies on for sibling `bin/ds-*`
+    modules, e.g. bin/tests/test_reap_worktrees.py's subprocess
+    invocation; this file additionally imports IN-PROCESS via importlib
+    to call `classify()`/`scan()`/`repair_one()` directly for the unit-
+    level assertions, then separately drives `main()` for the CLI-level
+    assertions).
+
+Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
+    per `.github/workflows/bin-tests.yml`).
+
+Failure modes: each test builds its own isolated tmp_path tree; no shared
+    fixture state, no real DinoStack checkout, worktree, or branch state
+    is ever touched by this file.
+
+Performance: pure filesystem operations against tmp_path; no network, no
+    subprocess. Sub-second for the whole suite.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+_MODULE_PATH = Path(__file__).resolve().parent.parent / "ds-agentic-repair"
+
+
+def _load_module():
+    # `spec_from_file_location` cannot infer a loader for an extension-less
+    # file (bin/ds-agentic-repair has none - it is invoked directly, not
+    # imported, in production) - an explicit SourceFileLoader is required.
+    import importlib.machinery
+
+    loader = importlib.machinery.SourceFileLoader("ds_agentic_repair", str(_MODULE_PATH))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    # dataclasses.dataclass() looks its defining module up in sys.modules
+    # by name during class creation - it must be registered BEFORE
+    # exec_module() runs the module body, or module-level @dataclass
+    # decorators raise AttributeError on a None lookup.
+    sys.modules[loader.name] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+repair = _load_module()
+
+
+def _make_git_marker(path: Path, as_file: bool = False) -> None:
+    """Creates a `.git` entry at `path/.git` - a FILE when `as_file=True`
+    (reproducing a linked worktree's own `.git`, which is a file, never a
+    directory), a directory otherwise (an ordinary repo root). The repo-
+    root check in hooks/lib/repo_root.py is a pure `os.path.exists()`
+    probe with no content requirement, so this is sufficient to fake a
+    repo root without ever shelling out to real `git`.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    git_marker = path / ".git"
+    if as_file:
+        git_marker.write_text("gitdir: /somewhere/else\n", encoding="utf-8")
+    else:
+        git_marker.mkdir()
+
+
+def _make_runtime_agentic(path: Path, events_lines=None) -> None:
+    """Populates `path` (a `.agentic`-named directory) with the shape a
+    real hook-written tree accumulates - at least one Layer-3 runtime-
+    state marker, so `classify()` will call it a stray whenever Layers 1/2
+    do not already exempt it.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    if events_lines is not None:
+        (path / "events.jsonl").write_text(
+            "\n".join(events_lines) + ("\n" if events_lines else ""), encoding="utf-8"
+        )
+    (path / "context.md").write_text("# stray context\n", encoding="utf-8")
+    (path / "wrap").mkdir(exist_ok=True)
+    (path / "wrap" / "lock").write_text("stale\n", encoding="utf-8")
+
+
+def _make_template_agentic(path: Path) -> None:
+    """Populates `path` with the shape a SHIPPED SCAFFOLDING TEMPLATE
+    carries - seed files only, zero Layer-3 runtime-state markers."""
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "config.json").write_text('{"mode": "opt-out"}\n', encoding="utf-8")
+    (path / "learnings.md").write_text("# Learnings\n", encoding="utf-8")
+
+
+def _snapshot(root: Path) -> dict:
+    """rel-path -> content (or None for a directory) for every entry under
+    `root`, used to assert byte-identical before/after a run."""
+    out = {}
+    for p in root.rglob("*"):
+        rel = p.relative_to(root).as_posix()
+        out[rel] = None if p.is_dir() else p.read_bytes()
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Layer classification - unit level.
+# ---------------------------------------------------------------------------
+
+
+def test_stray_at_arbitrary_subdirectory_depth(tmp_path):
+    """Positive: a stray at an arbitrary depth (`<repo>/src/foo/.agentic`),
+    matching the consumer-repo damage shape - not the nested-inside-
+    `.agentic` shape this repo happens to exhibit.
+
+    Mutation that reddens: hardcoding Layer 2's check to
+    `path.parent.name == ".agentic"` (i.e. only ever recognizing the
+    nested-inside-`.agentic` shape) instead of the general repo-root test
+    would misclassify this fixture as legitimate.
+    """
+    repo = tmp_path / "consumer-repo"
+    _make_git_marker(repo)
+    stray = repo / "src" / "foo" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=["{\"a\":1}"])
+
+    result = repair.classify(stray, repo)
+    assert result.verdict == "stray"
+    assert result.reason == "not-repo-root+runtime-markers"
+
+
+def test_stray_admin_style_depth(tmp_path):
+    """Positive: `<repo>/admin/.agentic`, a second arbitrary-depth shape.
+
+    Mutation that reddens: inverting Layer 3 (treating ABSENCE of runtime
+    markers as the stray signal instead of presence) would flip this to
+    "legitimate" since the fixture DOES carry markers.
+    """
+    repo = tmp_path / "consumer-repo"
+    _make_git_marker(repo)
+    stray = repo / "admin" / ".agentic"
+    _make_runtime_agentic(stray)
+
+    result = repair.classify(stray, repo)
+    assert result.verdict == "stray"
+
+
+def test_stray_dot_agentic_nested_shape(tmp_path):
+    """Positive: the real shape observed in this repo, `.agentic/.agentic`.
+
+    Mutation that reddens: `_is_repo_root_dir` treating a `.agentic`
+    directory's own presence of a `.git`-shaped file (there is none here,
+    but a broken implementation that special-cased "already inside
+    .agentic" as automatically a repo root) would misclassify this.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / ".agentic" / ".agentic"
+    _make_runtime_agentic(stray)
+
+    result = repair.classify(stray, repo)
+    assert result.verdict == "stray"
+
+
+def test_stray_dot_agentic_memory_nested_shape(tmp_path):
+    """Positive: the second real shape observed in this repo,
+    `.agentic/memory/.agentic`.
+
+    Mutation that reddens: same as above - any shortcut that treats
+    directories two-or-more levels under `.agentic/` as automatically
+    legitimate would misclassify this.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / ".agentic" / "memory" / ".agentic"
+    _make_runtime_agentic(stray)
+
+    result = repair.classify(stray, repo)
+    assert result.verdict == "stray"
+
+
+def test_negative_shipped_template(tmp_path):
+    """Negative control: a shipped-template fixture (content/templates/
+    .agentic shape - seed files only, zero runtime markers, and ALSO
+    on the Layer-1 exact-exclusion list - both layers independently
+    protect it, verified separately below).
+
+    Mutation that reddens: disabling `_is_excluded` (Layer 1) changes the
+    verdict's REASON from "excluded" to "no-runtime-markers" - Layer 3
+    still saves the verdict itself (this fixture carries zero runtime
+    markers), but the reason-string assertion below catches the loss of
+    Layer 1 protection directly. Separately, deleting the Layer-3 content
+    guard entirely (making Layer 2's repo-root test the only
+    discriminator, with Layer 1 ALSO disabled) would misclassify this as
+    a stray outright, since content/templates is not itself a repo root -
+    the false-positive class the ticket brief warns breaks
+    `/ds-init-project` scaffolding.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    tmpl = repo / "content" / "templates" / ".agentic"
+    _make_template_agentic(tmpl)
+
+    before = _snapshot(repo)
+    result = repair.classify(tmpl, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "excluded"
+
+    # --fix must be a true no-op against this fixture.
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    after = _snapshot(repo)
+    assert before == after
+
+
+def test_negative_worktree_root(tmp_path):
+    """Negative control: a worktree-root fixture with `.git` as a FILE
+    (a linked git worktree's own `.git`), carrying a stray-shaped
+    `.agentic` with real runtime markers underneath it.
+
+    Mutation that reddens: using `os.path.isdir(".git")` instead of
+    `os.path.exists(".git")` anywhere in the repo-root check would fail
+    to recognize this fixture as a repo root (a linked worktree's `.git`
+    is a file, never a directory) and misclassify its `.agentic` as a
+    stray - corrupting live isolation-worktree state, per the ticket
+    brief's central warning.
+    """
+    repo = tmp_path / "worktree-agent-xyz"
+    _make_git_marker(repo, as_file=True)
+    wt_agentic = repo / ".agentic"
+    _make_runtime_agentic(wt_agentic, events_lines=["{\"b\":2}"])
+
+    before = _snapshot(repo)
+    result = repair.classify(wt_agentic, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "parent-is-repo-root"
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    after = _snapshot(repo)
+    assert before == after
+
+
+def test_negative_evals_style_fixture(tmp_path):
+    """Negative control: an `evals/`-style fixture - git-untracked test
+    content (repo decision #203) carrying runtime-shaped markers that
+    cannot be safely inspected by content alone.
+
+    Mutation that reddens: removing the `evals/` prefix from
+    `_EXCLUDED_PATH_PREFIXES` would let Layer 2 (parent not a repo root)
+    and Layer 3 (runtime markers present) both agree this is a stray -
+    exactly the untracked-content risk the exclusion list exists to
+    cover independently of content inspection.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    fixture = repo / "evals" / "icl_vs_orchestration" / ".agentic"
+    _make_runtime_agentic(fixture, events_lines=["{\"c\":3}"])
+
+    before = _snapshot(repo)
+    result = repair.classify(fixture, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "excluded"
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    after = _snapshot(repo)
+    assert before == after
+
+
+def test_negative_archive_dir_itself(tmp_path):
+    """Negative control: after a real `--fix` run creates the tool's own
+    archive directory, a second scan must never treat any path under
+    `.agentic/stray-agentic-archive/` as a fresh stray, and the archive's
+    own content must be byte-identical before and after that second run.
+
+    Mutation that reddens: removing `.agentic/stray-agentic-archive/`
+    from `_EXCLUDED_PATH_PREFIXES` reproduces the earlier-design bug
+    named in the module docstring ("Archive placement") - a stray whose
+    remainder gets archived, then re-discovered and re-archived under a
+    fresh timestamp on the very next scan, unbounded.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / "src" / "foo" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=["{\"d\":4}"])
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    archive_root = repo / ".agentic" / "stray-agentic-archive"
+    assert archive_root.is_dir()
+    # The archived remainder must not itself contain a directory literally
+    # named ".agentic" anywhere (the flattening guarantee).
+    assert not any(p.name == ".agentic" for p in archive_root.rglob("*"))
+
+    before = _snapshot(archive_root)
+    results = repair.scan(repo)
+    archived_entries = [r for r in results if r.rel_posix.startswith(".agentic/stray-agentic-archive/")]
+    assert archived_entries == []
+
+    rc2 = repair.main(["--repo", str(repo), "--fix"])
+    assert rc2 == 0
+    after = _snapshot(archive_root)
+    assert before == after
+
+
+# ---------------------------------------------------------------------------
+# CLI-level: idempotency, dedup, report-only default.
+# ---------------------------------------------------------------------------
+
+
+def test_idempotency_second_fix_is_byte_identical(tmp_path):
+    """Two `--fix` runs; the canonical events.jsonl must be byte-identical
+    after the second (there is nothing left to find - every stray tree
+    was already removed by the first run).
+
+    Mutation that reddens: a merge that appends lines unconditionally
+    instead of deduping against `canonical_path`'s EXISTING content (not
+    just against lines seen earlier in the same run) would duplicate
+    every line on hypothetical repeated exposure; more directly here, a
+    bug that fails to actually REMOVE the stray directory after a
+    successful merge/archive would cause the second run to re-merge the
+    same events, breaking idempotency outright.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / "src" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=['{"x":1}', '{"x":2}'])
+
+    rc1 = repair.main(["--repo", str(repo), "--fix"])
+    assert rc1 == 0
+    canonical = repo / ".agentic" / "events.jsonl"
+    first_bytes = canonical.read_bytes()
+    assert not stray.exists()
+
+    rc2 = repair.main(["--repo", str(repo), "--fix"])
+    assert rc2 == 0
+    second_bytes = canonical.read_bytes()
+    assert first_bytes == second_bytes
+
+
+def test_dedup_overlapping_records_merge_without_duplication(tmp_path):
+    """Overlapping records (present both in the canonical file already and
+    in the stray) merge without duplication, preserving order: existing
+    canonical lines first (unchanged order), then the stray's own new
+    lines in the stray's original order.
+
+    Mutation that reddens: dropping the `seen` set (or building it only
+    from canonical content and never updating it as new lines are
+    appended) would either duplicate an overlapping line, or - if two
+    strays share a line - duplicate it a second time across strays in the
+    same run.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    canonical = repo / ".agentic" / "events.jsonl"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text('{"e":1}\n{"e":2}\n', encoding="utf-8")
+
+    stray = repo / "src" / ".agentic"
+    # "{"e":2}" overlaps with the canonical file; "{"e":3}" is new.
+    _make_runtime_agentic(stray, events_lines=['{"e":2}', '{"e":3}'])
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    lines = canonical.read_text(encoding="utf-8").splitlines()
+    assert lines == ['{"e":1}', '{"e":2}', '{"e":3}']
+    assert lines.count('{"e":2}') == 1
+
+
+def test_report_only_default_deletes_nothing(tmp_path):
+    """No flags at all (the default) must behave IDENTICALLY to
+    `--dry-run`: report-only, zero filesystem writes.
+
+    Mutation that reddens: defaulting `do_fix` to True instead of gating
+    strictly on `args.fix` would delete the stray tree even with no flags
+    passed at all - the single most dangerous possible default for a
+    destructive tool.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / "src" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=['{"y":1}'])
+
+    before = _snapshot(repo)
+    rc = repair.main(["--repo", str(repo)])
+    assert rc == 0
+    after = _snapshot(repo)
+    assert before == after
+    assert stray.is_dir()
+
+    # --dry-run must be identical.
+    rc2 = repair.main(["--repo", str(repo), "--dry-run"])
+    assert rc2 == 0
+    after2 = _snapshot(repo)
+    assert before == after2
+    assert stray.is_dir()
+
+
+def test_cli_subprocess_json_report_lists_stray(tmp_path):
+    """End-to-end subprocess invocation (not in-process) sanity check: the
+    tool is genuinely executable as a CLI, and --json reports the stray.
+
+    Mutation that reddens: any bug making the CLI unparseable/non-
+    executable as a standalone script (e.g. a bad shebang, or a module-
+    level exception before argparse runs) would fail this before any
+    assertion even executes.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / "src" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=['{"z":1}'])
+
+    proc = subprocess.run(
+        [sys.executable, str(_MODULE_PATH), "--repo", str(repo), "--json"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0
+    report = json.loads(proc.stdout)
+    assert report["mode"] == "report-only"
+    assert report["strays_found"] == 1
+    assert report["strays"][0]["path"] == "src/.agentic"
+    # Report-only subprocess run must not have touched the fixture.
+    assert stray.is_dir()
+
+
+def test_repo_not_a_git_repository_errors(tmp_path):
+    """Usage error: --repo has no `.git` ancestor anywhere up the tree.
+
+    Mutation that reddens: dropping the `found_git_ancestor` guard in
+    `_resolve_repo` would silently accept a non-repo directory and scan
+    it as if it were a real project root.
+    """
+    not_a_repo = tmp_path / "just-a-directory"
+    not_a_repo.mkdir()
+    rc = repair.main(["--repo", str(not_a_repo)])
+    assert rc == 1
