@@ -16,9 +16,17 @@ Signal sources and what is extracted:
        top-level `event`, plus spawn_start vs spawn_complete (reported both;
        they are known unequal).
   3. .agentic/.enforcement-fires.jsonl - per-hook counts of
-       decision==allow_advisory vs decision==deny, the newest timestamp in
-       the file, and a per-calendar-day count over the last 10 days measured
-       from that newest timestamp.
+       decision==allow_advisory vs decision==deny, the newest FIRE timestamp,
+       and a per-calendar-day count of FIRES over the last 10 days measured
+       from that newest fire timestamp. Rows with decision=="allow" are
+       excluded from newest_ts and last_10_days: they are
+       enforce-no-abdication.py's every-verdict rows (one per conductor turn
+       the guard evaluated and declined to fire), not enforcement actions, so
+       counting them would turn last_10_days into a conductor-turn histogram
+       (see content/references/events-log.md, Consumer rule). Such a hook
+       still appears in by_hook, with its deny/allow_advisory counts at 0.
+       Any OTHER free-form decision value is counted under neither named
+       total but does feed newest_ts/last_10_days, since it is still a fire.
   4. Budget gates                      - runs
        scripts/check-{resident,skill-embed,command-file}-budget.sh via
        subprocess from the repo root; captures the exit code and the tail of
@@ -241,7 +249,12 @@ def _collect_events(repo: Path) -> dict | None:
 
 
 def _collect_enforcement_fires(repo: Path) -> dict | None:
-    """Tally enforcement fires per hook by decision, newest ts, last 10 days."""
+    """Tally enforcement fires per hook by decision, newest ts, last 10 days.
+
+    `decision == "allow"` rows (enforce-no-abdication.py's every-verdict
+    posture) are excluded from newest_ts and last_10_days - see the module
+    docstring, signal 3.
+    """
     path = repo / ".agentic" / ".enforcement-fires.jsonl"
     records = _load_jsonl(path)
 
@@ -264,7 +277,17 @@ def _collect_enforcement_fires(repo: Path) -> dict | None:
             entry["allow_advisory"] += 1
             advisory_total += 1
         # Any other decision value is free-form by design (see events-log.md):
-        # counted under neither tally, still visible via newest_ts/last_10_days.
+        # counted under neither named total, but still a guardrail FIRE, so it
+        # does feed newest_ts/last_10_days.
+        #
+        # `decision == "allow"` is the one exception and is excluded from the
+        # time-based figures entirely: it is the every-verdict posture of
+        # enforce-no-abdication.py (one row per conductor turn the guard
+        # evaluated and declined to fire), not an enforcement action. Counting
+        # it would make last_10_days measure conductor turns rather than fires
+        # - see events-log.md's Consumer rule.
+        if decision == "allow":
+            continue
         ts = _parse_ts(rec.get("ts"))
         if ts is not None:
             parsed_ts.append(ts)

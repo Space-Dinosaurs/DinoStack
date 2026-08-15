@@ -191,6 +191,81 @@ def test_missing_and_empty_sources_omitted(tmp_path):
     assert data == {}
 
 
+def test_allow_rows_excluded_from_fire_histogram(tmp_path):
+    """`decision == "allow"` rows never reach newest_ts or last_10_days.
+
+    enforce-no-abdication.py logs one plain `"allow"` row per conductor turn
+    it evaluates and declines to fire (the every-verdict posture documented
+    in content/references/events-log.md). Those rows are not enforcement
+    actions, so counting them would turn last_10_days into a conductor-turn
+    histogram and drag newest_ts forward to the last turn rather than the
+    last fire. Regression guard for exactly that: the fixture below buries
+    3 real fires under 5 allow rows, including two on days with NO fire at
+    all and one dated AFTER every fire.
+    """
+    repo = _make_repo(tmp_path)
+    home = tmp_path / "home"
+    lines = list(_FIRE_LINES) + [
+        # Same days as real fires - must not inflate those buckets.
+        json.dumps({"ts": "2026-08-01T13:00:00.000Z", "hook": "enforce-no-abdication",
+                    "decision": "allow", "reason": "clean turn"}),
+        json.dumps({"ts": "2026-08-03T13:00:00.000Z", "hook": "enforce-no-abdication",
+                    "decision": "allow", "reason": "clean turn"}),
+        # Days with no fire at all - must stay 0, not become 1.
+        json.dumps({"ts": "2026-07-30T12:00:00.000Z", "hook": "enforce-no-abdication",
+                    "decision": "allow", "reason": "clean turn"}),
+        json.dumps({"ts": "2026-07-31T12:00:00.000Z", "hook": "enforce-no-abdication",
+                    "decision": "allow", "reason": "clean turn"}),
+        # Newer than every fire - must not move newest_ts (and so must not
+        # slide the whole 10-day window forward by a day).
+        json.dumps({"ts": "2026-08-04T12:00:00.000Z", "hook": "enforce-no-abdication",
+                    "decision": "allow", "reason": "clean turn"}),
+    ]
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+
+    fires = _run_repo(repo, home)["enforcement_fires"]
+
+    # Anchored on the newest FIRE, not the newest row.
+    assert fires["newest_ts"] == "2026-08-03T12:00:00.000Z"
+    assert "2026-08-04" not in fires["last_10_days"]
+    # Per-day buckets count fires only.
+    assert fires["last_10_days"]["2026-08-01"] == 1
+    assert fires["last_10_days"]["2026-08-02"] == 1
+    assert fires["last_10_days"]["2026-08-03"] == 1
+    assert fires["last_10_days"]["2026-07-30"] == 0
+    assert fires["last_10_days"]["2026-07-31"] == 0
+    assert sum(fires["last_10_days"].values()) == 3
+    # Totals are unchanged, and the every-verdict hook is still VISIBLE -
+    # present in by_hook with both counts at 0 ("ran, never fired"), which a
+    # consumer must not read as "absent".
+    assert fires["deny_total"] == 2
+    assert fires["allow_advisory_total"] == 1
+    assert fires["by_hook"]["enforce-no-abdication"] == {"allow_advisory": 0, "deny": 0}
+
+
+def test_other_free_form_decision_still_counts_as_a_fire(tmp_path):
+    """The exclusion is specific to "allow", not a general unknown-value filter.
+
+    A future free-form decision value is still an ACTION, so it must keep
+    feeding newest_ts/last_10_days even though it lands in neither named
+    total - the documented behavior in content/references/events-log.md.
+    """
+    repo = _make_repo(tmp_path)
+    home = tmp_path / "home"
+    lines = list(_FIRE_LINES) + [
+        json.dumps({"ts": "2026-08-04T12:00:00.000Z", "hook": "enforce-tier",
+                    "decision": "warn_future_shape", "reason": "some new action"}),
+    ]
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+
+    fires = _run_repo(repo, home)["enforcement_fires"]
+
+    assert fires["newest_ts"] == "2026-08-04T12:00:00.000Z"
+    assert fires["last_10_days"]["2026-08-04"] == 1
+    assert fires["deny_total"] == 2
+    assert fires["allow_advisory_total"] == 1
+
+
 def test_zero_filled_tokens_omitted(tmp_path):
     """All-zero token figures -> token fields omitted + zero-filled note."""
     repo = _make_repo(tmp_path)

@@ -103,6 +103,7 @@ Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -1011,82 +1012,363 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 11 enforce-*.py hooks post-
+# Site inventory (all reference the same fact: 12 enforce-*.py hooks post-
 # merge with the worktree-read-guard unit (DS-150), the turn-shape-hook
-# unit (DS-156), the skeptic-round-cap unit, and the worktree-write-guard
-# unit, 10 of them call log_fire, split 9 deny + 2 allow_advisory -
-# `enforce-turn-shape.py` is the one hook in both subsets, since it logs
-# `"deny"` from its blocking execution-turn check (`_execution_prose_flag`)
-# and `"allow_advisory"` from its advisory-only operator-decisions
-# per-item check (`_decision_item_sprawl_flag`; DS-171 retired the
-# advisory-only answer-turn check this comment used to describe):
-#   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
-#   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
-#   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
-#   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
-#   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 9 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("nine
-#                         hooks", "two hooks") AND named members together.
+# unit (DS-156), the skeptic-round-cap unit, the worktree-write-guard
+# unit, and the ticket-batching unit; ALL TWELVE call log_fire, split
+# 11 deny + 3 allow_advisory + 1 allow. Three hooks sit in more than one
+# subset: `enforce-turn-shape.py` logs `"deny"` from its blocking
+# execution-turn check (`_execution_prose_flag`) and `"allow_advisory"`
+# from its advisory-only operator-decisions per-item check
+# (`_decision_item_sprawl_flag`; DS-171 retired the advisory-only
+# answer-turn check this comment used to describe);
+# `enforce-ticket-batching.py` logs `"allow_advisory"` on the 2nd
+# same-session ticket creation and `"deny"` on the 3rd and beyond; and
+# `enforce-no-abdication.py` is the sole EVERY-VERDICT caller, logging
+# `"deny"` on a block and plain `"allow"` on every other verdict path it
+# reaches after its enablement gate:
+#   hooks/AGENTS.md - "all M enforce-*.py hooks" (lib table cell)
+#   hooks/AGENTS.md - action-only subcount "ACTION-ONLY (N hooks)"
+#   hooks/AGENTS.md - bare cardinal "all M enforce-*.py hooks'"
+#   hooks/AGENTS.md - "All M enforce-*.py hooks additionally" (prose)
+#   events-log.md   - "by all M `hooks/enforce-*.py` ... hooks"
+#   events-log.md   - action-only subcount "N of the M `hooks/enforce-*.py`"
+#   events-log.md   - "one of the M consumer hooks enumerated below"
+#   events-log.md   - decomposed enumeration: 11 deny + 3 allow_advisory +
+#                         1 allow, pinned by the FULL LITERAL - cardinals
+#                         ("eleven hooks", "three hooks", "one hook") AND
+#                         named members together.
 #                         This is deliberately count- AND membership-bound:
-#                         a twelfth enforcer added later (denying or
+#                         a thirteenth enforcer added later (denying or
 #                         advisory) changes either the cardinal or the
 #                         member list, so either change breaks this
 #                         exact-substring pin and forces the enumeration to
 #                         be revisited by hand - it is not a count-agnostic
 #                         pin that tolerates a stale number as long as
 #                         names are unchanged.
+#   events-log.md   - the posture-split consumer rule (excludes "allow"
+#                         rows from any guardrail-fire tally).
 #   enforcement_log.py:39-47 - module manifest's own "Downstream consumers"
 #                         field (was omitted from this sweep entirely, which
 #                         is exactly why it went stale for two fix passes -
 #                         see hooks/lib/enforcement_log.py's own history).
+#   enforce-no-abdication.py - two sites: the deny-path call-site comment
+#                         ("the other nine enforce-*.py hooks", the same
+#                         print-before-telemetry convention count
+#                         enforce-planning-artifact-spawn.py restates) and
+#                         the Observability manifest's posture split ("the
+#                         other ten log actions only"). Both were added by
+#                         the same change that made this hook the sole
+#                         every-verdict caller; registering them here is
+#                         the fix for exactly the omission the
+#                         enforcement_log.py note above describes.
+# ---------------------------------------------------------------------------
+# ROUND-5 STRUCTURAL CHANGE: the cardinals below are DERIVED, not hand-typed.
+#
+# The four preceding rounds each hand-reconciled these numbers and each round
+# missed a site: round 1 had the wrong value; round 2 corrected it but left it
+# unpinned (a reviewer corrupted 9 -> 4 with every gate green); round 3 pinned
+# a sibling but shipped this list's own consumer set unpinned; round 4's rebase
+# moved the hook count eleven -> twelve and left two subcount sites stale
+# while this very list PINNED one of them at the stale value, so the gate
+# certified the error and would have gone RED when someone fixed it correctly.
+#
+# A fifth hand-reconciliation would fail the same way. So every site below is
+# now a TEMPLATE whose cardinal is substituted from a count read off disk at
+# test time. Adding or deleting a hooks/enforce-*.py file moves the derived
+# value, which moves every expected string, which reddens every prose site
+# that was not updated in the same commit. A hand-typed cardinal can no longer
+# satisfy this sweep, and this sweep can no longer certify a stale one.
+#
+# Placeholders available to a template:
+#   {total}       - number of hooks/enforce-*.py files on disk (word form)
+#   {consumers}   - number of those that reference log_fire (word form)
+#   {action_only} - consumers minus the every-verdict callers (word form)
+#   {pretooluse}  - total minus the Stop-event hooks (word form)
+# ---------------------------------------------------------------------------
+_FIRE_LOG_DECISIONS = ("deny", "allow", "allow_advisory")
+
+
+def _callee_name(func) -> str:
+    """Resolve a call's callee name through an immediately-invoked call.
+
+    `_load_log_fire()(data, name, decision, reason)` is the shape every hook
+    uses - the callee of the OUTER call is itself a Call node, so a plain
+    `func.id` lookup returns nothing and every derivation built on it is
+    silently empty. That exact vacuity bit an earlier draft of this helper.
+    """
+    while isinstance(func, ast.Call):
+        func = func.func
+    return getattr(func, "id", None) or getattr(func, "attr", None) or ""
+
+
+def _fire_log_decisions(src: str) -> set[str]:
+    """Every fire-log `decision` literal a hook can emit, read from its AST.
+
+    Two call shapes exist and both must be resolved or the derivation
+    under-reports (an under-report is the dangerous direction here: it would
+    shrink the every-verdict set and silently inflate the action-only count):
+
+      1. Direct: `_load_log_fire()(data, "enforce-tier", "deny", reason)` -
+         the lib signature, decision at positional index 2.
+      2. Via a local wrapper: `enforce-no-abdication.py` and
+         `enforce-ticket-batching.py` funnel their calls through a private
+         helper that takes `decision` as a parameter and forwards it. The
+         literals live at the WRAPPER's call sites, not at the log_fire call,
+         so the wrapper is resolved to a sink first (fixed point) and its own
+         `decision` parameter index is used.
+    """
+    tree = ast.parse(src)
+    defs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    # name -> positional index of the `decision` argument.
+    sinks = {"log_fire": 2, "_load_log_fire": 2}
+    changed = True
+    while changed:
+        changed = False
+        for name, fn in defs.items():
+            if name in sinks:
+                continue
+            calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)]
+            if not any(_callee_name(c) in sinks for c in calls):
+                continue
+            params = [a.arg for a in fn.args.args]
+            if "decision" not in params:
+                continue
+            sinks[name] = params.index("decision")
+            changed = True
+
+    found = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = _callee_name(node)
+        if name not in sinks:
+            continue
+        idx = sinks[name]
+        cands = []
+        if len(node.args) > idx and isinstance(node.args[idx], ast.Constant):
+            cands.append(node.args[idx].value)
+        cands += [
+            kw.value.value
+            for kw in node.keywords
+            if kw.arg == "decision" and isinstance(kw.value, ast.Constant)
+        ]
+        found |= {c for c in cands if c in _FIRE_LOG_DECISIONS}
+    return found
+
+
+def _derive_enforcer_facts() -> dict:
+    """Every enforcer subcount this repo restates in prose, derived off disk.
+
+    Returns integers, not strings, so a caller cannot accidentally compare a
+    word form against a numeral form and pass on a mismatch.
+    """
+    hooks = sorted((REPO_ROOT / "hooks").glob("enforce-*.py"))
+    sources = {h.name: h.read_text(encoding="utf-8") for h in hooks}
+    consumers = {name for name, src in sources.items() if "log_fire" in src}
+    by_decision = {d: set() for d in _FIRE_LOG_DECISIONS}
+    for name, src in sources.items():
+        for decision in _fire_log_decisions(src):
+            by_decision[decision].add(name)
+    every_verdict = by_decision["allow"]
+    return {
+        "hooks": {h.name for h in hooks},
+        "total": len(hooks),
+        "consumers": consumers,
+        "by_decision": by_decision,
+        "every_verdict": every_verdict,
+        "action_only": len(consumers) - len(every_verdict),
+    }
+
+
+def _assert_derivation_is_not_vacuous(facts: dict) -> None:
+    """Every derived assertion below is worthless if the derivation found
+    nothing. A glob that stops matching, or an AST walk that stops resolving
+    the wrapper shape, would compare an empty set against an empty set and
+    report all-clear - the exact class of false green this repo has shipped
+    before. Each floor below is a lower bound on a quantity that can only
+    grow, never a pin on the current value.
+    """
+    assert facts["total"] >= 5, (
+        "derivation found only %d hooks/enforce-*.py file(s) - the glob is "
+        "probably broken, which would make every assertion below vacuous"
+        % facts["total"]
+    )
+    assert facts["consumers"], (
+        "derivation found no log_fire consumer among %d enforcer hook(s) - "
+        "the marker search is broken" % facts["total"]
+    )
+    assert facts["every_verdict"], (
+        "derivation found no EVERY-VERDICT caller (a hook logging a plain "
+        '"allow"). enforce-no-abdication.py is one, so an empty result means '
+        "the AST decision-literal walk stopped resolving the wrapper call "
+        "shape and every posture-split subcount below is vacuous."
+    )
+    assert facts["by_decision"]["deny"], (
+        "derivation found no deny-logging hook - the AST decision-literal "
+        "walk is broken"
+    )
+
+
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by eleven of the twelve enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by all {total} enforce-*.py hooks",
+    ),
+    (
+        # Action-only subcount: the posture split means the consumer count
+        # and the action-only count move together but are not the same
+        # number, so both are pinned.
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "ACTION-ONLY ({action_only} hooks)",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the eleven enforce-*.py hooks' best-effort dynamic import",
+        "for all {total} enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Eleven of the twelve enforce-*.py hooks additionally",
+        "All {total} enforce-*.py hooks additionally",
+    ),
+    (
+        # A FIFTH hooks/AGENTS.md restatement, found by the round-5 Minor E
+        # mutation rather than by review: the lib-consumer-count parenthetical
+        # in the file's own opening paragraph. It read "ten of the eleven"
+        # against twelve hooks and had never been in this sweep, which is why
+        # four rounds of hand-reconciliation walked past it. Its sibling
+        # cardinals in the same sentence (the repo-root trio's 7/5/1/6
+        # consumer counts) are a DIFFERENT fact about a different module and
+        # are deliberately not derived here.
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "consumed by all {total}\nenforce-*.py hooks, not five",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "eleven of the twelve `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "by all {total} `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the eleven consumer hooks enumerated below",
+        "{action_only} of the {total} `hooks/enforce-*.py` PreToolUse/Stop hooks log only",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (ten hooks - `enforce-askuserquestion-default.py`, '
-        "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-ticket-batching.py`, "
-        "`enforce-tier.py`, "
-        "`enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`) "
-        'and `"allow_advisory"` '
-        "(three hooks - `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-turn-shape.py`)",
+        "one of the {total} consumer hooks enumerated below",
+    ),
+    # NOTE: the decomposed deny/allow_advisory/allow enumeration in
+    # events-log.md is NOT pinned here. A full-literal pin of that sentence
+    # is a hand-typed cardinal AND a hand-typed member list, the exact shape
+    # this round is removing. It is instead checked member-by-member and
+    # cardinal-by-cardinal against the AST-derived decision sets, in
+    # test_fire_log_decision_enumeration_is_derived_not_hand_listed below.
+    (
+        # The action-only vs every-verdict posture split is the fact that
+        # makes the raw consumer count insufficient on its own: twelve
+        # hooks call log_fire, but only ONE logs a plain "allow". A
+        # consumer tallying "guardrail fires" must exclude those rows, so
+        # a doc that bumps the consumer count without carrying the posture
+        # split silently invites a miscount.
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        "any tally over this file that means \"guardrail fires\" must exclude "
+        '`decision == "allow"` rows',
     ),
     (
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
-        "Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that",
+        "Downstream consumers: all {total} enforce-*.py PreToolUse/Stop hooks that",
     ),
     (
-        # Distinct fact from the log_fire-consumer count above: this is the
-        # count of enforce-*.py hooks sharing the "Decision print comes
-        # FIRST, unconditionally" print-before-telemetry convention (a
-        # strict subset of the log_fire consumers - e.g.
-        # enforce-skeptic-round-cap.py calls log_fire but does not use this
-        # phrasing), restated from enforce-planning-artifact-spawn.py's own
-        # perspective ("the OTHER N enforce-*.py hooks", excluding itself).
-        REPO_ROOT / "hooks" / "enforce-planning-artifact-spawn.py",
-        "convention in the other eight enforce-*.py hooks",
+        # The posture split restated in the lib's OWN manifest. Major A of
+        # round 5: both cardinals here were stale (it read "ten of the
+        # eleven" against twelve hooks) and it was the one site the sweep
+        # had never covered, while its hooks/AGENTS.md twin WAS pinned.
+        REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
+        "ACTION-ONLY ({action_only} of the {total} hooks)",
+    ),
+    (
+        # The event-surface split, counted from the Stop side. Derived as
+        # total minus the Stop-event hooks the same sentence enumerates -
+        # see test_fire_log_event_surface_split_is_derived below, which
+        # proves that enumeration is exactly two before this cardinal is
+        # trusted.
+        REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
+        "are the two Stop-event consumers; the other {pretooluse} are",
+    ),
+    (
+        # The action-only/every-verdict POSTURE split, restated in
+        # enforce-no-abdication.py's own Observability manifest. Major B of
+        # round 5: this read "the other ten log actions only" against twelve
+        # hooks, AND the sweep pinned that stale literal - so the gate
+        # actively certified the wrong value and would have reddened when
+        # somebody fixed it correctly. Now derived, so the only way to
+        # satisfy it is to state the true number.
+        REPO_ROOT / "hooks" / "enforce-no-abdication.py",
+        "other {action_only} log actions only",
     ),
 ]
+
+# The print-before-telemetry convention comment is DELIBERATELY ABSENT from
+# the list above, and its cardinal has been removed from both hooks that
+# carried it. It was never derivable and it was wrong: nine enforce-*.py
+# files carry the "Decision print comes FIRST" note, so "the OTHER nine"
+# was off by one from either carrier's own perspective (it counted the
+# speaker among the others), and its predecessor on main - "the other
+# eight" against eight carriers - carried the identical off-by-one. A
+# cardinal that no derivation can settle, restated in two files about each
+# other, is a rot source with no upside; both now read "every other
+# enforce-*.py hook carrying this same note", which is count-free and
+# exactly as informative. What IS derivable is that the carriers agree on
+# the wording, which is what the membership test below asserts.
+_PRINT_FIRST_MARKER = "Decision print comes FIRST"
+_PRINT_FIRST_CROSS_REF = (
+    "convention in every other enforce-*.py hook carrying this same"
+)
+
+
+def test_print_before_telemetry_note_carries_no_hand_typed_cardinal():
+    facts = _derive_enforcer_facts()
+    _assert_derivation_is_not_vacuous(facts)
+
+    carriers = {
+        name
+        for name in facts["hooks"]
+        if _PRINT_FIRST_MARKER
+        in (REPO_ROOT / "hooks" / name).read_text(encoding="utf-8")
+    }
+    assert len(carriers) >= 2, (
+        "derivation found %d hook(s) carrying the %r note - fewer than two "
+        "makes the cross-reference assertions below vacuous"
+        % (len(carriers), _PRINT_FIRST_MARKER)
+    )
+
+    # Every carrier that cross-references the OTHER carriers must do so
+    # without a cardinal. A reintroduced count (in any word or numeral form)
+    # fails here, which is what stops round 6 from hand-typing one back in.
+    cardinal_re = re.compile(
+        r"convention in the other (?:\d+|[a-z]+) enforce-\*\.py", re.IGNORECASE
+    )
+    for name in sorted(carriers):
+        text = (REPO_ROOT / "hooks" / name).read_text(encoding="utf-8")
+        match = cardinal_re.search(text)
+        assert match is None, (
+            "hooks/%s reintroduced a hand-typed cardinal in the "
+            "print-before-telemetry cross-reference: %r. This count is not "
+            "derivable from disk and was wrong in both prior spellings - "
+            "state it count-free instead." % (name, match.group(0))
+        )
+
+    # The count-free phrasing must actually be present in the hooks that
+    # cross-reference their peers, or the assertion above is satisfied by
+    # deleting the sentence outright.
+    referrers = {
+        name
+        for name in sorted(carriers)
+        if _PRINT_FIRST_CROSS_REF
+        in (REPO_ROOT / "hooks" / name).read_text(encoding="utf-8")
+    }
+    assert len(referrers) >= 2, (
+        "expected at least two enforce-*.py hooks to carry the count-free "
+        "print-before-telemetry cross-reference %r, found %d: %s"
+        % (_PRINT_FIRST_CROSS_REF, len(referrers), sorted(referrers))
+    )
 
 # Bidirectional and case-insensitive: "seven" followed by "enforce" within
 # one sentence (catches "seven of the eight enforce-*.py", "the seven
@@ -1101,35 +1383,43 @@ _ENFORCER_SUBCOUNT_SITES = [
 # the shared most-recently-retired value across both: (1) the total-
 # consumer-count fact ("N of the M enforce-*.py hooks call log_fire"),
 # which moved eight-of-nine -> nine-of-ten when the skeptic-round-cap unit
-# added `enforce-skeptic-round-cap.py` as a log_fire caller (that
-# transition's own regression is already caught by the positive pins above
-# requiring the literal "nine of the ten" text - a revert to eight-of-nine
-# would fail those asserts directly); and (2) the deny-subset count ("N
-# hooks" in the decomposed enumeration at events-log.md:130), which moved
+# added `enforce-skeptic-round-cap.py` as a log_fire caller, then
+# ten-of-eleven -> ALL ELEVEN when `enforce-no-abdication.py` was finally
+# wired up, then ALL ELEVEN -> ALL TWELVE when the ticket-batching unit
+# added `enforce-ticket-batching.py` (that transition's own regression is
+# caught by the positive pins above requiring the literal "all twelve"
+# text - a revert to "all eleven" would fail those asserts directly); and
+# (2) the deny-subset
+# count ("N hooks" in the decomposed enumeration in the `decision` bullet),
+# which moved
 # five -> six when DS-150 added `enforce-worktree-read.py` to the deny
 # group, six -> seven when DS-156 added `enforce-turn-shape.py` to the deny
 # group, seven -> eight when the skeptic-round-cap unit added
-# `enforce-skeptic-round-cap.py` to the deny group, then eight -> nine when
+# `enforce-skeptic-round-cap.py` to the deny group, eight -> nine when
 # the worktree-write-guard unit added `enforce-worktree-write.py` to the
-# deny group. "eight" and "nine" cannot be used as this sweep's stale
-# marker: "nine" is now itself a live, correct cardinal (the deny-hook
-# enumeration currently reads "nine hooks"), so a sweep keyed to either
+# deny group, nine -> ten when `enforce-ticket-batching.py` joined it, and
+# ten -> eleven when `enforce-no-abdication.py` joined it in turn.
+# "eight", "nine", "ten", "eleven" and "twelve" cannot be used as this
+# sweep's stale marker: "eleven" is now itself a live, correct cardinal
+# (the deny-hook enumeration reads "eleven hooks" and the action-only
+# subcount reads "eleven hooks") and "twelve" is the live consumer count,
+# so a sweep keyed to any of them
 # would false-positive against that legitimate use, mirroring why an
 # earlier pass retired "six" as a marker only to have DS-156's deny-subset
-# change make "six" stale again, and this fix's deny-subset change make
+# change make "six" stale again, and a later deny-subset change make
 # "seven" stale in turn - "seven" remains the safe target word since it has
 # not been reused as a live cardinal by any subsequent transition.
 # Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
-# goes silent once the live deny-subset count moves past nine (when "nine"
-# itself becomes stale), and it does not catch numeral ("9 of the 10")
-# forms.
+# goes silent once the live deny-subset count moves past eleven (when
+# "eleven" itself becomes stale), and it does not catch numeral
+# ("11 of the 12") forms.
 # A further limitation (Skeptic Minor, round 1 finding, still applicable
 # post-rebase): keying on a single cardinal cannot simultaneously guard
 # every possible stale restatement of BOTH facts above - e.g. a reverted
 # total-count restatement using some other now-stale cardinal shape would
 # not be caught by this sweep alone. The positive pins above still confirm
-# the current "ten of the eleven" / "nine hooks" phrasing is present at
+# the current "all twelve" / "eleven hooks" phrasing is present at
 # every known site, so residual risk is limited to an unenumerated site
 # using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
@@ -1138,14 +1428,54 @@ _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
 )
 
 
+def _enforcer_subcount_substitutions(facts: dict) -> dict:
+    """Word forms for every placeholder a site template may use.
+
+    Word form, not numeral, because every site states its cardinal in
+    English prose. `_NUMBER_WORDS` is asserted to cover each value rather
+    than defaulted, so an unmapped count fails loudly instead of formatting
+    a `None` into an expected string that then trivially never matches for
+    the wrong reason.
+    """
+    stop_hooks = 2  # asserted against the manifest's own enumeration below
+    values = {
+        "total": facts["total"],
+        "consumers": len(facts["consumers"]),
+        "action_only": facts["action_only"],
+        "pretooluse": facts["total"] - stop_hooks,
+    }
+    out = {}
+    for key, value in values.items():
+        word = _NUMBER_WORDS.get(value)
+        assert word is not None, (
+            "no word form known for %s=%d - extend _NUMBER_WORDS" % (key, value)
+        )
+        out[key] = word
+    return out
+
+
 def test_enforcer_subcount_is_current_across_all_known_sites():
-    # Positive: every known site carries the current 8-caller / 9-enforcer
-    # phrasing, in its own grammatical form.
-    for path, expected in _ENFORCER_SUBCOUNT_SITES:
+    facts = _derive_enforcer_facts()
+    _assert_derivation_is_not_vacuous(facts)
+    subs = _enforcer_subcount_substitutions(facts)
+
+    # Positive: every known site carries the DERIVED cardinal, in its own
+    # grammatical form. No expected string here contains a hand-typed
+    # number - each is a template filled from the hooks on disk, so adding
+    # or deleting a hooks/enforce-*.py file reddens every site that was not
+    # updated in the same commit.
+    for path, template in _ENFORCER_SUBCOUNT_SITES:
+        expected = template.format(**subs)
         text = path.read_text(encoding="utf-8")
         assert expected in text, (
-            f"{path.relative_to(REPO_ROOT)} missing updated enforcer-subcount "
-            f"phrasing: '{expected}'"
+            f"{path.relative_to(REPO_ROOT)} missing the DERIVED enforcer-subcount "
+            f"phrasing: '{expected}'\n"
+            f"  derived from disk: {facts['total']} enforce-*.py hook(s), "
+            f"{len(facts['consumers'])} log_fire consumer(s), "
+            f"{len(facts['every_verdict'])} every-verdict caller(s) "
+            f"-> {facts['action_only']} action-only.\n"
+            f"  Fix the prose to match the hooks on disk - do NOT edit this "
+            f"template to match the prose."
         )
 
     # Negative, phrasing-agnostic: no stale "five ... enforce" (or reversed)
@@ -1160,6 +1490,674 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
             f"{path.relative_to(REPO_ROOT)} still has a stale enforcer-subcount "
             f"phrasing near: {match.group(0)!r}"
         )
+
+
+# events-log.md decomposes the `decision` field into per-value hook lists:
+# `"deny"` (N hooks - `a.py`, `b.py`, ...), `"allow_advisory"` (M hooks - ...),
+# `"allow"` (K hooks - ...). Round 4 pinned that whole sentence as ONE literal
+# containing three hand-typed cardinals and eighteen hand-typed filenames -
+# maximally brittle and, worse, satisfiable only by hand-reconciliation.
+#
+# This replaces it with a derivation. Both the cardinal and the membership of
+# each group come from the AST decision-literal walk, and each group is
+# checked BIDIRECTIONALLY: a hook missing from the prose fails, and a phantom
+# hook named in the prose that emits no such decision also fails.
+_DECISION_GROUP_RE = re.compile(
+    r"`\"(deny|allow_advisory|allow)\"` \((\w+) hooks? - ([^)]*)\)"
+)
+
+
+def test_fire_log_decision_enumeration_is_derived_not_hand_listed():
+    facts = _derive_enforcer_facts()
+    _assert_derivation_is_not_vacuous(facts)
+
+    text = _EVENTS_LOG_REF.read_text(encoding="utf-8")
+    groups = {m.group(1): m for m in _DECISION_GROUP_RE.finditer(text)}
+
+    # Vacuity guard: the regex must still find every group. If the prose is
+    # rephrased so a group stops matching, this test would otherwise iterate
+    # over nothing and pass while asserting nothing about that group.
+    missing_groups = sorted(set(_FIRE_LOG_DECISIONS) - set(groups))
+    assert not missing_groups, (
+        "content/references/events-log.md no longer states a parenthesised "
+        "`\"<decision>\"` (N hooks - ...) enumeration for: %s. The derived "
+        "membership check cannot check what it cannot find - restore the "
+        "shape or update _DECISION_GROUP_RE." % missing_groups
+    )
+
+    for decision, match in sorted(groups.items()):
+        derived = facts["by_decision"][decision]
+        assert derived, (
+            "derivation found no hook emitting %r - the AST walk is broken "
+            "and this group's assertions would be vacuous" % decision
+        )
+
+        declared = set(re.findall(r"enforce-[a-z0-9-]+\.py", match.group(3)))
+        assert declared == derived, (
+            "content/references/events-log.md's `%s` hook list disagrees with "
+            "the decision literals on disk.\n  named in prose but never "
+            "emitted: %s\n  emitted but not named in prose: %s"
+            % (
+                decision,
+                sorted(declared - derived),
+                sorted(derived - declared),
+            )
+        )
+
+        expected_word = _NUMBER_WORDS.get(len(derived))
+        assert expected_word is not None, (
+            "no word form known for %d - extend _NUMBER_WORDS" % len(derived)
+        )
+        assert match.group(2) == expected_word, (
+            "content/references/events-log.md says '%s hook(s)' emit %r but %d "
+            "hook(s) actually do: %s"
+            % (match.group(2), decision, len(derived), sorted(derived))
+        )
+
+
+# hooks/AGENTS.md documents a known-live false-green class: script-mode hook
+# tests whose `test_*` functions RETURN a failure count, which pytest
+# discards. Round 5's Minor E: that section said "Two files currently have
+# this property", a hand-enumerated claim of exactly the class this branch
+# derives everywhere else - a new zero-arg `-> int` returner makes it stale
+# silently. The cardinal is now gone from the prose and the MEMBERSHIP is
+# derived here instead, bidirectionally.
+_HOOKS_AGENTS_MD = REPO_ROOT / "hooks" / "AGENTS.md"
+_FALSE_GREEN_SECTION_MARKER = "**Known-live false-green class.**"
+
+
+def _derive_int_returning_hook_tests() -> dict[str, int]:
+    """{filename: count of zero-arg `test_*` functions annotated `-> int`}.
+
+    Read from the AST, so a rename, a new file, or a converted function all
+    move the result. Only module-level defs count - a nested helper is not
+    something pytest would collect.
+    """
+    found = {}
+    for path in sorted((REPO_ROOT / "hooks" / "tests").glob("test-*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - a broken test file
+            continue
+        names = [
+            node.name
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name.startswith("test_")
+            and not (
+                node.args.args or node.args.posonlyargs or node.args.kwonlyargs
+            )
+            and getattr(node.returns, "id", None) == "int"
+        ]
+        if names:
+            found[path.name] = len(names)
+    return found
+
+
+def test_false_green_hook_test_list_is_derived_not_hand_counted():
+    derived = _derive_int_returning_hook_tests()
+    assert derived, (
+        "derivation found no zero-arg `-> int` test_* returner under "
+        "hooks/tests/ - two files have them, so an empty result means the "
+        "AST walk is broken and every assertion below is vacuous"
+    )
+
+    text = _HOOKS_AGENTS_MD.read_text(encoding="utf-8")
+    assert _FALSE_GREEN_SECTION_MARKER in text, (
+        "hooks/AGENTS.md lost its %r section - the derived membership check "
+        "cannot check what it cannot find" % _FALSE_GREEN_SECTION_MARKER
+    )
+    start = text.index(_FALSE_GREEN_SECTION_MARKER)
+    end = text.find("\n## ", start)
+    section = text[start : end if end != -1 else len(text)]
+
+    # No hand-typed cardinal may reappear in the section's own claim about
+    # how many files carry the property. This is the Minor E regression: the
+    # sentence read "Two files currently have this property".
+    cardinal = re.search(
+        r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|"
+        r"twelve) files? (?:currently )?(?:have|has) this property",
+        section,
+        re.IGNORECASE,
+    )
+    assert cardinal is None, (
+        "hooks/AGENTS.md reintroduced a hand-typed file count in the "
+        "false-green section: %r. State it count-free - the membership is "
+        "derived and asserted below." % (cardinal.group(0) if cardinal else "")
+    )
+
+    # Membership, bidirectionally: every derived file is named, and every
+    # file named is one the derivation actually found.
+    declared = set(re.findall(r"test-[a-z0-9-]+\.py", section))
+    assert declared == set(derived), (
+        "hooks/AGENTS.md's false-green file list disagrees with the "
+        "zero-arg `-> int` returners on disk.\n  named but not returning "
+        "int: %s\n  returning int but not named: %s"
+        % (sorted(declared - set(derived)), sorted(set(derived) - declared))
+    )
+
+    # The per-file function count stated in that list is derivable too, and
+    # was the one numeral the section still carried.
+    count_match = re.search(r"all (\d+) `test_\*` functions", section)
+    assert count_match is not None, (
+        "hooks/AGENTS.md's false-green list lost its `all N test_* functions` "
+        "numeral - it is derived, so the form must stay checkable"
+    )
+    stated = int(count_match.group(1))
+    assert stated in derived.values(), (
+        "hooks/AGENTS.md says 'all %d `test_*` functions' but no listed file "
+        "has that many zero-arg `-> int` returners: %s"
+        % (stated, derived)
+    )
+
+
+def test_fire_log_event_surface_split_is_derived():
+    """The lib manifest's Stop-vs-PreToolUse split, checked against its own
+    enumeration rather than a hand-count.
+
+    The `{pretooluse}` placeholder used by the site list above is
+    `total - 2`, and that `2` is only correct while the manifest enumerates
+    exactly two Stop-event hooks. This proves that precondition, so the
+    placeholder is never trusted on faith.
+    """
+    facts = _derive_enforcer_facts()
+    _assert_derivation_is_not_vacuous(facts)
+
+    text = (REPO_ROOT / "hooks" / "lib" / "enforcement_log.py").read_text(
+        encoding="utf-8"
+    )
+    flat = re.sub(r"\s+", " ", text)
+    marker = " are the two Stop-event consumers;"
+    assert marker in flat, (
+        "hooks/lib/enforcement_log.py no longer states its Stop-event "
+        "enumeration in the 'X and Y are the two Stop-event consumers;' "
+        "form - the derived PreToolUse subcount above rests on it"
+    )
+
+    # Scope the enumeration to its own sentence. A `[^.]` bound cannot be
+    # used here: every token being counted ENDS in ".py", so a dot-excluding
+    # window matches the empty string and silently counts zero hooks. Cut
+    # back to the end of the preceding sentence instead, which for this
+    # manifest is the previous filename-terminated sentence ("...py.").
+    prefix = flat[: flat.index(marker)]
+    cut = prefix.rfind(".py.")
+    segment = prefix[cut + len(".py.") :] if cut != -1 else prefix
+
+    stop_hooks = set(re.findall(r"enforce-[a-z0-9-]+\.py", segment))
+    assert len(stop_hooks) == 2, (
+        "hooks/lib/enforcement_log.py says 'the two Stop-event consumers' but "
+        "names %d hook(s): %s. Either the prose or the cardinal is wrong; the "
+        "PreToolUse subcount is derived as total minus this enumeration."
+        % (len(stop_hooks), sorted(stop_hooks))
+    )
+    unknown = sorted(stop_hooks - facts["hooks"])
+    assert not unknown, (
+        "hooks/lib/enforcement_log.py names Stop-event consumer(s) that do "
+        "not exist on disk: %s" % unknown
+    )
+
+
+# ---------------------------------------------------------------------------
+# _fire_log_test_helper.py's downstream-consumer count, pinned by DERIVATION.
+#
+# Deliberately NOT a _ENFORCER_SUBCOUNT_SITES-style literal-string pin. A
+# literal pin asserts "the file says nine"; it goes stale the moment a tenth
+# importer appears and, worse, it has to be hand-updated by the same person
+# who just hand-counted. This derives the truth from the importers on disk
+# and compares every surface form against it, so it cannot be satisfied by
+# a hand-count and cannot go stale.
+#
+# The prior round corrected the NUMBER but left it unenforced: the Skeptic
+# corrupted 9 -> 4 in both surface forms and every gate stayed green. The
+# manifest states the count three ways (word form in the leading comment,
+# numeral in the docstring field, and the enumerated filename list); all
+# three are checked below, because a single-form check is exactly the
+# numeral-blind-spot failure this repo has shipped before.
+# ---------------------------------------------------------------------------
+_FIRE_LOG_HELPER_PATH = REPO_ROOT / "hooks" / "tests" / "_fire_log_test_helper.py"
+
+_NUMBER_WORDS = {
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+    13: "thirteen",
+    14: "fourteen",
+    15: "fifteen",
+    16: "sixteen",
+    17: "seventeen",
+    18: "eighteen",
+    19: "nineteen",
+    20: "twenty",
+}
+
+
+def _derive_fire_log_helper_importers() -> set[str]:
+    """The live importer set, read off disk - never a hand-maintained list."""
+    tests_dir = _FIRE_LOG_HELPER_PATH.parent
+    importers = set()
+    for path in sorted(tests_dir.glob("*.py")):
+        if path.name == _FIRE_LOG_HELPER_PATH.name:
+            continue
+        if "_fire_log_test_helper" in path.read_text(encoding="utf-8"):
+            importers.add(path.name)
+    return importers
+
+
+def _flatten_manifest(text: str) -> str:
+    """Strip leading `#` comment markers and collapse whitespace.
+
+    The manifest wraps across lines in two different styles (a `#` comment
+    block and a docstring), so every assertion below runs against one flat
+    string rather than depending on where the author happened to wrap.
+    """
+    lines = [re.sub(r"^\s*#\s?", "", line) for line in text.splitlines()]
+    return re.sub(r"\s+", " ", " ".join(lines))
+
+
+def test_fire_log_helper_consumer_count_is_derived_not_hand_counted():
+    importers = _derive_fire_log_helper_importers()
+    expected_n = len(importers)
+
+    # Guard against a vacuous pass: if the glob or the marker string ever
+    # stops matching, this test must fail loudly rather than compare an
+    # empty set against an empty set.
+    assert expected_n >= 2, (
+        "derivation found only %d importer(s) of _fire_log_test_helper.py - "
+        "the derivation itself is probably broken, which would make every "
+        "assertion below vacuous" % expected_n
+    )
+
+    raw = _FIRE_LOG_HELPER_PATH.read_text(encoding="utf-8")
+    flat = _flatten_manifest(raw)
+
+    # Surface form 1: the numeral in the `Downstream consumers (N; ...)` field.
+    numeral_match = re.search(r"Downstream consumers \((\d+);", flat)
+    assert numeral_match is not None, (
+        "_fire_log_test_helper.py lost its `Downstream consumers (N;` numeral "
+        "form - the derived count pin cannot check what it cannot find"
+    )
+    assert int(numeral_match.group(1)) == expected_n, (
+        "_fire_log_test_helper.py declares %s downstream consumers (numeral "
+        "form) but %d files actually import it: %s"
+        % (numeral_match.group(1), expected_n, sorted(importers))
+    )
+
+    # Surface form 2: the word form in the leading comment block.
+    word_match = re.search(
+        r"imported by the ([a-z]+) enforce-\*\.py fire-log regression tests", flat
+    )
+    assert word_match is not None, (
+        "_fire_log_test_helper.py lost its word-form consumer count in the "
+        "leading comment block"
+    )
+    expected_word = _NUMBER_WORDS.get(expected_n)
+    assert expected_word is not None, (
+        "no word form known for %d - extend _NUMBER_WORDS" % expected_n
+    )
+    assert word_match.group(1) == expected_word, (
+        "_fire_log_test_helper.py's leading comment says '%s' importers but %d "
+        "files actually import it: %s"
+        % (word_match.group(1), expected_n, sorted(importers))
+    )
+
+    # Surface form 3: the enumerated filename list must BE the derived set,
+    # which catches an omitted entry and a phantom entry alike.
+    declared = set(re.findall(r"test-enforce-[a-z0-9-]+\.py", raw))
+    assert declared == importers, (
+        "_fire_log_test_helper.py's enumerated consumer list disagrees with "
+        "the files on disk.\n  declared but not importing: %s\n  importing but "
+        "not declared: %s"
+        % (sorted(declared - importers), sorted(importers - declared))
+    )
+
+
+# ---------------------------------------------------------------------------
+# events-log.md's fire-log consumer list, pinned by DERIVATION.
+#
+# Same failure shape as the helper-importer pin above, one layer out: the
+# round-1 correction of this list had the RIGHT membership and no pin, and a
+# reviewer corrupted a sibling count with every gate staying green. A
+# corrected-but-unpinned list is a fact with a shelf life.
+#
+# SCOPE: deliberately NOT `content/commands/` only. The real consumer set
+# spans two surfaces - the command prose under `content/commands/*.md` and
+# the executable `bin/ds-*` that actually opens the file (`bin/ds-evaluate`
+# reads it; `content/commands/ds-evaluate.md` only describes that read). A
+# `content/commands/`-scoped assertion would go silent on a new bin-only
+# reader, which is precisely the consumer most likely to be added without
+# touching any prose. Both globs are derived and unioned on the tool STEM
+# (`ds-evaluate`, `ds-failure-audit`, `ds-wrap`), because the manifest names
+# a consumer once - as `bin/ds-evaluate` or `/ds-wrap` - rather than once
+# per surface, and a stem is the one token both spellings share.
+# ---------------------------------------------------------------------------
+_FIRE_LOG_PATH_MARKER = ".enforcement-fires.jsonl"
+_EVENTS_LOG_REF = REPO_ROOT / "content" / "references" / "events-log.md"
+
+
+# ROUND-5 WIDENING (Minor D). The prior scope was `content/commands/*.md`
+# plus `bin/ds-*`, which left three undisclosed evasion gaps: a reader under
+# `hooks/`, a reader under `scripts/`, and a phantom consumer over-declared
+# in the manifest. The first two are closed by searching those roots too;
+# the third by making the comparison bidirectional (below).
+#
+# WRITERS are excluded, not readers. Everything under `hooks/` that names the
+# fire-log path does so because it WRITES the file (the lib and the enforcers
+# it serves) - naming a writer in a `Downstream consumers` field would be
+# wrong, so the writer set is subtracted explicitly rather than by leaving
+# `hooks/` unsearched. Tests are excluded for the same reason: a regression
+# test that reads the file is not a product consumer.
+#
+# RESIDUAL GAP, DISCLOSED (not fixed): this derivation is literal-marker
+# based, so a consumer that CONSTRUCTS the filename at runtime (os.path.join
+# with the basename in a constant, an f-string, a variable assembled from
+# parts) is invisible to it and can be added with no gate firing. A
+# path-independent derivation would require dataflow analysis across four
+# languages and is not tractable here. The mitigation is social, not
+# mechanical: the marker is a single distinctive literal, and every existing
+# consumer uses it verbatim.
+_FIRE_LOG_CONSUMER_SEARCH_ROOTS = (
+    ("content/commands", "*.md"),
+    ("bin", "ds-*"),
+    ("hooks", "*"),
+    ("scripts", "*"),
+)
+
+# Paths that name the fire log as WRITERS or as test fixtures, never as
+# downstream consumers of it.
+_FIRE_LOG_NON_CONSUMER_RE = re.compile(
+    r"(^|/)(tests?|__pycache__)(/|$)|(^|/)(test-|test_)|"
+    r"(^|/)(enforce-[a-z0-9-]+\.py|enforcement_log\.py|AGENTS\.md)$"
+)
+
+
+# The manifest's `Downstream consumers` field covers EVERY artifact
+# events-log.md documents, not just the fire log: the conductor event log
+# and the per-developer session log are in the same field. The
+# over-declaration direction must therefore be judged against readers of any
+# of them, or a legitimate entry like `bin/ds-cost` (which reads the session
+# log and the event log, never the fire log) reads as a phantom. This is not
+# a hypothetical: the first run of that check flagged exactly that entry.
+_MANIFEST_ARTIFACT_MARKERS = (
+    _FIRE_LOG_PATH_MARKER,
+    "events.jsonl",
+    "session-log",
+)
+
+
+def _derive_consumer_stems(markers: tuple[str, ...]) -> tuple[set[str], set[str]]:
+    """Live consumer stems for `markers`, read off disk - never hand-listed.
+
+    Returns (command_stems, other_stems). Kept separate so the vacuity guard
+    can prove BOTH derivations still match something; unioned by the caller.
+    """
+    def hits(text: str) -> bool:
+        return any(marker in text for marker in markers)
+
+    command_stems = {
+        path.stem
+        for path in sorted((REPO_ROOT / "content" / "commands").glob("*.md"))
+        if hits(path.read_text(encoding="utf-8"))
+    }
+    other_stems = set()
+    for root, pattern in _FIRE_LOG_CONSUMER_SEARCH_ROOTS:
+        if root == "content/commands":
+            continue
+        for path in sorted((REPO_ROOT / root).glob(pattern)):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            if _FIRE_LOG_NON_CONSUMER_RE.search(rel):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if hits(text):
+                other_stems.add(path.name)
+    return command_stems, other_stems
+
+
+def _derive_fire_log_consumer_stems() -> tuple[set[str], set[str]]:
+    return _derive_consumer_stems((_FIRE_LOG_PATH_MARKER,))
+
+
+def _sections_containing(path: Path, marker: str) -> set[str]:
+    """The `##`-level section titles of `path` whose body contains `marker`.
+
+    Used to derive "which parts of this document actually read the fire
+    log", so a prose pointer elsewhere can be checked against behaviour
+    rather than against another hand-written pointer.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    starts = [i for i, line in enumerate(lines) if line.startswith("## ")]
+    found = set()
+    for n, start in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        if marker in "\n".join(lines[start:end]):
+            found.add(lines[start].lstrip("#").strip())
+    return found
+
+
+def _events_log_downstream_consumers_field() -> str:
+    """The manifest's `Downstream consumers:` field, flattened to one line."""
+    text = _EVENTS_LOG_REF.read_text(encoding="utf-8")
+    start = text.index("Downstream consumers:")
+    end = text.index("Failure modes:", start)
+    return re.sub(r"\s+", " ", text[start:end])
+
+
+def test_fire_log_consumer_list_is_derived_not_hand_listed():
+    command_stems, bin_stems = _derive_fire_log_consumer_stems()
+
+    # Vacuity guards, one per derivation. A derived assertion that discovers
+    # zero consumers and compares against zero passes while proving nothing,
+    # so each glob must independently prove it still matches.
+    assert len(command_stems) >= 2, (
+        "derivation found only %d content/commands/ consumer(s) of %s - the "
+        "derivation itself is probably broken, which would make the "
+        "assertions below vacuous: %s"
+        % (len(command_stems), _FIRE_LOG_PATH_MARKER, sorted(command_stems))
+    )
+    assert len(bin_stems) >= 1, (
+        "derivation found no non-command consumer of %s across %s - "
+        "bin/ds-evaluate reads it, so an empty result means these globs "
+        "stopped matching and that half of the scope is silently unenforced"
+        % (
+            _FIRE_LOG_PATH_MARKER,
+            [root for root, _ in _FIRE_LOG_CONSUMER_SEARCH_ROOTS],
+        )
+    )
+
+    expected_stems = command_stems | bin_stems
+    field = _events_log_downstream_consumers_field()
+
+    # Direction 1 (under-declaration): a live consumer the manifest omits.
+    missing = sorted(stem for stem in expected_stems if stem not in field)
+    assert not missing, (
+        "content/references/events-log.md's `Downstream consumers` field does "
+        "not name every live consumer of %s.\n  missing: %s\n  derived from "
+        "content/commands/: %s\n  derived from the other search roots: %s\n"
+        "Add the missing consumer to the manifest field, or stop it reading "
+        "the fire log."
+        % (
+            _FIRE_LOG_PATH_MARKER,
+            missing,
+            sorted(command_stems),
+            sorted(bin_stems),
+        )
+    )
+
+    # Direction 2 (OVER-declaration): a phantom consumer the manifest names
+    # that reads nothing. Round 4 shipped this direction unchecked, so the
+    # sibling helper pin ten lines up used set equality while this one used
+    # a one-way subset - a phantom `/ds-nonexistent` or a consumer that
+    # stopped reading the fire log both passed silently. A manifest that
+    # over-declares is worse than one that under-declares: it is read as an
+    # exhaustive inventory, so a stale entry sends the next reader looking
+    # for behaviour that no longer exists.
+    manifest_command_stems, manifest_other_stems = _derive_consumer_stems(
+        _MANIFEST_ARTIFACT_MARKERS
+    )
+    manifest_stems = manifest_command_stems | manifest_other_stems
+    assert manifest_stems >= expected_stems, (
+        "the manifest-wide consumer derivation is narrower than the fire-log "
+        "one, which is impossible unless one of the two is broken.\n"
+        "  fire-log consumers: %s\n  manifest-wide consumers: %s"
+        % (sorted(expected_stems), sorted(manifest_stems))
+    )
+
+    declared = {
+        "ds-" + name
+        for name in re.findall(r"(?:/|`|\bbin/)ds-([a-z0-9-]+)", field)
+    }
+    assert declared, (
+        "derivation found no consumer named in events-log.md's `Downstream "
+        "consumers` field - the field parse or the stem regex is broken, "
+        "which would make the over-declaration check vacuous"
+    )
+    phantom = sorted(declared - manifest_stems)
+    assert not phantom, (
+        "content/references/events-log.md's `Downstream consumers` field "
+        "names consumer(s) that read NONE of the artifacts this manifest "
+        "documents (%s), or that do not exist.\n"
+        "  phantom: %s\n  live consumers derived from disk: %s\n"
+        "Remove the stale entry, or point it at something that reads one of "
+        "those artifacts."
+        % (
+            ", ".join(_MANIFEST_ARTIFACT_MARKERS),
+            phantom,
+            sorted(manifest_stems),
+        )
+    )
+
+
+def test_fire_log_consumer_pointers_resolve_to_real_headings():
+    """Every /ds-failure-audit heading citation in events-log.md must resolve.
+
+    A manifest pointer into a sibling file is unverifiable prose by default:
+    it reads as precise and cites a location nothing checks. Two prior
+    pointers here ("Step 0 reading list", "Step 2 brief") named a step that
+    does not exist and a step about something else, and survived review.
+
+    ROUND-5 SCOPE CHANGE (Major C). Round 4 corrected TWO restatements of
+    these pointers - the manifest `Downstream consumers` field and the prose
+    Consumer paragraph - but pinned only the field. Reverting the prose
+    paragraph to its exact original defect text left the whole suite green.
+    An enumerated two-site check has the same shelf life as an enumerated
+    two-site fix, so this no longer enumerates sites at all: it DERIVES the
+    citations by scanning the entire file for quoted spans in any sentence
+    that mentions ds-failure-audit, and requires every one to resolve. A
+    third restatement added later is covered on arrival, not on the next
+    review round.
+    """
+    audit = (REPO_ROOT / "content" / "commands" / "ds-failure-audit.md").read_text(
+        encoding="utf-8"
+    )
+    headings = {
+        line.lstrip("#").strip()
+        for line in audit.splitlines()
+        if line.startswith("#")
+    }
+    assert len(headings) >= 3, (
+        "derivation found only %d heading(s) in ds-failure-audit.md - the "
+        "heading parse is broken and every resolution check below would be "
+        "vacuous" % len(headings)
+    )
+
+    # The GROUND TRUTH is derived, not enumerated: the sections of
+    # ds-failure-audit.md that actually mention the fire log. Every
+    # restatement in events-log.md must name exactly this set - so a
+    # section that starts reading the fire log, or stops, moves the
+    # expected value at every restatement simultaneously.
+    marker_sections = _sections_containing(
+        (REPO_ROOT / "content" / "commands" / "ds-failure-audit.md"),
+        _FIRE_LOG_PATH_MARKER,
+    )
+    assert len(marker_sections) >= 2, (
+        "derivation found only %d ds-failure-audit.md section(s) mentioning "
+        "%s: %s. Both the 'What the audit reads' list and the audit brief do, "
+        "so a smaller result means the section split is broken and every "
+        "assertion below is vacuous"
+        % (len(marker_sections), _FIRE_LOG_PATH_MARKER, sorted(marker_sections))
+    )
+
+    events_text = _EVENTS_LOG_REF.read_text(encoding="utf-8")
+
+    # Sentence-scoped so an unrelated quoted term elsewhere in the file is
+    # never dragged in. `"..."` spans wrapped in backticks are EXCLUDED:
+    # those are literal field values (`"allow"`, `"deny"`), not headings,
+    # and they legitimately co-occur with ds-failure-audit in the Consumer
+    # paragraph.
+    citation_re = re.compile(r'(?<!`)"([^"`]+)"(?!`)')
+    sentences = [
+        s for s in re.split(r"(?<=\.)\s+", re.sub(r"\s+", " ", events_text))
+        if "ds-failure-audit" in s
+    ]
+    assert len(sentences) >= 2, (
+        "derivation found only %d sentence(s) mentioning ds-failure-audit in "
+        "events-log.md - the manifest field and the Consumer paragraph both "
+        "do, so a smaller result means this scan is broken and the pointer "
+        "checks below are vacuous" % len(sentences)
+    )
+
+    for sentence in sentences:
+        cited = set(citation_re.findall(sentence))
+        # PER-SENTENCE, not unioned. A union passes as long as ONE
+        # restatement is right, which is exactly how the round-4 fix left
+        # the prose restatement revertible with the suite green.
+        assert cited == marker_sections, (
+            "an events-log.md sentence citing ds-failure-audit does not name "
+            "the sections that actually read %s.\n  sentence: %s\n  cites: %s"
+            "\n  sections that read the fire log: %s\n  Every restatement "
+            "must carry the full, resolvable citation - a vaguer pointer "
+            "(\"its Step 0 reading list\") is the original defect."
+            % (
+                _FIRE_LOG_PATH_MARKER,
+                sentence[:300],
+                sorted(cited),
+                sorted(marker_sections),
+            )
+        )
+
+        unresolved = sorted(c for c in cited if c not in headings)
+        assert not unresolved, (
+            "events-log.md cites heading(s) in ds-failure-audit.md that do "
+            "not exist: %s\n  Live headings: %s" % (unresolved, sorted(headings))
+        )
+
+        # Unquoted `Step N` locators are citations too - "Step 0" was one of
+        # the two original false pointers and carries no quotes at all.
+        for step in re.findall(r"\bStep (\d+)\b", sentence):
+            assert any(
+                h.startswith("Step %s " % step) or h == "Step %s" % step
+                for h in headings
+            ), (
+                "events-log.md cites 'Step %s' of ds-failure-audit.md, which "
+                "has no such step heading. Live headings: %s"
+                % (step, sorted(headings))
+            )
+
+    # The fire log must actually be read at both cited locations, not merely
+    # be named by a heading that happens to exist.
+    reads_idx = audit.index("## What the audit reads")
+    brief_idx = audit.index("## Audit brief (verbatim - the binding contract)")
+    assert _FIRE_LOG_PATH_MARKER in audit[reads_idx:brief_idx], (
+        "ds-failure-audit.md's 'What the audit reads' section no longer "
+        "mentions %s, so the manifest pointer is stale" % _FIRE_LOG_PATH_MARKER
+    )
+    assert _FIRE_LOG_PATH_MARKER in audit[brief_idx:], (
+        "ds-failure-audit.md's audit brief no longer mentions %s, so the "
+        "manifest pointer is stale" % _FIRE_LOG_PATH_MARKER
+    )
 
 
 def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():

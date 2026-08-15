@@ -1,6 +1,6 @@
 # Not matched by the `hooks/tests/test-*.py` CI glob (bin-tests.yml
 # hooks-python-tests job) by design - this is a shared helper imported by
-# the six enforce-*.py fire-log regression tests below, not a standalone
+# the nine enforce-*.py fire-log regression tests below, not a standalone
 # test file with its own assertions.
 """
 Purpose: shared regression-test helper that proves a raising log_fire()
@@ -43,10 +43,15 @@ Public API:
         without touching the real hooks/lib/enforcement_log.py at all.
 
 Upstream deps: Python 3 stdlib only (os, shutil, subprocess, sys, tempfile).
-Downstream consumers: test-enforce-tier.py, test-enforce-background-spawn.py,
+Downstream consumers (9; derive with
+    `grep -rl _fire_log_test_helper hooks/tests/ | grep -v _fire_log_test_helper.py`,
+    never by hand-counting this list):
+    test-enforce-askuserquestion-default.py, test-enforce-background-spawn.py,
+    test-enforce-no-abdication-fire-log.py,
     test-enforce-orchestrator-singularity.py,
-    test-enforce-askuserquestion-default.py, test-enforce-shippable-edit.py,
-    test-enforce-planning-artifact-spawn.py.
+    test-enforce-planning-artifact-spawn.py, test-enforce-shippable-edit.py,
+    test-enforce-tier.py, test-enforce-worktree-read.py,
+    test-enforce-worktree-write.py.
 """
 
 from __future__ import annotations
@@ -107,11 +112,31 @@ def run_hook_with_raising_log_fire(
     # would falsely turn an expected DENY into an ALLOW in this helper's
     # test cases and has nothing to do with the raising-log_fire behavior
     # under test here.
-    real_git_worktree_path = os.path.join(_HOOKS_DIR, "lib", "git_worktree.py")
-    if os.path.isfile(real_git_worktree_path):
-        shutil.copyfile(
-            real_git_worktree_path, os.path.join(lib_dir, "git_worktree.py")
-        )
+    # Same rationale for every OTHER real lib/ module a copied hook may
+    # dynamically import at that same path. Without these, the copy's own
+    # import fails open and the hook takes a DIFFERENT path than the one
+    # under test, which has nothing to do with the raising-log_fire
+    # behavior this helper exists to prove:
+    #   git_worktree.py - enforce-worktree-{read,write}.py: a failed import
+    #     fails open to "not a worktree", turning an expected DENY into an
+    #     ALLOW.
+    #   loop_guard.py   - enforce-no-abdication.py and enforce-turn-shape.py:
+    #     a failed import makes the hook exit 0 WITHOUT blocking (it refuses
+    #     to emit a block it cannot loop-bound), so an expected BLOCK would
+    #     silently become an allow and the test would pass vacuously while
+    #     proving nothing about log_fire at all.
+    #   repo_root.py    - enforce-no-abdication.py (resolve_agentic_cwd, to
+    #     anchor its config.json read to the repo root) and
+    #     lib/enforcement_log.py itself (to anchor its write). Added by
+    #     DS-171; a failed import makes enforce-no-abdication.py exit 0
+    #     BEFORE the config read, so the expected BLOCK silently becomes a
+    #     no-op - and because an allow ALSO produces rc=0 with empty stdout,
+    #     the ALLOW half of the same pair keeps passing while the BLOCK half
+    #     fails, which is exactly how this surfaced.
+    for _lib_basename in ("git_worktree.py", "loop_guard.py", "repo_root.py"):
+        _real_lib_path = os.path.join(_HOOKS_DIR, "lib", _lib_basename)
+        if os.path.isfile(_real_lib_path):
+            shutil.copyfile(_real_lib_path, os.path.join(lib_dir, _lib_basename))
 
     run_cwd = cwd or tempfile.mkdtemp(prefix="test-raising-log-fire-cwd-")
     env = os.environ.copy()

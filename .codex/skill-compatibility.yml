@@ -20252,16 +20252,6 @@
       "source_token": ".agentic/memory-pending.md"
     },
     {
-      "expected_target": ".agentic/.enforcement-fires.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "394ff0cfc8609eb9193e0f7ba5b235491687050ed5fe2cb2c414b92ed3761ee2",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/.enforcement-fires.jsonl"
-    },
-    {
       "expected_target": ".agentic/compression-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
       "kind": "operational",
@@ -20500,16 +20490,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": "hooks/lib/enforcement_log.py",
-      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
-      "kind": "operational",
-      "occurrence_hash": "4646124fad04d7683fec9c66b9ec3e3bcb72de9a845375abd4a8c61cb893de70",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "hooks/lib/enforcement_log.py"
     },
     {
       "expected_target": "wrap",
@@ -21620,6 +21600,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": ".agentic/.enforcement-fires.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "870543cea30d3aba61a1d0b2aa1f4466c4c656e4c2505a4d2570b0950e28eea9",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
       "expected_target": "wrap",
@@ -23230,6 +23220,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/compression-state.json"
+    },
+    {
+      "expected_target": "hooks/lib/enforcement_log.py",
+      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
+      "kind": "operational",
+      "occurrence_hash": "f1a287ac05f12c560264ce38b06c8302f427d14d898425846d5fccab184cd8f4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "hooks/lib/enforcement_log.py"
     },
     {
       "expected_target": "implement-ticket",
