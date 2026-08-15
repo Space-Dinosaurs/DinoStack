@@ -1363,6 +1363,141 @@ def test_fire_log_helper_consumer_count_is_derived_not_hand_counted():
     )
 
 
+# ---------------------------------------------------------------------------
+# events-log.md's fire-log consumer list, pinned by DERIVATION.
+#
+# Same failure shape as the helper-importer pin above, one layer out: the
+# round-1 correction of this list had the RIGHT membership and no pin, and a
+# reviewer corrupted a sibling count with every gate staying green. A
+# corrected-but-unpinned list is a fact with a shelf life.
+#
+# SCOPE: deliberately NOT `content/commands/` only. The real consumer set
+# spans two surfaces - the command prose under `content/commands/*.md` and
+# the executable `bin/ds-*` that actually opens the file (`bin/ds-evaluate`
+# reads it; `content/commands/ds-evaluate.md` only describes that read). A
+# `content/commands/`-scoped assertion would go silent on a new bin-only
+# reader, which is precisely the consumer most likely to be added without
+# touching any prose. Both globs are derived and unioned on the tool STEM
+# (`ds-evaluate`, `ds-failure-audit`, `ds-wrap`), because the manifest names
+# a consumer once - as `bin/ds-evaluate` or `/ds-wrap` - rather than once
+# per surface, and a stem is the one token both spellings share.
+# ---------------------------------------------------------------------------
+_FIRE_LOG_PATH_MARKER = ".enforcement-fires.jsonl"
+_EVENTS_LOG_REF = REPO_ROOT / "content" / "references" / "events-log.md"
+
+
+def _derive_fire_log_consumer_stems() -> tuple[set[str], set[str]]:
+    """The live fire-log consumer stems, read off disk - never hand-listed.
+
+    Returns (command_stems, bin_stems). Kept separate so the vacuity guard
+    can prove BOTH derivations still match something; unioned by the caller.
+    """
+    command_stems = {
+        path.stem
+        for path in sorted((REPO_ROOT / "content" / "commands").glob("*.md"))
+        if _FIRE_LOG_PATH_MARKER in path.read_text(encoding="utf-8")
+    }
+    bin_stems = set()
+    for path in sorted((REPO_ROOT / "bin").glob("ds-*")):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if _FIRE_LOG_PATH_MARKER in text:
+            bin_stems.add(path.name)
+    return command_stems, bin_stems
+
+
+def _events_log_downstream_consumers_field() -> str:
+    """The manifest's `Downstream consumers:` field, flattened to one line."""
+    text = _EVENTS_LOG_REF.read_text(encoding="utf-8")
+    start = text.index("Downstream consumers:")
+    end = text.index("Failure modes:", start)
+    return re.sub(r"\s+", " ", text[start:end])
+
+
+def test_fire_log_consumer_list_is_derived_not_hand_listed():
+    command_stems, bin_stems = _derive_fire_log_consumer_stems()
+
+    # Vacuity guards, one per derivation. A derived assertion that discovers
+    # zero consumers and compares against zero passes while proving nothing,
+    # so each glob must independently prove it still matches.
+    assert len(command_stems) >= 2, (
+        "derivation found only %d content/commands/ consumer(s) of %s - the "
+        "derivation itself is probably broken, which would make the "
+        "assertions below vacuous: %s"
+        % (len(command_stems), _FIRE_LOG_PATH_MARKER, sorted(command_stems))
+    )
+    assert len(bin_stems) >= 1, (
+        "derivation found no bin/ds-* consumer of %s - bin/ds-evaluate reads "
+        "it, so an empty result means this glob stopped matching and the "
+        "bin half of the scope is silently unenforced" % _FIRE_LOG_PATH_MARKER
+    )
+
+    expected_stems = command_stems | bin_stems
+    field = _events_log_downstream_consumers_field()
+
+    missing = sorted(stem for stem in expected_stems if stem not in field)
+    assert not missing, (
+        "content/references/events-log.md's `Downstream consumers` field does "
+        "not name every live consumer of %s.\n  missing: %s\n  derived from "
+        "content/commands/: %s\n  derived from bin/: %s\n"
+        "Add the missing consumer to the manifest field, or stop it reading "
+        "the fire log."
+        % (
+            _FIRE_LOG_PATH_MARKER,
+            missing,
+            sorted(command_stems),
+            sorted(bin_stems),
+        )
+    )
+
+
+def test_fire_log_consumer_pointers_resolve_to_real_headings():
+    """The /ds-failure-audit pointer must name headings that actually exist.
+
+    A manifest pointer into a sibling file is unverifiable prose by default:
+    it reads as precise and cites a location nothing checks. Two prior
+    pointers here ("Step 0 reading list", "Step 2 brief") named a step that
+    does not exist and a step about something else, and survived review.
+    """
+    audit = (REPO_ROOT / "content" / "commands" / "ds-failure-audit.md").read_text(
+        encoding="utf-8"
+    )
+    headings = {
+        line.lstrip("#").strip()
+        for line in audit.splitlines()
+        if line.startswith("#")
+    }
+    field = _events_log_downstream_consumers_field()
+
+    for cited in ("What the audit reads", "Audit brief (verbatim - the binding contract)"):
+        assert cited in field, (
+            "events-log.md's Downstream consumers field no longer cites the "
+            "%r heading for /ds-failure-audit" % cited
+        )
+        assert cited in headings, (
+            "events-log.md cites the heading %r in ds-failure-audit.md, but "
+            "that file has no such heading. Live headings: %s"
+            % (cited, sorted(headings))
+        )
+
+    # The fire log must actually be read at both cited locations, not merely
+    # be named by a heading that happens to exist.
+    reads_idx = audit.index("## What the audit reads")
+    brief_idx = audit.index("## Audit brief (verbatim - the binding contract)")
+    assert _FIRE_LOG_PATH_MARKER in audit[reads_idx:brief_idx], (
+        "ds-failure-audit.md's 'What the audit reads' section no longer "
+        "mentions %s, so the manifest pointer is stale" % _FIRE_LOG_PATH_MARKER
+    )
+    assert _FIRE_LOG_PATH_MARKER in audit[brief_idx:], (
+        "ds-failure-audit.md's audit brief no longer mentions %s, so the "
+        "manifest pointer is stale" % _FIRE_LOG_PATH_MARKER
+    )
+
+
 def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
     for path in TOGGLE_BULLET_FILES:
         text = path.read_text(encoding="utf-8")

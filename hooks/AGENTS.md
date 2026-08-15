@@ -186,6 +186,34 @@ all lose the telemetry row and nothing else.
 `hooks/tests/_fire_log_test_helper.py` pins exactly that with an
 unconditionally-raising stub.
 
+## Test-suite discipline: these tests are script-mode, not pytest
+
+`hooks/tests/test-*.py` are SCRIPT-MODE suites. Their `test_*` functions
+RETURN a failure count (`-> int`) and a `main()` sums those returns and sets
+the exit code; they do not `assert` and they are not pytest tests. Run them
+as `python3 hooks/tests/test-<name>.py` and read the exit code. This is the
+contract the CI job uses.
+
+**Known-live false-green class.** Collecting these files with `pytest`
+DISCARDS the returned failure count, so a suite reports "N passed" while
+every one of its checks failed. Two files currently have this property:
+
+- `hooks/tests/test-doc-sync-abdication-guard.py` - all 7 `test_*` functions
+  are zero-arg `-> int` failure-count returners.
+- `hooks/tests/test-enforce-no-abdication.py::test_six_source_enumeration` -
+  same shape, in an otherwise assert-based file.
+
+This is recorded here rather than left in a commit message because a commit
+message is not a surface anyone reads before running a suite, and it is
+recorded in `hooks/AGENTS.md` rather than only in those two files because
+the person misled by the false green is running the suite, not necessarily
+reading it. It is deliberately NOT fixed: converting them to `assert` is a
+different contract with a different fix, out of scope for whatever change
+brought you here. It is also not silent - pytest emits
+`PytestReturnNotNoneWarning` for each one, which is the signal to check the
+exit code instead of the summary line. Do not add new `-> int` returners;
+new hook tests should assert.
+
 ## Fail-open on absent tool_input fields
 
 A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /
