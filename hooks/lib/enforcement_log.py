@@ -2,19 +2,31 @@
 """
 Purpose: Shared fire-logging helper for AE's Python enforce-*.py
          PreToolUse/Stop hooks. Appends one line to
-         [cwd]/.agentic/.enforcement-fires.jsonl whenever a hook takes a
-         non-passthrough action (deny, or an allow-with-advisory-reason).
-         A silent allow (the overwhelming majority of invocations) never
-         calls this - only actions are logged, so the file stays small
-         and cheap to read. This exists because eight of the nine
-         enforce-*.py hooks currently leave no trace of whether they have
+         [cwd]/.agentic/.enforcement-fires.jsonl. This exists because the
+         enforce-*.py hooks otherwise leave no trace of whether they have
          ever fired, making an inert rule indistinguishable from a
-         load-bearing one (see MEMORY.md / session notes on the
-         abdication-guard fire-count precedent, the one hook that already
-         tracked this before this module existed).
+         load-bearing one.
+
+         TWO CALLER POSTURES, both supported, chosen by the caller:
+           - ACTION-ONLY (ten of the eleven hooks): call only on a
+             non-passthrough action - a deny, or an allow-with-advisory-
+             reason. A silent allow never calls this, so the file stays
+             small and cheap to read. This is the right posture for a
+             PreToolUse hook, which runs on every guarded tool call and
+             would otherwise log at tool-call volume.
+           - EVERY-VERDICT (enforce-no-abdication.py alone): call on every
+             verdict path reached once the guard is enabled, including a
+             plain "allow". Action-only logging cannot answer "how often
+             did this guard evaluate a turn and decline to fire?", so it
+             leaves "the guard never fires" unfalsifiable - the exact
+             condition that hook sat in from 2026-08-03 to 2026-08-14,
+             contributing zero rows while the other hooks contributed
+             1059. A Stop hook fires about once per conductor turn, so
+             every-verdict volume is bounded by turn count, not tool-call
+             count. Do NOT copy this posture to a PreToolUse hook.
 
 Public API (module-level function, no class):
-    log_fire(data, hook_name, decision, reason) -> None
+    log_fire(data, hook_name, decision, reason, *, detail=None) -> None
         data: the parsed stdin payload dict for this hook invocation (or
               any object - non-dict is tolerated and treated as {}). cwd
               is read from data["cwd"] when data is a dict and that key is
@@ -29,6 +41,21 @@ Public API (module-level function, no class):
               one on hand (the same text fed back to the model via
               permissionDecisionReason). Truncated to 800 chars here so a
               pathological reason string cannot grow the log unbounded.
+        detail: OPTIONAL keyword-only dict of structured, machine-queryable
+              discriminators for this fire (e.g. which classifier fired,
+              which negative-gate token suppressed a check). Written as a
+              nested "detail" object and OMITTED ENTIRELY when None, absent,
+              empty, or not a dict - so every pre-existing caller's line
+              stays byte-identical to what it wrote before this parameter
+              existed, and the canonical 4-field schema remains the shape a
+              consumer may always assume. Callers must keep the contents
+              small, bounded, and free of message content: booleans, small
+              integers, and short fixed-vocabulary labels only. Never a
+              transcript excerpt, a user message, or a regex match that can
+              capture arbitrary text (an email address, a dollar amount) -
+              this file has no PII boundary of its own beyond what callers
+              choose to put in it. If `detail` cannot be JSON-serialized the
+              line degrades to the canonical 4 fields rather than being lost.
 
 Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
                sibling hooks/lib/repo_root.py module via an isolated
@@ -43,10 +70,11 @@ Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
                that .agentic/ dir with os.makedirs(exist_ok=True) if
                absent). Never reads any file.
 
-Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that
+Downstream consumers: all twelve enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
                        enforce-askuserquestion-default.py,
                        enforce-background-spawn.py,
+                       enforce-no-abdication.py,
                        enforce-orchestrator-singularity.py,
                        enforce-planning-artifact-spawn.py,
                        enforce-shippable-edit.py,
@@ -54,15 +82,20 @@ Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that
                        enforce-ticket-batching.py, enforce-tier.py,
                        enforce-turn-shape.py, enforce-worktree-read.py,
                        and enforce-worktree-write.py.
-                       enforce-turn-shape.py is the first Stop-event
-                       consumer; the other ten are PreToolUse.
-                       enforce-no-abdication.py is deliberately NOT a
-                       consumer - it keeps its own pre-existing counter
-                       file (.abdication-guard-fire-count) with different
+                       enforce-turn-shape.py and enforce-no-abdication.py
+                       are the two Stop-event consumers; the other ten are
+                       PreToolUse.
+                       enforce-no-abdication.py is the one consumer that
+                       ALSO logs plain "allow" rows (every verdict path it
+                       reaches once enabled, not only its blocks) - without
+                       them its allow/deny ratio is unknowable and "the
+                       guard never fires" is unfalsifiable. It additionally
+                       keeps its own pre-existing counter file
+                       (.abdication-guard-fire-count), which has different
                        semantics (a cumulative count + loop-guard state,
-                       not a fire log) completely unchanged; this module
-                       is purely additive telemetry for the other ten
-                       and must never be repurposed to touch that file.
+                       not a fire log) and is completely unchanged by this
+                       module; this module must never be repurposed to
+                       touch that file.
 
 Failure modes: Fully fail-open and silent, matching every enforce-*.py
                hook's own contract - a telemetry helper must never be the
@@ -168,7 +201,7 @@ def _now_iso() -> str:
     )
 
 
-def log_fire(data, hook_name, decision, reason) -> None:
+def log_fire(data, hook_name, decision, reason, *, detail=None) -> None:
     """Append one fire-log line. Fail-open: never raises, never prints."""
     try:
         cwd = None
@@ -193,7 +226,21 @@ def log_fire(data, hook_name, decision, reason) -> None:
             "decision": str(decision),
             "reason": str(reason)[:_REASON_MAX_LEN],
         }
-        line = json.dumps(entry) + "\n"
+
+        # `detail` is strictly additive and strictly optional. An absent,
+        # empty, non-dict, or non-serializable `detail` degrades to the
+        # canonical 4-field line rather than losing the row entirely - a
+        # caller's structured-telemetry bug must not cost the enforcement
+        # record itself. Serializing into a COPY (not `entry`) is what
+        # makes the fallback below reachable with a clean dict.
+        line = None
+        if isinstance(detail, dict) and detail:
+            try:
+                line = json.dumps(dict(entry, detail=detail)) + "\n"
+            except Exception:
+                line = None
+        if line is None:
+            line = json.dumps(entry) + "\n"
 
         # Single os.write() to an O_APPEND fd: POSIX guarantees this append
         # is atomic for a write under PIPE_BUF, so two concurrent hook

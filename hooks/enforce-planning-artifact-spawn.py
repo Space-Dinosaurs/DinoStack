@@ -180,7 +180,7 @@ def main():
             "Silence with AE_PLANNING_GUARD_DISABLE=1."
         )
         # Decision print comes FIRST, unconditionally, matching the deny-path
-        # convention in the other eight enforce-*.py hooks (see
+        # convention in the other nine enforce-*.py hooks (see
         # hooks/lib/enforcement_log.py manifest "Failure modes"). Telemetry
         # is loaded and called only after the decision has reached stdout,
         # wrapped in its own try/except so a raising log_fire can never

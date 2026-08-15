@@ -1011,31 +1011,42 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 11 enforce-*.py hooks post-
+# Site inventory (all reference the same fact: 12 enforce-*.py hooks post-
 # merge with the worktree-read-guard unit (DS-150), the turn-shape-hook
-# unit (DS-156), the skeptic-round-cap unit, and the worktree-write-guard
-# unit, 10 of them call log_fire, split 9 deny + 2 allow_advisory -
-# `enforce-turn-shape.py` is the one hook in both subsets, since it logs
-# `"deny"` from its blocking execution-turn check (`_execution_prose_flag`)
-# and `"allow_advisory"` from its advisory-only operator-decisions
-# per-item check (`_decision_item_sprawl_flag`; DS-171 retired the
-# advisory-only answer-turn check this comment used to describe):
-#   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
-#   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
-#   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
-#   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
-#   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 9 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("nine
-#                         hooks", "two hooks") AND named members together.
+# unit (DS-156), the skeptic-round-cap unit, the worktree-write-guard
+# unit, and the ticket-batching unit; ALL TWELVE call log_fire, split
+# 11 deny + 3 allow_advisory + 1 allow. Three hooks sit in more than one
+# subset: `enforce-turn-shape.py` logs `"deny"` from its blocking
+# execution-turn check (`_execution_prose_flag`) and `"allow_advisory"`
+# from its advisory-only operator-decisions per-item check
+# (`_decision_item_sprawl_flag`; DS-171 retired the advisory-only
+# answer-turn check this comment used to describe);
+# `enforce-ticket-batching.py` logs `"allow_advisory"` on the 2nd
+# same-session ticket creation and `"deny"` on the 3rd and beyond; and
+# `enforce-no-abdication.py` is the sole EVERY-VERDICT caller, logging
+# `"deny"` on a block and plain `"allow"` on every other verdict path it
+# reaches after its enablement gate:
+#   hooks/AGENTS.md - "all M enforce-*.py hooks" (lib table cell)
+#   hooks/AGENTS.md - action-only subcount "ACTION-ONLY (N hooks)"
+#   hooks/AGENTS.md - bare cardinal "all M enforce-*.py hooks'"
+#   hooks/AGENTS.md - "All M enforce-*.py hooks additionally" (prose)
+#   events-log.md   - "by all M `hooks/enforce-*.py` ... hooks"
+#   events-log.md   - action-only subcount "N of the M `hooks/enforce-*.py`"
+#   events-log.md   - "one of the M consumer hooks enumerated below"
+#   events-log.md   - decomposed enumeration: 11 deny + 3 allow_advisory +
+#                         1 allow, pinned by the FULL LITERAL - cardinals
+#                         ("eleven hooks", "three hooks", "one hook") AND
+#                         named members together.
 #                         This is deliberately count- AND membership-bound:
-#                         a twelfth enforcer added later (denying or
+#                         a thirteenth enforcer added later (denying or
 #                         advisory) changes either the cardinal or the
 #                         member list, so either change breaks this
 #                         exact-substring pin and forces the enumeration to
 #                         be revisited by hand - it is not a count-agnostic
 #                         pin that tolerates a stale number as long as
 #                         names are unchanged.
+#   events-log.md   - the posture-split consumer rule (excludes "allow"
+#                         rows from any guardrail-fire tally).
 #   enforcement_log.py:39-47 - module manifest's own "Downstream consumers"
 #                         field (was omitted from this sweep entirely, which
 #                         is exactly why it went stale for two fix passes -
@@ -1043,37 +1054,63 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by eleven of the twelve enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by all twelve enforce-*.py hooks",
+    ),
+    (
+        # Action-only subcount: the posture split means the consumer count
+        # and the action-only count move together but are not the same
+        # number, so both are pinned.
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "ACTION-ONLY (eleven hooks)",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the eleven enforce-*.py hooks' best-effort dynamic import",
+        "for all twelve enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Eleven of the twelve enforce-*.py hooks additionally",
+        "All twelve enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "eleven of the twelve `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "by all twelve `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the eleven consumer hooks enumerated below",
+        "eleven of the twelve `hooks/enforce-*.py` PreToolUse/Stop hooks log only",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (ten hooks - `enforce-askuserquestion-default.py`, '
-        "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-ticket-batching.py`, "
-        "`enforce-tier.py`, "
-        "`enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`) "
-        'and `"allow_advisory"` '
-        "(three hooks - `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-turn-shape.py`)",
+        "one of the twelve consumer hooks enumerated below",
+    ),
+    (
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        '`"deny"` (eleven hooks - `enforce-askuserquestion-default.py`, '
+        "`enforce-background-spawn.py`, `enforce-no-abdication.py`, "
+        "`enforce-orchestrator-singularity.py`, "
+        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, "
+        "`enforce-ticket-batching.py`, `enforce-tier.py`, "
+        "`enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`), "
+        '`"allow_advisory"` '
+        "(three hooks - `enforce-planning-artifact-spawn.py`, "
+        "`enforce-ticket-batching.py`, `enforce-turn-shape.py`), "
+        'and `"allow"` (one hook - `enforce-no-abdication.py`, the only '
+        "every-verdict caller)",
+    ),
+    (
+        # The action-only vs every-verdict posture split is the fact that
+        # makes the raw consumer count insufficient on its own: twelve
+        # hooks call log_fire, but only ONE logs a plain "allow". A
+        # consumer tallying "guardrail fires" must exclude those rows, so
+        # a doc that bumps the consumer count without carrying the posture
+        # split silently invites a miscount.
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        "any tally over this file that means \"guardrail fires\" must exclude "
+        '`decision == "allow"` rows',
     ),
     (
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
-        "Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that",
+        "Downstream consumers: all twelve enforce-*.py PreToolUse/Stop hooks that",
     ),
     (
         # Distinct fact from the log_fire-consumer count above: this is the
@@ -1083,8 +1120,10 @@ _ENFORCER_SUBCOUNT_SITES = [
         # enforce-skeptic-round-cap.py calls log_fire but does not use this
         # phrasing), restated from enforce-planning-artifact-spawn.py's own
         # perspective ("the OTHER N enforce-*.py hooks", excluding itself).
+        # Moved eight -> nine when enforce-no-abdication.py adopted the same
+        # print-then-log ordering on its block path.
         REPO_ROOT / "hooks" / "enforce-planning-artifact-spawn.py",
-        "convention in the other eight enforce-*.py hooks",
+        "convention in the other nine enforce-*.py hooks",
     ),
 ]
 
@@ -1101,35 +1140,43 @@ _ENFORCER_SUBCOUNT_SITES = [
 # the shared most-recently-retired value across both: (1) the total-
 # consumer-count fact ("N of the M enforce-*.py hooks call log_fire"),
 # which moved eight-of-nine -> nine-of-ten when the skeptic-round-cap unit
-# added `enforce-skeptic-round-cap.py` as a log_fire caller (that
-# transition's own regression is already caught by the positive pins above
-# requiring the literal "nine of the ten" text - a revert to eight-of-nine
-# would fail those asserts directly); and (2) the deny-subset count ("N
-# hooks" in the decomposed enumeration at events-log.md:130), which moved
+# added `enforce-skeptic-round-cap.py` as a log_fire caller, then
+# ten-of-eleven -> ALL ELEVEN when `enforce-no-abdication.py` was finally
+# wired up, then ALL ELEVEN -> ALL TWELVE when the ticket-batching unit
+# added `enforce-ticket-batching.py` (that transition's own regression is
+# caught by the positive pins above requiring the literal "all twelve"
+# text - a revert to "all eleven" would fail those asserts directly); and
+# (2) the deny-subset
+# count ("N hooks" in the decomposed enumeration in the `decision` bullet),
+# which moved
 # five -> six when DS-150 added `enforce-worktree-read.py` to the deny
 # group, six -> seven when DS-156 added `enforce-turn-shape.py` to the deny
 # group, seven -> eight when the skeptic-round-cap unit added
-# `enforce-skeptic-round-cap.py` to the deny group, then eight -> nine when
+# `enforce-skeptic-round-cap.py` to the deny group, eight -> nine when
 # the worktree-write-guard unit added `enforce-worktree-write.py` to the
-# deny group. "eight" and "nine" cannot be used as this sweep's stale
-# marker: "nine" is now itself a live, correct cardinal (the deny-hook
-# enumeration currently reads "nine hooks"), so a sweep keyed to either
+# deny group, nine -> ten when `enforce-ticket-batching.py` joined it, and
+# ten -> eleven when `enforce-no-abdication.py` joined it in turn.
+# "eight", "nine", "ten", "eleven" and "twelve" cannot be used as this
+# sweep's stale marker: "eleven" is now itself a live, correct cardinal
+# (the deny-hook enumeration reads "eleven hooks" and the action-only
+# subcount reads "eleven hooks") and "twelve" is the live consumer count,
+# so a sweep keyed to any of them
 # would false-positive against that legitimate use, mirroring why an
 # earlier pass retired "six" as a marker only to have DS-156's deny-subset
-# change make "six" stale again, and this fix's deny-subset change make
+# change make "six" stale again, and a later deny-subset change make
 # "seven" stale in turn - "seven" remains the safe target word since it has
 # not been reused as a live cardinal by any subsequent transition.
 # Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
-# goes silent once the live deny-subset count moves past nine (when "nine"
-# itself becomes stale), and it does not catch numeral ("9 of the 10")
-# forms.
+# goes silent once the live deny-subset count moves past eleven (when
+# "eleven" itself becomes stale), and it does not catch numeral
+# ("11 of the 12") forms.
 # A further limitation (Skeptic Minor, round 1 finding, still applicable
 # post-rebase): keying on a single cardinal cannot simultaneously guard
 # every possible stale restatement of BOTH facts above - e.g. a reverted
 # total-count restatement using some other now-stale cardinal shape would
 # not be caught by this sweep alone. The positive pins above still confirm
-# the current "ten of the eleven" / "nine hooks" phrasing is present at
+# the current "all twelve" / "eleven hooks" phrasing is present at
 # every known site, so residual risk is limited to an unenumerated site
 # using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
@@ -1139,7 +1186,7 @@ _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
 
 
 def test_enforcer_subcount_is_current_across_all_known_sites():
-    # Positive: every known site carries the current 8-caller / 9-enforcer
+    # Positive: every known site carries the current all-twelve-caller
     # phrasing, in its own grammatical form.
     for path, expected in _ENFORCER_SUBCOUNT_SITES:
         text = path.read_text(encoding="utf-8")

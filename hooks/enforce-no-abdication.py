@@ -141,13 +141,54 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             garbage stdout (guarded per CC issue #55754 which causes infinite
             loops on invalid Stop hook output).
 
-Upstream deps: Python 3 stdlib only (json, os, re, sys) plus the shared
-               hooks/lib/loop_guard.py module (counter + user-message-counting
-               machinery), loaded lazily via _load_loop_guard(), and
-               hooks/lib/repo_root.py (resolve_agentic_cwd - anchors the
-               config.json read below to the repo root instead of the raw
-               payload cwd), loaded lazily via _load_repo_root() (mirrors
-               the loop-guard loader). No external dependencies.
+Upstream deps: Python 3 stdlib only (json, os, re, sys) plus three shared
+               hooks/lib/ modules, each loaded lazily and each with a
+               DIFFERENT criticality:
+                 - loop_guard.py (counter + user-message-counting
+                   machinery), via _load_loop_guard(). A HARD dependency:
+                   failing to load it means no block is emitted at all.
+                 - repo_root.py (resolve_agentic_cwd - anchors the
+                   config.json read below to the repo root instead of the
+                   raw payload cwd), via _load_repo_root() (mirrors the
+                   loop-guard loader). A HARD dependency: failing to load
+                   it exits before the config read, so the guard does not
+                   run at all.
+                 - enforcement_log.py (fire-log telemetry), via
+                   _load_log_fire(). A SOFT dependency: failing to load it,
+                   or a raising log_fire(), leaves the verdict untouched and
+                   only loses the telemetry row.
+               No external dependencies.
+
+Observability: every verdict path this hook reaches AFTER the
+               abdication_guard_enabled gate appends one row to
+               .agentic/.enforcement-fires.jsonl via lib/enforcement_log.py
+               - "deny" on a block, "allow" on each non-blocking outcome
+               (cap_reached, no_message_text, counter_write_failed, and the
+               clean-turn classified path), each carrying a `detail` object
+               recording the gate/classifier state that produced it. This
+               hook is the sole EVERY-VERDICT caller of that module; the
+               other ten log actions only (see that module's manifest for
+               why the postures differ). Deny-only logging would have left
+               the central question - does a canonical `## Operator
+               decisions` block reach a classifier at all? - unanswerable,
+               since "the heading never appears" and "the heading appears
+               constantly and every block is compliant" are both silence.
+
+               Three paths deliberately do NOT log, all of them upstream of
+               the enablement gate: the kill switch, a malformed/non-dict
+               payload or absent cwd (no usable log target), and
+               stop_hook_active re-entrancy. A fourth, the loop-guard load
+               failure, is also unlogged for the same structural reason -
+               it is checked BEFORE the config read, so logging there would
+               write into every repo on disk regardless of whether that
+               repo ever enabled this guard. Moving that check after the
+               config read to make it loggable would be a behavior change
+               and is deliberately not done.
+
+               Unlike a PreToolUse hook, this runs once per conductor turn,
+               so every-verdict logging is bounded by turn count. It only
+               ever writes in a repo that has explicitly set
+               abdication_guard_enabled: true.
 
 Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
                       via ~/.claude/settings.json by .claude/install.sh AFTER
@@ -833,6 +874,125 @@ _REPO_ROOT = _load_repo_root()
 
 
 # ---------------------------------------------------------------------------
+# Fire-log integration (observability only - never affects a verdict)
+# ---------------------------------------------------------------------------
+
+HOOK_NAME = "enforce-no-abdication"
+
+
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of this hook's verdict. Contrast
+    _load_loop_guard() above, which IS a hard dependency: a block emitted
+    without the loop-guard machinery loses its loop bound, whereas a fire
+    that goes unlogged merely goes unmeasured.
+
+    Called lazily from inside _fire_log() (never at module scope), mirroring
+    enforce-turn-shape.py's own _load_log_fire() - every invocation that
+    exits before a verdict is reached (kill switch, malformed stdin,
+    stop_hook_active, guard-not-enabled) never reads, compiles, or execs
+    this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "enforcement_log.py")
+        spec = _ilu.spec_from_file_location("enforcement_log", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
+
+
+def _fire_log(data, decision, reason, detail=None):
+    """Append one fire-log row. Swallows EVERYTHING - never raises, never
+    prints, never influences the caller's verdict.
+
+    Two layers of suppression, deliberately redundant: log_fire() is itself
+    fail-open by contract, and this wrapper re-catches anyway. The second
+    layer is what covers a HALF-APPLIED hooks snapshot (DS-54), where an
+    older 4-parameter lib/enforcement_log.py meets this newer caller passing
+    `detail=` and raises TypeError before any of log_fire()'s own internal
+    try/except is entered. See hooks/tests/_fire_log_test_helper.py, which
+    exercises exactly that shape with an unconditionally-raising stub.
+
+    Every call site must place this AFTER the verdict has been printed (on
+    the block path) and immediately BEFORE sys.exit(0), so no ordering
+    change can let telemetry precede or suppress a decision.
+    """
+    try:
+        _load_log_fire()(data, HOOK_NAME, decision, reason, detail=detail)
+    except Exception:
+        pass
+
+
+def _gate_token(tail):
+    """Return a short, fixed-vocabulary label for the negative-gate token
+    that suppressed the classic interrogative check, or None if none did.
+
+    Evaluation order mirrors _negative_gate_hit()/_hard_negative_gate_hit()
+    exactly, so the reported token is the one that ACTUALLY suppressed,
+    not merely one that was also present.
+
+    PII BOUNDARY - the reason this returns a category label rather than the
+    matched text for two of the four branches. _HARD_NEGATIVE_GATE_PATTERNS
+    and _SURFACE_AND_PROCEED_PATTERNS are closed vocabularies of literal
+    words and phrases, so echoing their match is safe. The two co-occurrence
+    gates are NOT: _SPEND_SIGNAL_PATTERN matches `\\$\\s?\\d` (a real dollar
+    amount) and _EXTERNAL_MSG_TARGET_PATTERN matches a bare email-address
+    regex, so echoing either match would write operator/customer PII into a
+    telemetry file that has no redaction layer. Those two report a fixed
+    category name and never the matched text. Do not "improve" this by
+    reporting the match uniformly.
+
+    Read-only and pure: this function is called only from inside the
+    logging path and can never change a verdict.
+    """
+    m = _HARD_NEGATIVE_GATE_PATTERNS.search(tail)
+    if m:
+        return m.group(0).strip().lower()
+    if _SPEND_ACTION_PATTERN.search(tail) and _SPEND_SIGNAL_PATTERN.search(tail):
+        return "<spend co-occurrence>"
+    if _EXTERNAL_MSG_ACTION_PATTERN.search(tail) and _EXTERNAL_MSG_TARGET_PATTERN.search(tail):
+        return "<external-message co-occurrence>"
+    m = _SURFACE_AND_PROCEED_PATTERNS.search(tail)
+    if m:
+        return m.group(0).strip().lower()
+    return None
+
+
+def _ballot_shape(text):
+    """Return (heading_present, item_count, unrecommended_count) for the
+    Operator decisions block, recomputed purely for telemetry.
+
+    This is the datum that makes the central question answerable at all:
+    "does the canonical decisions-block shape ever reach classifier 3?" A
+    deny-only log cannot distinguish 'the heading never appears' from 'the
+    heading appears constantly and every block is compliant' - both look
+    like silence. Recording heading/item/unrecommended counts on ALLOW rows
+    separates them.
+
+    Mirrors _is_prose_ballot()'s own sequence (mask fences, extract block,
+    split items, count unmarked) rather than refactoring that function, so
+    the classifier's decision path is untouched by this change. The
+    duplication is deliberate and is the price of the zero-behavior-change
+    constraint; if _is_prose_ballot's sequence changes, change this too.
+    """
+    masked = _mask_fenced_code_blocks(text)
+    block = _extract_operator_decisions_block(masked)
+    if not block:
+        return False, 0, 0
+    items = _split_decision_items(block)
+    unrecommended = sum(1 for item in items if not _RECOMMENDATION_RE.search(item))
+    return True, len(items), unrecommended
+
+
+# ---------------------------------------------------------------------------
 # Transcript helpers
 # ---------------------------------------------------------------------------
 
@@ -1117,6 +1277,12 @@ def main() -> None:
         if state["count"] >= CONSECUTIVE_BLOCK_CAP:
             # CAP reached - do not block further. Prevents infinite loop when
             # stop_hook_active fails to propagate (CC bug #54360).
+            _fire_log(
+                data,
+                "allow",
+                "consecutive-block cap reached; not blocking this turn",
+                {"path": "cap_reached", "count": state["count"], "cap": CONSECUTIVE_BLOCK_CAP},
+            )
             sys.exit(0)
 
         # Resolve the last assistant message text. Prefer pre-extracted field;
@@ -1157,6 +1323,12 @@ def main() -> None:
 
         if not msg_text.strip():
             # No message text available - cannot classify.
+            _fire_log(
+                data,
+                "allow",
+                "no assistant message text available; cannot classify",
+                {"path": "no_message_text", "scanned": scan is not None},
+            )
             sys.exit(0)
 
         # stall_provable requires ALL of: a scan was run, the file was read
@@ -1181,9 +1353,40 @@ def main() -> None:
         is_classic_abdication = _is_abdication(msg_text)
         is_ballot = _is_prose_ballot(msg_text)
 
+        # Telemetry only. Computed from msg_text and the already-completed
+        # scan result via pure, read-only helpers, AFTER all three
+        # classifiers have already returned - nothing below can reach back
+        # and alter a verdict. Wrapped so that a defect in the telemetry
+        # computation itself degrades to "no detail" rather than to a
+        # changed decision (the outer try/except would otherwise convert
+        # such a defect into a silent allow).
+        try:
+            _tail = msg_text[-TAIL_LENGTH:]
+            _heading, _items, _unrecommended = _ballot_shape(msg_text)
+            verdict_detail = {
+                "path": "classified",
+                "hard_gate": _hard_negative_gate_hit(_tail),
+                "soft_gate": bool(_SURFACE_AND_PROCEED_PATTERNS.search(_tail)),
+                "gate_token": _gate_token(_tail),
+                "permission_phrase": bool(_PERMISSION_PHRASES.search(_tail)),
+                "stall_marker": bool(_STALL_TRIGGER_PATTERNS.search(_tail)),
+                "scanned": scan is not None,
+                "stall_provable": stall_provable,
+                "had_tool_call": had_tool_call,
+                "decisions_heading": _heading,
+                "decision_items": _items,
+                "unrecommended_items": _unrecommended,
+                "c1_abdication": is_classic_abdication,
+                "c2_stall": is_stall,
+                "c3_ballot": is_ballot,
+            }
+        except Exception:
+            verdict_detail = {"path": "classified", "detail_error": True}
+
         if not is_stall and not is_classic_abdication and not is_ballot:
             # No classifier fired - reset counter (clean turn) and allow.
             lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
+            _fire_log(data, "allow", "no classifier fired; clean turn", verdict_detail)
             sys.exit(0)
 
         # Abdication, stall, or ballot detected. Only block if we can persist
@@ -1194,15 +1397,36 @@ def main() -> None:
         # counter/cap.
         new_count = state["count"] + 1
         if not lg.write_counter(cwd, COUNTER_FILENAME, new_count, current_user_msg_count):
+            _fire_log(
+                data,
+                "allow",
+                "classifier fired but the loop-guard counter write failed; allowing the stop",
+                dict(verdict_detail, path="counter_write_failed"),
+            )
             sys.exit(0)
 
         if is_ballot:
             reason = _BALLOT_REASON
+            fired = "ballot"
         elif is_stall:
             reason = _STALL_REASON
+            fired = "stall"
         else:
             reason = _ABDICATION_REASON
+            fired = "abdication"
+        # Decision print comes FIRST, unconditionally, matching the deny-path
+        # convention in the other nine enforce-*.py hooks (see
+        # hooks/lib/enforcement_log.py manifest "Failure modes"). Telemetry
+        # is loaded and called only after the decision has reached stdout,
+        # wrapped in its own try/except so a raising log_fire can never
+        # suppress or follow the block.
         print(json.dumps({"decision": "block", "reason": reason}))
+        _fire_log(
+            data,
+            "deny",
+            "blocked the stop: " + fired + " classifier fired",
+            dict(verdict_detail, fired=fired),
+        )
         sys.exit(0)
 
     except Exception:
