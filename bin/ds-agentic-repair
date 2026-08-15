@@ -170,28 +170,34 @@ Failure modes: exits 0 on a successful report or repair, INCLUDING the
     directory, or not resolvable to a git repository at all - i.e. no
     `.git` ancestor found anywhere up the tree), on `--dry-run --fix`
     passed together (rejected outright rather than letting either flag
-    win), and on a degraded repo-root resolver (`hooks/lib/repo_root.py`
+    win), on a degraded repo-root resolver (`hooks/lib/repo_root.py`
     failed to load) - the WHOLE RUN refuses in that last case, not merely
     `--fix`, because every classification decision the tool makes depends
     on that resolver; report-only mode is not a safe fallback either, since
     a report an operator acts on manually is exactly as unreliable as a
-    repair the tool performs itself. A single stray's merge/archive/remove
+    repair the tool performs itself - and on `--fix` when ANY entry's
+    repair failed (a nonzero per-entry-failure count makes the whole run's
+    exit code nonzero, even though the loop itself keeps going and repairs
+    every other entry it can). A single stray's merge/archive/remove
     sequence that fails partway (merge write error, INCLUDING an
     undecodable stray events.jsonl - UnicodeDecodeError is caught
     alongside OSError, not just OSError - archive copy error, or an
     unremovable directory) is reported as a per-entry failure and does NOT
-    abort the run for other entries - but a merge or archive failure for a
-    given stray means that stray's directory is NEVER removed (same
-    discipline as bin/ds-reap-worktrees's telemetry-salvage guard: a failed
-    preservation step must never become a silent deletion of the data it
-    was trying to preserve). Two independent invariants guard against the
-    archive ever being written where a repair could destroy it: `classify()`
-    never lets the repo's own top-level `.agentic/` (`rel_posix == ".agentic"`)
-    classify as a stray regardless of resolver state, and `repair_one()`
-    separately refuses to proceed if the computed `archive_dir` is ever a
-    descendant of the `stray_dir` about to be removed. `--dry-run`/no-flag
-    makes zero filesystem writes of any kind, including no archive-directory
-    creation.
+    abort the run for other entries - but it DOES make the run's overall
+    exit code 1, and a merge or archive failure for a given stray means
+    that stray's directory is NEVER removed (same discipline as
+    bin/ds-reap-worktrees's telemetry-salvage guard: a failed preservation
+    step must never become a silent deletion of the data it was trying to
+    preserve). Three independent invariants guard against the archive ever
+    being written where a repair could destroy it: `classify()` never lets
+    the repo's own top-level `.agentic/` (`rel_posix == ".agentic"`)
+    classify as a stray regardless of resolver state; `repair_one()`
+    separately refuses to proceed if `stray_dir` is itself the canonical
+    `.agentic/` tree (equality only, not containment either direction -
+    see the comment at that check); and `repair_one()` also refuses if the
+    computed `archive_dir` is ever a descendant of the `stray_dir` about to
+    be removed. `--dry-run`/no-flag makes zero filesystem writes of any
+    kind, including no archive-directory creation.
 
 Performance: one `os.walk` over the repo tree (symlinks not followed,
     `_PRUNE_DIR_NAMES` pruned before descent) plus, per confirmed stray, a
@@ -521,21 +527,32 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
 
     # Hard invariant, independent of every classification layer above and
     # checked BEFORE any archival or removal decision is made: `stray_dir`
-    # must never BE (or contain) the canonical `.agentic/` tree. Under
-    # normal operation this cannot fire - `rel_posix == ".agentic"` is
-    # excluded from ever classifying as a stray by the flat invariant in
-    # `classify()` - but if that invariant, the resolver, or a future
-    # caller ever hands this function a `ClassifiedDir` for the canonical
-    # tree itself (the round-1 shape: canonical and stray being the same
-    # directory), the original archive-destination check below never ran
-    # at all for a stray with no remainder besides `events.jsonl` -
-    # `remainder_names` is empty, so the whole `if remainder_names:` block
-    # (including that check) is skipped, and `shutil.rmtree(stray_dir)`
-    # below would delete the canonical `.agentic/` tree, events.jsonl and
-    # all, with no archive. Checked here, unconditionally, rather than
-    # nested inside the remainder branch.
+    # must never BE the canonical `.agentic/` tree. Under normal operation
+    # this cannot fire - `rel_posix == ".agentic"` is excluded from ever
+    # classifying as a stray by the flat invariant in `classify()` - but if
+    # that invariant, the resolver, or a future caller ever hands this
+    # function a `ClassifiedDir` for the canonical tree itself (the round-1
+    # shape: canonical and stray being the same directory), the original
+    # archive-destination check below never ran at all for a stray with no
+    # remainder besides `events.jsonl` - `remainder_names` is empty, so the
+    # whole `if remainder_names:` block (including that check) is skipped,
+    # and `shutil.rmtree(stray_dir)` below would delete the canonical
+    # `.agentic/` tree, events.jsonl and all, with no archive. Checked here,
+    # unconditionally, rather than nested inside the remainder branch.
+    #
+    # Deliberately narrow to equality only (round 4): an earlier form also
+    # refused when `canonical_agentic in stray_dir.parents` (i.e. stray is
+    # NESTED INSIDE canonical, the opposite direction from what this guard
+    # protects). That is exactly the shape `_iter_agentic_dirs`'s docstring
+    # calls "the exact shape this repo's live tree exhibits" (e.g.
+    # `.agentic/.agentic`, `.agentic/memory/.agentic`) and is the tool's
+    # primary use case - the wider form refused to repair it. That case
+    # does not need protection here: `_is_excluded` already carries the
+    # `.agentic/stray-agentic-archive/` prefix exclusion (archive
+    # re-ingestion is handled at classify time), and the separate
+    # archive-destination check below still catches stray-contains-archive.
     canonical_agentic = repo_root / ".agentic"
-    if stray_dir == canonical_agentic or canonical_agentic in stray_dir.parents:
+    if stray_dir == canonical_agentic:
         return RepairResult(
             entry.rel_posix,
             merged_lines,
@@ -543,7 +560,7 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
             None,
             False,
             False,
-            "refused: stray_dir is (or contains) the canonical .agentic tree",
+            "refused: stray_dir is the canonical .agentic tree",
         )
 
     # Archive the remainder (everything except events.jsonl, already
@@ -735,7 +752,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         # no data is destroyed (repair_one's per-entry isolation leaves the
         # stray untouched). Still, a nonzero exit is required here so a
         # caller chaining `ds-agentic-repair --fix && <next step>` cannot
-        # read total repair failure as success.
+        # read ANY repair failure (even a single entry among many) as
+        # success - the loop keeps going and repairs every other entry it
+        # can, but the run's exit code reflects that at least one did not.
         return 1
 
     return 0

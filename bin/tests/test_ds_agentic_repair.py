@@ -641,9 +641,9 @@ def test_critical_repair_one_refuses_canonical_agentic_with_only_events(tmp_path
     remainder-less entry point despite both upstream guards).
 
     Mutation that reddens: deleting the unconditional
-    `if stray_dir == canonical_agentic or canonical_agentic in
-    stray_dir.parents:` guard at the top of `repair_one()` (added in
-    round 3, before the `remainder_names` branch) restores exactly this
+    `if stray_dir == canonical_agentic:` guard at the top of
+    `repair_one()` (added in round 3, narrowed to equality-only in
+    round 4, before the `remainder_names` branch) restores exactly this
     behavior - confirmed by removing it and re-running this test, which
     fails with `result.removed is True` and the canonical tree gone.
     """
@@ -674,6 +674,56 @@ def test_critical_repair_one_refuses_canonical_agentic_with_only_events(tmp_path
     # untouched.
     assert live_agentic.is_dir()
     assert (live_agentic / "events.jsonl").read_text(encoding="utf-8") == '{"live":1}\n'
+
+
+def test_major_round4_repair_one_repairs_nested_stray_inside_canonical(tmp_path):
+    """ROUND 4 MAJOR 1 regression: `repair_one()` must actually REPAIR a
+    stray nested INSIDE the canonical `.agentic/` tree - the primary shape
+    `_iter_agentic_dirs`'s own docstring calls "the exact shape this
+    repo's live tree exhibits" (e.g. `.agentic/.agentic`,
+    `.agentic/memory/.agentic`) and the tool's primary use case. This is
+    the OPPOSITE direction from the round-3 canonical-tree guard (which
+    protects `stray_dir` from BEING or CONTAINING canonical) - here
+    `stray_dir` is CONTAINED BY canonical, and must still be removed.
+
+    Pre-fix behavior (the over-broad round-3 guard, reproduced by the
+    round-4 reviewer against the primary checkout): the guard read
+    `if stray_dir == canonical_agentic or canonical_agentic in
+    stray_dir.parents:` - the second disjunct fires whenever `stray_dir`
+    is nested under canonical, refusing every phantom of this shape with
+    `ok=False removed=False archived=False`, even though this is exactly
+    the shape the tool exists to clean up.
+
+    Mutation that reddens: restoring the `or canonical_agentic in
+    stray_dir.parents` disjunct to the guard in `repair_one()` turns this
+    test red (`result.ok` becomes `False`, `result.removed` becomes
+    `False`, and the nested stray survives).
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    canonical = repo / ".agentic"
+    canonical.mkdir(parents=True)
+    (canonical / "events.jsonl").write_text('{"canonical":1}\n', encoding="utf-8")
+
+    nested_stray = canonical / ".agentic"
+    _make_runtime_agentic(nested_stray, events_lines=['{"nested":1}'])
+    (nested_stray / "extra-remainder.txt").write_text("archive me\n", encoding="utf-8")
+
+    entry = repair.ClassifiedDir(nested_stray, ".agentic/.agentic", "stray", "forced-for-test")
+    result = repair.repair_one(repo, entry)
+
+    assert result.ok is True
+    assert result.removed is True
+    assert result.archived is True
+    assert result.merged_lines == 1
+    # The nested stray is gone, the canonical tree (a sibling ancestor of
+    # the stray, not the stray itself) survives untouched, and the
+    # canonical events.jsonl now carries both lines.
+    assert not nested_stray.exists()
+    assert canonical.is_dir()
+    merged = (canonical / "events.jsonl").read_text(encoding="utf-8")
+    assert '{"canonical":1}' in merged
+    assert '{"nested":1}' in merged
 
 
 def test_major1_dry_run_and_fix_together_rejected(tmp_path):
