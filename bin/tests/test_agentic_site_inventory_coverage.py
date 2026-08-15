@@ -12,26 +12,66 @@ Purpose: Coverage-diff gate for DS-171's repo-root anchoring fix. Re-derives
     write with no gate ever noticing.
 
     DS-176 REWORK (adapter-hooks-agentic-root): SCAN_DIRS now also covers
-    the hand-authored, non-build-generated adapter hook/plugin surfaces -
-    ".cursor/hooks", ".copilot/hooks", ".github/hooks", ".gemini/hooks",
-    ".kimi/hooks", ".opencode/plugins" - which were the LAST remaining path
-    to the phantom-.agentic-tree bug class this gate exists to close (the
-    original DS-171 pass covered hooks/**, bin/**, and the Claude Code Bash
-    hook, but explicitly NOT the adapter dirs, because build.sh does not
-    regenerate them and check-adapter-sync cannot see them). Deliberately
-    scoped to each adapter's `hooks/` (or `.opencode/plugins/`)
-    SUBDIRECTORY, never the adapter's full top-level tree: every adapter
-    directory also holds a build-generated, verbatim copy of content/**
-    (references/, commands/, agents/, skills/, templates/ - including, for
-    .cursor and .gemini, a templates/.agentic/ SCAFFOLD directory whose
-    files are literal `/ds-init-project` templates, not executable code)
-    - scanning those would flood candidates with prose matches on the
-    literal string ".agentic" inside markdown, none of which are path-
-    construction sites. The `hooks/`-or-`plugins/`-only subdirectory is the
-    narrowest rule that still catches every adapter's actual executable
-    surface: verified empirically (see this file's own git history) that
-    each of the six new SCAN_DIRS entries currently holds ONLY hook
-    scripts/plugins, zero generated markdown.
+    the hand-authored, non-build-generated adapter hook/plugin/extension
+    surfaces - ".cursor/hooks", ".copilot/hooks", ".github/hooks",
+    ".gemini/hooks", ".kimi/hooks", ".opencode/plugins", ".codex/hooks",
+    ".pi/extensions/dinostack" - which close the phantom-.agentic-tree bug
+    class this gate exists to catch (the original DS-171 pass covered
+    hooks/**, bin/**, and the Claude Code Bash hook, but explicitly NOT the
+    adapter dirs, because build.sh does not regenerate them and
+    check-adapter-sync cannot see them). Deliberately scoped to each
+    adapter's hand-authored hook/plugin/extension SUBDIRECTORY, never the
+    adapter's full top-level tree: every adapter directory also holds a
+    build-generated, verbatim copy of content/** (references/, commands/,
+    agents/, skills/, templates/ - including, for .cursor and .gemini, a
+    templates/.agentic/ SCAFFOLD directory whose files are literal
+    `/ds-init-project` templates, not executable code) - scanning those
+    would flood candidates with prose matches on the literal string
+    ".agentic" inside markdown, none of which are path-construction sites.
+
+    DS-176 ROUND-2 REWORK (Major 1: the six-entry list above was confirm-only -
+    each dir was individually verified to hold hooks and nothing else, but
+    the set itself was never independently derived, so it silently omitted
+    ".codex/hooks" (3 files: risk-reminder.sh, stop-context-codex.js, and a
+    symlinked skill-auto-load-check.sh -> ../../hooks/skill-auto-load-
+    check.sh that the scanner's is_symlink() skip already handles) and
+    ".pi/extensions/dinostack" (index.ts) entirely): the eight SCAN_DIRS
+    adapter entries above were derived by enumerating the FULL set of
+    adapter roots this repo builds (the 11-entry pathspec asserted by
+    ".github/workflows/adapter-sync.yml"'s "Verify adapter-sync pathspec
+    entries exist" step: .claude .codex .cursor .gemini .kimi .opencode
+    .omp .pi .hermes .openclaw .copilot, plus the .github/* subpaths),
+    then running `find <each-root> -maxdepth 2 -type d` over all 11 and
+    keeping every directory name matching hook/plugin/extension/script.
+    That surfaced exactly eight hits: .copilot/hooks, .github/hooks,
+    .kimi/hooks, .opencode/plugins, .pi/extensions (containing the single
+    dinostack/ subdir, scanned directly rather than its parent so the scan
+    stays scoped to hand-authored code, not a future sibling extension
+    directory of unknown shape), .codex/hooks, .cursor/hooks, .gemini/hooks
+    - .claude, .omp, .hermes, and .openclaw have no such directory at this
+    depth (Claude Code's hooks are wired via settings.json, not a
+    hooks/-shaped directory in the adapter tree). Each of the eight
+    SCAN_DIRS adapter entries was then individually verified (as before) to
+    hold only hook/plugin/extension code, zero generated markdown - but
+    that per-entry confirmation is no longer the sole method establishing
+    the set is complete.
+
+    The same `find`-derived sweep also surfaced ".codex/lib/prompt-
+    wrappers.py", which builds two ".agentic"-shaped paths (RUNTIME_REL at
+    module scope, and `paths.repo / ".agentic"`) but sits under ".codex/lib"
+    (not ".codex/hooks"), i.e. it is not, and never was, inside SCAN_DIRS -
+    it is out of scope by directory selection, not by an EXCLUDED_FILES
+    entry. Decision: it stays out of scope, deliberately not added to
+    SCAN_DIRS or EXCLUDED_FILES. Every `.agentic` site in that module
+    derives from `paths.repo`, which comes from its parser's `--repo`
+    argument (argparse `required=True`, no cwd default,
+    ".codex/lib/prompt-wrappers.py:3052,3056") - the same explicit-required-
+    argument exemption rationale already applied to bin/ds-doctor,
+    bin/ds-evaluate, bin/ds-migrate, and bin/ds-team above, not the bare-
+    cwd-fallback drift-prone class this gate exists to catch. It is a
+    build-time prompt-generation tool invoked by ".codex/build.sh" and by a
+    human operator, never by a live hooks/*.js or hooks/*.py call site
+    reading a harness-payload cwd.
 
     NAMING NOTE: the originating spec named this file with hyphens
     (bin/tests/test-agentic-site-inventory-coverage.py). bin/tests/ is
@@ -111,10 +151,13 @@ INVENTORY_PATH = REPO_ROOT / "hooks" / "tests" / "fixtures" / "agentic-write-sit
 # directory. bin/ has no subdirectories today but is walked recursively
 # too for the same forward-looking reason "hooks" is.
 #
-# DS-176: the six adapter hook/plugin subdirectories below are scanned in
-# addition - see the DS-176 REWORK paragraph in this file's module
-# docstring for why each is scoped to exactly `hooks/` (or
-# `.opencode/plugins/`) and not its adapter's full top-level tree.
+# DS-176: the eight adapter hook/plugin/extension subdirectories below are
+# scanned in addition - see the DS-176 REWORK and DS-176 ROUND-2 REWORK
+# paragraphs in this file's module docstring for how the set was derived
+# (enumerated from all 11 adapter roots, not confirmed against a
+# pre-picked list) and why each is scoped to its adapter's hand-authored
+# hooks/plugins/extension subdirectory, never the adapter's full top-level
+# tree.
 SCAN_DIRS = [
     "hooks",
     "bin",
@@ -124,11 +167,13 @@ SCAN_DIRS = [
     ".gemini/hooks",
     ".kimi/hooks",
     ".opencode/plugins",
+    ".codex/hooks",
+    ".pi/extensions/dinostack",
 ]
 
 # File extensions considered ("" covers extension-less bin/ CLIs; ".ts" is
-# DS-176's addition, needed solely for .opencode/plugins/session-context.ts -
-# no other SCAN_DIRS entry contains a .ts file today).
+# DS-176's addition, needed for .opencode/plugins/session-context.ts and
+# .pi/extensions/dinostack/index.ts).
 CANDIDATE_EXTENSIONS = {".js", ".py", ".sh", ".ts", ""}
 
 # The resolver modules themselves are what DOES the resolving, not a site

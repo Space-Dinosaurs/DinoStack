@@ -23,12 +23,26 @@
  *       reflects the ROOT's context.md, not a (nonexistent) one at the
  *       drifted subdirectory.
  *   (b) payload cwd has no .git ancestor anywhere -> {} (no additionalContext),
- *       even when an unrelated context.md exists at the hook's own process
+ *       even when an unrelated context.md exists at the hook PROCESS's own
  *       cwd (proves there is no `pwd` fallback reading the wrong file).
  *   (c) payload carries no cwd field at all -> {} (guarded no-op), same
  *       proof as (b) for the empty-payload path.
  *   (d) payload cwd resolves to a real repo root with NO context.md yet ->
  *       {} (file legitimately absent, not a resolution failure).
+ *
+ * Round-2 rework (Major 2): (b) and (c) previously relied on runHook's
+ * process cwd defaulting to `process.cwd()` - i.e. this test file's own
+ * repo checkout - as the "unrelated context.md" that a restored `pwd`
+ * fallback would leak. That is non-deterministic: `.agentic/` is
+ * categorically gitignored, so a fresh clone, a worktree, or CI has no
+ * `.agentic/context.md` there at all, and the mutation that removes the
+ * `pwd`-fallback-removal fix silently passed (`18 passed, 0 failed`)
+ * instead of reddening. Fixed: runHook now defaults its process cwd to
+ * SENTINEL_CWD, a fixture directory seeded once at module load with a
+ * `.agentic/context.md` containing a known sentinel string. If the `pwd`
+ * fallback is ever restored, (b)/(c) deterministically observe that
+ * sentinel leak into additionalContext, regardless of what the test
+ * runner's own working directory happens to contain.
  *
  * Run with: node hooks/tests/test-session-start-copilot.js
  */
@@ -86,14 +100,28 @@ function cleanup(tmpDir) {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 }
 
+// Sentinel string a restored `pwd` fallback would leak into
+// additionalContext - deterministic stand-in for "this test's own process
+// cwd happens to have a .agentic/context.md", replacing that
+// non-deterministic assumption (see Round-2 rework note above).
+const SENTINEL_CONTEXT = 'LEAKED-PHANTOM-CONTEXT';
+const SENTINEL_CWD = makeTmp('ae-session-start-copilot-sentinel-cwd-');
+fs.mkdirSync(path.join(SENTINEL_CWD, '.agentic'), { recursive: true });
+fs.writeFileSync(path.join(SENTINEL_CWD, '.agentic', 'context.md'), SENTINEL_CONTEXT, 'utf8');
+process.once('exit', () => cleanup(SENTINEL_CWD));
+
 /**
  * Run the hook with a JSON payload on stdin. execFileSync closes stdin
  * after writing `input`, so the hook's stdin-reading python3 subprocess
  * sees EOF and returns promptly - no stdin-guard machinery needed here
  * (these session-start hooks are synchronous, unlike the stop hooks).
+ *
+ * The hook PROCESS's own cwd (as opposed to the payload's `cwd` field)
+ * defaults to SENTINEL_CWD, not process.cwd() - see Round-2 rework note
+ * above.
  */
 function runHook(hookScript, payload, opts) {
-  const cwd = (opts && opts.cwd) || process.cwd();
+  const cwd = (opts && opts.cwd) || SENTINEL_CWD;
   try {
     const stdout = execFileSync('bash', [hookScript], {
       input: JSON.stringify(payload),

@@ -43,6 +43,10 @@
 .cursor/hooks/stop-context-cursor.js::const agenticDir = path.join(agenticRoot, '.agentic');
 .github/hooks/session-start-copilot.sh::CONTEXT_FILE="$CWD/.agentic/context.md"
 .github/hooks/stop-context-copilot.js::const agenticDir = path.join(agenticRoot, '.agentic');
+# Reviewed, confirmed harmless: message-string concatenation (rollup
+# footer text), not a path-construction site - the same category as
+# hooks/lib/context-rollup.js's near-identical "*Derived from
+# .agentic/context.d/ - " line below.
 .opencode/plugins/session-context.ts::"\n*Derived from .agentic/context.d/ - " +
 .opencode/plugins/session-context.ts::agenticDir: path.join(cwd, ".agentic"),
 .opencode/plugins/session-context.ts::const agenticDir = path.join(cwd, ".agentic");

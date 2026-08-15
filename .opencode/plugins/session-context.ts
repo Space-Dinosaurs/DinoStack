@@ -11,8 +11,9 @@
  * Public API: SessionContextPlugin — exported plugin function for OpenCode.
  *
  * Upstream deps: Bun runtime APIs ($, Bun.file, Bun.write). Node built-in
- *                path. Node fs/promises (appendFile, rename). OpenCode SDK
- *                client (client.app.log, client.session.prompt).
+ *                path. Node fs/promises (appendFile, rename). Node fs
+ *                (existsSync, realpathSync - DS-176's resolveAgenticRoot).
+ *                OpenCode SDK client (client.app.log, client.session.prompt).
  *
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).

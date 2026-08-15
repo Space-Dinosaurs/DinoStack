@@ -316,10 +316,31 @@ async function testNoGitAncestorSkipsWrite() {
   assert(result.code === 0, 'regression (no .git ancestor): exits 0');
   assertStdoutShape(result.stdout, 'regression (no .git ancestor)');
 
-  const contextPath = path.join(noGitDir, '.agentic', 'context.md');
+  // Round-2 rework (Minor): asserting only against `noGitDir` cannot
+  // distinguish "skipped" from "written somewhere else" - on macOS,
+  // os.tmpdir() typically resolves through a symlink (/var ->
+  // /private/var), so the resolver's own fallback root (realpath'd, per
+  // hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics) differs
+  // from the raw `noGitDir` string. If the hook's `!foundGitAncestor`
+  // guard were ever removed, it would write at the REALPATH'D fallback
+  // root, not at `noGitDir` verbatim - a check scoped only to `noGitDir`
+  // would silently pass while a phantom .agentic tree appeared one path
+  // segment away. Pin the check to the resolver's own decision instead:
+  // confirm foundGitAncestor is actually false for this fixture (proves
+  // the SKIP branch is the one under test), then check both the raw and
+  // realpath'd candidate paths for the absent write.
+  const { resolveAgenticCwdWithDiagnostics } = require('../lib/repo-root.js');
+  const diag = resolveAgenticCwdWithDiagnostics(noGitDir);
   assert(
-    !fs.existsSync(contextPath),
-    'regression (no .git ancestor): write is SKIPPED, no .agentic tree created'
+    diag.foundGitAncestor === false,
+    'regression (no .git ancestor): fixture genuinely has no .git ancestor (resolver confirms foundGitAncestor:false)'
+  );
+
+  const rawContextPath = path.join(noGitDir, '.agentic', 'context.md');
+  const realContextPath = path.join(diag.root, '.agentic', 'context.md');
+  assert(
+    !fs.existsSync(rawContextPath) && !fs.existsSync(realContextPath),
+    'regression (no .git ancestor): write is SKIPPED, no .agentic tree created at the raw or realpath\'d fallback location'
   );
 }
 

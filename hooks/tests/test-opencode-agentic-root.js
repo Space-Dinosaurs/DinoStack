@@ -37,12 +37,20 @@
  * fails loudly rather than silently testing nothing - see the
  * "extraction succeeded" assertion.
  *
+ * Round-2 rework: each of the four behavioral fixtures (a)-(d) below also
+ * runs through hooks/lib/repo-root.js's own
+ * resolveAgenticCwdWithDiagnostics and asserts an identical {root,
+ * foundGitAncestor} result - a mechanical parity check binding the inline
+ * TS reimplementation to the canonical JS resolver, closing the gap where
+ * MAX_DEPTH === 64 alone was the only thing tying them together.
+ *
  * Run with: node hooks/tests/test-opencode-agentic-root.js
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { resolveAgenticCwdWithDiagnostics } = require('../lib/repo-root.js');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const TS_PATH = path.join(REPO, '.opencode', 'plugins', 'session-context.ts');
@@ -142,6 +150,11 @@ if (fnSource && stripped && maxDepthMatch) {
       const { root, foundGitAncestor } = resolveAgenticRoot(repoRoot);
       assert(foundGitAncestor === true, '(a) foundGitAncestor is true when start dir has a .git entry');
       assert(root === fs.realpathSync(repoRoot), '(a) root is the realpath of the start dir itself');
+      const parity = resolveAgenticCwdWithDiagnostics(repoRoot);
+      assert(
+        parity.root === root && parity.foundGitAncestor === foundGitAncestor,
+        `(a) matches hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics (got ts:${JSON.stringify({ root, foundGitAncestor })} vs js:${JSON.stringify({ root: parity.root, foundGitAncestor: parity.foundGitAncestor })})`
+      );
     } finally {
       cleanup(repoRoot);
     }
@@ -160,6 +173,11 @@ if (fnSource && stripped && maxDepthMatch) {
         root === fs.realpathSync(repoRoot),
         `(b) root walks up to the REPO ROOT, not the drifted subdirectory (got: ${root})`
       );
+      const parity = resolveAgenticCwdWithDiagnostics(driftedDir);
+      assert(
+        parity.root === root && parity.foundGitAncestor === foundGitAncestor,
+        `(b) matches hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics (got ts:${JSON.stringify({ root, foundGitAncestor })} vs js:${JSON.stringify({ root: parity.root, foundGitAncestor: parity.foundGitAncestor })})`
+      );
     } finally {
       cleanup(repoRoot);
     }
@@ -169,8 +187,13 @@ if (fnSource && stripped && maxDepthMatch) {
   {
     const noGitDir = makeTmp('ae-opencode-agentic-root-c-');
     try {
-      const { foundGitAncestor } = resolveAgenticRoot(noGitDir);
+      const { root, foundGitAncestor } = resolveAgenticRoot(noGitDir);
       assert(foundGitAncestor === false, '(c) foundGitAncestor is false when no .git ancestor exists');
+      const parity = resolveAgenticCwdWithDiagnostics(noGitDir);
+      assert(
+        parity.root === root && parity.foundGitAncestor === foundGitAncestor,
+        `(c) matches hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics (got ts:${JSON.stringify({ root, foundGitAncestor })} vs js:${JSON.stringify({ root: parity.root, foundGitAncestor: parity.foundGitAncestor })})`
+      );
     } finally {
       cleanup(noGitDir);
     }
@@ -182,10 +205,15 @@ if (fnSource && stripped && maxDepthMatch) {
     const repoRoot = makeTmp('ae-opencode-agentic-root-d-');
     fs.writeFileSync(path.join(repoRoot, '.git'), 'gitdir: ../.git/worktrees/x\n', 'utf8');
     try {
-      const { foundGitAncestor } = resolveAgenticRoot(repoRoot);
+      const { root, foundGitAncestor } = resolveAgenticRoot(repoRoot);
       assert(
         foundGitAncestor === true,
         '(d) a FILE .git entry (linked worktree) is recognized - existence-only, not isDirectory()'
+      );
+      const parity = resolveAgenticCwdWithDiagnostics(repoRoot);
+      assert(
+        parity.root === root && parity.foundGitAncestor === foundGitAncestor,
+        `(d) matches hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics (got ts:${JSON.stringify({ root, foundGitAncestor })} vs js:${JSON.stringify({ root: parity.root, foundGitAncestor: parity.foundGitAncestor })})`
       );
     } finally {
       cleanup(repoRoot);
