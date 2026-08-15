@@ -11,6 +11,28 @@ Purpose: Coverage-diff gate for DS-171's repo-root anchoring fix. Re-derives
     silently reintroduce a cwd-relative (non-repo-root-anchored) .agentic/
     write with no gate ever noticing.
 
+    DS-176 REWORK (adapter-hooks-agentic-root): SCAN_DIRS now also covers
+    the hand-authored, non-build-generated adapter hook/plugin surfaces -
+    ".cursor/hooks", ".copilot/hooks", ".github/hooks", ".gemini/hooks",
+    ".kimi/hooks", ".opencode/plugins" - which were the LAST remaining path
+    to the phantom-.agentic-tree bug class this gate exists to close (the
+    original DS-171 pass covered hooks/**, bin/**, and the Claude Code Bash
+    hook, but explicitly NOT the adapter dirs, because build.sh does not
+    regenerate them and check-adapter-sync cannot see them). Deliberately
+    scoped to each adapter's `hooks/` (or `.opencode/plugins/`)
+    SUBDIRECTORY, never the adapter's full top-level tree: every adapter
+    directory also holds a build-generated, verbatim copy of content/**
+    (references/, commands/, agents/, skills/, templates/ - including, for
+    .cursor and .gemini, a templates/.agentic/ SCAFFOLD directory whose
+    files are literal `/ds-init-project` templates, not executable code)
+    - scanning those would flood candidates with prose matches on the
+    literal string ".agentic" inside markdown, none of which are path-
+    construction sites. The `hooks/`-or-`plugins/`-only subdirectory is the
+    narrowest rule that still catches every adapter's actual executable
+    surface: verified empirically (see this file's own git history) that
+    each of the six new SCAN_DIRS entries currently holds ONLY hook
+    scripts/plugins, zero generated markdown.
+
     NAMING NOTE: the originating spec named this file with hyphens
     (bin/tests/test-agentic-site-inventory-coverage.py). bin/tests/ is
     discovered by `pytest bin/tests/ -q` (see .github/workflows/
@@ -88,10 +110,26 @@ INVENTORY_PATH = REPO_ROOT / "hooks" / "tests" / "fixtures" / "agentic-write-sit
 # once as a descendant of "hooks"), duplicating every candidate in that
 # directory. bin/ has no subdirectories today but is walked recursively
 # too for the same forward-looking reason "hooks" is.
-SCAN_DIRS = ["hooks", "bin"]
+#
+# DS-176: the six adapter hook/plugin subdirectories below are scanned in
+# addition - see the DS-176 REWORK paragraph in this file's module
+# docstring for why each is scoped to exactly `hooks/` (or
+# `.opencode/plugins/`) and not its adapter's full top-level tree.
+SCAN_DIRS = [
+    "hooks",
+    "bin",
+    ".cursor/hooks",
+    ".copilot/hooks",
+    ".github/hooks",
+    ".gemini/hooks",
+    ".kimi/hooks",
+    ".opencode/plugins",
+]
 
-# File extensions considered ("" covers extension-less bin/ CLIs).
-CANDIDATE_EXTENSIONS = {".js", ".py", ".sh", ""}
+# File extensions considered ("" covers extension-less bin/ CLIs; ".ts" is
+# DS-176's addition, needed solely for .opencode/plugins/session-context.ts -
+# no other SCAN_DIRS entry contains a .ts file today).
+CANDIDATE_EXTENSIONS = {".js", ".py", ".sh", ".ts", ""}
 
 # The resolver modules themselves are what DOES the resolving, not a site
 # to be resolved - excluded from candidate scanning. Also excluded: files

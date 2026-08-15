@@ -23,7 +23,11 @@
  * Upstream deps: Node built-ins only (fs, path) plus
  *                ../../hooks/lib/stdin-guard.js (readStdinGuarded - the
  *                shared bounded-stdin reader; see that module's manifest for
- *                the first-byte/inactivity timer contract). No npm
+ *                the first-byte/inactivity timer contract) and
+ *                ../../hooks/lib/repo-root.js (resolveAgenticCwdWithDiagnostics
+ *                - anchors the .agentic/ write at the nearest .git ancestor
+ *                instead of trusting the payload cwd verbatim; write is
+ *                skipped entirely when no .git ancestor is found). No npm
  *                dependencies. Reads process.env.CURSOR_PROJECT_DIR,
  *                process.env.CLAUDE_PROJECT_DIR, and
  *                process.env.CURSOR_TRANSCRIPT_PATH as fallbacks when the
@@ -106,6 +110,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readStdinGuarded } = require('../../hooks/lib/stdin-guard.js');
+const { resolveAgenticCwdWithDiagnostics } = require('../../hooks/lib/repo-root.js');
 
 const TRANSCRIPT_MAX_BYTES = 256 * 1024;
 const TRANSCRIPT_TAIL_CHARS = 2000;
@@ -224,6 +229,15 @@ async function run() {
   // for a reject branch to have protected that this does not already close.
   cwd = path.resolve(cwd);
 
+  // --- 3b. Resolve the repo root anchoring the .agentic/ write, instead of
+  // trusting the payload-supplied cwd verbatim (a stray cd or a drifted
+  // harness-supplied cwd can otherwise write a phantom .agentic/ tree
+  // wherever the process happens to be). On resolution failure (no .git
+  // ancestor found), SKIP the write entirely rather than falling back to
+  // the unresolved cwd - see hooks/lib/repo-root.js's manifest.
+  const { root: agenticRoot, foundGitAncestor } = resolveAgenticCwdWithDiagnostics(cwd);
+  if (!foundGitAncestor) return exitOk();
+
   // --- 4. Extract remaining fields (all optional, all defensive) ---
   const sessionId = (typeof payload.conversation_id === 'string' && payload.conversation_id.trim())
     ? payload.conversation_id.trim()
@@ -250,7 +264,7 @@ async function run() {
   const lastActivity = readTranscriptExcerpt(transcriptPath);
 
   // --- 5. Compute output path ---
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(agenticRoot, '.agentic');
   const outputPath = path.join(agenticDir, 'context.md');
 
   // --- 6. Format content (same shape as the Codex/Copilot ports) ---

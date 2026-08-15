@@ -107,8 +107,17 @@ function assertStdoutShape(rawStdout, label) {
   }
 }
 
+/**
+ * Creates a tmp fixture dir with a `.git` entry so it resolves as a repo
+ * root under the DS-176 repo-root anchoring fix (the hook now walks up
+ * from the payload cwd to the nearest `.git` ancestor and SKIPS the write
+ * entirely when none is found - a bare mkdtempSync fixture with no `.git`
+ * would silently no-op every pre-existing test in this file otherwise).
+ */
 function mkFixtureDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  fs.mkdirSync(path.join(dir, '.git'));
+  return dir;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +227,100 @@ async function testContingencyNoWorkspaceRoot() {
 
   const contextPath = path.join(fixtureCwd, '.agentic', 'context.md');
   assert(!fs.existsSync(contextPath), 'case c: guarded safe no-op - no context.md created');
+}
+
+// ---------------------------------------------------------------------------
+// Regression (DS-176, adapter-hooks-agentic-root): the .agentic/ write must
+// be anchored at the nearest .git ancestor of the payload workspace root,
+// not the payload value verbatim - a drifted/stray-cd cwd deep inside a
+// real repo must still land .agentic/context.md at the REPO ROOT.
+//
+// Reddening mutation: reverting the "--- 3b. Resolve the repo root..."
+// block back to using `cwd` directly (the pre-fix state) makes this test
+// fail for the wrong reason it was written to catch - context.md would be
+// written at the DRIFTED subdirectory instead of the repo root.
+// ---------------------------------------------------------------------------
+
+async function testDriftedCwdWritesAtRepoRoot() {
+  const repoRoot = mkFixtureDir('cursor-stop-test-drift-');
+  const driftedDir = path.join(repoRoot, 'sub', 'nested', 'drift');
+  fs.mkdirSync(driftedDir, { recursive: true });
+
+  const payload = {
+    status: 'completed',
+    loop_count: 1,
+    conversation_id: 'conv-drifted-cwd',
+    model: 'claude-sonnet-4.5',
+    hook_event_name: 'stop',
+    cursor_version: '1.4.0',
+    workspace_roots: [driftedDir],
+    user_email: null,
+    transcript_path: null,
+  };
+
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: [HOOK_PATH],
+    chunks: [JSON.stringify(payload)],
+    gapMs: 0,
+    holdOpenMs: 0,
+  });
+
+  assert(result.code === 0, 'regression (drifted cwd): exits 0');
+  assertStdoutShape(result.stdout, 'regression (drifted cwd)');
+
+  const rootContextPath = path.join(repoRoot, '.agentic', 'context.md');
+  const driftedContextPath = path.join(driftedDir, '.agentic', 'context.md');
+  assert(
+    fs.existsSync(rootContextPath),
+    'regression (drifted cwd): .agentic/context.md written at the REPO ROOT, not the drifted subdirectory'
+  );
+  assert(
+    !fs.existsSync(driftedContextPath),
+    'regression (drifted cwd): no phantom .agentic tree written at the drifted subdirectory'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Regression (DS-176): resolution failure (no .git ancestor anywhere up to
+// the filesystem root) must SKIP the write entirely - never fall back to
+// the unresolved cwd, which would silently reproduce the phantom-tree bug.
+// Uses a bare mkdtempSync dir (deliberately WITHOUT mkFixtureDir's `.git`)
+// under os.tmpdir(), which has no .git ancestor on any supported CI/dev
+// environment.
+// ---------------------------------------------------------------------------
+
+async function testNoGitAncestorSkipsWrite() {
+  const noGitDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cursor-stop-test-nogit-'));
+
+  const payload = {
+    status: 'completed',
+    loop_count: 1,
+    conversation_id: 'conv-no-git-ancestor',
+    model: 'claude-sonnet-4.5',
+    hook_event_name: 'stop',
+    cursor_version: '1.4.0',
+    workspace_roots: [noGitDir],
+    user_email: null,
+    transcript_path: null,
+  };
+
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: [HOOK_PATH],
+    chunks: [JSON.stringify(payload)],
+    gapMs: 0,
+    holdOpenMs: 0,
+  });
+
+  assert(result.code === 0, 'regression (no .git ancestor): exits 0');
+  assertStdoutShape(result.stdout, 'regression (no .git ancestor)');
+
+  const contextPath = path.join(noGitDir, '.agentic', 'context.md');
+  assert(
+    !fs.existsSync(contextPath),
+    'regression (no .git ancestor): write is SKIPPED, no .agentic tree created'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -585,6 +688,12 @@ async function main() {
 
   console.log('Case c: contingency - no workspace_roots, env scrubbed');
   await testContingencyNoWorkspaceRoot();
+
+  console.log('Regression (DS-176): drifted cwd writes .agentic at the repo root');
+  await testDriftedCwdWritesAtRepoRoot();
+
+  console.log('Regression (DS-176): no .git ancestor skips the write entirely');
+  await testNoGitAncestorSkipsWrite();
 
   console.log('Regression: trailing-slash workspace root (Skeptic Major)');
   await testTrailingSlashWorkspaceRoot();
