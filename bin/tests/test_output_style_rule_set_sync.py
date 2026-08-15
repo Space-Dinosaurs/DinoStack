@@ -6,8 +6,9 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          candor) out of `hooks/enforce-turn-shape.py` and into the
          always-injected `dinostack` Claude Code output style
          (`content/output-styles/dinostack.md`). A later change added a
-         FIFTH rule, editorial addenda - the ban on a labelled package of
-         conductor-selected observations, carrying
+         FIFTH rule, editorial addenda - the ban on any conductor-selected
+         item carrying none of the four turn warrants, of which a labelled
+         package of such observations is the canonical form, carrying
          `content/references/conductor-turn-format.md` §5 ban 7. That one
          was never hook-mechanized, so it was not "moved" from anywhere;
          it is nonetheless part of the same rule set and subject to the
@@ -88,7 +89,11 @@ DS_INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
 COMPONENTS_PATH = REPO_ROOT / "docs" / "components.md"
 
 # The closed universe of topics this rule set has ever named (DS-171: status-
-# only, volume, answer relevance, self-narrating candor). Used only to detect
+# only, volume, answer relevance, self-narrating candor, editorial addenda).
+# Keep this enumeration in step with the list literal below - it declares
+# itself the closed universe, so an enumeration shorter than the list is a
+# stale count-sync site of exactly the kind this file exists to catch. Used
+# only to detect
 # a STALE site that still names a topic the style no longer defines - a
 # one-sided "does the site contain every current topic" check cannot catch
 # that direction (Round 4 Skeptic Minor 1). This list is deliberately closed,
