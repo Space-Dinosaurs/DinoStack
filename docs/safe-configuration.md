@@ -112,8 +112,12 @@ hook installed separately:
   answer relevance check (`_answer_relevance_flag`,
   opening-preamble/closing-recap), the zero-warrant status-only check
   (`_status_only_flag`), and the whole-message turn-volume check
-  (`_turn_charge`/`_volume_flag`) - the output style additionally carries a
-  fourth rule, self-narrating candor, with no prior hook-mechanized form. See
+  (`_turn_charge`/`_volume_flag`) - the output style additionally carries two
+  rules with no prior hook-mechanized form: self-narrating candor, and
+  editorial addenda (the ban on any conductor-selected item that carries none
+  of the four turn warrants, in any position in the turn and whether or not it
+  is bundled - a labelled package of such observations is the canonical form,
+  not the boundary). See
   `content/references/conductor-turn-format.md` for the full contract.
   Controlled by
   `turn_shape_guard_enabled` in `.agentic/config.json`, default `true`

@@ -410,7 +410,7 @@ Shape follows the warrant: an execution turn (decision/stoppage/completion, no a
 
 A Stop hook (`enforce-turn-shape.py`) enforces this. DS-156 made the execution-turn structural check BLOCKING; DS-158/159 then narrowed the block so legitimate real conductor answers (multi-paragraph answers, plain-prose completion reports) no longer trip it - narrative-creep sprawl still does. DS-171 retired the hook's other advisory checks (answer-turn phrasing, status-only, volume) - those rules now live in the `dinostack` Claude Code output style, injected before the turn is written instead of flagged after. Controlled by `turn_shape_guard_enabled` (default on).
 
-Companion turn rules from the same reference: a self-discovered defect is fixed in the same turn, never named-and-left; and an answer turn carries no trailing labelled trailer ("two things worth your attention").
+Companion turn rules from the same reference: a self-discovered defect is fixed in the same turn, never named-and-left; and no turn carries an editorial addendum - any conductor-selected item that carries none of the four warrants, in any position in the turn, whether bundled under a label ("two things worth your attention") or written as a single bare paragraph.
 
 <div class="callout">
 A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
