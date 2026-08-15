@@ -1,6 +1,6 @@
 # methodology baseline: one <basename> <sha256> line per content/sections/[0-9][0-9]-*.md
 01-activation-preflight.md 0016f0860b8146b4381eda24553b9024e77afc1e7dfb9ce33d90f701f6a34076
-02-delegation.md bbf241c5389761bafdf0543d88b0a32386f910fecef6874fe807a94c086626c8
+02-delegation.md 17fa68dbdb1e031e622fa8ca70299181fb44ce4966915118fa6d06e300c332cf
 03-planning-artifacts.md c5334ecdfd84bad9a59be05a6cf0715696e003d52e86411bd7a2ec203ca547d0
 04-risk-classification.md dab3d76d759c742c1c20d638d47188ad75ceceeef28ae1ad75fd9bf62a8fdec1
 05-qa-gate.md 874f0653b35e4a081c09e00fb91d547c7c280695941ec42a5fc95d99f777894d
