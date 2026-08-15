@@ -34,13 +34,27 @@ Purpose: regression guard for enforce-no-abdication.py's fire-log wiring.
          green. Re-run the sweep after any change to this file - a call
          site with no RED is a call site with no regression guard.
 
-Public API: run as a standalone script (the hooks/tests/test-*.py CI glob
-            in .github/workflows/bin-tests.yml hooks-python-tests runs it
-            via `python3 <file>`). Exits 0 on success, 1 on any failure.
+Public API: correct under BOTH invocation modes.
+            (a) Standalone script (the hooks/tests/test-*.py CI glob in
+                .github/workflows/bin-tests.yml hooks-python-tests runs it
+                via `python3 <file>`). Exits 0 on success, 1 on any failure,
+                after running EVERY case and reporting the aggregate.
+            (b) `pytest <file>`, which collects the module's test_*
+                functions directly and never calls main().
+            Reconciling the two is the job of the @_raises_on_failure
+            decorator below. check() only RECORDS into _failures, so without
+            it a pytest-collected test function would return None having
+            "failed" and pytest would report a false GREEN - the whole file
+            would pass vacuously. The decorator re-raises at each test
+            boundary (making pytest red) while main() catches per case
+            (preserving script mode's run-everything-then-aggregate
+            behavior). test_every_test_function_is_wrapped enforces that a
+            newly added test cannot silently reintroduce the vacuous mode.
 
-Upstream deps: Python 3 stdlib only (json, os, subprocess, sys, tempfile,
-               shutil, stat) plus the sibling _fire_log_test_helper.py
-               (raising-log_fire soft-fail harness).
+Upstream deps: Python 3 stdlib only (functools, json, os, subprocess, sys,
+               tempfile, shutil, stat) plus the sibling
+               _fire_log_test_helper.py (raising-log_fire soft-fail
+               harness).
 
 Downstream consumers: CI only.
 
@@ -51,6 +65,7 @@ Failure modes: each case runs the real hook as a subprocess against an
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import shutil
@@ -84,6 +99,33 @@ def check(label: str, condition: bool, extra: str = "") -> None:
     else:
         print("  [FAIL] " + label + ((" :: " + extra) if extra else ""))
         _failures.append(label)
+
+
+def _raises_on_failure(fn):
+    """Make a check()-based test function raise on failure.
+
+    check() only appends to _failures; on its own that makes every
+    pytest-collected test function here return None regardless of outcome,
+    i.e. pass VACUOUSLY. This wrapper compares _failures before and after
+    the call and raises AssertionError for anything the function added, so
+    `pytest <file>` goes red. main() catches AssertionError per case so
+    script mode still runs every case and reports the aggregate.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        before = len(_failures)
+        result = fn(*args, **kwargs)
+        added = _failures[before:]
+        if added:
+            raise AssertionError(
+                "%d assertion(s) failed in %s: %s"
+                % (len(added), fn.__name__, "; ".join(added))
+            )
+        return result
+
+    wrapper._raises_on_failure = True
+    return wrapper
 
 
 def make_cwd(enabled: bool = True) -> str:
@@ -146,6 +188,7 @@ def read_rows(cwd: str) -> list:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_deny_path_logs() -> None:
     print("\nDeny path (prose ballot -> block):")
     cwd = make_cwd()
@@ -201,6 +244,7 @@ def test_deny_path_logs() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_allow_path_logs() -> None:
     print("\nAllow path (clean turn -> no block):")
     cwd = make_cwd()
@@ -240,6 +284,7 @@ def test_allow_path_logs() -> None:
     )
 
 
+@_raises_on_failure
 def test_compliant_ballot_allow_is_distinguishable() -> None:
     """The central question this whole change exists to answer: does the
     canonical decisions-block shape reach a classifier at all? A compliant
@@ -275,6 +320,7 @@ def test_compliant_ballot_allow_is_distinguishable() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_negative_gate_token_recorded() -> None:
     print("\nNegative-gate suppression recording:")
     cwd = make_cwd()
@@ -299,6 +345,7 @@ def test_negative_gate_token_recorded() -> None:
     )
 
 
+@_raises_on_failure
 def test_gate_token_never_leaks_pii() -> None:
     """The two co-occurrence gates match a bare email regex and a dollar
     amount. gate_token must report a category label for those, never the
@@ -338,6 +385,7 @@ def test_gate_token_never_leaks_pii() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_no_rows_when_guard_inert() -> None:
     print("\nInert-guard paths write no rows:")
     # (a) config present but abdication_guard_enabled: false
@@ -382,6 +430,7 @@ def test_no_rows_when_guard_inert() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_raising_log_fire_does_not_suppress_verdict() -> None:
     print("\nSoft-fail: log_fire raises unconditionally:")
     cwd = make_cwd()
@@ -412,6 +461,7 @@ def test_raising_log_fire_does_not_suppress_verdict() -> None:
     )
 
 
+@_raises_on_failure
 def test_unwritable_log_dir_does_not_change_verdict() -> None:
     """Deliberately break the log path itself (read-only .agentic/) and
     confirm the hook still returns its normal verdict."""
@@ -445,6 +495,7 @@ def test_unwritable_log_dir_does_not_change_verdict() -> None:
         )
 
 
+@_raises_on_failure
 def test_bad_detail_still_writes_canonical_row() -> None:
     """enforcement_log.log_fire must degrade a non-serializable `detail`
     to the canonical 4-field line rather than losing the row."""
@@ -487,6 +538,7 @@ def test_bad_detail_still_writes_canonical_row() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_cap_reached_path_logs() -> None:
     print("\nCap-reached allow path:")
     cwd = make_cwd()
@@ -524,6 +576,7 @@ def test_cap_reached_path_logs() -> None:
 # ---------------------------------------------------------------------------
 
 
+@_raises_on_failure
 def test_no_message_text_path_logs() -> None:
     print("\nNo-message-text allow path:")
     cwd = make_cwd()
@@ -550,6 +603,7 @@ def test_no_message_text_path_logs() -> None:
     )
 
 
+@_raises_on_failure
 def test_counter_write_failure_path_logs() -> None:
     print("\nCounter-write-failure allow path:")
     cwd = make_cwd()
@@ -579,20 +633,52 @@ def test_counter_write_failure_path_logs() -> None:
     )
 
 
+@_raises_on_failure
+def test_every_test_function_is_wrapped() -> None:
+    """Every test_* in this module must carry @_raises_on_failure.
+
+    Without it, a check()-based test function returns None whether or not
+    its assertions held, so `pytest <file>` reports a false GREEN. This
+    guard is what stops a future 13th test from silently reintroducing
+    that vacuous mode; it is deliberately derived from the module's live
+    contents rather than a hand-maintained list of names.
+    """
+    unwrapped = sorted(
+        name
+        for name, obj in globals().items()
+        if name.startswith("test_")
+        and callable(obj)
+        and not getattr(obj, "_raises_on_failure", False)
+    )
+    check(
+        "every test_* function carries @_raises_on_failure",
+        not unwrapped,
+        "unwrapped: %r" % (unwrapped,),
+    )
+
+
+# Script-mode case list. Kept derived-adjacent: main() runs exactly the
+# module's wrapped test_* callables, so a new test cannot be added to the
+# file and silently skipped by the script runner either.
+def _all_test_functions():
+    return [
+        obj
+        for _name, obj in sorted(globals().items())
+        if _name.startswith("test_") and callable(obj)
+    ]
+
+
 def main() -> None:
     print("Fire-log wiring regression tests for enforce-no-abdication.py")
-    test_deny_path_logs()
-    test_allow_path_logs()
-    test_compliant_ballot_allow_is_distinguishable()
-    test_negative_gate_token_recorded()
-    test_gate_token_never_leaks_pii()
-    test_no_rows_when_guard_inert()
-    test_raising_log_fire_does_not_suppress_verdict()
-    test_unwritable_log_dir_does_not_change_verdict()
-    test_bad_detail_still_writes_canonical_row()
-    test_cap_reached_path_logs()
-    test_no_message_text_path_logs()
-    test_counter_write_failure_path_logs()
+    for fn in _all_test_functions():
+        # The decorator re-raises so pytest sees a failure; script mode
+        # deliberately swallows it here so every case still runs and the
+        # aggregate below stays the single source of the exit code. The
+        # failures themselves are already recorded in _failures by check().
+        try:
+            fn()
+        except AssertionError:
+            pass
 
     print()
     if _failures:

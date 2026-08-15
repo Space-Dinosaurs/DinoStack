@@ -35,6 +35,12 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
+                      bin/ds-evaluate (reads .agentic/.enforcement-fires.jsonl for its
+                      signal 3 per-hook deny/allow_advisory tallies and its
+                      newest_ts/last_10_days figures);
+                      /ds-failure-audit (reads .agentic/.enforcement-fires.jsonl as an
+                      OPTIONAL supplementary source in its Step 0 reading list and Step 2
+                      brief);
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render

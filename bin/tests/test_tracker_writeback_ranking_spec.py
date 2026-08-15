@@ -1240,6 +1240,129 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
         )
 
 
+# ---------------------------------------------------------------------------
+# _fire_log_test_helper.py's downstream-consumer count, pinned by DERIVATION.
+#
+# Deliberately NOT a _ENFORCER_SUBCOUNT_SITES-style literal-string pin. A
+# literal pin asserts "the file says nine"; it goes stale the moment a tenth
+# importer appears and, worse, it has to be hand-updated by the same person
+# who just hand-counted. This derives the truth from the importers on disk
+# and compares every surface form against it, so it cannot be satisfied by
+# a hand-count and cannot go stale.
+#
+# The prior round corrected the NUMBER but left it unenforced: the Skeptic
+# corrupted 9 -> 4 in both surface forms and every gate stayed green. The
+# manifest states the count three ways (word form in the leading comment,
+# numeral in the docstring field, and the enumerated filename list); all
+# three are checked below, because a single-form check is exactly the
+# numeral-blind-spot failure this repo has shipped before.
+# ---------------------------------------------------------------------------
+_FIRE_LOG_HELPER_PATH = REPO_ROOT / "hooks" / "tests" / "_fire_log_test_helper.py"
+
+_NUMBER_WORDS = {
+    1: "one",
+    2: "two",
+    3: "three",
+    4: "four",
+    5: "five",
+    6: "six",
+    7: "seven",
+    8: "eight",
+    9: "nine",
+    10: "ten",
+    11: "eleven",
+    12: "twelve",
+    13: "thirteen",
+    14: "fourteen",
+    15: "fifteen",
+    16: "sixteen",
+    17: "seventeen",
+    18: "eighteen",
+    19: "nineteen",
+    20: "twenty",
+}
+
+
+def _derive_fire_log_helper_importers() -> set[str]:
+    """The live importer set, read off disk - never a hand-maintained list."""
+    tests_dir = _FIRE_LOG_HELPER_PATH.parent
+    importers = set()
+    for path in sorted(tests_dir.glob("*.py")):
+        if path.name == _FIRE_LOG_HELPER_PATH.name:
+            continue
+        if "_fire_log_test_helper" in path.read_text(encoding="utf-8"):
+            importers.add(path.name)
+    return importers
+
+
+def _flatten_manifest(text: str) -> str:
+    """Strip leading `#` comment markers and collapse whitespace.
+
+    The manifest wraps across lines in two different styles (a `#` comment
+    block and a docstring), so every assertion below runs against one flat
+    string rather than depending on where the author happened to wrap.
+    """
+    lines = [re.sub(r"^\s*#\s?", "", line) for line in text.splitlines()]
+    return re.sub(r"\s+", " ", " ".join(lines))
+
+
+def test_fire_log_helper_consumer_count_is_derived_not_hand_counted():
+    importers = _derive_fire_log_helper_importers()
+    expected_n = len(importers)
+
+    # Guard against a vacuous pass: if the glob or the marker string ever
+    # stops matching, this test must fail loudly rather than compare an
+    # empty set against an empty set.
+    assert expected_n >= 2, (
+        "derivation found only %d importer(s) of _fire_log_test_helper.py - "
+        "the derivation itself is probably broken, which would make every "
+        "assertion below vacuous" % expected_n
+    )
+
+    raw = _FIRE_LOG_HELPER_PATH.read_text(encoding="utf-8")
+    flat = _flatten_manifest(raw)
+
+    # Surface form 1: the numeral in the `Downstream consumers (N; ...)` field.
+    numeral_match = re.search(r"Downstream consumers \((\d+);", flat)
+    assert numeral_match is not None, (
+        "_fire_log_test_helper.py lost its `Downstream consumers (N;` numeral "
+        "form - the derived count pin cannot check what it cannot find"
+    )
+    assert int(numeral_match.group(1)) == expected_n, (
+        "_fire_log_test_helper.py declares %s downstream consumers (numeral "
+        "form) but %d files actually import it: %s"
+        % (numeral_match.group(1), expected_n, sorted(importers))
+    )
+
+    # Surface form 2: the word form in the leading comment block.
+    word_match = re.search(
+        r"imported by the ([a-z]+) enforce-\*\.py fire-log regression tests", flat
+    )
+    assert word_match is not None, (
+        "_fire_log_test_helper.py lost its word-form consumer count in the "
+        "leading comment block"
+    )
+    expected_word = _NUMBER_WORDS.get(expected_n)
+    assert expected_word is not None, (
+        "no word form known for %d - extend _NUMBER_WORDS" % expected_n
+    )
+    assert word_match.group(1) == expected_word, (
+        "_fire_log_test_helper.py's leading comment says '%s' importers but %d "
+        "files actually import it: %s"
+        % (word_match.group(1), expected_n, sorted(importers))
+    )
+
+    # Surface form 3: the enumerated filename list must BE the derived set,
+    # which catches an omitted entry and a phantom entry alike.
+    declared = set(re.findall(r"test-enforce-[a-z0-9-]+\.py", raw))
+    assert declared == importers, (
+        "_fire_log_test_helper.py's enumerated consumer list disagrees with "
+        "the files on disk.\n  declared but not importing: %s\n  importing but "
+        "not declared: %s"
+        % (sorted(declared - importers), sorted(importers - declared))
+    )
+
+
 def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
     for path in TOGGLE_BULLET_FILES:
         text = path.read_text(encoding="utf-8")
