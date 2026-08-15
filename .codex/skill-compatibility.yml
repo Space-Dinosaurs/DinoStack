@@ -42,16 +42,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "0757ad83fcd9c17f049d57e56273d1558f51ede442adc181e2c5640b165c2673",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/rules/conventions.md",
       "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
       "kind": "operational",
@@ -1042,6 +1032,16 @@
       "source_token": "Agent"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "7c4eea784188ad90f0d239ea2766dee16ebf2cefce11fa458e650b29d3be67f3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": ".agentic/presets.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/presets.yml",
       "kind": "operational",
@@ -1562,6 +1562,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "b577752ee510e63f26cf610c39bf7368f8c811db14b34351430bbb26dd1caea8",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
       "expected_target": "git worktree add",
       "generated_token": "the explicit Codex worktree bootstrap contract above",
       "kind": "operational",
@@ -1650,16 +1660,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "hooks/enforce-skeptic-round-cap.py"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "be4c947a867346da1d1a990b918411d106e6708d330ca280a5ffa82f91c56afd",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": ".claude/",
@@ -1760,6 +1760,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "cb14632931895677c4e5166970f4ff8e7f47e9382a726dfb22e33cda514bdeeb",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "Agent",
@@ -2160,16 +2170,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "f663273c1f09e67555f63b50e658738fdc4846a6dfa0ff8e1584c77192fbe165",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "AskUserQuestion"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
