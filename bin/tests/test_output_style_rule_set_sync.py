@@ -1,62 +1,42 @@
 #!/usr/bin/env python3
 """
-Purpose: Regression guard for the `dinostack` output style's rule-set drift
-         (DS-171 round-3 Skeptic Major 3). DS-171 moved four turn-shape
-         rules (status-only, volume, answer relevance, self-narrating
-         candor) out of `hooks/enforce-turn-shape.py` and into the
-         always-injected `dinostack` Claude Code output style
-         (`content/output-styles/dinostack.md`). A later change added a
-         FIFTH rule, editorial addenda - the ban on any conductor-selected
-         item carrying none of the four turn warrants, in any position in
-         the turn and whether or not it is bundled, of which a labelled
-         package of such observations is the canonical form and not the
-         boundary, carrying
-         `content/references/conductor-turn-format.md` §5 ban 7. That one
-         was never hook-mechanized, so it was not "moved" from anywhere;
-         it is nonetheless part of the same rule set and subject to the
-         same drift guard. That rule set is then
-         RESTATED, by name, at ten separate sites with no mechanical check
-         tying them together: `docs/index.html`, `README.md`,
-         `docs/configuration-reference.md`, `docs/safe-configuration.md`
-         (the latter two added round 4, Skeptic Minor 2),
-         `hooks/enforce-turn-shape.py`'s module docstring,
-         `content/references/conductor-turn-format.md`'s DS-171 note, and
-         `content/references/risk-config-and-tiers.md`,
-         `content/references/conventions-detail.md`, and
-         `content/commands/ds-init-project.md` (added round 5, Skeptic
-         Major 1 - these three had been retiring only the answer-relevance
-         check by name and omitting status-only and volume), and
-         `docs/components.md` (added round 6, Skeptic Major - this site
-         had never been added to this guard and was found stating an
-         entirely stale description of the retired mechanism). This is
-         exactly the shape that caused DS-171 round 2's Skeptic Critical
-         (a stale cross-file assertion nothing pinned) - this spec closes
-         the same gap for the rule-SET NAME, not just the
-         retired-mechanism prose already fixed in round 3. Round 4
-         (Skeptic Minor 1) additionally closed the inverse direction: a
-         topic REMOVED from the style, left stale at a site, was
-         previously invisible to a contains-every-current-topic check
-         alone - see `_assert_no_stale_topics`.
+Purpose: Regression guard for the `dinostack` output style's rule-set drift.
+         The `dinostack` Claude Code output style
+         (`content/output-styles/dinostack.md`) carries five turn-shape
+         rule topics - status-only, volume, answer relevance,
+         self-narrating candor, editorial addenda - and that set is
+         RESTATED, by name, at ten other sites with no mechanical check
+         tying them together (see `Upstream deps` below). A stale
+         cross-file assertion nothing pins is the defect class this spec
+         exists to close.
 
-         The derived source of truth is `content/output-styles/dinostack.md`
-         itself: its YAML frontmatter `description:` field states the rule
-         set as a parenthesized, comma-separated list, and its body states
-         the same count as numbered rule headers (`**1. ...**` through
-         `**N. ...**`). Both are asserted to agree with each other, and
-         each named topic is asserted present, AND no topic the style no
-         longer defines is asserted stale-present (modulo hyphen/space
-         normalization), at each of the ten sites above.
+         The derived source of truth is the style file itself: its YAML
+         frontmatter `description:` field states the rule set as a
+         parenthesized, comma-separated list, and its body states those
+         topics under numbered rule headers (`**1. ...**` through
+         `**N. ...**`). There is deliberately no 1:1 equality between
+         header count and topic count - that equality encoded an
+         enumerated one-rule-per-topic structure DS-PILLAR1 deleted, since
+         one governing warrant rule now names four topics as instances
+         beside a single surviving volume rule. Both drift directions are
+         instead covered per-topic and per-rule: every declared topic must
+         be named in the body
+         (`test_body_covers_every_frontmatter_topic`) and every numbered
+         rule must itself name a declared topic
+         (`test_every_numbered_rule_maps_to_a_declared_topic`; a count
+         bound cannot do this - it leaves undetected growth wherever slack
+         remains). At each of the ten sites, every current topic is
+         asserted present AND no retired topic is asserted stale-present
+         (`_assert_no_stale_topics`), modulo hyphen/space normalization.
 
-         Round 8 (Skeptic Major A) added a second, orthogonal axis: a
-         DESCRIPTION invariant. Every check above pins only the topic
-         NAME, so six sites kept the pre-widening definition of the
-         editorial-addenda ban ("the ban on a labelled package of
-         conductor-selected observations") for a full round after ban 7
-         was widened to any warrantless conductor-selected item, bundled
-         or not - and every name check stayed green. See
+         A second, orthogonal axis pins the ban's DESCRIPTION, not just
+         its NAME: name-only checks let six sites keep a pre-widening,
+         package-scoped definition of the editorial-addenda ban while
+         staying green. See
          `test_no_site_scopes_editorial_addenda_to_a_labelled_package`
-         (conditional: fires only where a site describes the ban in
-         package terms) and
+         (conditional - fires only where a site describes the ban in
+         package or positional terms; its residual gaps are enumerated
+         above `_NARROW_SCOPE_RE`) and
          `test_widening_is_stated_at_both_normative_sources` (pins the
          rule at its two origins so a re-narrowing there cannot propagate
          outward as a newly-consistent narrow definition).
@@ -106,15 +86,13 @@ COMPONENTS_PATH = REPO_ROOT / "docs" / "components.md"
 
 # The closed universe of topics this rule set has ever named (DS-171: status-
 # only, volume, answer relevance, self-narrating candor, editorial addenda).
-# Keep this enumeration in step with the list literal below - it declares
-# itself the closed universe, so an enumeration shorter than the list is a
-# stale count-sync site of exactly the kind this file exists to catch. Used
-# only to detect
-# a STALE site that still names a topic the style no longer defines - a
-# one-sided "does the site contain every current topic" check cannot catch
-# that direction (Round 4 Skeptic Minor 1). This list is deliberately closed,
-# not derived, since it is the fixed vocabulary a rule can ever be renamed
-# out of; a genuinely NEW topic name requires adding it here in the same PR.
+# Used only to detect a STALE site that still names a topic the style no
+# longer defines - a one-sided "does the site contain every current topic"
+# check cannot catch that direction. Deliberately closed, not derived: it is
+# the fixed vocabulary a rule can ever be renamed out of, so a genuinely NEW
+# topic name requires adding it here in the same PR. Keep the prose above in
+# step with the literal below; an enumeration shorter than the list is a
+# stale count-sync site of exactly the kind this file exists to catch.
 ALL_KNOWN_RULE_TOPICS = [
     "status-only",
     "volume",
@@ -125,12 +103,9 @@ ALL_KNOWN_RULE_TOPICS = [
 
 def _hook_module_docstring() -> str:
     """The hook file's own module docstring via `ast.get_docstring` - the
-    true source boundary, not an approximated line count. DS-171 round 7:
-    the previous `HOOK_DOCSTRING_LINE_BUDGET = 60` constant covered only
-    the opening third of the actual module docstring (which runs to line
-    504), and happened to cut off genuine "status-only" prose that exists
-    later in the same docstring - a real false-negative-shaped gap
-    distinct from, but adjacent to, Major 1's identifier vacuity fix."""
+    true source boundary. An approximated line budget was tried first and
+    covered only the opening third of the real docstring, cutting off
+    genuine topic prose further down: a false-negative-shaped gap."""
     tree = ast.parse(HOOK_PATH.read_text(encoding="utf-8"))
     doc = ast.get_docstring(tree)
     assert doc, f"{HOOK_PATH} must have a module docstring"
@@ -208,18 +183,100 @@ def rule_set_topics(style_text) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def rule_header_count(style_text) -> int:
-    """Derived from the style body's own numbered rule headers
-    ('**1. ...**' etc.) - the second independent count this spec cross-
-    checks against the frontmatter topic count."""
-    return len(re.findall(r"^\*\*\d+\.\s", style_text, re.MULTILINE))
+def style_body(style_text) -> str:
+    """The style's BODY, with the YAML frontmatter stripped.
+
+    This exists because of a vacuity bug caught by mutation-testing the
+    first draft of `test_body_covers_every_frontmatter_topic`: that check
+    originally scanned the whole file, which CONTAINS the `description:`
+    line the topics are derived from. Every topic therefore matched
+    itself, and deleting a topic from the body entirely left the test
+    green. Operands must not share a source - see the repo's
+    "same-source operands are unfalsifiable" lesson. Splitting on the
+    closing `---` fence is asserted, not assumed, so a frontmatter shape
+    change fails loudly instead of silently restoring the vacuity."""
+    match = re.match(r"^---\n.*?\n---\n(.*)$", style_text, re.DOTALL)
+    assert match, (
+        f"{STYLE_PATH} must open with a YAML frontmatter block delimited by "
+        "'---' lines - this spec strips it so the body cannot satisfy a "
+        "topic-coverage check using the frontmatter's own description line"
+    )
+    body = match.group(1)
+    assert "description:" not in body, (
+        f"{STYLE_PATH}: frontmatter strip left a 'description:' line in the "
+        "body - the topic-coverage check would compare the description "
+        "against itself and pass vacuously"
+    )
+    return body
 
 
-def test_frontmatter_topic_count_matches_body_rule_count(rule_set_topics, rule_header_count):
-    assert rule_header_count == len(rule_set_topics), (
-        f"{STYLE_PATH} frontmatter names {len(rule_set_topics)} topics "
-        f"{rule_set_topics} but the body has {rule_header_count} numbered "
-        "rule headers - these must stay in sync"
+_RULE_HEADER_RE = re.compile(r"^\*\*(\d+)\.\s", re.MULTILINE)
+
+
+@pytest.fixture(scope="module")
+def rule_blocks(style_body) -> list[tuple[str, str]]:
+    """Each numbered rule as `(number, block_text)`, where the block runs
+    from its own `**N.**` header to the next header (or end of body).
+
+    Derived from `style_body`, never `style_text`, for the same
+    same-source-operands reason - see that fixture's docstring."""
+    starts = [m.start() for m in _RULE_HEADER_RE.finditer(style_body)]
+    numbers = [m.group(1) for m in _RULE_HEADER_RE.finditer(style_body)]
+    bounds = starts + [len(style_body)]
+    return [(numbers[i], style_body[bounds[i]:bounds[i + 1]]) for i in range(len(starts))]
+
+
+def test_body_covers_every_frontmatter_topic(rule_set_topics, style_body):
+    """Drift direction 1: a declared topic dropped from the body. See the
+    module manifest for why this replaced a header/topic count equality."""
+    normalized_body = _normalize(style_body)
+    missing = [t for t in rule_set_topics if not _topic_pattern(t).search(normalized_body)]
+    assert not missing, (
+        f"{STYLE_PATH} frontmatter declares topic(s) {missing} that the body "
+        "never names. Either the body dropped a rule the description still "
+        "advertises (and the ten restatement sites are now stale), or the "
+        "description names a topic that was never written - fix whichever "
+        "it is; do not delete the topic from the description without also "
+        "updating the ten sites this spec checks."
+    )
+
+
+def test_every_numbered_rule_maps_to_a_declared_topic(rule_set_topics, rule_blocks):
+    """Drift direction 2: a numbered rule added to the body with no
+    declared topic, which would never reach the ten restatement sites.
+    Headers may still be FEWER than topics (one governing rule may name
+    several); only the converse is closed. See the module manifest.
+
+    KNOWN EVASIONS - this maps a rule to a topic by mere mention, so a
+    block that names a topic incidentally maps to it regardless of the
+    rule's actual subject. Constructed cases that pass:
+      1. Incidental mention - "not to be confused with the volume rule
+         above", "not an instance of answer relevance".
+      2. Mention inside a fenced code block - not stripped before matching.
+      3. Negated mention - a rule whose subject is swapped while it
+         retains "This is not a volume rule".
+    A rule split across two headers where only the first names a topic
+    IS caught. These are accepted limits, not oversights: the tripwire
+    targets an invented rule stated in good faith, and the count bound it
+    replaced passed all three cases too."""
+    assert rule_blocks, (
+        f"{STYLE_PATH} body has no numbered `**N.**` rule headers at all - "
+        "refusing to certify a style with no stated rules as compliant"
+    )
+    unmapped = []
+    for number, block in rule_blocks:
+        normalized = _normalize(block)
+        if not any(_topic_pattern(t).search(normalized) for t in rule_set_topics):
+            header = block.splitlines()[0].strip()
+            unmapped.append(f"**{number}.** ({header[:80]})")
+    assert not unmapped, (
+        f"{STYLE_PATH} body has numbered rule(s) {unmapped} whose text names "
+        f"none of the frontmatter's declared topics {rule_set_topics}. A rule "
+        "the description does not name cannot be synced to the ten "
+        "restatement sites, so it grows the rule set invisibly - the exact "
+        "re-enumeration DS-PILLAR1 removed. Either state the rule as an "
+        "instance of a topic already declared, or add its topic to the "
+        "description (and to ALL_KNOWN_RULE_TOPICS) in the same change."
     )
 
 
@@ -337,7 +394,12 @@ def test_safe_configuration_names_full_rule_set(rule_set_topics):
 
 def test_conductor_turn_format_names_full_rule_set(rule_set_topics):
     text = CTF_PATH.read_text(encoding="utf-8")
-    marker = "DS-171: bans 2 and 5"
+    # Marker was "DS-171: bans 2 and 5". DS-PILLAR1 collapsed the numbered
+    # ban list into one governing warrant rule plus named instances, so a
+    # marker keyed to ban NUMBERS no longer resolves. This one is keyed to
+    # the note's subject instead, which is stable across renumbering - the
+    # defect the numbered marker kept re-encoding.
+    marker = "Mechanization status (DS-171)"
     assert marker in text, (
         f"{CTF_PATH} must contain the DS-171 note describing what moved to "
         "the dinostack output style"
@@ -403,37 +465,25 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
     _assert_no_stale_topics(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
 
 
-# --- Description invariant (DS-171 round 8, Skeptic Major A) --------------
-# The topic-NAME checks above are the "prose-invariant tests pin promise not
-# mechanism" shape: they assert each site NAMES `editorial addenda`, never
-# that the site's DESCRIPTION of that ban matches the rule. Six sites
-# therefore sat on the pre-widening definition ("the ban on a labelled
-# package of conductor-selected observations") for a full round after ban 7
-# was widened, with every name check green.
+# --- Description invariant ------------------------------------------------
+# The topic-NAME checks above assert each site NAMES `editorial addenda`,
+# never that the site's DESCRIPTION of that ban matches the rule - the
+# "prose-invariant tests pin promise not mechanism" shape. This invariant is
+# deliberately CONDITIONAL rather than a wording pin: it fires only where a
+# site describes the ban narrowly at all, and then requires the widening in
+# the same paragraph. A site that never does (docs/index.html today) stays
+# out of scope - the check targets the defect shape, not a house style.
 #
-# The invariant below is deliberately CONDITIONAL rather than a wording pin:
-# it fires only where a site chooses to describe the ban in terms of a
-# labelled package at all, and then requires the widening to be present in
-# the same neighbourhood. A site that never mentions a labelled package
-# (docs/index.html today) is unaffected and stays out of scope - the check
-# targets the exact defect shape (a package-scoped definition presented as
-# the ban's boundary), not a house style.
-#
-# Round 9 (Skeptic Minor) widened the trigger vocabulary. The round-8 form was
-# the single literal `labell?ed\s+package`, which a synonym defeats by
-# construction: the reviewing Skeptic replaced README's gloss with "the ban on
-# a trailing bundled group of conductor-selected observations, such as a
-# section headed ..." and every test stayed green, even though that phrasing
-# re-narrows the ban to a package AND re-introduces the positional ("trailing")
-# scoping ban 7 was explicitly corrected away from - this branch's two original
-# defects, undetected. The trigger below therefore covers two axes:
+# The trigger covers two axes, because a single literal (`labell?ed\s+
+# package`) is defeated by any synonym:
 #
 #   * PACKAGE shape - a narrowing modifier (labelled, bundled, grouped,
 #     packaged, ...) in front of a container noun (package, bundle, group,
 #     cluster, batch, set, section, block), allowing up to two intervening
 #     words so "trailing bundled group" and "labelled trailing section" match.
 #   * POSITIONAL scoping - trailing / closing / opening / appended /
-#     "at the end of", which ban 7 names as explicitly NOT part of the shape.
+#     "at the end of", which the **Editorial addenda.** rule names as
+#     explicitly NOT part of the shape.
 #
 # `_BAN_SUBJECT_RE` gates both. Without it, a widened vocabulary would fire on
 # any paragraph anywhere in these eleven files that happens to say "closing
@@ -457,8 +507,9 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
 #   4. Semantic re-narrowing with no lexical marker at all ("the ban applies
 #      when the conductor groups them together") is entirely invisible.
 # The invariant is a tripwire for the realistic near-miss, not a proof. The
-# normative statement of the ban is `content/references/conductor-turn-format.md`
-# §5 ban 7, and human review of any edit to a gloss remains load-bearing.
+# normative statement of the ban is the **Editorial addenda.** rule in
+# `content/references/conductor-turn-format.md`, and human review of any edit
+# to a gloss remains load-bearing.
 _NARROWING_MODIFIERS = (
     r"labell?ed|bundled|grouped|packaged|batched|clustered|"
     r"trailing|closing|opening|appended|final|concluding"
@@ -496,13 +547,13 @@ _BAN_SUBJECT_RE = re.compile(
 
 # Any of these phrasings is sufficient evidence the definition is NOT
 # narrowly scoped. All are in live use: the config-entry sites say "whether
-# or not it is bundled ... the canonical form, not the boundary"; ban 7 and
-# the style's rule 5 say "not its boundary". Round 9 added the POSITIONAL
-# widenings, because the trigger now covers the positional axis too and a
-# site can legitimately state the widening on that axis instead - ban 7's
-# own "Position is not part of the shape" and the DS-171 note's "ban 7 is now
-# position-independent" are both correct text that the package-only widening
-# list would have flagged as offenders.
+# or not it is bundled ... the canonical form, not the boundary"; the
+# **Editorial addenda.** rule and the style's editorial-addenda instance both
+# say "not its boundary". The POSITIONAL widenings are listed because the
+# trigger covers the positional axis too, and a site may legitimately state
+# the widening on that axis alone - "Position is not part of the shape" and
+# "in any position in the turn" are correct text a package-only widening list
+# would have flagged as offenders.
 _WIDENING_RE = re.compile(
     r"whether or not it is bundled|not the boundary|not its boundary|"
     r"position is not part of the shape|position[- ]independent|"
@@ -512,10 +563,11 @@ _WIDENING_RE = re.compile(
 
 # Scope is the PARAGRAPH, not a character window. A definition and the
 # qualifier that bounds it live in the same block of prose at every live
-# site; a fixed char window instead splits ban 7 (whose widening sits at the
-# top of a very long paragraph while a legitimate non-definitional mention -
-# "belongs in the sentence where it is relevant, not in a labelled package" -
-# sits at the bottom) and produces a false positive on correct text.
+# site; a fixed char window instead splits the **Editorial addenda.** rule
+# (whose widening sits at the top of a very long paragraph while a legitimate
+# non-definitional mention - "belongs in the sentence where it is relevant,
+# not in a labelled package" - sits at the bottom) and produces a false
+# positive on correct text.
 # Whitespace inside a block is normalized first, because a hard-wrapped
 # docstring breaks "whether or not it is bundled" across a newline plus
 # indent.
@@ -526,21 +578,15 @@ _PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
 # no match today - if a future edit adds a package-scoped gloss there, this
 # check must see it.
 #
-# THIS FILE IS DELIBERATELY EXCLUDED (round 9, Skeptic Minor - decision
-# stated here rather than left implicit). It is not a restatement SITE; it is
-# the guard, and it necessarily QUOTES the defect in order to describe what
-# it catches: the pre-widening gloss, round 1's and round 2's relocations of
-# Major C, and the exact evasion string the round-8 trigger failed on are all
-# reproduced verbatim in comments above. Adding this path would make the
-# invariant fire on its own documentation, and the only ways out would be to
-# stop quoting the defect (losing the record of what the guard is for) or to
-# sprinkle widening phrases into comments describing narrow historical text
-# (making them false). The residual cost is real and accepted: a
-# re-narrowing of THIS file's own module-docstring gloss is not caught
-# mechanically. It is bounded by the fact that this gloss is documentation of
-# a guard, not a normative statement of the rule - the two normative sources
-# are pinned by `test_widening_is_stated_at_both_normative_sources`, and a
-# reader of a re-narrowed gloss here is one `git grep` from ban 7 itself.
+# THIS FILE IS DELIBERATELY EXCLUDED. It is not a restatement SITE; it is the
+# guard, and it necessarily QUOTES the narrow forms it catches. Adding this
+# path would make the invariant fire on its own documentation, and the only
+# ways out would be to stop quoting the defect or to sprinkle widening
+# phrases into comments describing narrow historical text (making them
+# false). Accepted cost: a re-narrowing of THIS file's own gloss is not
+# caught mechanically. It is bounded - the gloss documents a guard rather
+# than stating the rule, and the two normative sources are pinned by
+# `test_widening_is_stated_at_both_normative_sources`.
 _DESCRIPTION_INVARIANT_PATHS = [
     STYLE_PATH,
     INDEX_PATH,
@@ -580,38 +626,32 @@ def test_no_site_scopes_editorial_addenda_to_a_labelled_package(site_path):
         f"{site_path} describes the editorial-addenda ban in package or "
         f"positional terms in the paragraph(s) starting at line(s) "
         f"{offenders} without stating that the "
-        "package is the canonical form and not the boundary. Ban 7 in "
-        f"{CTF_PATH} covers any conductor-selected item carrying none of "
+        "package is the canonical form and not the boundary. The "
+        f"**Editorial addenda.** rule in {CTF_PATH} covers any "
+        "conductor-selected item carrying none of "
         "the four turn warrants, bundled or not, IN ANY POSITION in the "
         "turn - a package-scoped or trailing-scoped gloss understates it. "
         "Match the wording already used at the other sites."
     )
 
 
-# --- Disposition non-restatement invariant (round 9, Skeptic Major C) -----
-# Ban 7's **Disposition.** paragraph routes a process observation to the PR
-# body and then defers ADMISSION into `## Operator decisions` wholly to the
-# kernel gate in `content/sections/02-delegation.md`. It must not paraphrase
-# that gate's conditions, in full or in summary. This is the single
-# highest-recurrence defect on this branch and it has relocated TWICE rather
-# than recurring verbatim:
+# --- Disposition non-restatement invariant --------------------------------
+# The **Editorial addenda.** rule's **Disposition.** paragraph routes a
+# process observation to the PR body and defers ADMISSION into
+# `## Operator decisions` wholly to the kernel gate in
+# `content/sections/02-delegation.md`. It must not paraphrase that gate's
+# conditions, in full or in summary. This defect relocated twice rather than
+# recurring verbatim, on two DIFFERENT axes, so the guard pins both:
 #
-#   round 1: a weaker SUFFICIENT condition - "If the observation instead
-#            changes what the operator would do, it is not an addendum at all
-#            - it is a `## Operator decisions` item, and it takes that shape."
-#            Contains none of the gate's condition tokens, so a token check
-#            alone cannot see it; what it drops is the DENIAL.
-#   round 2: a stricter INCOMPLETE necessary condition - "which admits an
-#            item only after the six-source default derivation stated there
-#            has already been run and returned **no derivable default**".
-#            That silently dropped the hard-stop disjunct and so licensed
-#            proceeding unilaterally on an irreversible action.
+#   * a weaker SUFFICIENT condition ("it IS a `## Operator decisions` item")
+#     carries none of the gate's condition tokens, so a token check alone
+#     cannot see it; what it drops is the DENIAL, pinned as present below.
+#   * a stricter but INCOMPLETE necessary condition (naming the six-source
+#     derivation and a `no derivable default` result while dropping the
+#     hard-stop disjunct, thereby licensing unilateral action on an
+#     irreversible change) is caught by the condition tokens being ABSENT.
 #
-# Rounds 1 and 2 fail on different axes, so this guard pins both: the denial
-# sentence must be PRESENT (round 1's axis) and the gate's condition tokens
-# must be ABSENT (round 2's axis), with the deferral clause present as the
-# third leg. Majors A and B each shipped with a mechanical guard in the same
-# commit; round 3's fix for this one shipped unpinned, with no stated reason.
+# The deferral clause's presence is the third leg.
 _DISPOSITION_MARKER = "**Disposition.**"
 
 # Tokens that appear in the kernel gate's admission conditions
@@ -656,7 +696,8 @@ def _flatten_for_tokens(text: str) -> str:
 
 
 def _disposition_paragraph() -> str:
-    """Locate ban 7's Disposition paragraph, failing LOUDLY if it cannot be
+    """Locate the editorial-addenda rule's Disposition paragraph, failing
+    LOUDLY if it cannot be
     found or looks truncated.
 
     The vacuity guard is the point of this helper. Every check below is an
@@ -670,7 +711,8 @@ def _disposition_paragraph() -> str:
     blocks = [b for b in _PARAGRAPH_SPLIT_RE.split(text) if _DISPOSITION_MARKER in b]
     assert len(blocks) == 1, (
         f"{CTF_PATH}: expected exactly ONE paragraph containing "
-        f"{_DISPOSITION_MARKER!r} (ban 7's Disposition), found {len(blocks)}. "
+        f"{_DISPOSITION_MARKER!r} (the editorial-addenda rule's "
+        f"Disposition), found {len(blocks)}. "
         "This guard asserts properties OF that paragraph and cannot run "
         "without it - if the Disposition was renamed, split, or duplicated, "
         "update this locator in the same change rather than letting the "
@@ -693,15 +735,14 @@ def test_disposition_locator_is_not_vacuous():
 
 
 def test_disposition_states_the_denial_and_the_deferral():
-    """Round 1's relocation replaced the denial with an affirmative
-    sufficient condition ("it IS a `## Operator decisions` item"), which
-    carries none of the gate's condition tokens and is therefore invisible
-    to the token check below. Pinning the denial's presence is what closes
-    that axis."""
+    """Closes the sufficient-condition axis: an affirmative "it IS a
+    `## Operator decisions` item" carries none of the gate's condition
+    tokens and is invisible to the token check below."""
     flat = _flatten_for_tokens(_disposition_paragraph())
     missing = [p for p in _DISPOSITION_REQUIRED_PHRASES if p not in flat]
     assert not missing, (
-        f"{CTF_PATH}: ban 7's Disposition paragraph no longer states "
+        f"{CTF_PATH}: the editorial-addenda Disposition paragraph no "
+        "longer states "
         f"{missing}. The first phrase is the DENIAL that lets the paragraph "
         "say something useful without asserting an admission condition "
         "(dropping it is how round 1's sufficient-condition relocation "
@@ -711,15 +752,14 @@ def test_disposition_states_the_denial_and_the_deferral():
 
 
 def test_disposition_does_not_restate_the_kernel_admission_gate():
-    """Round 2's relocation paraphrased the gate as a necessary condition
-    naming the six-source derivation and a `no derivable default` result,
-    dropping the hard-stop disjunct - a summary that was both a drift site
-    and, because it was incomplete, wrong in a way that licensed proceeding
-    unilaterally on an irreversible action."""
+    """Closes the necessary-condition axis: a paraphrase of the gate is a
+    second place for it to drift, and an INCOMPLETE paraphrase is actively
+    wrong. See the block comment above `_DISPOSITION_MARKER`."""
     flat = _flatten_for_tokens(_disposition_paragraph())
     found = [t for t in _GATE_CONDITION_TOKENS if t in flat]
     assert not found, (
-        f"{CTF_PATH}: ban 7's Disposition paragraph restates the kernel "
+        f"{CTF_PATH}: the editorial-addenda Disposition paragraph restates "
+        "the kernel "
         f"admission gate - it contains condition token(s) {found}. That "
         "paragraph states, in its own words, that "
         "content/sections/02-delegation.md is the single normative "
@@ -731,13 +771,22 @@ def test_disposition_does_not_restate_the_kernel_admission_gate():
     )
 
 
-def test_widening_is_stated_at_both_normative_sources():
+def test_widening_is_stated_at_both_normative_sources(style_body):
     """The conditional check above can only compare a site against the rule
     if the rule itself still states the widening. Pin it at BOTH normative
     sources so a silent re-narrowing at the origin goes red here rather
     than propagating outward as a newly-consistent narrow definition."""
-    for path, anchor in ((CTF_PATH, "editorial addendum"), (STYLE_PATH, "No editorial addenda")):
-        text = path.read_text(encoding="utf-8")
+    # STYLE_PATH is checked against `style_body`, never the whole file: its
+    # frontmatter `description:` line names "editorial addenda" verbatim, so
+    # a whole-file anchor would be satisfied by the description alone no
+    # matter what the body says - the same-source-operands vacuity
+    # `style_body` exists to prevent. The anchor is the italic body marker,
+    # which the frontmatter cannot supply.
+    sources = (
+        (CTF_PATH, "editorial addendum", CTF_PATH.read_text(encoding="utf-8")),
+        (STYLE_PATH, "*Editorial addenda.*", style_body),
+    )
+    for path, anchor, text in sources:
         assert anchor.lower() in text.lower(), f"{path} must state the editorial-addenda rule"
         assert _NARROW_SCOPE_RE.search(text), (
             f"{path} must name the labelled-package form of the ban so the "
