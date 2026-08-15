@@ -125,7 +125,15 @@ def run_hook_with_raising_log_fire(
     #     to emit a block it cannot loop-bound), so an expected BLOCK would
     #     silently become an allow and the test would pass vacuously while
     #     proving nothing about log_fire at all.
-    for _lib_basename in ("git_worktree.py", "loop_guard.py"):
+    #   repo_root.py    - enforce-no-abdication.py (resolve_agentic_cwd, to
+    #     anchor its config.json read to the repo root) and
+    #     lib/enforcement_log.py itself (to anchor its write). Added by
+    #     DS-171; a failed import makes enforce-no-abdication.py exit 0
+    #     BEFORE the config read, so the expected BLOCK silently becomes a
+    #     no-op - and because an allow ALSO produces rc=0 with empty stdout,
+    #     the ALLOW half of the same pair keeps passing while the BLOCK half
+    #     fails, which is exactly how this surfaced.
+    for _lib_basename in ("git_worktree.py", "loop_guard.py", "repo_root.py"):
         _real_lib_path = os.path.join(_HOOKS_DIR, "lib", _lib_basename)
         if os.path.isfile(_real_lib_path):
             shutil.copyfile(_real_lib_path, os.path.join(lib_dir, _lib_basename))

@@ -14,7 +14,7 @@ lists. Other `lib/` modules have their own, different consumer counts
 script", stale since the trio was added; round-4 rework, Minor 1: the
 "5/1/6" figures scoped this sentence to the trio only, since the same
 sentence used to read as a `lib/`-wide claim and contradicted
-`lib/enforcement_log.py`'s own row, which is consumed by ten of the eleven
+`lib/enforcement_log.py`'s own row, which is consumed by all twelve
 enforce-*.py hooks, not five). Each script ships with a
 module-manifest docstring; read the script for full detail. This file is the
 module-group map.
@@ -196,7 +196,11 @@ contract the CI job uses.
 
 **Known-live false-green class.** Collecting these files with `pytest`
 DISCARDS the returned failure count, so a suite reports "N passed" while
-every one of its checks failed. Two files currently have this property:
+every one of its checks failed. The files that currently have this property
+are enumerated below - the list carries no cardinal on purpose, because a
+hand-typed count of it goes stale silently the moment a new zero-arg `-> int`
+returner appears. `bin/tests/test_tracker_writeback_ranking_spec.py` derives
+the true set off disk and asserts this list matches it in both directions:
 
 - `hooks/tests/test-doc-sync-abdication-guard.py` - all 7 `test_*` functions
   are zero-arg `-> int` failure-count returners.
@@ -205,7 +209,7 @@ every one of its checks failed. Two files currently have this property:
 
 This is recorded here rather than left in a commit message because a commit
 message is not a surface anyone reads before running a suite, and it is
-recorded in `hooks/AGENTS.md` rather than only in those two files because
+recorded in `hooks/AGENTS.md` rather than only in those files because
 the person misled by the false green is running the suite, not necessarily
 reading it. It is deliberately NOT fixed: converting them to `assert` is a
 different contract with a different fix, out of scope for whatever change

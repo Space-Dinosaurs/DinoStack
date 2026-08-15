@@ -167,23 +167,25 @@ Observability: every VERDICT path this hook reaches AFTER the
                clean-turn classified path), each carrying a `detail` object
                recording the gate/classifier state that produced it. This
                hook is the sole EVERY-VERDICT caller of that module; the
-               other ten log actions only (see that module's manifest for
-               why the postures differ). Deny-only logging would have left
+               other eleven log actions only (see that module's manifest
+               for why the postures differ). Deny-only logging would have left
                the central question - does a canonical `## Operator
                decisions` block reach a classifier at all? - unanswerable,
                since "the heading never appears" and "the heading appears
                constantly and every block is compliant" are both silence.
 
-               Three paths deliberately do NOT log, all of them upstream of
-               the enablement gate: the kill switch, a malformed/non-dict
-               payload or absent cwd (no usable log target), and
-               stop_hook_active re-entrancy. A fourth, the loop-guard load
-               failure, is also unlogged for the same structural reason -
-               it is checked BEFORE the config read, so logging there would
-               write into every repo on disk regardless of whether that
-               repo ever enabled this guard. Moving that check after the
-               config read to make it loggable would be a behavior change
-               and is deliberately not done.
+               The paths that deliberately do NOT log are exactly those
+               reached BEFORE the enablement gate, and the list carries no
+               cardinal on purpose - it moves whenever an early-exit is
+               added: the kill switch, a malformed/non-dict payload or
+               absent cwd (no usable log target), stop_hook_active
+               re-entrancy, the loop-guard load failure, and the
+               repo-root-resolver load failure. All share one structural
+               reason - each is checked BEFORE the config read, so logging
+               there would write into every repo on disk regardless of
+               whether that repo ever enabled this guard. Moving any of
+               those checks after the config read to make it loggable would
+               be a behavior change and is deliberately not done.
 
                One POST-gate exit is also unlogged, and it is the single
                counterexample to the opening sentence's scope: main()'s
@@ -1427,7 +1429,8 @@ def main() -> None:
             reason = _ABDICATION_REASON
             fired = "abdication"
         # Decision print comes FIRST, unconditionally, matching the deny-path
-        # convention in the other nine enforce-*.py hooks (see
+        # convention in every other enforce-*.py hook carrying this same
+        # note (see
         # hooks/lib/enforcement_log.py manifest "Failure modes"). Telemetry
         # is loaded and called only after the decision has reached stdout,
         # wrapped in its own try/except so a raising log_fire can never

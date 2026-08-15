@@ -8,7 +8,7 @@ Purpose: Shared fire-logging helper for AE's Python enforce-*.py
          load-bearing one.
 
          TWO CALLER POSTURES, both supported, chosen by the caller:
-           - ACTION-ONLY (ten of the eleven hooks): call only on a
+           - ACTION-ONLY (eleven of the twelve hooks): call only on a
              non-passthrough action - a deny, or an allow-with-advisory-
              reason. A silent allow never calls this, so the file stays
              small and cheap to read. This is the right posture for a
