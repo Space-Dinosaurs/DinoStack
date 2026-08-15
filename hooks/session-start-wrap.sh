@@ -26,6 +26,11 @@
 # Upstream deps: hooks/session-start-version-check.sh (version notice),
 #                hooks/lib/hooks-staleness-core.sh (hooks-snapshot staleness
 #                  nudge),
+#                hooks/lib/repo-root.sh (resolve_agentic_root - anchors every
+#                  .agentic/ read/write below to the repo root instead of the
+#                  raw payload cwd; empty output on resolution failure and
+#                  every guarded block SKIPS its write rather than falling
+#                  back to $cwd),
 #                jq OR a grep/sed fallback (extract `cwd` from stdin),
 #                node + hooks/wrap-daemon.js (detached daemon launch),
 #                .agentic/config.json (`deferred_wrap_daemon` toggle),
@@ -131,6 +136,16 @@ if [[ -z "$cwd" ]]; then
   cwd="${PWD:-.}"
 fi
 
+# --- Resolve the repo root ONCE, immediately after cwd is known ---
+# Anchors every .agentic/ read/write below to the repo root instead of the
+# raw payload cwd. On resolution failure resolved_root is an EMPTY STRING
+# and every guarded block below SKIPS its .agentic/ write entirely - never
+# falls back to $cwd, which would silently reproduce the bug this resolver
+# exists to fix. See hooks/lib/repo-root.sh.
+# shellcheck source=./lib/repo-root.sh
+source "$SCRIPT_DIR/lib/repo-root.sh"
+resolved_root="$(resolve_agentic_root "$cwd")"
+
 # --- (a) Version-update notice: reuse the existing version-check wrapper ---
 # It emits a JSON object; we want only its `systemMessage` text. Re-feed the
 # original payload on stdin (it drains and ignores it). Fail-open to empty.
@@ -170,8 +185,9 @@ fi
 # recency-label discrepancy in context.md (a convenience label, not committed work).
 # It self-heals on the next clean SessionStart once both sessions use new-code.
 # No "lost-update" of committed work occurs; the window is accepted and documented.
+if [[ -n "$resolved_root" ]]; then
 {
-  wd="$cwd/.agentic"
+  wd="$resolved_root/.agentic"
   STALE_MS=1800000  # 30 * 60 * 1000 ms - matches daemon default reclaim window
 
   # Ensure destination directories exist (idempotent).
@@ -208,7 +224,7 @@ fi
   # Uses wrapLockProvablyStaleLegacy from the lib (exit 0 = stale = move; else KEEP).
   # Fail-open: any node error is treated as KEEP (|| true).
   if [ -e "$wd/wrap.lock" ] && [ ! -e "$wd/wrap/lock" ]; then
-    if node -e 'try{const l=require(process.argv[1]); process.exit(l.wrapLockProvablyStaleLegacy(process.argv[2], Number(process.argv[3]))?0:1)}catch(_){process.exit(1)}' "$SCRIPT_DIR/lib/wrap-marker.js" "$cwd" "$STALE_MS" 2>/dev/null; then
+    if node -e 'try{const l=require(process.argv[1]); process.exit(l.wrapLockProvablyStaleLegacy(process.argv[2], Number(process.argv[3]))?0:1)}catch(_){process.exit(1)}' "$SCRIPT_DIR/lib/wrap-marker.js" "$resolved_root" "$STALE_MS" 2>/dev/null; then
       mv "$wd/wrap.lock" "$wd/wrap/lock" || true
     fi
   fi
@@ -219,10 +235,11 @@ fi
   # OLD path (one-time, for sessions that crashed mid-drain before migration):
   rm -f "$wd/.stop-deferred-activity.jsonl.draining."* 2>/dev/null || true
 } || true
+fi
 
 # --- (b) Auth-failed notice: surface a one-liner when the daemon flagged it ---
 auth_msg=""
-if [[ -f "$cwd/.agentic/wrap/daemon-auth-failed" ]]; then
+if [[ -n "$resolved_root" ]] && [[ -f "$resolved_root/.agentic/wrap/daemon-auth-failed" ]]; then
   auth_msg="deferred-wrap daemon could not authenticate; run \`claude auth login\` (see .agentic/wrap/daemon-auth-failed)."
 fi
 
@@ -230,20 +247,25 @@ fi
 # UNCONDITIONAL: not suppressed by the AGENTIC_WRAP_DAEMON loop-guard. Writing a
 # true fact is harmless; it only gates Step-0a staging (itself guard-suppressed).
 # create-if-absent, fully fail-open. This is what activates the feature on
-# existing installs without an install.sh re-run.
+# existing installs without an install.sh re-run. Guarded on resolved_root:
+# this is the single highest-volume litter producer in the repo when
+# unguarded (unconditional mkdir -p at a drifted cwd).
+if [[ -n "$resolved_root" ]]; then
 {
-  mkdir -p "$cwd/.agentic/wrap" 2>/dev/null || true
-  if [[ ! -f "$cwd/.agentic/wrap/claude-host" ]]; then
-    : > "$cwd/.agentic/wrap/claude-host" 2>/dev/null || true
+  mkdir -p "$resolved_root/.agentic/wrap" 2>/dev/null || true
+  if [[ ! -f "$resolved_root/.agentic/wrap/claude-host" ]]; then
+    : > "$resolved_root/.agentic/wrap/claude-host" 2>/dev/null || true
   fi
 } || true
+fi
 
 # --- (d) Launch the deferred-wrap daemon detached (toggle true, not guarded) ---
 # Gate 1: never spawn a daemon from inside a daemon-driven headless run.
 # Gate 2: only when `deferred_wrap_daemon` is true in the project config.
 # Mirrors the version-check-core.sh detached fire-and-forget pattern.
 daemon_enabled() {
-  local config="$cwd/.agentic/config.json"
+  [[ -n "$resolved_root" ]] || return 1
+  local config="$resolved_root/.agentic/config.json"
   [[ -f "$config" ]] || return 1
   python3 -c "
 import json, sys
@@ -260,7 +282,9 @@ if [[ "${AGENTIC_WRAP_DAEMON:-}" != "1" ]] && daemon_enabled; then
   if [[ -f "$DAEMON" ]] && command -v node >/dev/null 2>&1; then
     # Detached, fully-redirected so the hook returns immediately and never
     # blocks on the daemon. The daemon owns its own singleton pid lock, so a
-    # redundant launch is a cheap no-op.
+    # redundant launch is a cheap no-op. Deliberately passes the raw $cwd,
+    # not $resolved_root: wrap-daemon.js resolves internally via
+    # hooks/lib/repo-root.js (resolveAgenticCwd) at every .agentic/ access.
     nohup node "$DAEMON" "$cwd" </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
   fi

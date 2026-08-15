@@ -30,11 +30,15 @@ Public API (module-level function, no class):
               permissionDecisionReason). Truncated to 800 chars here so a
               pathological reason string cannot grow the log unbounded.
 
-Upstream deps: Python 3 stdlib only (json, os, datetime). No external
-               dependencies, no import of any other hooks/lib module.
-               Writes ONLY [cwd]/.agentic/.enforcement-fires.jsonl (creates
-               [cwd]/.agentic/ with os.makedirs(exist_ok=True) if absent).
-               Never reads any file.
+Upstream deps: Python 3 stdlib only (json, os, datetime, sys). Imports the
+               sibling hooks/lib/repo_root.py module (resolve_agentic_cwd)
+               via a sys.path.insert of this file's own directory - anchors
+               the write below to the repo root instead of the raw payload
+               cwd (or the os.getcwd() fallback when cwd is absent from the
+               payload). Writes ONLY
+               [resolved root]/.agentic/.enforcement-fires.jsonl (creates
+               that .agentic/ dir with os.makedirs(exist_ok=True) if
+               absent). Never reads any file.
 
 Downstream consumers: the ten enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
@@ -100,6 +104,10 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from repo_root import resolve_agentic_cwd  # noqa: E402
 
 _LOG_BASENAME = ".enforcement-fires.jsonl"
 # 800, not 400: enforce-planning-artifact-spawn's advisory reason embeds a
@@ -130,7 +138,11 @@ def log_fire(data, hook_name, decision, reason) -> None:
         if not cwd:
             cwd = os.getcwd()
 
-        agentic_dir = os.path.join(cwd, ".agentic")
+        # resolve_agentic_cwd walks up from cwd (whether it came from the
+        # payload or the os.getcwd() fallback above) to the nearest .git
+        # ancestor, so a drifted process cwd never determines the write
+        # location on its own.
+        agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
         log_path = os.path.join(agentic_dir, _LOG_BASENAME)
 

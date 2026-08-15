@@ -61,7 +61,10 @@
  * the asymmetry easier to audit, since each polarity now has exactly one
  * implementation instead of two copies that could silently drift apart.
  *
- * Upstream deps: Node built-ins only (fs, path). No npm dependencies. Reads
+ * Upstream deps: Node built-ins only (fs, path), plus ./repo-root.js
+ *                (resolveAgenticCwd - anchors every .agentic/ path below to
+ *                the repo root instead of the raw cwd argument). No npm
+ *                dependencies. Reads
  *                and writes [cwd]/.agentic/batch-state.json, the legacy
  *                [cwd]/.agentic/loop-state.json, and every per-ticket keyed
  *                sibling [cwd]/.agentic/loop-state-<LOOP_KEY>.json. Additionally
@@ -125,6 +128,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { resolveAgenticCwd } = require('./repo-root.js');
 
 // Single source of truth for which state files this module owns and how each
 // cadence treats them. Both refreshLiveness and markInterrupted iterate this
@@ -198,7 +202,7 @@ const KEYED_FILE_RE = /^loop-state-.+\.json$/;
  * @returns {Array<{file: string, tsField: string, healthTarget: string, touchTimestampOnTerminal: boolean}>}
  */
 function _resolveCandidates(cwd) {
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
 
   let entries = [];
   try {
@@ -258,7 +262,7 @@ function candidatePaths(cwd) {
  * @param {(target: string, success: boolean, errMsg: string|null) => void} [onOutcome]
  */
 function _refreshCandidateLiveness(cwd, sessionId, candidate, onOutcome) {
-  const filePath = path.join(cwd, '.agentic', candidate.file);
+  const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', candidate.file);
   let tmpPath;
   try {
     if (!fs.existsSync(filePath)) return;
@@ -316,7 +320,7 @@ function refreshLiveness(cwd, sessionId, onOutcome) {
  * @param {(target: string, success: boolean, errMsg: string|null) => void} [onOutcome]
  */
 function _markCandidateInterrupted(cwd, sessionId, candidate, onOutcome) {
-  const filePath = path.join(cwd, '.agentic', candidate.file);
+  const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', candidate.file);
   let tmpPath;
   try {
     if (!fs.existsSync(filePath)) return;

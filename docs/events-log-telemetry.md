@@ -92,6 +92,14 @@ qa-engineer.
 Key `data` fields: `tier`, `tool_use_id`, `agent_id` (null at emission;
 Claude Code assigns it after the spawn returns), `session_uuid`.
 
+The hook-emitted variant (`hooks/pre-tool-use-spawn-emit.js`,
+`data.source:"hook"`) additionally carries `agentic_root_drift_levels`
+(int) and `agentic_root_found_git` (boolean) - diagnostics from
+`hooks/lib/repo-root.js`'s `resolveAgenticCwdWithDiagnostics`, which
+anchors the `.agentic/` write to the repo root instead of the raw payload
+`cwd` (DS-171). `found_git_ancestor:false` means no `.git` ancestor was
+found and the write fell back to the payload cwd unchanged.
+
 ### spawn_complete
 
 Emitted immediately after an `Agent` tool call returns.
@@ -126,10 +134,15 @@ Emitted by the Stop hook on every TURN (the Stop hook fires once per turn,
 not once per session).
 
 Key `data` fields: `wall_seconds`, summed `tokens`, `spawn_count`,
-`by_agent` rollup (per-agent `spawns`, `wall_seconds`, `tokens_total`).
+`by_agent` rollup (per-agent `spawns`, `wall_seconds`, `tokens_total`), and
+(DS-171) `agentic_root_drift_levels` (int) / `agentic_root_found_git`
+(boolean) - same diagnostics form as `spawn_start` above, computed for the
+`.agentic/events.jsonl` write this event is appended to.
 
 This event is also mirrored to `.agentic/session-log/<developer_id>.jsonl`
-for team rollup via `ds-cost team`.
+for team rollup via `ds-cost team` - the mirror does not carry the two
+`agentic_root_*` fields (a separately-computed result shape; a successful
+mirror write already proves resolution succeeded for that invocation).
 
 ### meta_review_complete
 

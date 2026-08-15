@@ -434,9 +434,13 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
 Upstream deps: Python 3 stdlib only (json, os, re, sys) plus the shared
                hooks/lib/loop_guard.py module (counter + user-message-
                counting machinery for the loop guard), loaded lazily via
-               _load_loop_guard(). Lazily imports the shared fire-logging
-               helper hooks/lib/enforcement_log.py (log_fire) only on the
-               branch that emits a finding - see _load_log_fire().
+               _load_loop_guard(), and hooks/lib/repo_root.py
+               (resolve_agentic_cwd - anchors the config.json read below to
+               the repo root instead of the raw payload cwd), loaded lazily
+               via _load_repo_root() (mirrors the loop-guard loader).
+               Lazily imports the shared fire-logging helper
+               hooks/lib/enforcement_log.py (log_fire) only on the branch
+               that emits a finding - see _load_log_fire().
 
 Downstream consumers: Claude Code hook runner (Stop event, matcher "*").
                       Wired via ~/.claude/settings.json by
@@ -2038,6 +2042,27 @@ def _load_loop_guard():
 _LOOP_GUARD = _load_loop_guard()
 
 
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_loop_guard above). Returns None on any load failure - callers
+    must skip the .agentic/ read/write rather than fall back to a raw cwd.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "repo_root.py")
+        spec = _ilu.spec_from_file_location("repo_root", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
 # ---------------------------------------------------------------------------
 # Fire-log integration
 # ---------------------------------------------------------------------------
@@ -2118,8 +2143,8 @@ def main() -> None:
         # advisory-only era. Absent/unreadable/malformed config.json is
         # treated as {} (i.e. stays ON), not as a disable signal.
         config = {}
-        if cwd:
-            config_path = os.path.join(cwd, ".agentic", "config.json")
+        if cwd and _REPO_ROOT is not None:
+            config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
             try:
                 with open(config_path, "r") as f:
                     loaded = json.load(f)

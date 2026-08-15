@@ -50,7 +50,12 @@
  *
  * Upstream deps: Node built-ins (fs, path, os, child_process), the bounded
  *                descriptor-safe bin/ds-identity resolve-hook/write-hook
- *                helper, plus six
+ *                helper, hooks/lib/repo-root.js (resolveAgenticCwd /
+ *                resolveAgenticCwdWithDiagnostics - anchors every .agentic/
+ *                write to the repo root instead of the raw payload cwd;
+ *                writeSessionTotal's session_total event also emits
+ *                agentic_root_drift_levels/agentic_root_found_git from its
+ *                diagnostics form), plus six
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
@@ -301,6 +306,10 @@ const path = require('path');
 const os = require('os');
 const { execSync, spawnSync } = require('child_process');
 
+// Anchors .agentic/ writes to the repo root instead of the raw payload cwd
+// (see hooks/lib/repo-root.js manifest for full rationale).
+const { resolveAgenticCwd, resolveAgenticCwdWithDiagnostics } = require('./lib/repo-root.js');
+
 // Single source of truth for the deferred-/ds-wrap marker state machine, lock,
 // heartbeat, and sentinel. The local helpers that previously lived in this file
 // (wrapLockHeld, readLastWrap, liveMarkerExists, stageWrapPending) are now
@@ -433,7 +442,7 @@ function flushHealth(cwd) {
     if (!cwd) return;
     const resolvedCwd = path.resolve(cwd);
     if (resolvedCwd !== cwd) return; // traversal component - skip silently
-    healthPath = path.join(cwd, '.agentic', '.telemetry-health.json');
+    healthPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.telemetry-health.json');
     tmp = healthPath + '.tmp.' + process.pid;
 
     // Read existing file (absent or parse-fail -> start fresh).
@@ -499,7 +508,7 @@ function flushHealth(cwd) {
  */
 function deferredDaemonEnabled(cwd) {
   try {
-    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(raw);
     return config && config.deferred_wrap_daemon === true;
@@ -519,7 +528,7 @@ function deferredDaemonEnabled(cwd) {
  */
 function skillCandidateDetectionEnabled(cwd) {
   try {
-    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(raw);
     // Only disable when the key is explicitly set to false (boolean).
@@ -764,7 +773,8 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
  */
 function writeSessionTotal(cwd, sessionId, cachedRaw) {
   try {
-    const agenticDir = path.join(cwd, '.agentic');
+    const rootDiag = resolveAgenticCwdWithDiagnostics(cwd);
+    const agenticDir = path.join(rootDiag.root, '.agentic');
     const eventsPath = path.join(agenticDir, 'events.jsonl');
     // Ensure .agentic/ exists so the append below always works, even in
     // ad-hoc sessions where no other hook has created the directory yet.
@@ -790,6 +800,8 @@ function writeSessionTotal(cwd, sessionId, cachedRaw) {
         spawn_count: agg.spawn_count,
         by_agent: agg.by_agent,
         session_uuid: sessionId || null,
+        agentic_root_drift_levels: rootDiag.driftLevels,
+        agentic_root_found_git: rootDiag.foundGitAncestor,
       },
     });
     fs.appendFileSync(eventsPath, totalLine + '\n');
@@ -815,7 +827,7 @@ function removeLearningsAgentSession(cwd, sessionId) {
   }
 
   try {
-    const markerPath = path.join(cwd, '.agentic', 'learnings-agent.session');
+    const markerPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings-agent.session');
     if (!fs.existsSync(markerPath)) return;
     const raw = fs.readFileSync(markerPath, 'utf8');
     const marker = JSON.parse(raw);
@@ -920,7 +932,7 @@ function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
  */
 function computeSessionTotals(cwd, sessionId, cachedRaw) {
   try {
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+    const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
     const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw);
     if (!agg) return null;
 
@@ -1240,7 +1252,7 @@ function stageWrapPending(cwd, sessionId, scan) {
  */
 function appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId) {
   try {
-    const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
+    const cursorPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-last-sweep');
 
     let nudgeText;
     if (residualOnly) {
@@ -1326,7 +1338,7 @@ async function run() {
   // re-reading the file. null = file absent or unreadable (consumers treat it
   // identically to a missing file). This eliminates 3-4 redundant full reads
   // per session exit on large events files (#267).
-  const eventsPath = cwd ? path.join(cwd, '.agentic', 'events.jsonl') : null;
+  const eventsPath = cwd ? path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl') : null;
   let cachedEventsRaw = null;
   if (eventsPath) {
     try {

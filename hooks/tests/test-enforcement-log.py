@@ -168,6 +168,32 @@ finally:
 check("non-dict data never raises", raised6 is False)
 check("non-dict data falls back to os.getcwd() and writes", len(read_lines(tmp6)) == 3)
 
+# ---------------------------------------------------------------------------
+# 7. DS-171 repo-root anchoring: a payload cwd DRIFTED to a subdirectory of
+#    a real git repo must write at the repo ROOT, never at the drifted
+#    subdirectory - this is the actual bug this test guards against a
+#    regression of. Reverting enforcement_log.py's `os.path.join(cwd,
+#    ".agentic")` back to a raw cwd join (undoing the resolve_agentic_cwd
+#    wrap) is the mutation that must turn this test red.
+# ---------------------------------------------------------------------------
+print("\nTest 7: DS-171 repo-root anchoring (drifted cwd inside a real git repo)")
+tmp7 = tempfile.mkdtemp(prefix="test-enforcement-log-7-")
+tmp7 = os.path.realpath(tmp7)
+os.makedirs(os.path.join(tmp7, ".git"))  # fake repo root marker
+drifted = os.path.join(tmp7, "a", "b", "c")
+os.makedirs(drifted)
+
+enforcement_log.log_fire({"cwd": drifted}, "enforce-tier", "deny", "drift anchoring probe")
+
+root_lines = read_lines(tmp7)
+drifted_lines = read_lines(drifted)
+check("write landed at the repo ROOT, not the drifted cwd", len(root_lines) == 1)
+check("NO phantom .agentic/ tree at the drifted subdirectory", len(drifted_lines) == 0)
+check(
+    "no phantom .agentic dir exists at the drifted path at all",
+    not os.path.isdir(os.path.join(drifted, ".agentic")),
+)
+
 print(f"\n{total - failed}/{total} tests passed.")
 if failed:
     print(f"FAILED: {failed} test(s) failed.")

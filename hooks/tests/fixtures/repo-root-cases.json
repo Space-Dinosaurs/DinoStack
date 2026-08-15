@@ -1,0 +1,82 @@
+{
+  "_comment": "Shared cross-language fixture cases for the .agentic/ root resolver. Consumed by BOTH hooks/tests/test-repo-root.js and hooks/tests/test-repo-root.py, so a JS/Python resolver divergence surfaces as one suite going red against a fixture neither owns. Each case describes a directory layout to build under a temp root and the expected resolveAgenticCwdWithDiagnostics() outcome relative to that temp root.",
+  "cases": [
+    {
+      "id": "cwd-is-root",
+      "description": "startDir IS the repo root (has .git as a dir).",
+      "layout": { "dirs": [""], "git_at": "", "git_kind": "dir" },
+      "start": "",
+      "expect": { "root": "", "drift_levels": 0, "found_git_ancestor": true }
+    },
+    {
+      "id": "drift-1-level",
+      "description": "startDir is one level below the repo root.",
+      "layout": { "dirs": ["a"], "git_at": "", "git_kind": "dir" },
+      "start": "a",
+      "expect": { "root": "", "drift_levels": 1, "found_git_ancestor": true }
+    },
+    {
+      "id": "drift-n-levels",
+      "description": "startDir is four levels below the repo root.",
+      "layout": { "dirs": ["a/b/c/d"], "git_at": "", "git_kind": "dir" },
+      "start": "a/b/c/d",
+      "expect": { "root": "", "drift_levels": 4, "found_git_ancestor": true }
+    },
+    {
+      "id": "worktree-root-git-as-file",
+      "description": "Repo root's .git is a FILE (linked git worktree shape). Existence-only check must still find it.",
+      "layout": { "dirs": [""], "git_at": "", "git_kind": "file" },
+      "start": "",
+      "expect": { "root": "", "drift_levels": 0, "found_git_ancestor": true }
+    },
+    {
+      "id": "worktree-root-git-as-dir",
+      "description": "Repo root's .git is a DIR (ordinary clone shape), tested explicitly alongside the file form.",
+      "layout": { "dirs": [""], "git_at": "", "git_kind": "dir" },
+      "start": "",
+      "expect": { "root": "", "drift_levels": 0, "found_git_ancestor": true }
+    },
+    {
+      "id": "drift-inside-worktree",
+      "description": "startDir drifted two levels below a worktree root whose .git is a FILE.",
+      "layout": { "dirs": ["x/y"], "git_at": "", "git_kind": "file" },
+      "start": "x/y",
+      "expect": { "root": "", "drift_levels": 2, "found_git_ancestor": true }
+    },
+    {
+      "id": "no-git-ancestor-fallback",
+      "description": "No .git anywhere up to the temp root boundary - falls back to the realpath'd startDir unchanged, foundGitAncestor false.",
+      "layout": { "dirs": ["orphan/deep"] },
+      "start": "orphan/deep",
+      "expect": { "root": "orphan/deep", "drift_levels": 0, "found_git_ancestor": false }
+    },
+    {
+      "id": "symlinked-start-path",
+      "description": "startDir is a symlink to a drifted directory inside the repo. Both resolvers must realpath first and agree post-realpath.",
+      "layout": { "dirs": ["real/target"], "git_at": "", "git_kind": "dir", "symlink": { "from": "link", "to": "real/target" } },
+      "start": "link",
+      "expect": { "root": "", "drift_levels": 2, "found_git_ancestor": true }
+    },
+    {
+      "id": "git-present-but-unreadable",
+      "description": ".git exists at an intermediate level but is chmod 000 (EACCES on stat/access from a non-root process) - existence check must still find it (or, on platforms where EACCES prevents even existence detection, must not throw and must continue walking).",
+      "layout": { "dirs": ["p"], "git_at": "", "git_kind": "dir", "chmod_git": "000" },
+      "start": "p",
+      "expect": { "root": "", "drift_levels": 1, "found_git_ancestor": true, "note": "existsSync/os.path.exists on the parent dir entry does not require read permission on .git itself on POSIX; this case is a defensive regression guard against a future implementation that stats INTO .git rather than checking its existence at the parent listing level" }
+    },
+    {
+      "id": "max-depth-boundary-64",
+      "description": "Exactly MAX_DEPTH (64) levels of drift below the repo root - must still resolve.",
+      "layout": { "dirs": ["d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/d20/d21/d22/d23/d24/d25/d26/d27/d28/d29/d30/d31/d32/d33/d34/d35/d36/d37/d38/d39/d40/d41/d42/d43/d44/d45/d46/d47/d48/d49/d50/d51/d52/d53/d54/d55/d56/d57/d58/d59/d60/d61/d62/d63/d64"], "git_at": "", "git_kind": "dir" },
+      "start": "d1/d2/d3/d4/d5/d6/d7/d8/d9/d10/d11/d12/d13/d14/d15/d16/d17/d18/d19/d20/d21/d22/d23/d24/d25/d26/d27/d28/d29/d30/d31/d32/d33/d34/d35/d36/d37/d38/d39/d40/d41/d42/d43/d44/d45/d46/d47/d48/d49/d50/d51/d52/d53/d54/d55/d56/d57/d58/d59/d60/d61/d62/d63/d64",
+      "expect": { "root": "", "drift_levels": 64, "found_git_ancestor": true }
+    },
+    {
+      "id": "max-depth-boundary-65",
+      "description": "MAX_DEPTH+1 (65) levels of drift below the repo root - beyond the walk bound, must fall back (foundGitAncestor false) rather than finding the root or throwing.",
+      "layout": { "dirs": ["e1/e2/e3/e4/e5/e6/e7/e8/e9/e10/e11/e12/e13/e14/e15/e16/e17/e18/e19/e20/e21/e22/e23/e24/e25/e26/e27/e28/e29/e30/e31/e32/e33/e34/e35/e36/e37/e38/e39/e40/e41/e42/e43/e44/e45/e46/e47/e48/e49/e50/e51/e52/e53/e54/e55/e56/e57/e58/e59/e60/e61/e62/e63/e64/e65"], "git_at": "", "git_kind": "dir" },
+      "start": "e1/e2/e3/e4/e5/e6/e7/e8/e9/e10/e11/e12/e13/e14/e15/e16/e17/e18/e19/e20/e21/e22/e23/e24/e25/e26/e27/e28/e29/e30/e31/e32/e33/e34/e35/e36/e37/e38/e39/e40/e41/e42/e43/e44/e45/e46/e47/e48/e49/e50/e51/e52/e53/e54/e55/e56/e57/e58/e59/e60/e61/e62/e63/e64/e65",
+      "expect": { "root": "e1/e2/e3/e4/e5/e6/e7/e8/e9/e10/e11/e12/e13/e14/e15/e16/e17/e18/e19/e20/e21/e22/e23/e24/e25/e26/e27/e28/e29/e30/e31/e32/e33/e34/e35/e36/e37/e38/e39/e40/e41/e42/e43/e44/e45/e46/e47/e48/e49/e50/e51/e52/e53/e54/e55/e56/e57/e58/e59/e60/e61/e62/e63/e64/e65", "drift_levels": 0, "found_git_ancestor": false, "note": "no .git at any level in this layout, so this case tests the walk terminating cleanly at MAX_DEPTH rather than an off-by-one on a git ancestor that exists just past the bound" }
+    }
+  ]
+}

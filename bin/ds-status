@@ -34,11 +34,23 @@ Public API: ds-status
             and returns a one-line OK/failure summary; fail-open (returns OK
             on any read or parse error).
 
-Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
+Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re), plus
+               hooks/lib/repo_root.py (resolve_agentic_cwd), loaded lazily
+               via _load_repo_root() - anchors SENTINEL_PATH/
+               TELEMETRY_HEALTH_PATH/ROLE_MODELS_PROJECT_PATH/
+               HEALTH_FILE_PATH (module-level constants, computed ONCE at
+               import time via _agentic_root()) to the resolved repo root
+               instead of a bare relative Path(".agentic/...") that would
+               implicitly resolve against whatever the process cwd happens
+               to be. Falls back to Path.cwd() on load failure. Constants,
+               not functions, so bin/tests/test_agentic_status.py's
+               pre-existing `monkeypatch.setattr(_mod, "SENTINEL_PATH", ...)`
+               contract still works.
                Reads ~/.claude/agentic-engineering.json, the project
                root AGENTS.md (resolved through CLAUDE.md @AGENTS.md
-               import if present), .agentic/.activated, and
-               .agentic/.telemetry-health.json (fail-open; absent = OK).
+               import if present), [resolved root]/.agentic/.activated, and
+               [resolved root]/.agentic/.telemetry-health.json (fail-open;
+               absent = OK).
 
 Downstream consumers: content/commands/ds-status.md (command
                       spec); developers running the command
@@ -64,12 +76,53 @@ import re
 import sys
 from pathlib import Path
 
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
+    enforce-*.py lazy-loader pattern). Returns None on any load failure -
+    _agentic_root() then falls back to Path.cwd() (matches this file's
+    pre-existing implicit-cwd behavior in a degraded environment)."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here.parent / "hooks" / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _agentic_root() -> Path:
+    """Resolved repo root anchoring every .agentic/ path below - instead of
+    a bare relative Path(".agentic/...") that silently resolves against
+    whatever the process cwd happens to be at access time. Falls back to
+    Path.cwd() when the resolver cannot be loaded."""
+    if _REPO_ROOT is not None:
+        try:
+            return Path(_REPO_ROOT.resolve_agentic_cwd(str(Path.cwd())))
+        except Exception:
+            pass
+    return Path.cwd()
+
+
 CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
-SENTINEL_PATH = Path(".agentic/.activated")
-TELEMETRY_HEALTH_PATH = Path(".agentic/.telemetry-health.json")
 ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
-ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
-HEALTH_FILE_PATH = Path(".agentic/.telemetry-health.json")
+
+# Computed ONCE at import time via _agentic_root() - ds-status is a
+# single-invocation CLI (process cwd never changes mid-run), so a module-
+# level constant is correct here, and (unlike a function) preserves the
+# pre-existing `monkeypatch.setattr(_mod, "SENTINEL_PATH", tmp_path / ...)`
+# test contract in bin/tests/test_agentic_status.py - a function object
+# cannot be monkeypatched to a plain Path and still be called as `PATH()`.
+SENTINEL_PATH = _agentic_root() / ".agentic" / ".activated"
+TELEMETRY_HEALTH_PATH = _agentic_root() / ".agentic" / ".telemetry-health.json"
+ROLE_MODELS_PROJECT_PATH = _agentic_root() / ".agentic" / "role-models.yml"
+HEALTH_FILE_PATH = _agentic_root() / ".agentic" / ".telemetry-health.json"
 
 # DEPRECATED: legacy session-wide preset->profile alias table (DS-48 Lever 9).
 # preset support will be removed after the deprecation window; profile is the
@@ -646,7 +699,7 @@ def _wrap_lock_line() -> str:
     correctness liability for no gain - the operator needs visibility, not a
     second opinion. Read-only and fail-open: any error yields `unknown`.
     """
-    lock_dir = Path.cwd() / ".agentic" / "wrap" / "lock"
+    lock_dir = _agentic_root() / ".agentic" / "wrap" / "lock"
     try:
         # SYMLINK CHECK FIRST, and no-follow - mirroring the lstat discipline in
         # hooks/lib/wrap-marker.js. `is_dir()` FOLLOWS symlinks, so a

@@ -157,6 +157,7 @@
  */
 
 const path = require('path');
+const { resolveAgenticCwd } = require(path.join(__dirname, '..', 'hooks', 'lib', 'repo-root.js'));
 
 /**
  * UUID v4 via crypto.randomUUID (Node 14.17+), falling back to a
@@ -289,7 +290,7 @@ function main() {
   try {
     lockPath = lib.wrapLockPath(cwd);
   } catch (_) {
-    lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
+    lockPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'wrap', 'lock');
   }
 
   // -------------------------------------------------------------------------

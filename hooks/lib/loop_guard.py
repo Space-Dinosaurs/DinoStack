@@ -69,12 +69,17 @@ Public API (module-level functions, no class):
         completion notifications, <system-reminder>, <command-name>) and
         must not be mistaken for a genuine human turn.
 
-Upstream deps: Python 3 stdlib only (json, os). No external dependencies,
-               no import of any other hooks/lib module. Writes ONLY
-               <cwd>/.agentic/<counter_filename> (creates <cwd>/.agentic/
-               with os.makedirs(exist_ok=True) if absent). Reads ONLY that
-               file and, in count_user_messages and last_genuine_user_text, a
-               transcript JSONL path.
+Upstream deps: Python 3 stdlib only (json, os, sys). Imports the sibling
+               hooks/lib/repo_root.py module (resolve_agentic_cwd) via a
+               sys.path.insert of this file's own directory - anchors every
+               .agentic/ path below to the repo root instead of the raw cwd
+               argument, since __file__ resolves correctly however this
+               module itself was loaded (plain import or the dynamic
+               importlib loader below). Writes ONLY
+               [resolved root]/.agentic/<counter_filename> (creates that
+               .agentic/ dir with os.makedirs(exist_ok=True) if absent).
+               Reads ONLY that file and, in count_user_messages and
+               last_genuine_user_text, a transcript JSONL path.
 
 Downstream consumers: hooks/enforce-no-abdication.py (counter filename
                        .abdication-guard-fire-count, cap 2) and
@@ -117,6 +122,10 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from repo_root import resolve_agentic_cwd  # noqa: E402
 
 # Harness-injected `type:"user"` lines that are NOT a genuine human turn even
 # though they carry real text content and no isMeta flag. Confirmed against
@@ -162,7 +171,7 @@ def is_harness_injected_text(text: str) -> bool:
 
 
 def counter_path(cwd: str, counter_filename: str) -> str:
-    return os.path.join(cwd, ".agentic", counter_filename)
+    return os.path.join(resolve_agentic_cwd(cwd), ".agentic", counter_filename)
 
 
 def read_counter(cwd: str, counter_filename: str) -> dict:
@@ -192,7 +201,7 @@ def write_counter(cwd: str, counter_filename: str, count: int, last_user_msg_cou
     also fails (CC bug #54360). Fail toward allow on any write failure.
     """
     try:
-        agentic_dir = os.path.join(cwd, ".agentic")
+        agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
         path = counter_path(cwd, counter_filename)
         # Per-process tmp suffix: two concurrent hook invocations must never

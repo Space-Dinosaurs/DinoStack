@@ -1,0 +1,75 @@
+# Flat inventory of every known .agentic/ path-construction site fixed by
+# the DS-171 repo-root anchoring change (Unit 1). One `path:line` per line
+# (comments and blank lines ignored). This is the coverage-diff source of
+# truth for bin/tests/test_agentic_site_inventory_coverage.py: that test
+# re-derives a deliberately OVERINCLUSIVE candidate list of `.agentic`
+# path-construction lines across hooks/, hooks/lib/, and bin/, and asserts
+# every candidate appears here. A new uninventoried .agentic-constructing
+# line fails CI naming the offending line, closing the gap where a future
+# hook silently reintroduces cwd-relative .agentic/ writes.
+#
+# Entries below reflect the POST-FIX line numbers (i.e. the resolver-
+# wrapped form, e.g. `path.join(resolveAgenticCwd(cwd), '.agentic', ...)`)
+# as they exist in this commit and are MECHANICALLY GENERATED to match the
+# scanner's own candidate output exactly (bin/tests/
+# test_agentic_site_inventory_coverage.py's _find_candidates()) - do not
+# hand-edit line numbers; regenerate via that function after any edit that
+# moves a site. The three resolver modules themselves (hooks/lib/
+# repo-root.js, hooks/lib/repo_root.py, hooks/lib/repo-root.sh) are
+# EXCLUDED - they are what does the resolving, not a site to resolve. Also
+# excluded: HOME-scoped sites (never anchored to a project's repo root by
+# design) and files using a different, already-correct root-resolution
+# mechanism (CLAUDE_PROJECT_DIR-based enforce-worktree-{read,write}.py;
+# --repo/worktree_path-argument-based bin/ds-reap-worktrees; operator-
+# invoked bin/ds-doctor and bin/ds-update). See the scanner's own
+# EXCLUDED_FILES / HOME-scope comments for the authoritative rationale.
+
+bin/ds-wrap-acquire-lock:293
+bin/ds-wrap-release-lock:105
+bin/ds-wrap-release-lock:54
+bin/ds-wrap-release-lock:97
+hooks/conductor-overreach-nudge.js:71
+hooks/conductor-overreach-nudge.js:96
+hooks/enforce-no-abdication.py:1089
+hooks/enforce-planning-artifact-spawn.py:161
+hooks/enforce-turn-shape.py:2147
+hooks/lib/capture-gap.js:136
+hooks/lib/capture-gap.js:141
+hooks/lib/capture-gap.js:242
+hooks/lib/context-rollup.js:194
+hooks/lib/enforcement_log.py:145
+hooks/lib/loop_guard.py:174
+hooks/lib/loop_guard.py:204
+hooks/lib/skill-candidate-detector.js:108
+hooks/lib/skill-candidate-detector.js:117
+hooks/lib/skill-candidate-detector.js:148
+hooks/lib/skill-candidate-detector.js:204
+hooks/lib/skill-candidate-detector.js:278
+hooks/lib/skill-candidate-detector.js:335
+hooks/lib/state-mark.js:205
+hooks/lib/state-mark.js:265
+hooks/lib/state-mark.js:323
+hooks/lib/wrap-marker.js:283
+hooks/post-tool-use-capture-nudge.js:123
+hooks/post-tool-use-capture-nudge.js:147
+hooks/post-tool-use-capture-nudge.js:178
+hooks/post-tool-use-capture-nudge.js:213
+hooks/post-tool-use-capture-nudge.js:244
+hooks/pre-tool-use-spawn-emit.js:156
+hooks/session-end-wrap.js:123
+hooks/session-start-wrap.sh:190
+hooks/session-start-wrap.sh:242
+hooks/session-start-wrap.sh:255
+hooks/session-start-wrap.sh:256
+hooks/session-start-wrap.sh:257
+hooks/session-start-wrap.sh:268
+hooks/stop-context.js:1255
+hooks/stop-context.js:1341
+hooks/stop-context.js:445
+hooks/stop-context.js:511
+hooks/stop-context.js:531
+hooks/stop-context.js:777
+hooks/stop-context.js:830
+hooks/stop-context.js:935
+hooks/subagent-stop-spawn-emit.js:577
+hooks/wrap-daemon.js:262

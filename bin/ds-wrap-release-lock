@@ -67,6 +67,7 @@
  */
 
 const path = require('path');
+const { resolveAgenticCwd } = require(path.join(__dirname, '..', 'hooks', 'lib', 'repo-root.js'));
 
 function main() {
   const cwd = path.resolve(process.argv[2] && !process.argv[2].startsWith('--')
@@ -93,7 +94,7 @@ function main() {
     return;
   }
 
-  let lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
+  let lockPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'wrap', 'lock');
   try {
     if (typeof lib.wrapLockPath === 'function') lockPath = lib.wrapLockPath(cwd) || lockPath;
   } catch (_) { /* fall back to the joined path */ }

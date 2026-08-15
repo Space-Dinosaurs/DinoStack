@@ -27,9 +27,18 @@ Public API: ds-cost session [<session_uuid>]
             set (see _conductor_overreach_summary).
 
 Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
-               subprocess, re). Optional pyyaml soft dependency for
-               ~/.agentic/pricing.yml parsing; absent pyyaml -> token-only
-               output with the "Install pyyaml for pricing support." line.
+               subprocess, re), plus hooks/lib/repo_root.py
+               (resolve_agentic_cwd), loaded lazily via _load_repo_root() -
+               anchors EVENTS_PATH/SESSION_LOG_DIR (module-level constants,
+               computed ONCE at import time via _agentic_root()) to the
+               resolved repo root instead of a bare relative
+               Path(".agentic/..."). Constants, not functions, so
+               bin/tests/test_agentic_cost_subcommands.py's pre-existing
+               `_mod.EVENTS_PATH = events_path` monkeypatch contract still
+               works.
+               Optional pyyaml soft dependency for ~/.agentic/pricing.yml
+               parsing; absent pyyaml -> token-only output with the
+               "Install pyyaml for pricing support." line.
                `retro` also shells out to git (always) and gh (optional).
 
 Downstream consumers: content/commands/ds-cost.md (command spec);
@@ -77,8 +86,48 @@ V1_FOOTER = (
     "for that spawn, in which case the real duration is shown."
 )
 
-EVENTS_PATH = Path(".agentic/events.jsonl")
-SESSION_LOG_DIR = Path(".agentic/session-log")
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
+    enforce-*.py lazy-loader pattern). Returns None on any load failure -
+    _agentic_root() then falls back to Path.cwd()."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here.parent / "hooks" / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _agentic_root() -> Path:
+    """Resolved repo root anchoring every .agentic/ path below - instead of
+    a bare relative Path(".agentic/...") that silently resolves against
+    whatever the process cwd happens to be at access time."""
+    if _REPO_ROOT is not None:
+        try:
+            return Path(_REPO_ROOT.resolve_agentic_cwd(str(Path.cwd())))
+        except Exception:
+            pass
+    return Path.cwd()
+
+
+# Computed ONCE at import time via _agentic_root() - ds-cost is a
+# single-invocation CLI (process cwd never changes mid-run), so a module-
+# level constant is correct here, and (unlike a function) preserves the
+# pre-existing `_mod.EVENTS_PATH = events_path` / `_mod.SESSION_LOG_DIR =
+# session_log_dir` monkeypatch contract in
+# bin/tests/test_agentic_cost_subcommands.py's _capture_cmd helper - a
+# function object cannot be reassigned to a plain Path and still be called
+# as `PATH()`.
+EVENTS_PATH = _agentic_root() / ".agentic" / "events.jsonl"
+SESSION_LOG_DIR = _agentic_root() / ".agentic" / "session-log"
 GLOBAL_SESSION_LOG_DIR = Path(os.path.expanduser("~/.agentic/session-log"))
 PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
 

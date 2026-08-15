@@ -81,9 +81,15 @@
  *
  * Upstream deps: Node built-ins only (fs, path). Requires ./wrap-marker.js for
  *                the abandoned/stuck-lock banner ONLY (wrap-marker does not
- *                require this module, so there is no cycle). Reads/writes under
- *                [cwd]/.agentic/: context.md, context.d/<sid>.md, _wrap.md,
- *                _foreign.md (+ pid+uuid-suffixed .tmp staging files).
+ *                require this module, so there is no cycle). Requires
+ *                ./repo-root.js (resolveAgenticCwd) - anchors agenticDir()
+ *                (and therefore every path below it) to the repo root
+ *                instead of the raw cwd argument; found missed by the
+ *                original DS-171 site inventory via the coverage-diff gate
+ *                (bin/tests/test_agentic_site_inventory_coverage.py).
+ *                Reads/writes under [resolved root]/.agentic/: context.md,
+ *                context.d/<sid>.md, _wrap.md, _foreign.md (+ pid+uuid-
+ *                suffixed .tmp staging files).
  *
  * Downstream consumers: hooks/stop-context.js (all four of its former context.md
  *                       writer sites), .opencode/plugins/session-context.ts (an
@@ -126,6 +132,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { resolveAgenticCwd } = require('./repo-root.js');
 
 let wrapMarker = null;
 try {
@@ -184,7 +191,7 @@ const DERIVED_NOTICE_SIGNATURES = [
 // ---------------------------------------------------------------------------
 
 function agenticDir(cwd) {
-  return path.join(cwd, '.agentic');
+  return path.join(resolveAgenticCwd(cwd), '.agentic');
 }
 
 function rollupPath(cwd) {

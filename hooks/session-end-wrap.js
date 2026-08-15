@@ -22,12 +22,15 @@
  *             { session_id, transcript_path, cwd, hook_event_name:"SessionEnd",
  *               reason }. Not imported by any module.
  *
- * Upstream deps: Node built-ins only (fs, path, child_process) plus three local
+ * Upstream deps: Node built-ins only (fs, path, child_process) plus four local
  *                CommonJS modules: hooks/lib/wrap-marker.js (the deferred-`/ds-wrap`
  *                marker single source of truth), hooks/lib/stdin-guard.js
- *                (readStdinGuarded, bounded stdin reader), and
+ *                (readStdinGuarded, bounded stdin reader),
  *                hooks/lib/state-mark.js (markInterrupted - shared with
- *                hooks/stop-context.js's --cadence=session dispatch). Reads
+ *                hooks/stop-context.js's --cadence=session dispatch), and
+ *                hooks/lib/repo-root.js (resolveAgenticCwd - anchors the
+ *                config.json read below to the repo root instead of the
+ *                raw payload cwd). Reads
  *                stdin (fd 0) via the bounded reader and
  *                [cwd]/.agentic/config.json (deferred_wrap_daemon toggle).
  *                Writes [cwd]/.agentic/loop-state.json (legacy), every
@@ -95,6 +98,7 @@ const { spawn } = require('child_process');
 const wrapMarker = require('./lib/wrap-marker.js');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const stateMark = require('./lib/state-mark.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 
 // Terminal SessionEnd reasons that warrant finalizing a pending marker to
 // `ready`. `resume` is deliberately EXCLUDED: a resumed session may continue, so
@@ -116,7 +120,7 @@ const TERMINAL_REASONS = new Set([
  */
 function deferredDaemonEnabled(cwd) {
   try {
-    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(raw);
     return config && config.deferred_wrap_daemon === true;

@@ -21,7 +21,10 @@
  *                (readStdinGuarded), hooks/lib/overreach-detector.js
  *                (computeOverreach, DEFAULT_THRESHOLD - reads and parses
  *                payload.transcript_path itself, bounded by a size
- *                ceiling). Reads [cwd]/.agentic/config.json (optional,
+ *                ceiling), hooks/lib/repo-root.js (resolveAgenticCwd -
+ *                anchors both reads/writes below to the repo root instead
+ *                of the raw payload cwd). Reads
+ *                [resolved root]/.agentic/config.json (optional,
  *                conductor_overreach_threshold key; config-reversible).
  *
  * Downstream consumers: none - terminal hook. Appends to
@@ -57,6 +60,7 @@ const path = require('path');
 
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { computeOverreach, DEFAULT_THRESHOLD } = require('./lib/overreach-detector.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 
 /**
  * @param {string} cwd
@@ -64,7 +68,7 @@ const { computeOverreach, DEFAULT_THRESHOLD } = require('./lib/overreach-detecto
  */
 function _resolveThreshold(cwd) {
   try {
-    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     if (!fs.existsSync(configPath)) return DEFAULT_THRESHOLD;
     const raw = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(raw);
@@ -89,7 +93,7 @@ function _resolveThreshold(cwd) {
  */
 function _appendEvent(cwd, sessionId, result) {
   try {
-    const agenticDir = path.join(cwd, '.agentic');
+    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
     const eventsPath = path.join(agenticDir, 'events.jsonl');
     const line = JSON.stringify({
