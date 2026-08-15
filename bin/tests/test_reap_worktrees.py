@@ -1747,5 +1747,13 @@ def test_too_young_note_line_printed_when_nonzero(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert "skipped-too-young=1" in summary_line(proc.stdout)
     assert "NOTE:" in proc.stdout and "age floor" in proc.stdout, proc.stdout
+    # round-3 Skeptic Minor 4: the prior version of this assertion anchored
+    # only on the NOTE's fixed text and the --min-age-hours token, never on
+    # the count itself - a NOTE printing a wrong count still passed. Pin
+    # the count so a mismatch between too_young_count and the printed
+    # number is caught. Confirmed failing pre-fix: mutating the source to
+    # print `too_young_count + 1` (a deliberately wrong count) still passed
+    # every assertion in the pre-fix version of this test.
+    assert "NOTE: 1 worktree(s) skipped because they are younger than" in proc.stdout, proc.stdout
     assert "--min-age-hours 0" in proc.stdout
     assert str(wt) in worktree_paths(repo)

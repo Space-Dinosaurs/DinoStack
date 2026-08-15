@@ -1427,9 +1427,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             f"NOTE: {too_young_count} worktree(s) skipped because they are younger than "
             f"the {args.min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
             "can still belong to a resumable session, so this floor is a safety default, not "
-            "a bug. Pass --min-age-hours 0 to reap them immediately (e.g. right after merging "
-            "a PR); doing so removes the protection against reaping a concurrent session's "
-            "fresh worktree."
+            "a bug. Pass --min-age-hours 0 to lift this specific floor for them (e.g. right "
+            "after merging a PR); the age floor is only one of several gates, so a worktree "
+            "may still be skipped afterward for another reason (dirty, locked, unproven "
+            "branch, etc.) - this does not guarantee removal, and removes the protection "
+            "against reaping a concurrent session's fresh worktree."
         )
 
     if args.dry_run and salvage_would:

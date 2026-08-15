@@ -366,7 +366,7 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
       total_entries="${BASH_REMATCH[1]}"
       nonroot_count=$((total_entries - 1))
       if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
-        worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees\` for a dry-run report)."
+        worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run\` to \`ds-reap-worktrees\` first for a preview report)."
       fi
     fi
   fi

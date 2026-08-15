@@ -48,7 +48,21 @@ elif command -v ds-reap-worktrees >/dev/null 2>&1; then
 fi
 
 if [[ -n "$DS_REAP_BIN" ]]; then
-  DS_BASE_BRANCH="$(grep -oE 'BASE_BRANCH:[[:space:]]*[A-Za-z0-9_./-]+' AGENTS.md 2>/dev/null | head -1 | sed -E 's/^BASE_BRANCH:[[:space:]]*//')"
+  # Declaration extraction is anchored to end-of-line (modulo an optional
+  # surrounding backtick/quote/trailing period) so a prose sentence that
+  # merely MENTIONS `BASE_BRANCH:` (e.g. "BASE_BRANCH: resolution rules.")
+  # can never match - only a genuine one-token declaration line can reach
+  # end-of-line before a second word appears. Fenced code blocks are
+  # stripped first so an illustrative example inside a ```-fence can never
+  # beat a real declaration via `head -1`. Quotes and a leading `origin/`
+  # prefix (an operator writing `BASE_BRANCH: origin/develop`) are both
+  # stripped from the extracted value before use, since this value is
+  # concatenated after our own `origin/` prefix below (round-3 Skeptic
+  # Minor 2).
+  DS_BASE_BRANCH="$(awk '/^```/{f=!f;next} !f' AGENTS.md 2>/dev/null \
+    | grep -oE '`?BASE_BRANCH:[[:space:]]*"?[A-Za-z0-9_./-]+"?`?\.?[[:space:]]*$' \
+    | head -1 \
+    | sed -E 's/^`?BASE_BRANCH:[[:space:]]*//; s/"//g; s/`//g; s/\.[[:space:]]*$//; s/^origin\///')"
   if [[ -z "$DS_BASE_BRANCH" ]] && git show-ref --verify --quiet refs/heads/develop; then
     DS_BASE_BRANCH="develop"
   elif [[ -z "$DS_BASE_BRANCH" ]] && git show-ref --verify --quiet refs/heads/development; then
@@ -59,16 +73,27 @@ if [[ -n "$DS_REAP_BIN" ]]; then
     git show-ref --verify --quiet refs/heads/main || DS_BASE_BRANCH="master"
   fi
 
-  # Default: actually remove, with a full per-entry breakdown. If the
-  # operator asked for a preview/dry run instead ("show me what would be
-  # removed", "don't delete anything yet"), add --dry-run - --explain
-  # stays on either way so the report below has real detail to work from.
-  # `--explain` alone does NOT imply `--dry-run`: without --dry-run this
-  # invocation deletes.
-  "$DS_REAP_BIN" --base "origin/$DS_BASE_BRANCH" --explain
-  DS_REAP_STATUS=$?
-  if [[ "$DS_REAP_STATUS" -ne 0 ]]; then
-    echo "ERROR: ds-reap-worktrees exited $DS_REAP_STATUS - do NOT treat this as a completed reap. Stop and report the failure output above instead of proceeding to Steps 3/4 as though removal succeeded." >&2
+  # Validate the resolved ref actually exists on origin before using it -
+  # a bogus/misresolved base (malformed declaration, typo, renamed branch)
+  # otherwise fails SAFE inside ds-reap-worktrees (merge evidence silently
+  # reads "unmerged" for everything, `removed=0`, no error) which is the
+  # same silent-no-op operator-attention defect the round-1 age-floor NOTE
+  # was added to close (round-3 Skeptic Minor 2).
+  if ! git rev-parse --verify --quiet "origin/$DS_BASE_BRANCH" >/dev/null 2>&1; then
+    echo "WARNING: resolved base branch 'origin/$DS_BASE_BRANCH' does not exist on origin - check AGENTS.md's BASE_BRANCH: declaration (or the local develop/development/main fallback) for a typo or a renamed branch. Skipping the reap this session rather than running it against a base that would silently evaluate every branch as unmerged (removed=0 with no explanation)." >&2
+  else
+    # Default: actually remove, with a full per-entry breakdown. If the
+    # operator asked for a preview/dry run instead ("show me what would be
+    # removed", "don't delete anything yet"), add --dry-run - --explain
+    # stays on either way so the report below has real detail to work from.
+    # `--explain` alone does NOT imply `--dry-run`: without --dry-run this
+    # invocation deletes.
+    "$DS_REAP_BIN" --base "origin/$DS_BASE_BRANCH" --explain
+    DS_REAP_STATUS=$?
+    if [[ "$DS_REAP_STATUS" -ne 0 ]]; then
+      echo "ERROR: ds-reap-worktrees exited $DS_REAP_STATUS - do NOT treat this as a completed reap. Stop and report the failure output above instead of proceeding to Steps 3/4 as though removal succeeded." >&2
+      exit "$DS_REAP_STATUS"
+    fi
   fi
 else
   echo "WARNING: ds-reap-worktrees not found (REPO_DIR/bin or PATH) - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Worktree reap skipped this session." >&2
