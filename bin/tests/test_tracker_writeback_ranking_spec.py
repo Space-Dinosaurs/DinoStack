@@ -1043,36 +1043,37 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by ten of the eleven enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by eleven of the twelve enforce-*.py hooks - every one except `enforce-no-abdication.py`",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the ten enforce-*.py hooks' best-effort dynamic import",
+        "for the eleven enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Ten of the eleven enforce-*.py hooks additionally",
+        "Eleven of the twelve enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "ten of the eleven `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "eleven of the twelve `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the ten consumer hooks enumerated below",
+        "one of the eleven consumer hooks enumerated below",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (nine hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (ten hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-tier.py`, "
+        "`enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-ticket-batching.py`, "
+        "`enforce-tier.py`, "
         "`enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`) "
         'and `"allow_advisory"` '
-        "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
+        "(three hooks - `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-turn-shape.py`)",
     ),
     (
         REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
-        "Downstream consumers: the ten enforce-*.py PreToolUse/Stop hooks that",
+        "Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that",
     ),
     (
         # Distinct fact from the log_fire-consumer count above: this is the
