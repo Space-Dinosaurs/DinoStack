@@ -9,9 +9,10 @@ Public API: This file is documentation, not code. It is consumed by humans
 
 Upstream deps: None.
 
-Downstream consumers: scripts/build-methodology.sh, scripts/check-methodology-drift.sh,
-                      .claude/build.sh, .codex/build.sh (future), .cursor/build.sh
-                      (future), and any agent or human authoring methodology content.
+Downstream consumers: scripts/build-methodology.sh, scripts/check-methodology-drift.sh
+                      (via its --list-files mode), .claude/build.sh, .codex/build.sh
+                      (future), .cursor/build.sh (future), and any agent or human
+                      authoring methodology content.
 
 Failure modes: This file does not execute. Drift between this contract and the
                actual section files is a Major Skeptic finding (stale manifest).
@@ -36,7 +37,7 @@ The `NN` prefix is dense (no gaps) at any given commit. To insert a new section 
 
 ## Assembly contract
 
-The assembled METHODOLOGY.md body is the deterministic concatenation of every `*.md` file in this directory in `LC_ALL=C` sorted order, with a single blank line between files. The assembly is performed by `scripts/build-methodology.sh`. Any consumer (build.sh, drift check, etc.) MUST use that script and MUST NOT re-implement the assembly logic.
+The assembled METHODOLOGY.md body is the deterministic concatenation of every `*.md` file in this directory in `LC_ALL=C` sorted order, with a single blank line between files. The assembly is performed by `scripts/build-methodology.sh`. The drift check (`scripts/check-methodology-drift.sh`) derives its file set from `bash scripts/build-methodology.sh --list-files` - the same `LC_ALL=C find|sort` glob - and hashes each section file directly; it never re-implements concatenation.
 
 ```bash
 # Equivalent shell expression (do not duplicate this in adapters; call the script):
@@ -80,6 +81,6 @@ If you previously installed the dinostack skill (via `bash .claude/install.sh`),
 
 ## Baseline SHA semantics
 
-`scripts/.methodology-baseline.sha256` contains the SHA256 of the assembled output (`bash scripts/build-methodology.sh`) at the moment Wave 1 landed. The architect plan originally specified the baseline as the SHA of the pre-split monolith; that was overridden by the Worker because the Wave 1 commit also promotes 6 bold-prose anchors to `###` sub-headings (an M1 fix), so the assembled output cannot byte-equal the pre-split monolith. Drift-check intent is "no future unintentional drift between sections and assembled output," not "byte-identity to original" - the post-promotion baseline serves that intent.
+`scripts/.methodology-baseline.sha256` is a per-file manifest: one `<basename> <sha256>` line per `content/sections/[0-9][0-9]-*.md` file, headed by a fixed comment line, written atomically and verbatim by `bash scripts/check-methodology-drift.sh --regenerate`. It is equivalent in intent to the single assembled-output hash it replaced: both pin the section files so that unintentional drift fails the `methodology-drift` CI gate. The per-file form keeps the gate meaningful across assembly-logic changes - a change to the concatenation in `scripts/build-methodology.sh` that leaves every section file untouched would trip a whole-output baseline but is covered instead by the `adapter-sync` gate, which rebuilds every adapter from the same script and fails on any drift.
 
 Section content is kernel-only (always-loaded). Detail passing the three-question partition test (see `content/references/design-goals.md` Goal 4) belongs in `content/references/**`, reached by a read-on-trigger pointer in `12-protocol-details.md`.

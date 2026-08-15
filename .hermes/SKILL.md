@@ -22427,10 +22427,10 @@ bash .copilot/build.sh
 
 Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated adapter copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
 
-If the diff touches `content/sections/`, also regenerate the methodology baseline in the same commit: `scripts/.methodology-baseline.sha256` must be updated to match the rebuilt methodology body (see `scripts/check-methodology-drift.sh`). This is a separate CI gate from `adapter-sync`. Regenerate it with:
+If the diff touches `content/sections/`, also regenerate the methodology baseline in the same commit: `scripts/.methodology-baseline.sha256` is a per-file SHA256 manifest of content/sections/ and must be updated in the same commit as any section change (see `scripts/check-methodology-drift.sh`). This is a separate CI gate from `adapter-sync`. Regenerate it with:
 
 ```bash
-bash scripts/build-methodology.sh | shasum -a 256 | awk '{print $1}' > scripts/.methodology-baseline.sha256
+bash scripts/check-methodology-drift.sh --regenerate
 ```
 
 Note: `.claude/skills/dinostack/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other ten adapters' committed artifacts match `content/`.
