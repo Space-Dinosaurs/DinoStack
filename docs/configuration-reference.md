@@ -113,6 +113,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_SHIPPABLE_GUARD_DISABLE=1` | guard active | Shippable-edit guard denying conductor-direct shippable edits (`hooks/enforce-shippable-edit.py`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
 | `AE_TEAM_ROUTING_DISABLE=1` | guard active | Cross-harness team-routing branch of the background-spawn guard (`hooks/enforce-background-spawn.py`) |
+| `AE_TICKET_BATCH_GUARD_DISABLE=1` | guard active | Ticket-batching guard denying the 3rd+ same-session tracker-ticket creation (`hooks/enforce-ticket-batching.py`) |
 | `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check (`_execution_prose_flag`) and the advisory operator-decisions per-item check (`_decision_item_sprawl_flag`), the hook's only two remaining checks as of DS-171 (only relevant when `turn_shape_guard_enabled: true`) |
 | `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
