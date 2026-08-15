@@ -1029,6 +1029,53 @@ for spawn_matcher in ("Task", "Agent"):
         f"PreToolUse({spawn_matcher}) spawn-emit telemetry hook",
     )
 
+# ---- PreToolUse ticket-batching guard (mcp jira/linear create + Bash bypass)
+# Mechanically enforces a grace margin under the Follow-up Ticket Creation
+# Discipline's batching rule (content/references/delegation-detail.md
+# §Follow-up Ticket Creation Discipline): allows the 1st tracker-ticket
+# creation this session silently, allows the 2nd with an advisory, and
+# denies the 3rd and every subsequent one. Fires on
+# mcp__mcp-atlassian__jira_create_issue, mcp__linear__save_issue (creation
+# only - an id-bearing call is an update and never counted), and Bash (a
+# direct Jira REST POST or Linear issueCreate GraphQL bypass). Exempt when
+# the session transcript carries a /ds-feedback-triage or /ds-ticket-triage
+# command marker. Fail-open on any error. Kill-switch:
+# AE_TICKET_BATCH_GUARD_DISABLE=1.
+#
+# Uses a GUARDED command string, unlike a bare `python3 {path}` form - see
+# the skeptic-round-cap block's comment above for why: a bare form exits 2
+# (BLOCKING on PreToolUse) when the script is missing, so a registration
+# outliving the script would deny every guarded MCP/Bash call in every
+# session. The guard prevents that.
+ENFORCE_TICKET_BATCHING_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-ticket-batching.py && "
+    f"python3 {hooks_root}/hooks/enforce-ticket-batching.py || exit 0"
+)
+
+for ticket_matcher in (
+    "mcp__mcp-atlassian__jira_create_issue",
+    "mcp__linear__save_issue",
+    "Bash",
+):
+    ptu_ticket_block = None
+    for block in ptu_list:
+        if block.get("matcher") == ticket_matcher:
+            ptu_ticket_block = block
+            break
+
+    if ptu_ticket_block is None:
+        ptu_ticket_block = {"matcher": ticket_matcher, "hooks": []}
+        ptu_list.append(ptu_ticket_block)
+
+    ptu_ticket_block.setdefault("hooks", [])
+
+    upsert_hook(
+        ptu_ticket_block["hooks"],
+        "enforce-ticket-batching.py",
+        {"type": "command", "command": ENFORCE_TICKET_BATCHING_CMD, "timeout": 5},
+        f"PreToolUse({ticket_matcher}) ticket-batching guard hook",
+    )
+
 # ---- PostToolUse capture-nudge hook -----------------------------------------
 # Surfaces an in-session capture-gap nudge when a subagent spawn launches and the
 # session has a learning-worthy event with no learning captured yet. Claude Code
