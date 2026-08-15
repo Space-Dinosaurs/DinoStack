@@ -21,11 +21,13 @@
  *             script by the Claude Code PostToolUse(Task/Agent) hook. The test loads
  *             it via a tmp shim that suppresses run() and exercises the body.
  *
- * Upstream deps: Node built-ins only (fs, path) plus three local CommonJS
+ * Upstream deps: Node built-ins only (fs, path) plus four local CommonJS
  *                modules: hooks/lib/capture-gap.js (detectCaptureGap),
  *                hooks/lib/skill-candidate-detector.js (peekActiveCandidates),
- *                and hooks/lib/stdin-guard.js (readStdinGuarded). No npm
- *                dependencies.
+ *                hooks/lib/stdin-guard.js (readStdinGuarded), and
+ *                hooks/lib/repo-root.js (resolveAgenticCwd - anchors every
+ *                .agentic/ read/write below to the repo root instead of the
+ *                raw payload cwd). No npm dependencies.
  *                Reads PostToolUse payload from stdin (fd 0) via a bounded,
  *                never-rejecting reader (see Failure modes); reads
  *                [cwd]/.agentic/.capture-gap-surfaced (capture dedup tracker, fail-open);
@@ -77,6 +79,7 @@ const path = require('path');
 const { detectCaptureGap } = require('./lib/capture-gap.js');
 const { peekActiveCandidates } = require('./lib/skill-candidate-detector.js');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 
 // Verbatim nudge texts (handoff section 3). The standard variant fires when no
 // guardrail was added this session; the residualOnly variant fires when a
@@ -117,7 +120,7 @@ const SKILL_NUDGE_TEMPLATE =
  */
 function readSkillConfig(cwd) {
   try {
-    const configPath = path.join(cwd, '.agentic', 'config.json');
+    const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     const raw = fs.readFileSync(configPath, 'utf8');
     const config = JSON.parse(raw);
     const detectionEnabled = !(config && config.skill_candidate_detection === false);
@@ -141,7 +144,7 @@ function readSkillConfig(cwd) {
  */
 function readSkillNudgeSurfaced(cwd) {
   try {
-    const trackerPath = path.join(cwd, '.agentic', '.skill-candidates-in-session');
+    const trackerPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidates-in-session');
     if (!fs.existsSync(trackerPath)) return new Set();
     const raw = fs.readFileSync(trackerPath, 'utf8');
     const result = new Set();
@@ -172,7 +175,7 @@ function readSkillNudgeSurfaced(cwd) {
  * @param {string} candidateId - domain slug used as the candidate identifier
  */
 function recordSkillNudgeSurfaced(cwd, sessionId, candidateId) {
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
   const trackerPath = path.join(agenticDir, '.skill-candidates-in-session');
   fs.mkdirSync(agenticDir, { recursive: true });
 
@@ -207,7 +210,7 @@ function recordSkillNudgeSurfaced(cwd, sessionId, candidateId) {
  */
 function alreadySurfaced(cwd, sessionId, lastEventTs) {
   try {
-    const trackerPath = path.join(cwd, '.agentic', '.capture-gap-surfaced');
+    const trackerPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-surfaced');
     if (!fs.existsSync(trackerPath)) return false;
     const raw = fs.readFileSync(trackerPath, 'utf8');
     for (const line of raw.split('\n')) {
@@ -238,7 +241,7 @@ function alreadySurfaced(cwd, sessionId, lastEventTs) {
  * @param {string|null} lastEventTs
  */
 function recordSurfaced(cwd, sessionId, lastEventTs) {
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
   const trackerPath = path.join(agenticDir, '.capture-gap-surfaced');
   fs.mkdirSync(agenticDir, { recursive: true });
 

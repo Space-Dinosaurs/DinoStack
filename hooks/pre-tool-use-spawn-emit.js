@@ -39,11 +39,16 @@
  * Upstream deps: Node built-ins only (fs, path, crypto) plus the local
  *                CommonJS module hooks/lib/stdin-guard.js (readStdinGuarded,
  *                bounded stdin reader). No npm dependencies.
+ *                hooks/lib/repo-root.js (resolveAgenticCwdWithDiagnostics) -
+ *                anchors the .agentic/ writes below to the repo root instead
+ *                of the raw payload cwd; also supplies the
+ *                agentic_root_drift_levels/agentic_root_found_git
+ *                diagnostic fields on the emitted event.
  *                Reads PreToolUse payload from stdin (fd 0) via the bounded
  *                reader (see Failure modes).
- *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
- *                Writes [cwd]/.agentic/.last-architect-spawn via writeFileSync
- *                when agentName === 'architect'.
+ *                Writes [resolved root]/.agentic/events.jsonl via appendFileSync.
+ *                Writes [resolved root]/.agentic/.last-architect-spawn via
+ *                writeFileSync when agentName === 'architect'.
  *                Never reads other .agentic/ files.
  *
  * Downstream consumers: Claude Code PreToolUse(Task/Agent) hook (wired by
@@ -93,6 +98,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
+const { resolveAgenticCwdWithDiagnostics } = require('./lib/repo-root.js');
 
 /**
  * Main entry point. Reads PreToolUse payload from stdin, emits spawn_start
@@ -146,7 +152,8 @@ async function run() {
     const spawnId = crypto.randomUUID();
 
     // Ensure .agentic/ dir exists (safe to call even if it already exists).
-    const agenticDir = path.join(cwd, '.agentic');
+    const rootDiag = resolveAgenticCwdWithDiagnostics(cwd);
+    const agenticDir = path.join(rootDiag.root, '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
 
     // Build and append the spawn_start event.
@@ -163,6 +170,8 @@ async function run() {
         spawn_id: spawnId,
         tool_use_id: toolUseId,
         parent_agent_id: parentAgentId,
+        agentic_root_drift_levels: rootDiag.driftLevels,
+        agentic_root_found_git: rootDiag.foundGitAncestor,
       },
     };
     const eventsPath = path.join(agenticDir, 'events.jsonl');

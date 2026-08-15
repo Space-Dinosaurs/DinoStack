@@ -41,7 +41,23 @@ Data model:
 
 Upstream deps: Python 3 stdlib only (argparse, contextlib, datetime, fcntl,
                json, os, pathlib, re, secrets, stat, subprocess, sys, time,
-               typing, unicodedata).
+               typing, unicodedata), plus hooks/lib/repo_root.py
+               (resolve_agentic_cwd_with_diagnostics), loaded lazily via
+               _load_repo_root() and used by _resolved_hook_root() to
+               anchor resolve-hook/write-hook's harness-supplied cwd to
+               its repo root before any project-scope .agentic/ read or
+               write - these two internal Stop-hook APIs fire on every
+               turn and previously used the raw payload cwd verbatim
+               (round-2 rework, Major 1). Unlike bin/ds-status/ds-cost/
+               ds-memory, resolution failure here is NOT a fall-back-to-
+               cwd degrade: resolve-hook reports no identity and
+               write-hook returns 1 (skip), per hooks/lib/repo_root.py's
+               documented "callers must SKIP, never silently write at the
+               fallback path" contract. --scope project's pre-existing
+               _require_repo_root() check is unrelated and unchanged -
+               operator-invoked (Path.cwd() reflects wherever the human
+               ran the command from), not harness-payload-cwd-drift
+               scoped.
 
 Downstream consumers: hooks/stop-context.js (resolves identity and writes
                       telemetry through resolve-hook/write-hook);
@@ -131,6 +147,102 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
+
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
+    enforce-*.py / bin/ds-status lazy-loader pattern). Returns None on any
+    load failure - _resolved_hook_root() then treats the hook cwd as
+    unresolvable and the caller skips the write (round-2 rework, Major 1:
+    write-hook/resolve-hook previously used the raw harness-payload cwd
+    verbatim, making them the single highest-frequency phantom-.agentic/
+    producer in the repo since they fire on every Stop)."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here.parent / "hooks" / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _resolved_hook_root(raw_cwd: Path) -> Path | None:
+    """Anchor a Stop-hook-supplied cwd to its repo root before any
+    .agentic/ read or write. Tries the shared `.git`-ancestor walk first
+    (hooks/lib/repo_root.py, shared with every other .agentic/ consumer);
+    if that finds no `.git` ancestor, falls back to checking whether raw_cwd
+    ITSELF (no upward walk) already has an `.agentic/` directory - ds-identity
+    already treats `.agentic/` as an equally valid project-root marker for
+    --scope project (see _require_repo_root's dual .git-or-.agentic check),
+    so a project directory that has `.agentic/` but is not itself (yet) a
+    git repo - the shape several tests in bin/tests/test_agentic_identity.py
+    deliberately construct, always at the cwd itself - must resolve too.
+
+    Round-3 rework (Critical): the fallback used to walk UPWARD looking for
+    any `.agentic/` ancestor, same as the .git walk. Because `~/.agentic/`
+    always exists (it is the global identity/session store), that walk
+    resolved to $HOME for ANY cwd with no `.git` ancestor - e.g. a scratch
+    directory deep under $HOME with no repo anywhere above it - and
+    write-hook then wrote project telemetry into the REAL global session
+    log with a fabricated `project_slug` of the home directory's basename.
+    The upward walk was never required by the tests it was introduced to
+    keep green (they place `.agentic/` at the starting cwd, not an
+    ancestor), so it is removed rather than narrowed: this function now
+    NEVER climbs past raw_cwd on the `.agentic/`-marker path. Returns None
+    when raw_cwd resolves via NEITHER marker: the `.git`-ancestor walk
+    (skipped entirely, not merely unable to find a marker, when the
+    resolver failed to load - `_REPO_ROOT is None`) found nothing, AND
+    raw_cwd itself has no `.agentic/` directory (this second check runs
+    unconditionally, independent of whether the resolver loaded, so a
+    resolver-load failure alone does not force None when cwd itself
+    already has an `.agentic/`). Callers MUST treat None as a resolution
+    failure and skip the write/read rather than silently falling back to
+    the raw cwd.
+
+    Round-4 rework (Major): raw_cwd == $HOME itself always satisfies the
+    `.agentic/`-marker check above, because `~/.agentic/` is the global
+    identity/session store and therefore always exists - so `write-hook
+    --cwd $HOME` used to be blessed as its OWN project root and wrote
+    project-shaped telemetry (a fabricated project_slug of "home")
+    straight into the real global session-log. This is depth-0 of the
+    same corruption the round-3 upward-walk removal closed one level up.
+    $HOME is therefore an explicit non-root: any candidate root that
+    resolves (realpath) to $HOME is rejected before it can be returned,
+    from EITHER stage above."""
+    try:
+        home = Path(os.path.realpath(os.path.expanduser("~")))
+    except OSError:
+        home = None
+
+    if _REPO_ROOT is not None:
+        try:
+            diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(str(raw_cwd))
+        except Exception:
+            diag = None
+        if diag is not None and diag.get("found_git_ancestor"):
+            candidate = Path(diag["root"])
+            if home is None or candidate != home:
+                return candidate
+
+    try:
+        current = Path(os.path.realpath(str(raw_cwd)))
+    except OSError:
+        current = raw_cwd
+    if home is not None and current == home:
+        return None
+    try:
+        if (current / ".agentic").exists():
+            return current
+    except OSError:
+        pass
+    return None
+
 
 IDENTITY_PATH = Path(os.path.expanduser("~/.agentic/identity.yml"))
 PENDING_DIR = Path(os.path.expanduser("~/.agentic/session-log/.pending"))
@@ -2320,7 +2432,14 @@ def _write_hook_checkpoint(status_file: str | None, status: dict) -> None:
 
 def cmd_resolve_hook(args: argparse.Namespace) -> int:
     """Emit a bounded JSON identity result for the Node Stop hook."""
-    cwd = _absolute_lexical(args.cwd)
+    raw_cwd = _absolute_lexical(args.cwd)
+    cwd = _resolved_hook_root(raw_cwd)
+    if cwd is None:
+        # No `.git` ancestor found for the harness-supplied cwd (or the
+        # resolver failed to load) - treat as "no project identity", never
+        # silently read/write at the unresolved raw cwd.
+        print("null")
+        return 0
     result = _hook_identity_result(cwd)
     if result is None:
         print("null")
@@ -2341,7 +2460,16 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
     if not isinstance(request, dict):
         return 1
 
-    cwd = _absolute_lexical(args.cwd)
+    raw_cwd = _absolute_lexical(args.cwd)
+    cwd = _resolved_hook_root(raw_cwd)
+    if cwd is None:
+        # No `.git` ancestor found (or resolver unavailable) - skip the
+        # write rather than silently writing session-log telemetry at a
+        # phantom non-repo `.agentic/session-log/` (round-2 rework, Major
+        # 1 / Major 6: this is the one write-path call site in the repo
+        # that implements the manifest-mandated "skip, never fall back"
+        # discipline; see hooks/lib/repo_root.py's Failure modes section).
+        return 1
     expected_identity = request.get("identity")
     if not _valid_hook_identity(expected_identity):
         return 1

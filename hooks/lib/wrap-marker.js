@@ -75,6 +75,8 @@
  *     touchHeartbeat(cwd, sessionId) (NO-OP under guard), removeHeartbeat(cwd, sessionId)
  *
  * Upstream deps: Node built-ins only (fs, path, os). No npm dependencies.
+ *                 ./repo-root (resolveAgenticCwd - anchors .agentic writes
+ *                 to the repo root instead of a raw payload cwd).
  *                Reads/writes under [cwd]/.agentic/wrap/: pending-<id>.json markers,
  *                last-wrap, lock (directory) + lock/owner, lock/owner.json (+ their
  *                .owner.tmp / .owner.json.tmp atomic-write staging files), daemon.pid,
@@ -201,6 +203,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { resolveAgenticCwd } = require('./repo-root');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -277,7 +280,7 @@ function safeSessionId(sessionId) {
 }
 
 function agenticDir(cwd) {
-  return path.join(cwd, '.agentic');
+  return path.join(resolveAgenticCwd(cwd), '.agentic');
 }
 
 /** Returns the .agentic/wrap/ subdirectory path for wrap runtime artifacts. */

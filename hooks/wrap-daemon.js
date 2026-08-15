@@ -25,11 +25,14 @@
  *             by the SessionEnd / SessionStart hooks (detached) or manually. Not
  *             imported by any module.
  *
- * Upstream deps: Node built-ins only (fs, path, child_process) plus the local
- *                CommonJS module hooks/lib/wrap-marker.js (the deferred-`/ds-wrap`
+ * Upstream deps: Node built-ins only (fs, path, child_process) plus two local
+ *                CommonJS modules: hooks/lib/wrap-marker.js (the deferred-`/ds-wrap`
  *                marker single source of truth - all marker reads/transitions, the
  *                pid-path helper, the reclaim/janitor, the heartbeat read, the
- *                auth-failed path). Reads [project_root]/.agentic/config.json for
+ *                auth-failed path) and hooks/lib/repo-root.js (resolveAgenticCwd -
+ *                anchors the config.json read below to the repo root instead of
+ *                the raw cwd passed to the daemon at launch). Reads
+ *                [project_root]/.agentic/config.json for
  *                tuning params (all optional, defaulted). Spawns the `claude` CLI
  *                (`claude auth status` for the pre-flight; `claude --resume <id> -p
  *                "/ds-wrap-deferred" ...` for each drain) with AGENTIC_WRAP_DAEMON=1 in
@@ -140,6 +143,7 @@ const { spawn, spawnSync } = require('child_process');
 const { StringDecoder } = require('string_decoder');
 
 const wrapMarker = require('./lib/wrap-marker.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -255,7 +259,7 @@ function readConfig(cwd) {
   const out = Object.assign({}, CONFIG_DEFAULTS);
   let parsed = null;
   try {
-    const cfgPath = path.join(cwd, '.agentic', 'config.json');
+    const cfgPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
     // SEC-M2: stat-then-read - skip an over-cap (or non-regular) file before we
     // load its bytes, so a planted multi-GB config cannot wedge startup.
     const st = fs.statSync(cfgPath);

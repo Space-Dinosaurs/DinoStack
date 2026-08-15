@@ -20,7 +20,10 @@
  *   GUARDRAIL_PATTERNS - RegExp[] of guardrail-file basename patterns.
  *   _tokenize(str) -> string[] - domain-proximity tokenizer.
  *
- * Upstream deps: Node built-ins only (fs, path, child_process). Reads
+ * Upstream deps: Node built-ins only (fs, path, child_process), plus
+ *                ./repo-root.js (resolveAgenticCwd - anchors every .agentic/
+ *                read below to the repo root instead of the raw cwd
+ *                argument). Reads
  *                [cwd]/.agentic/events.jsonl (learning-worthy events),
  *                [cwd]/.agentic/learnings.md (today-dated LRN/KNW suppression),
  *                [cwd]/.agentic/.capture-gap-last-sweep (pagination cursor, READ
@@ -55,6 +58,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { resolveAgenticCwd } = require('./repo-root.js');
 
 // ---------------------------------------------------------------------------
 // Capture-gap detector
@@ -129,12 +133,12 @@ function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
     if (!sessionId) return { shouldNudge: false, residualOnly: false, lastEventTs: null };
 
     // --- (a) Scan events.jsonl for learning-worthy events this session ---
-    const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+    const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
 
     // Pagination: read only lines after the last sweep cursor.
     let lastSweepTs = '';
     try {
-      const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
+      const cursorPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-last-sweep');
       if (fs.existsSync(cursorPath)) {
         lastSweepTs = fs.readFileSync(cursorPath, 'utf8').trim();
       }
@@ -235,7 +239,7 @@ function detectCaptureGap(cwd, sessionId, cachedEventsRaw) {
     // --- (b) Check .agentic/learnings.md for today-dated entries ---
     const todayStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     try {
-      const learningsPath = path.join(cwd, '.agentic', 'learnings.md');
+      const learningsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings.md');
       if (fs.existsSync(learningsPath)) {
         const learningsRaw = fs.readFileSync(learningsPath, 'utf8');
         // Match [LRN-YYYYMMDD-XXX] or [KNW-YYYYMMDD-XXX] with today's date, OR

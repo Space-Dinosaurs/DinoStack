@@ -243,14 +243,32 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          re-deriving the non-forgeability argument from scratch.
 
          Session state persists at
-         `<cwd>/.agentic/.ticket-batch-<session_id>.json` as `{"count":
-         int}` - `cwd` and `session_id` both come from the PreToolUse
-         payload (never `os.getcwd()` or a derived value); `cwd` is the
-         CALLER's root (may be an isolation worktree) while
-         `CLAUDE_PROJECT_DIR` would be the primary checkout - the two are
-         complementary, not interchangeable, and this hook deliberately
-         uses `cwd` alone (matching `enforce-skeptic-round-cap.py`'s
-         `_state_path`) since ticket creation is a conductor-only action
+         `<repo_root>/.agentic/.ticket-batch-<session_id>.json` as
+         `{"count": int}` - `session_id` comes from the PreToolUse payload
+         (never derived); `repo_root` is resolved from the payload `cwd`
+         via `hooks/lib/repo_root.py`'s
+         `resolve_agentic_cwd_with_diagnostics()`, never the raw `cwd`
+         string. Round-4 rework (coverage-gate finding): this call site
+         was missed by every hand-built inventory across four architect
+         rounds of the sibling repo-root-anchoring change and originally
+         joined the raw payload cwd straight onto the state-file path,
+         contradicting the invariant the rest of this branch establishes. Tiered STRICT,
+         matching `enforce-skeptic-round-cap.py`'s `_state_path`: this
+         counter enforces a session-wide policy invariant (the batching
+         cap), and a write at a drifted, unresolved location would not
+         merely misplace a log - it would silently reset the counter an
+         attacker (or a stray mid-session `cd`) could exploit to bypass
+         the cap entirely, which is exactly the "misplaced write actively
+         corrupts cross-session-visible state" category
+         `hooks/lib/repo_root.py`'s manifest reserves for the strict tier.
+         `_state_path` therefore returns `None` when no `.git` ancestor is
+         found, and `main()` skips (fails open, same as every other
+         unresolvable-payload branch already in this hook) rather than
+         writing at the phantom root. `CLAUDE_PROJECT_DIR` would be the
+         primary checkout when the payload `cwd` is an isolation
+         worktree's - the two are complementary, not interchangeable; this
+         hook still only ever consults `cwd` (now via repo-root
+         resolution), since ticket creation is a conductor-only action
          that always runs from the primary checkout's `cwd` in practice.
 
          Decision algorithm (see `_decide()`):
@@ -294,7 +312,8 @@ Public API: Run as a Claude Code PreToolUse hook (matcher:
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys, time, pathlib,
                importlib.util for the best-effort `lib/enforcement_log.py`
-               import). No external deps, no subprocess.
+               and `lib/repo_root.py` imports). No external deps, no
+               subprocess.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event, three
                       matcher blocks). Wired via ~/.claude/settings.json
@@ -314,6 +333,13 @@ Failure modes:
     - `cwd` or `session_id` absent/blank/non-string in the payload:
       fail-open (exit 0) - the hook cannot determine where to persist
       state or which session's counter to use.
+    - `lib/repo_root.py` fails to import, or the resolved `cwd` has no
+      `.git` ancestor within `MAX_DEPTH` (`found_git_ancestor=False`):
+      fail-open (exit 0), no state written, no log - matching
+      `enforce-skeptic-round-cap.py`'s strict-tier SKIP discipline (see
+      module docstring above). A phantom-root write here would silently
+      reset the batching counter, so skipping is safer than writing at
+      an unresolved location.
     - `transcript_path` absent, unreadable, an individual JSONL line that
       fails to parse, or any other exception while scanning it for the
       triage marker: treated as NOT exempt (`False`) - a malformed line is
@@ -703,9 +729,47 @@ def _is_triage_exempt(transcript_path) -> bool:
         return False
 
 
-def _state_path(cwd: str, session_id: str) -> Path:
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_log_fire above, and enforce-skeptic-round-cap.py's identical
+    loader). Returns None on any load failure - callers must skip the
+    .agentic/ read/write rather than fall back to a raw cwd.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _state_path(cwd: str, session_id: str) -> Path | None:
+    """Returns None when the repo root cannot be resolved - callers must
+    skip the read/write on None rather than fall back to a raw cwd.
+    Strict tier (see module docstring): a phantom-root write here would
+    silently reset the batching counter, so this resolves via
+    `resolve_agentic_cwd_with_diagnostics` and refuses on
+    `found_git_ancestor=False`, matching
+    `enforce-skeptic-round-cap.py`'s `_state_path`.
+    """
+    if _REPO_ROOT is None:
+        return None
+    try:
+        diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(cwd)
+    except Exception:
+        return None
+    if not diag.get("found_git_ancestor"):
+        return None
     safe_session = re.sub(r"[^A-Za-z0-9._-]", "-", session_id.strip()) or "unknown"
-    return Path(cwd) / ".agentic" / f".ticket-batch-{safe_session}.json"
+    return Path(diag["root"]) / ".agentic" / f".ticket-batch-{safe_session}.json"
 
 
 def _load_state(path: Path) -> dict:
@@ -810,6 +874,11 @@ def main() -> None:
             sys.exit(0)
 
         path = _state_path(cwd, session_id)
+        if path is None:
+            # Strict tier: no resolvable repo root under cwd - skip
+            # rather than write a phantom-location counter (see module
+            # docstring, "Failure modes").
+            sys.exit(0)
         state = _load_state(path)
         next_count = state["count"] + 1
 

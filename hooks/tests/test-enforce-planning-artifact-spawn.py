@@ -313,6 +313,62 @@ if not ok:
     print(f"         stderr: {_stderr_rf[-500:]!r}")
 
 # ---------------------------------------------------------------------------
+# 13. DS-171 paired writer/reader regression: the sentinel is WRITTEN by
+# hooks/pre-tool-use-spawn-emit.js and READ by this hook. Both must resolve
+# the SAME repo root from an identically-drifted cwd, or the reader looks
+# for the sentinel at a path the writer never wrote to - silently breaking
+# the 4h architect-spawn guard (false ALLOW+WARN even though an architect
+# spawn genuinely just happened). Uses a REAL git repo (not TMPDIR, which
+# has no .git ancestor) with cwd drifted three levels below the root, and
+# invokes the actual writer subprocess before the reader.
+# ---------------------------------------------------------------------------
+total += 1
+_git_tmpdir = os.path.realpath(tempfile.mkdtemp(prefix="ds171-paired-"))
+os.makedirs(os.path.join(_git_tmpdir, ".git"))
+_drifted_cwd = os.path.join(_git_tmpdir, "x", "y", "z")
+os.makedirs(_drifted_cwd)
+# docs/planning/ lives under the DRIFTED cwd, not the repo root - this
+# hook's own planning-dir check is deliberately cwd-relative (payload.cwd
+# is normally the repo root itself; the DRIFT under test here is in WHERE
+# THE SENTINEL RESOLVES, not in where docs/planning/ lives relative to
+# cwd). Placing docs/planning/ at the repo root instead would make the
+# hook exit at its early planning-dir check for an unrelated reason,
+# never reaching the sentinel-resolution code path this test targets.
+_git_planning_dir = os.path.join(_drifted_cwd, "docs", "planning")
+os.makedirs(_git_planning_dir)
+_git_planning_file = os.path.join(_git_planning_dir, "paired-brief.md")
+
+_writer_path = os.path.join(os.path.dirname(__file__), "..", "pre-tool-use-spawn-emit.js")
+_writer_payload = json.dumps(
+    {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Task",
+        "cwd": _drifted_cwd,
+        "tool_input": {"subagent_type": "architect"},
+    }
+)
+_writer_proc = subprocess.run(
+    ["node", _writer_path], input=_writer_payload, capture_output=True, text=True
+)
+
+_reader_rc, _reader_stdout, _reader_stderr = run_hook(
+    make_payload("Write", _git_planning_file, _drifted_cwd)
+)
+paired_ok = (
+    _writer_proc.returncode == 0
+    and os.path.isfile(os.path.join(_git_tmpdir, ".agentic", ".last-architect-spawn"))
+    and not os.path.isdir(os.path.join(_drifted_cwd, ".agentic"))
+    and is_allow_quiet(_reader_rc, _reader_stdout)
+)
+status = "PASS" if paired_ok else "FAIL"
+if not paired_ok:
+    failed += 1
+print(f"  [{status}] paired writer/reader: reader finds the sentinel the writer wrote at the resolved repo root, from an identically-drifted cwd")
+if not paired_ok:
+    print(f"         writer rc={_writer_proc.returncode} stdout={_writer_proc.stdout!r} stderr={_writer_proc.stderr[-500:]!r}")
+    print(f"         reader rc={_reader_rc} stdout={_reader_stdout!r}")
+
+# ---------------------------------------------------------------------------
 print()
 if failed == 0:
     print(f"All {total} tests passed.")

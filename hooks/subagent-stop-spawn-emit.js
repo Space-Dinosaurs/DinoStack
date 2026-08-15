@@ -64,7 +64,10 @@
  *             as a CLI script by the Claude Code SubagentStop hook.
  *
  * Upstream deps: Node built-ins only (fs, path, os via
- *                hooks/lib/config-dir.js). No npm dependencies. Reads
+ *                hooks/lib/config-dir.js). hooks/lib/repo-root.js
+ *                (resolveAgenticCwd) anchors the .agentic/ dir below to
+ *                the repo root instead of the raw payload cwd. No npm
+ *                dependencies. Reads
  *                SubagentStop payload from stdin (fd 0) via the bounded
  *                reader hooks/lib/stdin-guard.js (readStdinGuarded).
  *                Reads [cwd]/.agentic/events.jsonl - bounded on BOTH the
@@ -239,6 +242,7 @@ const fs = require('fs');
 const path = require('path');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { resolveClaudeConfigDir } = require('./lib/config-dir.js');
+const { resolveAgenticCwd } = require('./lib/repo-root.js');
 
 // Bounds the readdirSync fallback scan when the primary transcript path
 // (constructed from cwd's project hash) does not exist - mirrors
@@ -570,7 +574,7 @@ async function run() {
       ? payload.agent_id.trim()
       : null;
 
-    const agenticDir = path.join(cwd, '.agentic');
+    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
     const eventsPath = path.join(agenticDir, 'events.jsonl');
 

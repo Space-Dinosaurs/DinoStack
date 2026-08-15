@@ -46,6 +46,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const libSkillDetectorAbs = path.resolve(__dirname, '..', 'lib', 'skill-candidate-detector.js');
 const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
+const libRepoRootAbs = path.resolve(__dirname, '..', 'lib', 'repo-root.js');
 
 let shimmedSource = hookSource
   .replace(
@@ -63,6 +64,10 @@ let shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
     `require(${JSON.stringify(libStdinGuardAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/repo-root\.js['"]\)/,
+    `require(${JSON.stringify(libRepoRootAbs)})`
   );
 
 // Fail loud if any relative ./lib/ require survived re-anchoring.

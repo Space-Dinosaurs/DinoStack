@@ -54,7 +54,12 @@ function assert(condition, message) {
 }
 
 function makeTmp(prefix) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // realpathSync: DS-171's resolveAgenticCwd() realpath-pins its input
+  // (macOS os.tmpdir() is /var/... -> symlinked to /private/var/...), so a
+  // test computing an expected path from the RAW (non-realpath'd) tmpDir
+  // would build a different string than what state-mark.js actually uses
+  // internally, even though both name the same file on disk.
+  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   const agenticDir = path.join(tmpDir, '.agentic');
   fs.mkdirSync(agenticDir, { recursive: true });
   return { tmpDir, agenticDir };

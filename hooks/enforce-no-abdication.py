@@ -143,8 +143,11 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys) plus the shared
                hooks/lib/loop_guard.py module (counter + user-message-counting
-               machinery), loaded lazily via _load_loop_guard(). No external
-               dependencies.
+               machinery), loaded lazily via _load_loop_guard(), and
+               hooks/lib/repo_root.py (resolve_agentic_cwd - anchors the
+               config.json read below to the repo root instead of the raw
+               payload cwd), loaded lazily via _load_repo_root() (mirrors
+               the loop-guard loader). No external dependencies.
 
 Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
                       via ~/.claude/settings.json by .claude/install.sh AFTER
@@ -808,6 +811,27 @@ def _load_loop_guard():
 _LOOP_GUARD = _load_loop_guard()
 
 
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_loop_guard above). Returns None on any load failure - callers
+    must skip the .agentic/ read/write rather than fall back to a raw cwd.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "repo_root.py")
+        spec = _ilu.spec_from_file_location("repo_root", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
 # ---------------------------------------------------------------------------
 # Transcript helpers
 # ---------------------------------------------------------------------------
@@ -1054,9 +1078,15 @@ def main() -> None:
             # toward allow-stop (never emit a block without a loop bound).
             sys.exit(0)
 
+        if _REPO_ROOT is None:
+            # Repo-root resolver unavailable (missing/corrupt
+            # hooks/lib/repo_root.py) - never read config.json from an
+            # unanchored (possibly drifted) cwd.
+            sys.exit(0)
+
         # Runs only when abdication_guard_enabled is exactly `true`. Absent
         # config, a missing key, or any parse error means it does not run.
-        config_path = os.path.join(cwd, ".agentic", "config.json")
+        config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
         try:
             with open(config_path, "r") as f:
                 config = json.load(f)

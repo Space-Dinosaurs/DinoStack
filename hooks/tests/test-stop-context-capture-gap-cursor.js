@@ -84,7 +84,12 @@ function assert(condition, message) {
 }
 
 function makeTmpProject() {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-stop-cgc-'));
+  // realpathSync: DS-171's resolveAgenticCwd() realpath-pins its input
+  // (macOS os.tmpdir() is /var/... -> symlinked to /private/var/...), so a
+  // test computing an expected path from the RAW (non-realpath'd) tmpDir
+  // would build a different string than what stop-context.js's cursor
+  // writer actually uses internally, even though both name the same file.
+  const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ae-stop-cgc-')));
   fs.mkdirSync(path.join(tmpDir, '.agentic'), { recursive: true });
   return tmpDir;
 }

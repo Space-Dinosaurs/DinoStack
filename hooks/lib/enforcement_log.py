@@ -30,11 +30,18 @@ Public API (module-level function, no class):
               permissionDecisionReason). Truncated to 800 chars here so a
               pathological reason string cannot grow the log unbounded.
 
-Upstream deps: Python 3 stdlib only (json, os, datetime). No external
-               dependencies, no import of any other hooks/lib module.
-               Writes ONLY [cwd]/.agentic/.enforcement-fires.jsonl (creates
-               [cwd]/.agentic/ with os.makedirs(exist_ok=True) if absent).
-               Never reads any file.
+Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
+               sibling hooks/lib/repo_root.py module via an isolated
+               importlib.util.spec_from_file_location load (_load_repo_root
+               - round-2 rework: was a `sys.path.insert(0, ...)` + `from
+               repo_root import ...` pair, a global process-wide side
+               effect for every caller that dynamically loads this file)
+               - anchors the write below to the repo root instead of the
+               raw payload cwd (or the os.getcwd() fallback when cwd is
+               absent from the payload). Writes ONLY
+               [resolved root]/.agentic/.enforcement-fires.jsonl (creates
+               that .agentic/ dir with os.makedirs(exist_ok=True) if
+               absent). Never reads any file.
 
 Downstream consumers: the eleven enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
@@ -102,6 +109,47 @@ import datetime
 import json
 import os
 
+
+def _load_repo_root():
+    """Best-effort dynamic import of the sibling hooks/lib/repo_root.py
+    module. Round-2 rework (Minor): replaces a `sys.path.insert(0, ...)` +
+    `from repo_root import ...` pair - a GLOBAL process-wide side effect
+    that shadowed any other `repo_root`/`git_worktree`/`loop_guard`/
+    `enforcement_log`-named module for the rest of the process, for every
+    caller that dynamically loads this file via importlib.util (10
+    enforce-*.py hooks at last audit). Uses the same isolated
+    importlib.util.spec_from_file_location loader every other Python
+    .agentic/ consumer in this repo uses (bin/ds-status, bin/ds-cost,
+    bin/ds-memory, hooks/enforce-skeptic-round-cap.py) instead."""
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "repo_root.py")
+        spec = _ilu.spec_from_file_location("repo_root", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def resolve_agentic_cwd(cwd: str) -> str:
+    """Thin wrapper preserving this module's pre-existing call shape
+    (`resolve_agentic_cwd(cwd)`) for its own callers below. Falls back to
+    cwd unchanged if the resolver failed to load - fire-logging is
+    additive telemetry, never a hard dependency."""
+    if _REPO_ROOT is None:
+        return cwd
+    try:
+        return _REPO_ROOT.resolve_agentic_cwd(cwd)
+    except Exception:
+        return cwd
+
+
 _LOG_BASENAME = ".enforcement-fires.jsonl"
 # 800, not 400: enforce-planning-artifact-spawn's advisory reason embeds a
 # full repo-relative target path and was measured at 391 chars against the
@@ -131,7 +179,11 @@ def log_fire(data, hook_name, decision, reason) -> None:
         if not cwd:
             cwd = os.getcwd()
 
-        agentic_dir = os.path.join(cwd, ".agentic")
+        # resolve_agentic_cwd walks up from cwd (whether it came from the
+        # payload or the os.getcwd() fallback above) to the nearest .git
+        # ancestor, so a drifted process cwd never determines the write
+        # location on its own.
+        agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
         log_path = os.path.join(agentic_dir, _LOG_BASENAME)
 

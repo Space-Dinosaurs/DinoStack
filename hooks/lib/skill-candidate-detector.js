@@ -20,7 +20,9 @@
  *     Returns candidates with count >= CANDIDATE_THRESHOLD. Fail-open to [].
  *   CANDIDATE_THRESHOLD - number (3). Exported for test use.
  *
- * Upstream deps: Node built-ins only (fs, path, os). Reads:
+ * Upstream deps: Node built-ins only (fs, path, os), plus
+ *   ./repo-root.js (resolveAgenticCwd - anchors every .agentic/ path below
+ *   to the repo root instead of the raw cwd argument). Reads:
  *   [cwd]/.agentic/events.jsonl (tool_failure_workaround events)
  *   [cwd]/.agentic/.skill-candidate-cursor (high-water mark, ISO8601)
  *   [cwd]/.agentic/.skill-candidate-tally.json (domain tally state)
@@ -55,6 +57,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { resolveAgenticCwd } = require('./repo-root.js');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -102,7 +105,7 @@ function _routingArtifact(domainTag) {
  * @returns {string}
  */
 function _tallyPath(cwd) {
-  return path.join(cwd, '.agentic', '.skill-candidate-tally.json');
+  return path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidate-tally.json');
 }
 
 /**
@@ -111,7 +114,7 @@ function _tallyPath(cwd) {
  * @returns {string}
  */
 function _cursorPath(cwd) {
-  return path.join(cwd, '.agentic', '.skill-candidate-cursor');
+  return path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidate-cursor');
 }
 
 /**
@@ -142,7 +145,7 @@ function _readTally(cwd) {
 function _writeTally(cwd, tally) {
   const dest = _tallyPath(cwd);
   // Ensure .agentic/ exists.
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
   fs.mkdirSync(agenticDir, { recursive: true });
 
   const tmpPath = `${dest}.tmp.${process.pid}.${Date.now()}`;
@@ -198,7 +201,7 @@ function _scanEvents(cwd, cursorTs) {
 
   let raw = '';
   try {
-    raw = fs.readFileSync(path.join(cwd, '.agentic', 'events.jsonl'), 'utf8');
+    raw = fs.readFileSync(path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl'), 'utf8');
   } catch (_) {
     return { domainCounts, maxTs };
   }
@@ -272,7 +275,7 @@ function _parseLearningsDomains(cwd) {
   const result = new Map();
   let raw = '';
   try {
-    raw = fs.readFileSync(path.join(cwd, '.agentic', 'learnings.md'), 'utf8');
+    raw = fs.readFileSync(path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings.md'), 'utf8');
   } catch (_) {
     return result;
   }
@@ -329,7 +332,7 @@ function _parseLearningsDomains(cwd) {
  * @param {object} entry - tally candidate entry
  */
 function _appendCandidate(cwd, domain, entry) {
-  const filePath = path.join(cwd, '.agentic', 'skill-candidates.md');
+  const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', 'skill-candidates.md');
   const dateStr = new Date().toISOString().slice(0, 10);
 
   const firstSeen = entry.firstSeen ? entry.firstSeen.slice(0, 10) : dateStr;

@@ -1,0 +1,118 @@
+# Flat inventory of every known .agentic/ path-construction site fixed by
+# the DS-171 repo-root anchoring change (Unit 1). One entry per line
+# (comments and blank lines ignored). This is the coverage-diff source of
+# truth for bin/tests/test_agentic_site_inventory_coverage.py: that test
+# re-derives a deliberately OVERINCLUSIVE candidate list of `.agentic`
+# path-construction lines across hooks/ (recursive) and bin/ (recursive),
+# and asserts every candidate appears here. A new uninventoried .agentic-
+# constructing line fails CI naming the offending line, closing the gap
+# where a future hook silently reintroduces cwd-relative .agentic/ writes.
+#
+# ROUND-2 REWORK (adversarial review Major 4): entries are keyed by
+# `path::normalized-snippet[#N]`, NOT `path:line`. A line-number key is
+# defeated by ordinary editing - inserting one unrelated comment line
+# anywhere above a site reindexes every entry below it, and the standard
+# response (bulk regeneration) silently absorbs a genuinely new
+# un-anchored site added in the same edit. A content key only changes when
+# the site's OWN line changes. `#N` (N = 1-based occurrence index within
+# the file) disambiguates the 2nd+ occurrence of an identical normalized
+# snippet in one file.
+#
+# Entries below are MECHANICALLY GENERATED to match the scanner's own
+# candidate output exactly (bin/tests/test_agentic_site_inventory_coverage
+# .py's _find_candidates()) - do not hand-edit; regenerate via that
+# function after any edit that changes a site's line content. The three
+# resolver modules themselves (hooks/lib/repo-root.js, hooks/lib/
+# repo_root.py, hooks/lib/repo-root.sh) are EXCLUDED - they are what does
+# the resolving, not a site to resolve. Also excluded: HOME-scoped sites
+# (never anchored to a project's repo root by design - e.g. ~/.agentic/
+# constants) and a short list of exclusively operator-invoked CLIs (see
+# EXCLUDED_FILES in the scanner) whose Path.cwd()/os.getcwd() correctly
+# reflects wherever the human ran them from, not the harness-payload-cwd-
+# drift bug class this ticket fixes.
+#
+# The scanner is DELIBERATELY OVERINCLUSIVE by design (it also matches
+# comments, docstrings, and message-string concatenation that merely
+# mention ".agentic" - e.g. context-rollup.js's log-message string
+# building, or state-mark.js's JSDoc examples). Each such entry below has
+# been reviewed and confirmed harmless (not a real path-construction
+# site), not silently accepted.
+
+bin/ds-cost::EVENTS_PATH = _agentic_root() / ".agentic" / "events.jsonl"
+bin/ds-cost::Path(".agentic/..."). Constants, not functions, so
+bin/ds-cost::SESSION_LOG_DIR = _agentic_root() / ".agentic" / "session-log"
+bin/ds-cost::a bare relative Path(".agentic/...") that silently resolves against
+bin/ds-evidence::return root / ".agentic" / "evidence"
+bin/ds-identity::cwd / ".agentic" / "session-log" / f"{developer_id}.jsonl",
+bin/ds-identity::if (current / ".agentic").exists():
+bin/ds-identity::if not (cwd / ".agentic").exists() and not (cwd / ".git").exists():
+bin/ds-identity::return Path(cwd or Path.cwd()) / ".agentic" / "identity.yml"
+bin/ds-memory::CONTEXT_PATH = _LazyAgenticPath(".agentic", "context.md")
+bin/ds-memory::EVENTS_PATH = _LazyAgenticPath(".agentic", "events.jsonl")
+bin/ds-memory::_LazyAgenticPath(".agentic", "memory", "MEMORY.md"),
+bin/ds-memory::_LazyAgenticPath(".agentic", "memory.md"),
+bin/ds-memory::a bare relative Path(".agentic/...") that silently resolves against
+bin/ds-memory::relative Path(".agentic/..."). These module-level names are
+bin/ds-status::HEALTH_FILE_PATH = _agentic_root() / ".agentic" / ".telemetry-health.json"
+bin/ds-status::ROLE_MODELS_PROJECT_PATH = _agentic_root() / ".agentic" / "role-models.yml"
+bin/ds-status::SENTINEL_PATH = _agentic_root() / ".agentic" / ".activated"
+bin/ds-status::TELEMETRY_HEALTH_PATH = _agentic_root() / ".agentic" / ".telemetry-health.json"
+bin/ds-status::a bare relative Path(".agentic/...") that silently resolves against
+bin/ds-status::instead of a bare relative Path(".agentic/...") that would
+bin/ds-status::lock_dir = _agentic_root() / ".agentic" / "wrap" / "lock"
+bin/ds-tracker::return Path(cwd or Path.cwd()) / ".agentic" / TRACKER_FILE
+bin/ds-wrap-acquire-lock::lockPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'wrap', 'lock');
+bin/ds-wrap-release-lock::* hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
+bin/ds-wrap-release-lock::const LOCK_SUFFIX = path.join('.agentic', 'wrap', 'lock');
+bin/ds-wrap-release-lock::let lockPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'wrap', 'lock');
+hooks/conductor-overreach-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/conductor-overreach-nudge.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+hooks/enforce-no-abdication.py::config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
+hooks/enforce-planning-artifact-spawn.py::sentinel_path = os.path.join(sentinel_root, ".agentic", ".last-architect-spawn")
+hooks/enforce-skeptic-round-cap.py::return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"
+hooks/enforce-ticket-batching.py::return Path(diag["root"]) / ".agentic" / f".ticket-batch-{safe_session}.json"
+hooks/enforce-turn-shape.py::config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
+hooks/lib/capture-gap.js::const cursorPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-last-sweep');
+hooks/lib/capture-gap.js::const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
+hooks/lib/capture-gap.js::const learningsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings.md');
+hooks/lib/context-rollup.js::'WRAP-LOCK-STUCK: .agentic/wrap/lock has been ' + state + ' for ' + ageLabel
+hooks/lib/context-rollup.js::+ '*Derived from .agentic/context.d/ - ' + blocks.length
+hooks/lib/context-rollup.js::return path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/lib/enforcement_log.py::agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
+hooks/lib/loop_guard.py::agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
+hooks/lib/loop_guard.py::return os.path.join(resolve_agentic_cwd(cwd), ".agentic", counter_filename)
+hooks/lib/skill-candidate-detector.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/lib/skill-candidate-detector.js::const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', 'skill-candidates.md');
+hooks/lib/skill-candidate-detector.js::raw = fs.readFileSync(path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl'), 'utf8');
+hooks/lib/skill-candidate-detector.js::raw = fs.readFileSync(path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings.md'), 'utf8');
+hooks/lib/skill-candidate-detector.js::return path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidate-cursor');
+hooks/lib/skill-candidate-detector.js::return path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidate-tally.json');
+hooks/lib/state-mark.js::* (a) the two LEGACY rows ('.agentic/loop-state.json' and
+hooks/lib/state-mark.js::* directory-read failure; (b) each keyed row ('.agentic/loop-state-<K>.json',
+hooks/lib/state-mark.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/lib/state-mark.js::const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', candidate.file);
+hooks/lib/state-mark.js::const filePath = path.join(resolveAgenticCwd(cwd), '.agentic', candidate.file);#2
+hooks/lib/wrap-marker.js::return path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/post-tool-use-capture-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/post-tool-use-capture-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');#2
+hooks/post-tool-use-capture-nudge.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+hooks/post-tool-use-capture-nudge.js::const trackerPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-surfaced');
+hooks/post-tool-use-capture-nudge.js::const trackerPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.skill-candidates-in-session');
+hooks/pre-tool-use-spawn-emit.js::const agenticDir = path.join(rootDiag.root, '.agentic');
+hooks/session-end-wrap.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+hooks/session-start-wrap.sh::: > "$resolved_root/.agentic/wrap/claude-host" 2>/dev/null || true
+hooks/session-start-wrap.sh::if [[ ! -f "$resolved_root/.agentic/wrap/claude-host" ]]; then
+hooks/session-start-wrap.sh::if [[ -n "$resolved_root" ]] && [[ -f "$resolved_root/.agentic/wrap/daemon-auth-failed" ]]; then
+hooks/session-start-wrap.sh::local config="$resolved_root/.agentic/config.json"
+hooks/session-start-wrap.sh::mkdir -p "$resolved_root/.agentic/wrap" 2>/dev/null || true
+hooks/session-start-wrap.sh::wd="$resolved_root/.agentic"
+hooks/stop-context.js::const agenticDir = path.join(rootDiag.root, '.agentic');
+hooks/stop-context.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+hooks/stop-context.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');#2
+hooks/stop-context.js::const cursorPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-last-sweep');
+hooks/stop-context.js::const eventsPath = cwd ? path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl') : null;
+hooks/stop-context.js::const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');
+hooks/stop-context.js::const markerPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'learnings-agent.session');
+hooks/stop-context.js::healthPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.telemetry-health.json');
+hooks/subagent-stop-spawn-emit.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/wrap-daemon.js::const cfgPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');

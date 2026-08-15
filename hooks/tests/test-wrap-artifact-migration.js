@@ -53,6 +53,14 @@ function makeTmp(prefix) {
   const projectDir = path.join(base, 'project');
   const agenticDir = path.join(projectDir, '.agentic');
   fs.mkdirSync(agenticDir, { recursive: true });
+  // DS-171: session-start-wrap.sh now resolves the repo root via
+  // hooks/lib/repo-root.sh (git rev-parse --show-toplevel) before running
+  // ANY migration/self-heal block, and skips those blocks entirely when no
+  // .git ancestor is found - matching real SessionStart invocations, whose
+  // cwd is always inside a real project. `git rev-parse --show-toplevel`
+  // requires a GENUINE repo (a bare `.git` directory is insufficient - it
+  // fails "fatal: not a git repository"), so this runs a real `git init`.
+  execSync('git init -q', { cwd: projectDir });
   return { base, projectDir, agenticDir };
 }
 

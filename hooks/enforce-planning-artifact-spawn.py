@@ -28,9 +28,15 @@ Behavior:
      /tmp vs /private/tmp symlink drift on macOS).
   6. Only act if the realpath'd target is under <realpath cwd>/docs/planning/.
      Otherwise exit 0.
-  7. Check .agentic/.last-architect-spawn mtime. If the file exists and
-     (time.time() - mtime) < 14400 (4h), exit 0 silently (recent spawn on
-     record; legitimate Brief authoring).
+  7. Resolve the repo root from the realpath'd cwd (hooks/lib/repo_root.py,
+     resolve_agentic_cwd - matches the resolution done by the sentinel's
+     writer, hooks/pre-tool-use-spawn-emit.js, so a drifted cwd never
+     causes a false-negative sentinel lookup) and check
+     [resolved root]/.agentic/.last-architect-spawn mtime. If the file
+     exists and (time.time() - mtime) < 14400 (4h), exit 0 silently (recent
+     spawn on record; legitimate Brief authoring). If the repo root cannot
+     be resolved, fall through to the advisory (never a silent allow on an
+     unresolvable path).
   8. Emit advisory JSON with permissionDecision "allow" and advisory text in
      permissionDecisionReason so the model sees it in context without a human
      permission prompt and without denying the write.
@@ -53,6 +59,29 @@ import json
 import os
 import sys
 import time
+
+
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_log_fire below). Returns None on any load failure - the sentinel
+    check below is then skipped, falling through to the advisory (fail
+    toward advisory, never toward a silent allow on a stale/mismatched
+    path).
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "repo_root.py")
+        spec = _ilu.spec_from_file_location("repo_root", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
 
 
 def _load_log_fire():
@@ -123,17 +152,22 @@ def main():
         if not real_target.startswith(planning_dir):
             sys.exit(0)
 
-        # Check sentinel mtime.
-        sentinel_path = os.path.join(real_cwd, ".agentic", ".last-architect-spawn")
-        try:
-            mtime = os.path.getmtime(sentinel_path)
-            age = time.time() - mtime
-            if age < 14400:  # 4 hours in seconds
-                # Recent architect spawn on record - allow silently.
-                sys.exit(0)
-        except OSError:
-            # Sentinel absent or unreadable - fall through to advisory.
-            pass
+        # Check sentinel mtime. Must resolve the SAME repo root the writer
+        # (hooks/pre-tool-use-spawn-emit.js) uses, or a drifted real_cwd
+        # would look for the sentinel at a path it was never written to,
+        # silently breaking the 4h architect-spawn guard.
+        if _REPO_ROOT is not None:
+            sentinel_root = _REPO_ROOT.resolve_agentic_cwd(real_cwd)
+            sentinel_path = os.path.join(sentinel_root, ".agentic", ".last-architect-spawn")
+            try:
+                mtime = os.path.getmtime(sentinel_path)
+                age = time.time() - mtime
+                if age < 14400:  # 4 hours in seconds
+                    # Recent architect spawn on record - allow silently.
+                    sys.exit(0)
+            except OSError:
+                # Sentinel absent or unreadable - fall through to advisory.
+                pass
 
         # Emit advisory: allow the write but surface the warning to the model.
         advisory_msg = (

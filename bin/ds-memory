@@ -18,7 +18,17 @@ Retrieval caps: query output is bounded per source to at most 20 matched
                negative value) disables the respective cap.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, re, sys,
-               pathlib). No external dependencies.
+               pathlib), plus hooks/lib/repo_root.py (resolve_agentic_cwd),
+               loaded lazily via _load_repo_root() - anchors
+               EVENTS_PATH/CONTEXT_PATH/the two .agentic/-prefixed entries
+               of MEMORY_PATHS to the resolved repo root instead of a bare
+               relative Path(".agentic/..."). These module-level names are
+               constructed ONCE at import time, but each is a
+               _LazyAgenticPath proxy (see its own docstring below) that
+               RE-RESOLVES against the process's CURRENT cwd via
+               _agentic_root() on every attribute access - not a value
+               baked in at import time - preserving the pre-existing lazy-
+               relative-Path resolution semantics ds-memory always had.
 
 Downstream consumers: content/commands/ds-memory-update.md (command spec);
                       conductors running inline memory retrieval.
@@ -41,13 +51,107 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-EVENTS_PATH = Path(".agentic/events.jsonl")
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
+    enforce-*.py lazy-loader pattern). Returns None on any load failure -
+    _agentic_root() then falls back to Path.cwd().
+
+    DELIBERATELY DUPLICATED across bin/ds-status, bin/ds-cost, and
+    bin/ds-memory rather than shared - see bin/ds-status's copy of this
+    docstring for the full rationale (symlink-invocation __file__
+    resolution)."""
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here.parent / "hooks" / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _agentic_root() -> Path:
+    """Resolved repo root anchoring every .agentic/ path below - instead of
+    a bare relative Path(".agentic/...") that silently resolves against
+    whatever the process cwd happens to be at access time."""
+    if _REPO_ROOT is not None:
+        try:
+            return Path(_REPO_ROOT.resolve_agentic_cwd(str(Path.cwd())))
+        except Exception:
+            pass
+    return Path.cwd()
+
+
+class _LazyAgenticPath:
+    """A Path-like proxy that re-resolves against the CURRENT process cwd
+    (via _agentic_root()) on every attribute access, instead of baking in a
+    value at import time. Preserves the pre-existing lazy-relative-Path
+    resolution semantics ds-memory always had (a relative pathlib.Path
+    resolves against os.getcwd() at filesystem-CALL time, not construction
+    time - the exact property bin/tests/test_agentic_memory.py's
+    os.chdir()-based tests depend on), while still anchoring to the
+    resolved repo root (DS-171) instead of a raw, possibly-drifted cwd. A
+    test that instead does `_mod.EVENTS_PATH = Path(tmp) / "x"` simply
+    REPLACES this object with a real Path at that module attribute - since
+    every caller re-reads the global name at call time, it then gets a
+    plain Path that behaves normally, no proxying involved.
+
+    Round-2 rework: __truediv__/__eq__/__hash__ are implemented explicitly
+    below because Python dunder lookup bypasses __getattr__ entirely (it
+    goes straight to the type, not the instance) - without them, `x / "y"`,
+    `x == other`, and using an instance as a dict/set key would silently
+    fall through to `object`'s defaults instead of proxying to the
+    resolved Path, even though __getattr__ makes every ORDINARY attribute
+    access (e.g. `.exists()`, `.parent`) work correctly. NOT implemented:
+    `isinstance(x, Path)` still fails (this class does not subclass Path,
+    by design - proxying is the deliberately chosen lazy-resolution
+    mechanism); a caller that needs isinstance-Path semantics must call
+    `Path(x)` or access `.resolve()`-equivalent state first.
+    """
+
+    def __init__(self, *relative_parts: str) -> None:
+        self._parts = relative_parts
+
+    def _resolve(self) -> Path:
+        return _agentic_root().joinpath(*self._parts)
+
+    def __getattr__(self, name):
+        return getattr(self._resolve(), name)
+
+    def __str__(self) -> str:
+        return str(self._resolve())
+
+    def __fspath__(self) -> str:
+        return str(self._resolve())
+
+    def __repr__(self) -> str:
+        return f"_LazyAgenticPath({self._resolve()!r})"
+
+    def __truediv__(self, other):
+        return self._resolve() / other
+
+    def __eq__(self, other):
+        if isinstance(other, _LazyAgenticPath):
+            return self._resolve() == other._resolve()
+        return self._resolve() == other
+
+    def __hash__(self):
+        return hash(self._resolve())
+
+
+EVENTS_PATH = _LazyAgenticPath(".agentic", "events.jsonl")
 MEMORY_PATHS = [
     Path("MEMORY.md"),
-    Path(".agentic/memory.md"),
-    Path(".agentic/memory/MEMORY.md"),
+    _LazyAgenticPath(".agentic", "memory.md"),
+    _LazyAgenticPath(".agentic", "memory", "MEMORY.md"),
 ]
-CONTEXT_PATH = Path(".agentic/context.md")
+CONTEXT_PATH = _LazyAgenticPath(".agentic", "context.md")
 
 DEFAULT_MAX_ITEMS = 20
 DEFAULT_MAX_CHARS = 8000

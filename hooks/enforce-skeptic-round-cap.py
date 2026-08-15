@@ -177,9 +177,14 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
 
 Upstream deps: Python 3 stdlib only (hashlib, json, os, re, sys, time,
                importlib.util for the best-effort `lib/enforcement_log.py`
-               import). No external deps, no subprocess (the fix that
-               dropped `_current_branch()`'s `git rev-parse` call also
-               dropped the only subprocess dependency this hook had).
+               and `lib/repo_root.py` imports). hooks/lib/repo_root.py
+               (resolve_agentic_cwd) anchors the state file below to the
+               repo root instead of the raw payload cwd; on load failure
+               _state_path returns None and the caller skips the round-cap
+               check entirely (fail-open) rather than falling back to a raw
+               cwd. No external deps, no subprocess (the fix that dropped
+               `_current_branch()`'s `git rev-parse` call also dropped the
+               only subprocess dependency this hook had).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       Agent tools, matching enforce-tier.py's dual-matcher
@@ -471,8 +476,51 @@ def _round_fingerprint(tinput: dict) -> str | None:
     return hashlib.sha1(body.encode("utf-8", "replace")).hexdigest()
 
 
-def _state_path(cwd: str, key: str) -> Path:
-    return Path(cwd) / ".agentic" / f"skeptic-round-{key}.json"
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_log_fire above). Returns None on any load failure - callers
+    must skip the .agentic/ read/write rather than fall back to a raw cwd.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def _state_path(cwd: str, key: str) -> Path | None:
+    """Returns None when the repo root cannot be resolved - callers must
+    skip the read/write on None rather than fall back to a raw cwd.
+
+    Round-3 rework (Major 2): this previously called the plain
+    `resolve_agentic_cwd()` and never consulted `found_git_ancestor`, so
+    the round counter still wrote at the unresolved fallback root (the
+    realpath'd raw cwd) on a "no .git ancestor found" cwd - contradicting
+    both this hook's own docstring and hooks/lib/repo_root.py's own
+    Failure modes section, which name this hook as one of only two
+    callers in the repo that genuinely implement the strict "write at the
+    wrong location would actively corrupt cross-session state" SKIP
+    discipline. Now consults `found_git_ancestor` explicitly via
+    resolve_agentic_cwd_with_diagnostics and returns None (skip) when it
+    is False, matching the manifest's stated tier."""
+    if _REPO_ROOT is None:
+        return None
+    try:
+        diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(cwd)
+    except Exception:
+        return None
+    if not diag.get("found_git_ancestor"):
+        return None
+    return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"
 
 
 def _load_state(path: Path) -> dict:
@@ -655,6 +703,10 @@ def main() -> None:
             sys.exit(0)
 
         path = _state_path(cwd, unit_key)
+        if path is None:
+            # Repo root could not be resolved - skip the read/write entirely
+            # rather than fall back to a raw (possibly drifted) cwd.
+            sys.exit(0)
         state = _load_state(path)
 
         allow, new_state, reason = _decide(state, _round_fingerprint(tinput))
