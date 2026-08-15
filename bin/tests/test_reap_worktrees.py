@@ -1726,3 +1726,26 @@ def test_pr_query_error_note_line_printed_when_nonzero(tmp_path):
     assert "skipped-pr-query-error=1" in summary_line(proc.stdout)
     assert "NOTE:" in proc.stdout and "gh pr list` query failure" in proc.stdout, proc.stdout
     assert "SKIP_PR_QUERY_ERROR" in proc.stdout
+
+
+# --------------------------------------------------------------------------
+# 33. (round-2 rework, Skeptic Major 1) A nonzero SKIP_TOO_YOUNG count must
+#     be visible via a dedicated NOTE line, matching the existing
+#     SKIP_PR_QUERY_ERROR NOTE shape - a `removed=0` run right after a merge
+#     must not leave the age floor buried in the bucket field alone.
+#     Confirmed failing pre-fix: before this NOTE was added, this assertion
+#     failed with `assert 'NOTE:' in proc.stdout` (stdout carried only the
+#     summary line's `skipped-too-young=1` field and no NOTE at all).
+# --------------------------------------------------------------------------
+
+
+def test_too_young_note_line_printed_when_nonzero(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-young-note", "worktree-agent-young-note", push=False)
+
+    proc = run_reap(repo, dry_run=False, min_age_hours="24")
+    assert proc.returncode == 0, proc.stderr
+    assert "skipped-too-young=1" in summary_line(proc.stdout)
+    assert "NOTE:" in proc.stdout and "age floor" in proc.stdout, proc.stdout
+    assert "--min-age-hours 0" in proc.stdout
+    assert str(wt) in worktree_paths(repo)

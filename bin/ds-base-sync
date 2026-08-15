@@ -196,7 +196,7 @@ if [ -f "$_ds_reap_worktrees" ]; then
     _ds_reap_total="${BASH_REMATCH[1]}"
     _ds_reap_nonroot=$((_ds_reap_total - 1))
     if [ "$_ds_reap_nonroot" -gt 0 ]; then
-      echo "ds-base-sync: ${_ds_reap_nonroot} non-root git worktree(s) in $REPO_DIR - consider \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees --explain\` for a dry-run report)."
+      echo "ds-base-sync: ${_ds_reap_nonroot} non-root git worktree(s) in $REPO_DIR - consider \`/ds-cleanup-worktrees\` (or \`ds-reap-worktrees --dry-run --explain\` for a dry-run report)."
     fi
   fi
 fi

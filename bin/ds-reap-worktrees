@@ -1415,6 +1415,23 @@ def main(argv: Optional[List[str]] = None) -> int:
             "SKIP_PR_QUERY_ERROR, never archived or removed."
         )
 
+    # Round-2 rework (Skeptic Major 1): an operator running this right after
+    # a merge, at the default 24h age floor, sees `removed=0` in the summary
+    # line above with no obvious explanation - the age floor is buried in
+    # the `skipped-too-young` bucket field unless they already know to look
+    # for it. Surface it as its own NOTE, same visibility tier as the
+    # PR-query-error NOTE above, whenever the bucket is nonzero.
+    too_young_count = outcome_counts.get("SKIP_TOO_YOUNG", 0)
+    if too_young_count:
+        print(
+            f"NOTE: {too_young_count} worktree(s) skipped because they are younger than "
+            f"the {args.min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
+            "can still belong to a resumable session, so this floor is a safety default, not "
+            "a bug. Pass --min-age-hours 0 to reap them immediately (e.g. right after merging "
+            "a PR); doing so removes the protection against reaping a concurrent session's "
+            "fresh worktree."
+        )
+
     if args.dry_run and salvage_would:
         print(
             f"NOTE: {salvage_would} .agentic/events.jsonl file(s) would be salvaged to "
