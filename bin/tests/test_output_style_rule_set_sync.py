@@ -6,12 +6,12 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          candor) out of `hooks/enforce-turn-shape.py` and into the
          always-injected `dinostack` Claude Code output style
          (`content/output-styles/dinostack.md`). A later change added a
-         FIFTH rule, editorial addenda - the ban on any conductor-selected
+         fifth topic, editorial addenda - the ban on any conductor-selected
          item carrying none of the four turn warrants, in any position in
          the turn and whether or not it is bundled, of which a labelled
          package of such observations is the canonical form and not the
-         boundary, carrying
-         `content/references/conductor-turn-format.md` §5 ban 7. That one
+         boundary, carried by the **Editorial addenda.** rule in
+         `content/references/conductor-turn-format.md`. That one
          was never hook-mechanized, so it was not "moved" from anywhere;
          it is nonetheless part of the same rule set and subject to the
          same drift guard. That rule set is then
@@ -41,17 +41,28 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          The derived source of truth is `content/output-styles/dinostack.md`
          itself: its YAML frontmatter `description:` field states the rule
          set as a parenthesized, comma-separated list, and its body states
-         the same count as numbered rule headers (`**1. ...**` through
-         `**N. ...**`). Both are asserted to agree with each other, and
-         each named topic is asserted present, AND no topic the style no
-         longer defines is asserted stale-present (modulo hyphen/space
-         normalization), at each of the ten sites above.
+         those topics under numbered rule headers (`**1. ...**` through
+         `**N. ...**`). DS-PILLAR1 removed the previous strict 1:1
+         equality between header count and topic count - that equality
+         encoded the enumerated one-rule-per-topic structure the change
+         deleted, since one governing warrant rule now names four topics
+         as instances beside a single surviving volume rule. Both drift
+         directions remain covered, per-topic and per-rule rather than by
+         count: every declared topic must be named in the body
+         (`test_body_covers_every_frontmatter_topic`) and every numbered
+         rule must itself name a declared topic
+         (`test_every_numbered_rule_maps_to_a_declared_topic`, round 2
+         Skeptic Major A - the count bound it replaced left three slots of
+         undetected growth). Separately, each named topic is asserted
+         present, AND no topic the style no longer defines is asserted
+         stale-present (modulo hyphen/space normalization), at each of the
+         ten sites above.
 
          Round 8 (Skeptic Major A) added a second, orthogonal axis: a
          DESCRIPTION invariant. Every check above pins only the topic
          NAME, so six sites kept the pre-widening definition of the
          editorial-addenda ban ("the ban on a labelled package of
-         conductor-selected observations") for a full round after ban 7
+         conductor-selected observations") for a full round after the ban
          was widened to any warrantless conductor-selected item, bundled
          or not - and every name check stayed green. See
          `test_no_site_scopes_editorial_addenda_to_a_labelled_package`
@@ -208,18 +219,127 @@ def rule_set_topics(style_text) -> list[str]:
 
 
 @pytest.fixture(scope="module")
-def rule_header_count(style_text) -> int:
-    """Derived from the style body's own numbered rule headers
-    ('**1. ...**' etc.) - the second independent count this spec cross-
-    checks against the frontmatter topic count."""
-    return len(re.findall(r"^\*\*\d+\.\s", style_text, re.MULTILINE))
+def style_body(style_text) -> str:
+    """The style's BODY, with the YAML frontmatter stripped.
+
+    This exists because of a vacuity bug caught by mutation-testing the
+    first draft of `test_body_covers_every_frontmatter_topic`: that check
+    originally scanned the whole file, which CONTAINS the `description:`
+    line the topics are derived from. Every topic therefore matched
+    itself, and deleting a topic from the body entirely left the test
+    green. Operands must not share a source - see the repo's
+    "same-source operands are unfalsifiable" lesson. Splitting on the
+    closing `---` fence is asserted, not assumed, so a frontmatter shape
+    change fails loudly instead of silently restoring the vacuity."""
+    match = re.match(r"^---\n.*?\n---\n(.*)$", style_text, re.DOTALL)
+    assert match, (
+        f"{STYLE_PATH} must open with a YAML frontmatter block delimited by "
+        "'---' lines - this spec strips it so the body cannot satisfy a "
+        "topic-coverage check using the frontmatter's own description line"
+    )
+    body = match.group(1)
+    assert "description:" not in body, (
+        f"{STYLE_PATH}: frontmatter strip left a 'description:' line in the "
+        "body - the topic-coverage check would compare the description "
+        "against itself and pass vacuously"
+    )
+    return body
 
 
-def test_frontmatter_topic_count_matches_body_rule_count(rule_set_topics, rule_header_count):
-    assert rule_header_count == len(rule_set_topics), (
-        f"{STYLE_PATH} frontmatter names {len(rule_set_topics)} topics "
-        f"{rule_set_topics} but the body has {rule_header_count} numbered "
-        "rule headers - these must stay in sync"
+_RULE_HEADER_RE = re.compile(r"^\*\*(\d+)\.\s", re.MULTILINE)
+
+
+@pytest.fixture(scope="module")
+def rule_blocks(style_body) -> list[tuple[str, str]]:
+    """Each numbered rule as `(number, block_text)`, where the block runs
+    from its own `**N.**` header to the next header (or end of body).
+
+    Derived from `style_body`, never `style_text`: the block text is one
+    operand of a topic check whose other operand comes from the
+    frontmatter `description:` line, so a whole-file source would let the
+    description satisfy the check against itself - the same vacuity
+    `style_body` exists to prevent (see its docstring)."""
+    starts = [m.start() for m in _RULE_HEADER_RE.finditer(style_body)]
+    numbers = [m.group(1) for m in _RULE_HEADER_RE.finditer(style_body)]
+    bounds = starts + [len(style_body)]
+    return [(numbers[i], style_body[bounds[i]:bounds[i + 1]]) for i in range(len(starts))]
+
+
+def test_body_covers_every_frontmatter_topic(rule_set_topics, style_body):
+    """DS-PILLAR1 replaced the previous strict 1:1 equality between
+    frontmatter topics and numbered `**N.**` body headers. That equality
+    encoded "exactly one numbered rule per topic", which is precisely the
+    enumerated structure this change removed: the style now states ONE
+    governing warrant rule that subsumes status-only, answer relevance,
+    editorial addenda, and self-narrating candor as named instances, plus
+    one surviving volume rule the warrant test does not reach.
+
+    Strength is preserved, not reduced. The equality's real job was
+    bidirectional drift detection, and both directions are still covered:
+
+      * description-topic dropped from the body - caught HERE, and more
+        strictly than before. The old check compared only COUNTS, so
+        renaming a rule while keeping the count green passed; this asserts
+        each declared topic is named in the body by name.
+      * a rule added to the body but never declared in the description
+        (which would escape the ten-site `_assert_topics_present` sync) -
+        caught by `test_every_numbered_rule_maps_to_a_declared_topic`,
+        which asserts each `**N.**` rule's own text names a declared
+        topic rather than merely bounding how many rules there are.
+
+    Consolidating topics under a governing rule is allowed; growing the rule
+    set past the declared vocabulary is not."""
+    normalized_body = _normalize(style_body)
+    missing = [t for t in rule_set_topics if not _topic_pattern(t).search(normalized_body)]
+    assert not missing, (
+        f"{STYLE_PATH} frontmatter declares topic(s) {missing} that the body "
+        "never names. Either the body dropped a rule the description still "
+        "advertises (and the ten restatement sites are now stale), or the "
+        "description names a topic that was never written - fix whichever "
+        "it is; do not delete the topic from the description without also "
+        "updating the ten sites this spec checks."
+    )
+
+
+def test_every_numbered_rule_maps_to_a_declared_topic(rule_set_topics, rule_blocks):
+    """The inverse direction of the check above: a numbered rule added to
+    the body without a corresponding description topic would never reach
+    the ten restatement sites, since those are checked against the
+    description, and would therefore be invisible everywhere.
+
+    DS-PILLAR1 round 2 (Skeptic Major A) replaced a COUNT bound here
+    (`headers <= len(topics)`) with this per-rule subject mapping. The
+    count bound was strictly weaker in exactly the direction this test
+    exists to cover: with 2 headers against 5 declared topics it left
+    three slots of undetected growth, so adding `**3. Invented rule.**`
+    with no matching frontmatter topic passed green. Bounding the COUNT
+    cannot detect an unmapped rule while any slack remains; bounding each
+    rule's SUBJECT can, at any count.
+
+    Decoupling is preserved: a topic may still be covered without its own
+    numbered rule (one governing rule may name several topics, which is
+    the whole point of the DS-PILLAR1 restructure), so headers may be
+    fewer than topics. What is now closed is the converse - a numbered
+    rule may not exist without a declared topic to carry it to the
+    restatement sites."""
+    assert rule_blocks, (
+        f"{STYLE_PATH} body has no numbered `**N.**` rule headers at all - "
+        "refusing to certify a style with no stated rules as compliant"
+    )
+    unmapped = []
+    for number, block in rule_blocks:
+        normalized = _normalize(block)
+        if not any(_topic_pattern(t).search(normalized) for t in rule_set_topics):
+            header = block.splitlines()[0].strip()
+            unmapped.append(f"**{number}.** ({header[:80]})")
+    assert not unmapped, (
+        f"{STYLE_PATH} body has numbered rule(s) {unmapped} whose text names "
+        f"none of the frontmatter's declared topics {rule_set_topics}. A rule "
+        "the description does not name cannot be synced to the ten "
+        "restatement sites, so it grows the rule set invisibly - the exact "
+        "re-enumeration DS-PILLAR1 removed. Either state the rule as an "
+        "instance of a topic already declared, or add its topic to the "
+        "description (and to ALL_KNOWN_RULE_TOPICS) in the same change."
     )
 
 
@@ -337,7 +457,12 @@ def test_safe_configuration_names_full_rule_set(rule_set_topics):
 
 def test_conductor_turn_format_names_full_rule_set(rule_set_topics):
     text = CTF_PATH.read_text(encoding="utf-8")
-    marker = "DS-171: bans 2 and 5"
+    # Marker was "DS-171: bans 2 and 5". DS-PILLAR1 collapsed the numbered
+    # ban list into one governing warrant rule plus named instances, so a
+    # marker keyed to ban NUMBERS no longer resolves. This one is keyed to
+    # the note's subject instead, which is stable across renumbering - the
+    # defect the numbered marker kept re-encoding.
+    marker = "Mechanization status (DS-171)"
     assert marker in text, (
         f"{CTF_PATH} must contain the DS-171 note describing what moved to "
         "the dinostack output style"
@@ -457,8 +582,9 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
 #   4. Semantic re-narrowing with no lexical marker at all ("the ban applies
 #      when the conductor groups them together") is entirely invisible.
 # The invariant is a tripwire for the realistic near-miss, not a proof. The
-# normative statement of the ban is `content/references/conductor-turn-format.md`
-# §5 ban 7, and human review of any edit to a gloss remains load-bearing.
+# normative statement of the ban is the **Editorial addenda.** rule in
+# `content/references/conductor-turn-format.md`, and human review of any edit
+# to a gloss remains load-bearing.
 _NARROWING_MODIFIERS = (
     r"labell?ed|bundled|grouped|packaged|batched|clustered|"
     r"trailing|closing|opening|appended|final|concluding"
@@ -496,12 +622,14 @@ _BAN_SUBJECT_RE = re.compile(
 
 # Any of these phrasings is sufficient evidence the definition is NOT
 # narrowly scoped. All are in live use: the config-entry sites say "whether
-# or not it is bundled ... the canonical form, not the boundary"; ban 7 and
-# the style's rule 5 say "not its boundary". Round 9 added the POSITIONAL
+# or not it is bundled ... the canonical form, not the boundary"; the
+# **Editorial addenda.** rule and the style's editorial-addenda instance both
+# say "not its boundary". Round 9 added the POSITIONAL
 # widenings, because the trigger now covers the positional axis too and a
-# site can legitimately state the widening on that axis instead - ban 7's
-# own "Position is not part of the shape" and the DS-171 note's "ban 7 is now
-# position-independent" are both correct text that the package-only widening
+# site can legitimately state the widening on that axis instead - the
+# **Editorial addenda.** rule's own "Position is not part of the shape" and
+# the DS-171 note's "in any position in the turn" are both correct text that
+# the package-only widening
 # list would have flagged as offenders.
 _WIDENING_RE = re.compile(
     r"whether or not it is bundled|not the boundary|not its boundary|"
@@ -540,7 +668,8 @@ _PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
 # mechanically. It is bounded by the fact that this gloss is documentation of
 # a guard, not a normative statement of the rule - the two normative sources
 # are pinned by `test_widening_is_stated_at_both_normative_sources`, and a
-# reader of a re-narrowed gloss here is one `git grep` from ban 7 itself.
+# reader of a re-narrowed gloss here is one `git grep` from the
+# **Editorial addenda.** rule itself.
 _DESCRIPTION_INVARIANT_PATHS = [
     STYLE_PATH,
     INDEX_PATH,
@@ -580,8 +709,9 @@ def test_no_site_scopes_editorial_addenda_to_a_labelled_package(site_path):
         f"{site_path} describes the editorial-addenda ban in package or "
         f"positional terms in the paragraph(s) starting at line(s) "
         f"{offenders} without stating that the "
-        "package is the canonical form and not the boundary. Ban 7 in "
-        f"{CTF_PATH} covers any conductor-selected item carrying none of "
+        "package is the canonical form and not the boundary. The "
+        f"**Editorial addenda.** rule in {CTF_PATH} covers any "
+        "conductor-selected item carrying none of "
         "the four turn warrants, bundled or not, IN ANY POSITION in the "
         "turn - a package-scoped or trailing-scoped gloss understates it. "
         "Match the wording already used at the other sites."
@@ -589,7 +719,8 @@ def test_no_site_scopes_editorial_addenda_to_a_labelled_package(site_path):
 
 
 # --- Disposition non-restatement invariant (round 9, Skeptic Major C) -----
-# Ban 7's **Disposition.** paragraph routes a process observation to the PR
+# The **Editorial addenda.** rule's **Disposition.** paragraph routes a
+# process observation to the PR
 # body and then defers ADMISSION into `## Operator decisions` wholly to the
 # kernel gate in `content/sections/02-delegation.md`. It must not paraphrase
 # that gate's conditions, in full or in summary. This is the single
@@ -656,7 +787,8 @@ def _flatten_for_tokens(text: str) -> str:
 
 
 def _disposition_paragraph() -> str:
-    """Locate ban 7's Disposition paragraph, failing LOUDLY if it cannot be
+    """Locate the editorial-addenda rule's Disposition paragraph, failing
+    LOUDLY if it cannot be
     found or looks truncated.
 
     The vacuity guard is the point of this helper. Every check below is an
@@ -670,7 +802,8 @@ def _disposition_paragraph() -> str:
     blocks = [b for b in _PARAGRAPH_SPLIT_RE.split(text) if _DISPOSITION_MARKER in b]
     assert len(blocks) == 1, (
         f"{CTF_PATH}: expected exactly ONE paragraph containing "
-        f"{_DISPOSITION_MARKER!r} (ban 7's Disposition), found {len(blocks)}. "
+        f"{_DISPOSITION_MARKER!r} (the editorial-addenda rule's "
+        f"Disposition), found {len(blocks)}. "
         "This guard asserts properties OF that paragraph and cannot run "
         "without it - if the Disposition was renamed, split, or duplicated, "
         "update this locator in the same change rather than letting the "
@@ -701,7 +834,8 @@ def test_disposition_states_the_denial_and_the_deferral():
     flat = _flatten_for_tokens(_disposition_paragraph())
     missing = [p for p in _DISPOSITION_REQUIRED_PHRASES if p not in flat]
     assert not missing, (
-        f"{CTF_PATH}: ban 7's Disposition paragraph no longer states "
+        f"{CTF_PATH}: the editorial-addenda Disposition paragraph no "
+        "longer states "
         f"{missing}. The first phrase is the DENIAL that lets the paragraph "
         "say something useful without asserting an admission condition "
         "(dropping it is how round 1's sufficient-condition relocation "
@@ -719,7 +853,8 @@ def test_disposition_does_not_restate_the_kernel_admission_gate():
     flat = _flatten_for_tokens(_disposition_paragraph())
     found = [t for t in _GATE_CONDITION_TOKENS if t in flat]
     assert not found, (
-        f"{CTF_PATH}: ban 7's Disposition paragraph restates the kernel "
+        f"{CTF_PATH}: the editorial-addenda Disposition paragraph restates "
+        "the kernel "
         f"admission gate - it contains condition token(s) {found}. That "
         "paragraph states, in its own words, that "
         "content/sections/02-delegation.md is the single normative "
@@ -736,7 +871,13 @@ def test_widening_is_stated_at_both_normative_sources():
     if the rule itself still states the widening. Pin it at BOTH normative
     sources so a silent re-narrowing at the origin goes red here rather
     than propagating outward as a newly-consistent narrow definition."""
-    for path, anchor in ((CTF_PATH, "editorial addendum"), (STYLE_PATH, "No editorial addenda")):
+    # STYLE_PATH's anchor was "No editorial addenda", the old rule-5 header.
+    # DS-PILLAR1 demoted that rule to a named instance under the governing
+    # warrant rule, so the header is gone while the rule itself is not. The
+    # anchor is only a "does this file state the rule at all" locator - the
+    # two assertions below it (narrow form named, widening stated) carry the
+    # actual strength, and neither is relaxed here.
+    for path, anchor in ((CTF_PATH, "editorial addendum"), (STYLE_PATH, "editorial addenda")):
         text = path.read_text(encoding="utf-8")
         assert anchor.lower() in text.lower(), f"{path} must state the editorial-addenda rule"
         assert _NARROW_SCOPE_RE.search(text), (

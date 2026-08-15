@@ -406,11 +406,13 @@ Piecemeal questions past the threshold paper over a structural gap and burn oper
 
 ## Warrant-bound turn shape
 
+One rule governs. Operator attention is the scarce resource the methodology protects, so a turn is written only when a warrant fires - decision, stoppage, completion, answer - and that same test then applies to every item inside a warranted turn. It is form-independent: content carrying no warrant is not made admissible by moving position, dropping a label, or rephrasing.
+
 Shape follows the warrant: an execution turn (decision/stoppage/completion, no answer) is the structured slot block only - zero prose. An answer turn (a direct operator question) is prose only - no slots, no line cap, just a relevance rule.
 
 A Stop hook (`enforce-turn-shape.py`) enforces this. DS-156 made the execution-turn structural check BLOCKING; DS-158/159 then narrowed the block so legitimate real conductor answers (multi-paragraph answers, plain-prose completion reports) no longer trip it - narrative-creep sprawl still does. DS-171 retired the hook's other advisory checks (answer-turn phrasing, status-only, volume) - those rules now live in the `dinostack` Claude Code output style, injected before the turn is written instead of flagged after. Controlled by `turn_shape_guard_enabled` (default on).
 
-Companion turn rules from the same reference: a self-discovered defect is fixed in the same turn, never named-and-left; and no turn carries an editorial addendum - any conductor-selected item that carries none of the four warrants, in any position in the turn, whether bundled under a label ("two things worth your attention") or written as a single bare paragraph.
+Companion turn rules from the same reference: a self-discovered defect is fixed in the same turn, never named-and-left; and the named instances of the one rule above - editorial addenda, answer relevance, self-narrating candor, announced follow-on work - are illustrations, not additional rules with their own scope. An editorial addendum is any conductor-selected item that carries none of the four warrants, in any position in the turn, whether bundled under a label ("two things worth your attention") or written as a single bare paragraph.
 
 <div class="callout">
 A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
