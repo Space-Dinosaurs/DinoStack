@@ -24,6 +24,13 @@
  * reader with a first-byte timeout and a re-armed inactivity timeout) instead
  * of a blocking fs.readFileSync('/dev/stdin'), so this hook cannot hang
  * Copilot's shutdown path when the spawning process never closes stdin.
+ *
+ * The .agentic/ write is anchored at the nearest .git ancestor of the
+ * payload cwd via hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics,
+ * not the payload cwd verbatim - a stray cd or a drifted harness-supplied
+ * cwd could otherwise write a phantom .agentic/ tree wherever the process
+ * happens to be. On resolution failure (no .git ancestor found), the write
+ * is SKIPPED entirely rather than falling back to the unresolved cwd.
  */
 
 'use strict';
@@ -31,6 +38,7 @@
 const fs = require('fs');
 const path = require('path');
 const { readStdinGuarded } = require('../../hooks/lib/stdin-guard.js');
+const { resolveAgenticCwdWithDiagnostics } = require('../../hooks/lib/repo-root.js');
 
 // Always exit with valid JSON for Copilot Stop hook compliance. Hoisted to
 // module scope so both run()'s internal paths and the top-level run().catch()
@@ -66,6 +74,17 @@ async function run() {
     process.exit(0);
   }
 
+  // --- 3b. Resolve the repo root anchoring the .agentic/ write, instead of
+  // trusting the payload-supplied cwd verbatim. On resolution failure (no
+  // .git ancestor found), SKIP the write entirely - never fall back to the
+  // unresolved cwd, which would silently reproduce the phantom-tree bug
+  // this resolver exists to prevent.
+  const { root: agenticRoot, foundGitAncestor } = resolveAgenticCwdWithDiagnostics(cwd);
+  if (!foundGitAncestor) {
+    process.stdout.write(successOutput);
+    process.exit(0);
+  }
+
   const sessionId = typeof payload.session_id === 'string'
     ? payload.session_id
     : '(unknown)';
@@ -79,7 +98,7 @@ async function run() {
     : '(unknown)';
 
   // --- 4. Compute output path ---
-  const agenticDir = path.join(cwd, '.agentic');
+  const agenticDir = path.join(agenticRoot, '.agentic');
   const outputPath = path.join(agenticDir, 'context.md');
 
   // --- 5. Format content ---

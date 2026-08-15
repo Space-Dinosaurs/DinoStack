@@ -8,13 +8,26 @@
 # Output: JSON on stdout with hookSpecificOutput.additionalContext (or empty object).
 #
 # Reference: VS Code Copilot Extensibility - hooks reference (SessionStart output format).
+#
+# The .agentic/ read is anchored at the nearest .git ancestor of the payload
+# cwd via hooks/lib/repo-root.sh's resolve_agentic_root, not the payload cwd
+# verbatim, and NEVER falls back to `pwd` - a stray cd or a drifted
+# harness-supplied cwd could otherwise point this hook at a phantom
+# .agentic/ tree wherever the process happens to be. On resolution failure
+# (payload has no cwd, or no .git ancestor is found), the hook SKIPS the
+# lookup entirely and emits {}.
 
 set -euo pipefail
 
-# Resolve workspace root from stdin JSON (cwd field), fall back to pwd
-CWD=""
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../hooks/lib/repo-root.sh
+source "$SCRIPT_DIR/../../hooks/lib/repo-root.sh"
+
+# Resolve workspace root from stdin JSON (cwd field). Never falls back to
+# `pwd` - see the header comment above.
+PAYLOAD_CWD=""
 if command -v python3 >/dev/null 2>&1; then
-  CWD="$(python3 -c "
+  PAYLOAD_CWD="$(python3 -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
@@ -24,8 +37,14 @@ except Exception:
 " 2>/dev/null || true)"
 fi
 
+CWD=""
+if [[ -n "$PAYLOAD_CWD" ]]; then
+  CWD="$(resolve_agentic_root "$PAYLOAD_CWD")"
+fi
+
 if [[ -z "$CWD" ]]; then
-  CWD="$(pwd)"
+  printf '{}\n'
+  exit 0
 fi
 
 CONTEXT_FILE="$CWD/.agentic/context.md"

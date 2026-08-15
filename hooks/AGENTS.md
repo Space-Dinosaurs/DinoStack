@@ -6,8 +6,8 @@ below (12 Python PreToolUse/Stop enforcers, 7 Node lifecycle handlers, 3 Bash he
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities;
 the repo-root resolver trio specifically (`lib/repo_root.py`/
-`lib/repo-root.js`/`lib/repo-root.sh`, added by DS-171) is consumed by 7 JS
-hooks, 5 Python hooks, 1 Bash hook, and 6 `bin/` scripts respectively - see
+`lib/repo-root.js`/`lib/repo-root.sh`, added by DS-171) is consumed by 10 JS
+hooks, 5 Python hooks, 3 Bash hooks, and 6 `bin/` scripts respectively - see
 the `lib/` table below for the three new rows and their exact consumer
 lists. Other `lib/` modules have their own, different consumer counts
 (round-3 rework, Major 5: this previously said "the JS hooks and one bin
@@ -15,7 +15,21 @@ script", stale since the trio was added; round-4 rework, Minor 1: the
 "5/1/6" figures scoped this sentence to the trio only, since the same
 sentence used to read as a `lib/`-wide claim and contradicted
 `lib/enforcement_log.py`'s own row, which is consumed by all twelve
-enforce-*.py hooks, not five). Each script ships with a
+enforce-*.py hooks, not five; DS-176 round-2 rework: bumped 7 JS -> 10 JS
+and 1 Bash -> 3 Bash for the 3 new adapter hook consumers added by
+DS-176's stop-context and session-start ports; this trio's 7/5/1/6 counts
+have now drifted twice (once before this rework, once during it) with no
+mechanical gate catching either. `_ENFORCER_SUBCOUNT_SITES` in
+`bin/tests/test_tracker_writeback_ranking_spec.py` explicitly excludes
+this trio by name ("a DIFFERENT fact about a different module... are
+deliberately not derived here") because it derives its counts from a
+uniform `hooks/enforce-*.py` glob, whereas this trio's consumers are
+scattered across `hooks/`, `bin/`, and per-adapter directories with no
+single glob or `require`/`source`/`import` discovery helper today - adding
+one is a real, separate unit of work, not a cheap extension of the
+existing sweep. Deferred, not silently dropped: counts corrected by hand
+in this rework, mechanical enforcement left as a named gap). Each script
+ships with a
 module-manifest docstring; read the script for full detail. This file is the
 module-group map.
 
@@ -60,8 +74,8 @@ module-group map.
 | `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl`. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's logging branch, by all twelve enforce-*.py hooks. Two caller postures: ACTION-ONLY (eleven hooks) logs only a non-passthrough action - a deny, or an allow-with-advisory-reason - and a silent allow never calls it; EVERY-VERDICT (`enforce-no-abdication.py` alone) also logs plain `"allow"` rows for every verdict path reached after its enablement gate, because action-only logging leaves "this guard never fires" unfalsifiable. The every-verdict posture is safe only for a Stop hook (once per conductor turn); do not copy it to a PreToolUse hook, which runs at tool-call volume. Accepts an optional keyword-only `detail` dict for structured discriminators, omitted from the line entirely when absent so every action-only caller's row stays byte-identical to the canonical 4-field schema. `enforce-no-abdication.py` additionally keeps its own pre-existing `.abdication-guard-fire-count` counter file, which this module never touches. |
 | `lib/git_worktree.py` | Shared `is_git_worktree(caller_root)` discriminator: True only when `caller_root`'s `.git` entry is a FILE whose gitdir pointer contains `/worktrees/` (a genuine linked git worktree), False for an ordinary subdirectory, a submodule (`/modules/` gitdir), an independent nested clone (`.git` as a real directory), or any unparseable/unreadable `.git`. Fails to False on every ambiguity - only ever narrows a caller's deny path, never widens it. Dynamically imported (best-effort, fails open to `False`) by both `enforce-worktree-read.py` and `enforce-worktree-write.py`. Not an `enforce-*.py` hook itself - no `main()`, never registered in `~/.claude/settings.json`, not subject to `bin/ds-doctor`'s `MANAGED_HOOK_BASENAMES` or any enforcer subcount. |
 | `lib/repo_root.py` | DS-171: resolves the repo-root directory to anchor `.agentic/` state writes/reads instead of trusting a harness-payload `cwd` verbatim (`.git`-ancestor walk, existence-only, file-or-dir). `resolve_agentic_cwd_with_diagnostics(start_dir)` returns `{root, drift_levels, found_git_ancestor}`; `resolve_agentic_cwd(start_dir)` returns just `root`. Consumed via a lazy `importlib.util` dynamic loader (best-effort, fails open to `None`/raw cwd depending on caller) by 5 Python hooks (`enforce-no-abdication.py`, `enforce-shippable-edit.py`, `enforce-planning-artifact-spawn.py`, `enforce-skeptic-round-cap.py`, `enforce-turn-shape.py`), 2 sibling `lib/` modules (`lib/enforcement_log.py`, `lib/loop_guard.py`), and 6 `bin/` scripts (`bin/ds-status`, `bin/ds-cost`, `bin/ds-memory`, `bin/ds-identity`, `bin/ds-codex-dispatch`, `bin/ds-reap-worktrees`). Most callers use the plain `.git`-only result and never fall back further; two callers (`enforce-skeptic-round-cap.py`'s round-counter state path and `bin/ds-identity`'s Stop-hook session-log `write-hook`/`resolve-hook`) genuinely SKIP the write/read entirely when `found_git_ancestor` is False, since a write at the wrong location would corrupt cross-session state - see the module's own Failure modes docstring section for the full caller-tier rationale. |
-| `lib/repo-root.js` | Node port of `lib/repo_root.py` (same `.git`-ancestor walk, same `{root, drift_levels, found_git_ancestor}` diagnostics shape). Consumed by 7 JS hooks: `session-end-wrap.js`, `post-tool-use-capture-nudge.js`, `conductor-overreach-nudge.js`, `pre-tool-use-spawn-emit.js`, `subagent-stop-spawn-emit.js`, `stop-context.js`, `wrap-daemon.js`. |
-| `lib/repo-root.sh` | Bash port of `lib/repo_root.py`/`lib/repo-root.js` for the one Bash hook that needs it, `session-start-wrap.sh`; every `.agentic/` write it guards is conditioned on `-n "$resolved_root"` (zero fallback on resolution failure - the strict-skip tier, same discipline as `enforce-skeptic-round-cap.py` and `bin/ds-identity`'s write-hook above). |
+| `lib/repo-root.js` | Node port of `lib/repo_root.py` (same `.git`-ancestor walk, same `{root, drift_levels, found_git_ancestor}` diagnostics shape). Consumed by 10 JS hooks: `session-end-wrap.js`, `post-tool-use-capture-nudge.js`, `conductor-overreach-nudge.js`, `pre-tool-use-spawn-emit.js`, `subagent-stop-spawn-emit.js`, `stop-context.js`, `wrap-daemon.js`, plus DS-176's `.copilot/hooks/stop-context-copilot.js`, `.github/hooks/stop-context-copilot.js`, and `.cursor/hooks/stop-context-cursor.js` (`.opencode/plugins/session-context.ts` is NOT a consumer - a standalone TS reimplementation, not a `require()` of this file; see this file's own module docstring). |
+| `lib/repo-root.sh` | Bash port of `lib/repo_root.py`/`lib/repo-root.js`, consumed by 3 Bash hooks: `session-start-wrap.sh`, plus DS-176's `.copilot/hooks/session-start-copilot.sh` and `.github/hooks/session-start-copilot.sh`; every `.agentic/` write it guards is conditioned on `-n "$resolved_root"`/`-n "$CWD"` (zero fallback on resolution failure - the strict-skip tier, same discipline as `enforce-skeptic-round-cap.py` and `bin/ds-identity`'s write-hook above). |
 | `lib/loop_guard.py` | Shared two-layer loop-guard machinery for the two Stop hooks that act on the conductor's final message (`enforce-no-abdication.py` and `enforce-turn-shape.py`): the `stop_hook_active` primary guard is checked by the hooks themselves, and this module supplies the Layer-2 counter-cap backstop (CC bug #54360) - per-hook counter filename + cap, `read_counter`/`write_counter`/`reset_counter` (pid-suffixed tmp + atomic replace, fail-open toward allow), and `count_user_messages`/`is_genuine_user_turn`/`last_genuine_user_text` (filters out tool_result, meta, and harness-injected lines; `last_genuine_user_text` added DS-155 for `enforce-turn-shape.py`'s answer-warrant detector). Counter files: `.abdication-guard-fire-count` (cap 2) and `.turn-shape-guard-fire-count` (cap 2), both under `.agentic/`. |
 
 ## Upstream dependencies

@@ -11,8 +11,9 @@
  * Public API: SessionContextPlugin — exported plugin function for OpenCode.
  *
  * Upstream deps: Bun runtime APIs ($, Bun.file, Bun.write). Node built-in
- *                path. Node fs/promises (appendFile, rename). OpenCode SDK
- *                client (client.app.log, client.session.prompt).
+ *                path. Node fs/promises (appendFile, rename). Node fs
+ *                (existsSync, realpathSync - DS-176's resolveAgenticRoot).
+ *                OpenCode SDK client (client.app.log, client.session.prompt).
  *
  * Downstream consumers: OpenCode plugin system (loaded from
  *                        ~/.config/opencode/plugins/ or .opencode/plugins/).
@@ -123,12 +124,69 @@
 
 import path from 'path';
 import { appendFile, rename, readdir, stat } from 'fs/promises';
+import { existsSync, realpathSync } from 'fs';
 import type { Plugin } from "@opencode-ai/plugin";
 
 interface ToolExecuteArgs {
   file_path?: string;
   path?: string;
   command?: string;
+}
+
+/** Mirrors hooks/lib/repo-root.js's MAX_DEPTH - see resolveAgenticRoot below. */
+const AGENTIC_ROOT_MAX_DEPTH = 64;
+
+/**
+ * Resolve the repo root anchoring `.agentic/` writes, instead of trusting
+ * `directory || process.cwd()` verbatim. Realpath-pins the start dir, then
+ * walks up looking for a `.git` entry (file OR directory - EXISTENCE ONLY,
+ * never isDirectory()/isFile(): a linked git worktree's `.git` is a FILE,
+ * not a directory, so a dir-only check fails in the most common execution
+ * environment here). Never throws.
+ *
+ * INTENTIONAL PARALLEL IMPLEMENTATION of
+ * hooks/lib/repo-root.js's resolveAgenticCwdWithDiagnostics - duplicated
+ * inline rather than required, because this is a standalone Bun plugin
+ * loaded from ~/.config/opencode/plugins/ where the repo's hooks/ tree is
+ * not reachable (same constraint already documented above for
+ * resolveLoopStateCandidates and the shard/rollup composer).
+ * THE TWO MUST CHANGE TOGETHER IN THE SAME PR; nothing mechanical enforces
+ * it, and check-adapter-sync cannot see this file at all.
+ *
+ * Unlike most `hooks/lib/repo-root.js` JS consumers (which use the
+ * returned path unconditionally and treat a false foundGitAncestor as a
+ * degraded-but-tolerable advisory write), every call site in THIS file
+ * belongs to the stricter category: it checks foundGitAncestor explicitly
+ * and SKIPS the write entirely when it is false, matching
+ * hooks/session-start-wrap.sh and hooks/enforce-skeptic-round-cap.py.
+ * Falling back to the unresolved start dir would silently reproduce the
+ * exact phantom-`.agentic`-tree bug this resolver exists to prevent.
+ */
+function resolveAgenticRoot(startDir: string): { root: string; foundGitAncestor: boolean } {
+  let real: string;
+  try {
+    real = realpathSync(startDir);
+  } catch (_err) {
+    real = startDir;
+  }
+
+  let current = real;
+  for (let i = 0; i <= AGENTIC_ROOT_MAX_DEPTH; i += 1) {
+    let hasGit = false;
+    try {
+      hasGit = existsSync(path.join(current, '.git'));
+    } catch (_err) {
+      hasGit = false;
+    }
+    if (hasGit) {
+      return { root: current, foundGitAncestor: true };
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+
+  return { root: real, foundGitAncestor: false };
 }
 
 const ACTIVITY_SENTINEL = '\n\n---\n\n## Session Activity\n';
@@ -1074,7 +1132,16 @@ ${toolsLine}
         await log("info", "session.idle event handler entered");
 
         try {
-          const cwd = directory || process.cwd();
+          const startDir = directory || process.cwd();
+          const { root: cwd, foundGitAncestor } = resolveAgenticRoot(startDir);
+          if (!foundGitAncestor) {
+            await log(
+              "warn",
+              "Skipping session.idle .agentic write: no .git ancestor found",
+              { startDir },
+            );
+            return;
+          }
           const dateStr = new Date().toISOString().slice(0, 10);
           const idleSessionID: string | null = props.sessionID ?? null;
           await log("info", "session.idle event fired", { cwd, date: dateStr });
@@ -1123,7 +1190,16 @@ ${toolsLine}
         );
 
         try {
-          const cwd = directory || process.cwd();
+          const startDir = directory || process.cwd();
+          const { root: cwd, foundGitAncestor } = resolveAgenticRoot(startDir);
+          if (!foundGitAncestor) {
+            await log(
+              "warn",
+              "Skipping /ds-wrap finalization writes: no .git ancestor found",
+              { startDir },
+            );
+            return;
+          }
           const dateStr = new Date().toISOString().slice(0, 10);
 
           // Best-effort: write this session's shard and recompose the rollup.

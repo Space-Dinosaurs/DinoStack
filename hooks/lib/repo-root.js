@@ -16,7 +16,15 @@
  *   hooks/session-end-wrap.js, hooks/wrap-daemon.js,
  *   hooks/lib/skill-candidate-detector.js, hooks/lib/state-mark.js,
  *   hooks/lib/capture-gap.js, hooks/lib/context-rollup.js,
- *   bin/ds-wrap-acquire-lock, bin/ds-wrap-release-lock
+ *   bin/ds-wrap-acquire-lock, bin/ds-wrap-release-lock,
+ *   .copilot/hooks/stop-context-copilot.js,
+ *   .github/hooks/stop-context-copilot.js,
+ *   .cursor/hooks/stop-context-cursor.js (DS-176, adapter-hooks-agentic-root
+ *   - 3 new adapter JS consumers, each requiring
+ *   resolveAgenticCwdWithDiagnostics; .opencode/plugins/session-context.ts
+ *   is NOT a consumer here - it is a verbatim, standalone TS
+ *   reimplementation of the same algorithm, not a `require()` of this
+ *   module, see hooks/tests/test-opencode-agentic-root.js)
  *
  * Failure modes: never throws. EACCES/ENOENT at any level along the walk is
  *   treated as "not found here, keep walking". If no `.git` ancestor is
@@ -60,7 +68,18 @@
  *   added to this stricter category in the same round-2 rework: telemetry
  *   misattributed to a phantom non-repo `.agentic/session-log/` is a
  *   correctness bug (wrong developer_id/project_slug), not a merely
- *   degraded advisory. Callers needing the SKIP discipline must consult
+ *   degraded advisory.
+ *
+ *   DS-176 (adapter-hooks-agentic-root): the 3 adapter JS consumers listed
+ *   above - `.copilot/hooks/stop-context-copilot.js`,
+ *   `.github/hooks/stop-context-copilot.js`, and
+ *   `.cursor/hooks/stop-context-cursor.js` - also belong in this stricter
+ *   SKIP category: each calls `resolveAgenticCwdWithDiagnostics` and
+ *   returns/no-ops when `foundGitAncestor` is false, rather than writing at
+ *   the fallback root. They are NOT part of the "12 JS consumers ...
+ *   discards foundGitAncestor" count two paragraphs above.
+ *
+ *   Callers needing the SKIP discipline must consult
  *   `foundGitAncestor` explicitly via `resolveAgenticCwdWithDiagnostics`
  *   and refuse the write themselves when it is false - this module never
  *   enforces that policy on a caller's behalf.
