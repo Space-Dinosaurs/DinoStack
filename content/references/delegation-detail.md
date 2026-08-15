@@ -96,12 +96,25 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 Applies to ANY decision to create a tracker ticket for work discovered
 mid-session - whether via the Tracker Create Helper, a direct mcp__ tool
-call, or a manual out-of-band call. This is prose discipline with NO
-mechanical enforcement of the carve-out, the bar, or the batching rule
-below - the only mechanical artifacts are the sink
+call, or a manual out-of-band call. The carve-out (item 1) and the
+promotion bar (item 2) remain prose discipline with no mechanical
+enforcement - the only mechanical artifacts for those are the sink
 (`.agentic/deferred-work.jsonl`, via `bin/ds-defer`) and its session-start
-reader. A conductor that ignores this discipline is not mechanically
-stopped.
+reader. The batching rule (item 3) below is now backed by a deliberate
+grace-margin mechanical floor: `hooks/enforce-ticket-batching.py` (a
+PreToolUse hook on `mcp__mcp-atlassian__jira_create_issue`,
+`mcp__linear__save_issue`, and `Bash`) counts same-session tracker-ticket
+creations and allows the 1st silently, allows the 2nd with an advisory
+citing this rule, and DENIES the 3rd and every subsequent one. That
+threshold is intentionally one creation looser than the prose rule
+above ("2 or more discoveries are NEVER separate tickets - exactly ONE")
+- the gap is a deliberate grace margin for two genuinely independent,
+top-level operator-raised asks arriving in the same session (each of
+which legitimately earns its own ticket under item 1's carve-out), not a
+redefinition of the rule. A conductor that creates a 2nd ticket in
+violation of the prose rule is advised, not stopped; only a 3rd is
+mechanically denied. `/ds-feedback-triage` and `/ds-ticket-triage`
+(item 5) are exempted from the counter entirely.
 
 1. **Execution-scope carve-out.** A discovery made during an in-progress
    unit (including at wrap/PR-summary time) is not "net-new work" for the
