@@ -297,7 +297,23 @@ class CodexSkillGenerationTests(unittest.TestCase):
         rule."""
         target = self.repo / "content/sections/09-events-log.md"
         text = target.read_text(encoding="utf-8")
-        anchor = "**Writer scope: `.agentic/events.jsonl` has five writers**"
+        # Derive the anchor from PARAGRAPH_RULES itself (rather than a fourth
+        # hand-typed copy of the writer count) so this test can never drift
+        # from the generator's own anchor the way it did across two prior
+        # writer-count bumps. The first rule's pattern is a fully-escaped
+        # regex literal up to its trailing ".*?(?=\n\n)" wildcard suffix;
+        # unescape it back to the literal prose it targets.
+        module_name = f"codex_skills_fixture_{id(self)}"
+        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        spec.loader.exec_module(module)
+        raw_pattern = module.PARAGRAPH_RULES[0][0]
+        literal_pattern = raw_pattern.removesuffix(r".*?(?=\n\n)")
+        anchor = re.sub(r"\\(.)", r"\1", literal_pattern)
         self.assertIn(anchor, text, "fixture repo's canonical opener must match the live anchor")
         target.write_text(text.replace(anchor, "**Writer scope: something else entirely**"), encoding="utf-8")
 

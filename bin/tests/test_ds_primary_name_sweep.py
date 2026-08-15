@@ -369,21 +369,43 @@ PROTECTED_TOKENS = {
     "agentic-engineering-profile",
     "agentic-engineering-preset",
 }
-EXPECTED_RESIDUE_SET: set[tuple[str, str]] = set()
+EXPECTED_RESIDUE_SET: set[tuple[str, str]] = {
+    # DS-agentic-repair (phantom .agentic/ tree cleanup, post-PR-#745):
+    # the brief-mandated CLI name `bin/ds-agentic-repair` intrinsically
+    # contains the substring "agentic-repair", which the token pattern
+    # below matches regardless of the "ds-" prefix immediately preceding
+    # it (the pattern has no left-boundary anchor on "ds-"). This is NOT
+    # a stale pre-rename `agentic-*` tool name surviving in content/ - the
+    # tool was born with its "ds-" prefix and never had an old
+    # `agentic-agentic-repair`-style identity to rename FROM (its
+    # `bin/agentic-agentic-repair` compat symlink is the alias TARGET
+    # convention every ds-* tool gets, per test_ds_rename_regression.py,
+    # not a leftover primary name). content/references/events-log.md and
+    # content/sections/09-events-log.md are its two content/** mentions -
+    # the reference doc's Downstream/Append-discipline entries and the
+    # section's Writer-scope sentence respectively (round-2 rework of
+    # DS-agentic-repair added it there as the sixth writer).
+    ("content/references/events-log.md", "agentic-repair"),
+    ("content/sections/09-events-log.md", "agentic-repair"),
+}
 
 
 def test_content_residue_set_pinned_to_known_exceptions() -> None:
     """Scans every file under content/** for `agentic-<word>` tokens,
     excludes the protected `dinostack` skill noun and its marker
     extensions, and asserts the remaining (file, token) set is exactly
-    EXPECTED_RESIDUE_SET - no more, no fewer. The set is currently empty:
-    the sole prior exception (`content/references/planning-artifacts.md`,
-    `agentic-factory`) was a worked-example track name that named an
-    operator's private repo and was neutralized to a generic name. Any
-    stray old name anywhere under content/** turns this RED; adding a new
-    exception requires updating this set to match, which is the point:
-    the residue set can no longer silently drift out of sync with what
-    the docstring claims."""
+    EXPECTED_RESIDUE_SET - no more, no fewer. The set held exactly one
+    prior exception (`content/references/planning-artifacts.md`,
+    `agentic-factory`, a worked-example track name that named an
+    operator's private repo and was neutralized to a generic name,
+    dropping the set back to empty) before the `("content/references/
+    events-log.md", "agentic-repair")` entry above was added - see that
+    entry's own comment for why it is a substring artifact of a NEW,
+    brief-mandated `ds-*` tool name, not a stale pre-rename residue. Any
+    OTHER stray old name anywhere under content/** turns this RED; adding
+    a new exception requires updating this set to match, which is the
+    point: the residue set can no longer silently drift out of sync with
+    what the docstring claims."""
     assert CONTENT_DIR.is_dir(), f"{CONTENT_DIR} is missing"
 
     found: set[tuple[str, str]] = set()

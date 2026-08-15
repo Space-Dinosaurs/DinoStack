@@ -179,6 +179,16 @@ EXCLUDED_FILES = {
     # bin/ds-migrate itself was never actually added to this set until
     # now - a stale cross-reference this rework corrects.)
     "bin/ds-migrate",
+    # DS-agentic-repair (phantom .agentic/ tree cleanup, post-PR-#745):
+    # bin/ds-agentic-repair is an operator-invoked CLI whose sole cwd-
+    # sensitive input is an explicit `--repo` argument (default ".",
+    # resolved once via resolve_agentic_cwd before any .agentic path is
+    # constructed) - same explicit-argument exemption rationale as
+    # bin/ds-doctor/bin/ds-evaluate/bin/ds-migrate above, matching
+    # bin/ds-reap-worktrees's own precedent for this exact carve-out
+    # (:111-115 in this file). Not shelled out to by any hooks/*.js or
+    # hooks/*.py call site.
+    "bin/ds-agentic-repair",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.

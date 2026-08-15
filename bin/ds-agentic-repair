@@ -1,0 +1,764 @@
+#!/usr/bin/env python3
+"""
+Purpose: Finds and repairs phantom `.agentic/` trees left behind by the
+    pre-DS-171 cwd-drift bug (PR #745 anchored every NEW `.agentic/` write
+    to the resolved repo root; it does not touch trees written before that
+    fix). A phantom tree is a directory literally named `.agentic` that was
+    written at the wrong location because a stray `cd` (or a drifted
+    harness-payload cwd) left a hook process somewhere it should not have
+    been. Report-only by default; `--fix` merges each phantom's
+    events.jsonl into the canonical file (deduped, order-preserving),
+    archives the remainder, then removes the empty phantom tree.
+
+    THE CORE HAZARD THIS FILE IS BUILT AROUND: in any real DinoStack
+    checkout the overwhelming majority of directories literally named
+    `.agentic` are LEGITIMATE - shipped scaffolding templates
+    (content/templates/.agentic and its four adapter mirrors), live
+    isolation-worktree state (.claude/worktrees/agent-*/.agentic, some
+    harness-locked and actively in use), feature-worktree state and their
+    OWN nested template copies (.agentic/worktrees/*/.agentic,
+    .agentic/worktrees/*/.cursor/templates/.agentic), and test fixtures
+    (evals/**/.agentic). A tool that archives a shipped template breaks
+    `/ds-init-project` scaffolding and turns `check-adapter-sync` red. A
+    tool that touches a live worktree's `.agentic` corrupts a running
+    agent's state. Both are far worse than the litter this tool exists to
+    clean up - so `classify()` requires THREE independent signals to agree
+    before anything is ever called a stray, not one.
+
+Classification (`classify()`, three layers, ANDed for a STRAY verdict -
+    any one layer returning "legitimate" short-circuits to legitimate; a
+    zeroth flat invariant, checked before any layer and independent of
+    resolver state, ALSO short-circuits to legitimate: the repo's own
+    top-level `.agentic/` - `rel_posix == ".agentic"` - is never a stray,
+    which matters specifically because Layer 2 fails closed to "not proven
+    a repo root" whenever the resolver could not be loaded, and `main()`'s
+    own refuse-to-run guard on a missing resolver is the primary defense
+    for that case - this flat check is the second, independent one):
+
+    Layer 1 - EXPLICIT EXCLUSION LIST (`_EXCLUDED_PATH_PREFIXES`,
+    `_EXCLUDED_PATH_EXACT`). Checked first because it is the cheapest and
+    most explicit: named, known-legitimate paths (the five template
+    mirrors, and any path with an `evals` path COMPONENT anywhere in it,
+    per repo decision #203 - `evals/` is git-untracked, so its fixtures
+    cannot be verified by content and are protected by name alone,
+    matched by component rather than only as a root-anchored prefix so a
+    nested `sub/evals/case/.agentic` is protected too, not only
+    `evals/case/.agentic`) and the tool's OWN archive directory (see
+    "Archive placement" below for why the archive dir must be excluded
+    rather than merely placed outside the scan).
+
+    Layer 2 - REPO-ROOT TEST (`_is_repo_root_dir`), THE PRIMARY
+    discriminator. A `.agentic` directory's PARENT being itself a repo
+    root (has its own `.git`, file or directory - a linked git worktree's
+    `.git` is a FILE) is exactly the shape of every legitimate top-level
+    project state dir, INCLUDING a linked worktree's own `.agentic` (its
+    `.git` file makes it a repo root in its own right) - this is why
+    worktree `.agentic` dirs classify as legitimate for free, per the
+    ticket brief, and why this layer reuses hooks/lib/repo_root.py's own
+    ancestor walk rather than re-deriving a second copy of "what is a repo
+    root" logic. This is the PRIMARY layer, not merely a guard, because it
+    is the only layer that distinguishes the two shapes that matter most:
+    a project's own legitimate `.agentic/` (parent IS a repo root) versus
+    a phantom nested one level too deep, e.g. `.agentic/.agentic` or
+    `src/foo/.agentic` (parent is NOT a repo root). A content-only
+    discriminator cannot draw this line at all: a legitimate top-level
+    `.agentic/` and a phantom `.agentic/.agentic` both carry the exact
+    same runtime-state file shapes (events.jsonl, context.md, ...) by
+    construction - the phantom exists BECAUSE the same hook wrote the same
+    scaffold at the wrong depth. Only "is my parent a real project root"
+    separates them, which is why this is primary and Layer 3 is the guard,
+    not the other way around.
+
+    Layer 3 - RUNTIME-STATE CONTENT TEST (`_has_runtime_state_markers`),
+    the GUARD that stops Layer 2 alone from flagging every non-repo-root
+    `.agentic`-shaped directory as a stray - a shipped template
+    (content/templates/.agentic) is NOT under a repo root either, but it
+    contains scaffolding SEED files (config.json, skill-candidates.md,
+    learnings.md), never the runtime-state markers a real hook-written
+    tree accumulates (events.jsonl, context.md, context.d/, session-log/,
+    .enforcement-fires.jsonl, wrap/). A `.agentic` directory that fails
+    Layer 1 and Layer 2 is a candidate stray ONLY IF it also carries at
+    least one of these markers - fail-safe by construction: a directory
+    with no positive evidence of phantom runtime state is left alone,
+    never guessed at from absence of evidence. This also independently
+    covers the nested-template case the brief calls out
+    (`.agentic/worktrees/*/.cursor/templates/.agentic` is neither a repo
+    root nor excluded by name, but carries zero runtime markers) without
+    needing a fourth exclusion entry for every adapter's template path
+    that could ever appear nested inside a feature worktree's copy of the
+    repo.
+
+    A directory is STRAY only when it clears Layer 1 (not excluded), fails
+    Layer 2 (parent is not a repo root), AND clears Layer 3 (carries a
+    runtime-state marker). Three independent things must go wrong before
+    this tool ever touches a directory - deliberate, given how much more
+    damage a false positive causes here than a missed stray.
+
+Archive placement: the archive lives at
+    `<repo>/.agentic/stray-agentic-archive/<ts>-<sanitized-relpath>/` -
+    UNDER `.agentic/`, per this repo's own precedent
+    (`.agentic/reaped-telemetry/`, `.agentic/worktree-archive/` in
+    bin/ds-reap-worktrees) so it needs no new `.gitignore` carve-out (the
+    existing `/.agentic/*` umbrella already covers it). An EARLIER DESIGN
+    archived to `<repo>/.agentic/.stray-agentic-archive/<ts>/<relpath>/`,
+    preserving the stray's own relative path (including its own literal
+    `.agentic` path segments) inside the archive tree - its own scan
+    predicate then RE-FOUND that reconstructed `.agentic` segment next
+    run and re-archived it under a fresh timestamp, unbounded, falsifying
+    its own idempotency claim. Fixed two ways, redundantly: (a) the
+    archive directory itself is on the Layer-1 exclusion list
+    (`_EXCLUDED_PATH_PREFIXES`), so even if a stray path segment survived
+    into the archive tree it could never be rediscovered; (b) belt and
+    braces, `_sanitize_relpath()` never emits a literal `.agentic` path
+    component in the destination tree at all - every `.agentic` segment of
+    the ORIGINAL stray path is folded into the flat, single-level leaf
+    directory name (`_sanitize_relpath(".agentic/.agentic")` ->
+    `"dotagentic__dotagentic"`), so no directory named `.agentic` is ever
+    freshly created under the archive root regardless of exclusion-list
+    correctness.
+
+Public API (CLI):
+  ds-agentic-repair [--repo PATH] [--dry-run] [--fix] [--json]
+
+  --repo PATH   Repository to operate on. Default: the resolved cwd via
+                `resolve_agentic_cwd` (hooks/lib/repo_root.py) - NEVER
+                DinoStack's own `repo_dir`/REPO_DIR. REPO (the project
+                under repair) and REPO_DIR (the DinoStack install this
+                tool ships from) are distinct; an earlier design scoped
+                this to bin/ds-doctor's `_load_repo_dir()` and would have
+                inspected the DinoStack install for every consumer,
+                reporting clean while the real damage sat elsewhere in the
+                actual project checkout. Matches bin/ds-reap-worktrees's
+                `--repo` precedent (an explicit, operator-supplied
+                argument, not a bare cwd read at a hook call site).
+  --dry-run     Compute and report; change nothing. This is also the
+                default with no flags at all - `--dry-run` and no-flag
+                behavior are IDENTICAL, stated explicitly per the ticket
+                brief. Only `--fix` is destructive.
+  --fix         Perform the repair: merge events.jsonl (deduped,
+                order-preserving), archive the remainder, remove the now-
+                empty stray tree. Idempotent - a second `--fix` run over
+                the same repo is a byte-identical no-op on the canonical
+                events.jsonl (nothing left to find once every stray tree
+                is gone).
+  --json        Emit the report as JSON instead of human-readable text.
+
+Upstream deps: Python 3 stdlib only (argparse, dataclasses, json, os,
+    shutil, sys, time, pathlib). hooks/lib/repo_root.py
+    (resolve_agentic_cwd, resolve_agentic_cwd_with_diagnostics), loaded
+    lazily via the same `importlib.util` dynamic-loader pattern already
+    used by bin/ds-status/bin/ds-cost/bin/ds-memory - see
+    `_load_repo_root()`'s own docstring for why this ~25-line loader is
+    deliberately duplicated rather than shared. `os.remove`/
+    `shutil.rmtree` are used for every deletion - never `rm -rf` via
+    subprocess (harness-blocked, and the wrong tool for a directory this
+    code has already positively identified rather than merely named).
+    Never follows symlinks (`_iter_agentic_dirs` uses `os.walk` with
+    `followlinks=False`, the default) and prunes heavyweight
+    non-project subtrees from the walk before descending into them
+    (`_PRUNE_DIR_NAMES`) so a multi-hundred-MB `node_modules/` or
+    `.next/standalone/` tree is never even stat'd.
+
+Downstream consumers: operator-invoked directly; not shelled out to by any
+    hook or command file as of this ticket (the reaped-telemetry consumer
+    wiring - making some later phase actually READ the merged events - is
+    explicitly out of scope, per the ticket brief). CI:
+    bin/tests/test_ds_agentic_repair.py.
+
+Failure modes: exits 0 on a successful report or repair, INCLUDING the
+    zero-strays-found case. Exits 1 on a usage error (--repo is not a
+    directory, or not resolvable to a git repository at all - i.e. no
+    `.git` ancestor found anywhere up the tree), on `--dry-run --fix`
+    passed together (rejected outright rather than letting either flag
+    win), on a degraded repo-root resolver (`hooks/lib/repo_root.py`
+    failed to load) - the WHOLE RUN refuses in that last case, not merely
+    `--fix`, because every classification decision the tool makes depends
+    on that resolver; report-only mode is not a safe fallback either, since
+    a report an operator acts on manually is exactly as unreliable as a
+    repair the tool performs itself - and on `--fix` when ANY entry's
+    repair failed (a nonzero per-entry-failure count makes the whole run's
+    exit code nonzero, even though the loop itself keeps going and repairs
+    every other entry it can). A single stray's merge/archive/remove
+    sequence that fails partway (merge write error, INCLUDING an
+    undecodable stray events.jsonl - UnicodeDecodeError is caught
+    alongside OSError, not just OSError - archive copy error, or an
+    unremovable directory) is reported as a per-entry failure and does NOT
+    abort the run for other entries - but it DOES make the run's overall
+    exit code 1, and a merge or archive failure for a given stray means
+    that stray's directory is NEVER removed (same discipline as
+    bin/ds-reap-worktrees's telemetry-salvage guard: a failed preservation
+    step must never become a silent deletion of the data it was trying to
+    preserve). Three independent invariants guard against the archive ever
+    being written where a repair could destroy it: `classify()` never lets
+    the repo's own top-level `.agentic/` (`rel_posix == ".agentic"`)
+    classify as a stray regardless of resolver state; `repair_one()`
+    separately refuses to proceed if `stray_dir` is itself the canonical
+    `.agentic/` tree (equality only, not containment either direction -
+    see the comment at that check); and `repair_one()` also refuses if the
+    computed `archive_dir` is ever a descendant of the `stray_dir` about to
+    be removed. `--dry-run`/no-flag makes zero filesystem writes of any
+    kind, including no archive-directory creation.
+
+Performance: one `os.walk` over the repo tree (symlinks not followed,
+    `_PRUNE_DIR_NAMES` pruned before descent) plus, per confirmed stray, a
+    handful of small file reads/copies. No network calls, no subprocess
+    calls at all (unlike bin/ds-reap-worktrees, this tool never shells out
+    to `git`/`gh` - repo-root detection is a pure filesystem check via
+    hooks/lib/repo_root.py).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional
+
+# --------------------------------------------------------------------------
+# hooks/lib/repo_root.py dynamic loader (mirrors bin/ds-status's
+# `_load_repo_root()` exactly - see this file's own module docstring,
+# "Upstream deps", for why the loader itself is duplicated rather than
+# shared).
+# --------------------------------------------------------------------------
+
+
+def _load_repo_root():
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here.parent / "hooks" / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def resolve_agentic_cwd(start_dir: str) -> str:
+    """Falls back to the realpath of `start_dir` unchanged when the
+    resolver module could not be loaded at all (matches bin/ds-status's
+    degraded-environment behavior)."""
+    if _REPO_ROOT is not None:
+        try:
+            return _REPO_ROOT.resolve_agentic_cwd(start_dir)
+        except Exception:
+            pass
+    return str(Path(start_dir).resolve())
+
+
+# --------------------------------------------------------------------------
+# Layer 1: explicit exclusion list. See module docstring, "Archive
+# placement" and "Classification", for the rationale behind each entry.
+# Matched against the POSIX-style path RELATIVE TO --repo.
+# --------------------------------------------------------------------------
+
+#: Exact known-legitimate template mirrors. `.agentic` here is scaffolding
+#: SEED content shipped for `/ds-init-project`, never runtime state - also
+#: caught by Layer 3 alone, but named explicitly per the brief's
+#: belt-and-braces requirement.
+_EXCLUDED_PATH_EXACT = {
+    "content/templates/.agentic",
+    ".cursor/templates/.agentic",
+    ".gemini/templates/.agentic",
+    ".claude/skills/dinostack/templates/.agentic",
+    ".codex/skills/dinostack/templates/.agentic",
+}
+
+#: Prefix exclusions. `.agentic/stray-agentic-archive/` is this tool's OWN
+#: archive output (see module docstring, "Archive placement") - excluded so
+#: a re-run can never rediscover and re-archive its own prior output,
+#: redundant with (never solely relied upon instead of)
+#: `_sanitize_relpath()`'s flattening.
+_EXCLUDED_PATH_PREFIXES = (
+    ".agentic/stray-agentic-archive/",
+)
+
+#: `evals/` protection (repo decision #203, git-untracked test fixture
+#: content this tool cannot safely inspect or mutate) must apply wherever
+#: an `evals` path COMPONENT appears - not only at the repo root. A
+#: root-anchored `startswith("evals/")` check protects `evals/foo/.agentic`
+#: but not `sub/evals/foo/.agentic` (a nested evals fixture, e.g. under a
+#: feature worktree's own repo copy), leaving it to fall through to Layers
+#: 2/3 and misclassify as a stray. Matched as a whole path COMPONENT
+#: (`"evals" in parts`), never a substring, so `my-evals/` is correctly NOT
+#: protected by this rule.
+_EVALS_COMPONENT = "evals"
+
+#: Directory names never descended into while walking the tree looking for
+#: `.agentic` candidates - heavyweight, regenerable, and never contain a
+#: legitimate (or illegitimate) `.agentic` of their own in this repo's
+#: shape. Matches the ticket brief's named list.
+_PRUNE_DIR_NAMES = {
+    "node_modules",
+    ".git",
+    ".next",
+    "dist",
+    "build",
+    ".venv",
+    "vendor",
+    "target",
+    ".turbo",
+}
+
+#: Layer 3: runtime-state markers. Presence of ANY of these inside a
+#: candidate `.agentic` directory is the positive evidence required to
+#: call it a stray - see module docstring, "Classification", Layer 3.
+_RUNTIME_STATE_MARKERS = (
+    "events.jsonl",
+    "context.md",
+    "context.d",
+    "session-log",
+    ".enforcement-fires.jsonl",
+    "wrap",
+)
+
+
+def _is_excluded(rel_posix: str) -> bool:
+    if rel_posix in _EXCLUDED_PATH_EXACT:
+        return True
+    if any(rel_posix.startswith(prefix) for prefix in _EXCLUDED_PATH_PREFIXES):
+        return True
+    return _EVALS_COMPONENT in rel_posix.split("/")
+
+
+def _is_repo_root_dir(path: Path) -> bool:
+    """True when `path` is ITSELF a repo root (has its own `.git`, file or
+    directory - a linked worktree's `.git` is a FILE, never `os.path.isdir`
+    checked). Reuses hooks/lib/repo_root.py's ancestor walk rather than a
+    second `.git`-existence check: `drift_levels == 0` on a successful walk
+    means the FIRST directory probed (i.e. `path` itself) already had
+    `.git` - an ancestor match (drift_levels > 0) means `path` sits INSIDE
+    a repo but is not itself the root, which must classify as "not a repo
+    root" here (that is precisely the phantom `.agentic/.agentic` /
+    `src/foo/.agentic` shape this layer exists to catch: their parent
+    directories sit inside a repo, but are not repo roots themselves).
+    """
+    if _REPO_ROOT is None:
+        # Degraded: cannot resolve at all. `main()` refuses to run the
+        # entire tool whenever `_REPO_ROOT is None` (see the check at the
+        # top of `main()`) - this function is never reached in that state
+        # in production. This branch remains as defense in depth for any
+        # future direct caller of `classify()`/`scan()` that bypasses
+        # `main()`'s guard, and fails closed as "not proven a repo root"
+        # rather than silently treating a missing resolver as
+        # always-legitimate.
+        return False
+    diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(str(path))
+    return bool(diag.get("found_git_ancestor")) and diag.get("drift_levels") == 0
+
+
+def _has_runtime_state_markers(path: Path) -> bool:
+    try:
+        names = set(entry.name for entry in path.iterdir())
+    except OSError:
+        return False
+    return any(marker in names for marker in _RUNTIME_STATE_MARKERS)
+
+
+@dataclass
+class ClassifiedDir:
+    path: Path
+    rel_posix: str
+    verdict: str  # "stray" | "legitimate"
+    reason: str
+
+
+def classify(path: Path, repo_root: Path) -> ClassifiedDir:
+    rel_posix = path.relative_to(repo_root).as_posix()
+
+    # Flat invariant, independent of every layer below (including a
+    # degraded `_REPO_ROOT` resolver): the repo's OWN top-level
+    # `.agentic/` is never a stray. `_is_repo_root_dir` normally proves
+    # this via Layer 2 (its parent, `repo_root`, is a repo root by
+    # construction), but that proof depends on `_REPO_ROOT` loading
+    # successfully - when it does not, `_is_repo_root_dir` fails closed to
+    # False, which would otherwise collapse "could not determine" into
+    # "not a repo root" and let this directory reach Layer 3, where it
+    # always carries runtime markers. This check needs no resolver at all.
+    if rel_posix == ".agentic":
+        return ClassifiedDir(path, rel_posix, "legitimate", "repo-root-agentic")
+
+    if _is_excluded(rel_posix):
+        return ClassifiedDir(path, rel_posix, "legitimate", "excluded")
+
+    if _is_repo_root_dir(path.parent):
+        return ClassifiedDir(path, rel_posix, "legitimate", "parent-is-repo-root")
+
+    if not _has_runtime_state_markers(path):
+        return ClassifiedDir(path, rel_posix, "legitimate", "no-runtime-markers")
+
+    return ClassifiedDir(path, rel_posix, "stray", "not-repo-root+runtime-markers")
+
+
+def _iter_agentic_dirs(repo_root: Path):
+    """Yields every directory literally named `.agentic` under `repo_root`,
+    never following symlinks, and never descending into `_PRUNE_DIR_NAMES`.
+    """
+    import os
+
+    for dirpath, dirnames, _filenames in os.walk(repo_root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _PRUNE_DIR_NAMES]
+        if Path(dirpath).name == ".agentic":
+            # A `.agentic` dir is never itself walked into further for
+            # MORE `.agentic` candidates below it as a scan root - it is
+            # already the unit of classification. os.walk will still
+            # descend into it (dirnames untouched here) so a genuinely
+            # nested `.agentic/.agentic` phantom is still found on a later
+            # iteration; that is intentional (the exact shape this repo's
+            # live tree exhibits).
+            yield Path(dirpath)
+
+
+def scan(repo_root: Path) -> List[ClassifiedDir]:
+    results = [classify(p, repo_root) for p in _iter_agentic_dirs(repo_root)]
+    results.sort(key=lambda c: c.rel_posix)
+    return results
+
+
+# --------------------------------------------------------------------------
+# Repair
+# --------------------------------------------------------------------------
+
+
+def _sanitize_relpath(rel_posix: str) -> str:
+    """Flattens a stray's relative path into a single leaf directory name
+    that NEVER contains a literal `.agentic` path component - see module
+    docstring, "Archive placement", for why this matters (an earlier
+    design preserved the stray's own path structure and its scan predicate
+    re-found the reconstructed `.agentic` segment on the next run).
+    """
+    parts = rel_posix.strip("/").split("/")
+    safe_parts = [p.replace(".agentic", "dotagentic") or "root" for p in parts]
+    return "__".join(safe_parts)
+
+
+@dataclass
+class RepairResult:
+    rel_posix: str
+    merged_lines: int
+    archived: bool
+    archive_dir: Optional[str]
+    removed: bool
+    ok: bool
+    detail: str
+
+
+def _merge_events(canonical_path: Path, stray_events_path: Path) -> int:
+    """Merges `stray_events_path` into `canonical_path`, deduped by EXACT
+    raw line string, preserving the STRAY file's own original order for
+    the lines it contributes. ORDERING INVARIANT: existing canonical lines
+    always come first, unchanged, in their existing order; new lines from
+    the stray are appended after them in the stray's own original order,
+    skipping any line already present (in the canonical file OR already
+    appended earlier in this same call, so overlapping strays processed in
+    the same run cannot duplicate each other's lines either). Returns the
+    count of lines actually appended (0 when the stray had nothing new).
+    Creates `canonical_path` if it does not exist yet.
+    """
+    canonical_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_text = ""
+    if canonical_path.is_file():
+        existing_text = canonical_path.read_text(encoding="utf-8")
+    seen = set(existing_text.splitlines())
+
+    stray_lines = stray_events_path.read_text(encoding="utf-8").splitlines()
+
+    new_lines: List[str] = []
+    for line in stray_lines:
+        if not line.strip():
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        new_lines.append(line)
+
+    if not new_lines:
+        return 0
+
+    # If the existing canonical content is non-empty and does NOT already
+    # end in a newline (a truncated/interrupted write, or a foreign
+    # writer - exactly the population this tool targets), an unconditional
+    # `open("a")` + `line + "\n"` would concatenate the first new line
+    # directly onto the end of the last existing line with no separator,
+    # corrupting BOTH records into one unparseable line. Write a leading
+    # newline first to terminate the existing content before appending.
+    needs_leading_newline = bool(existing_text) and not existing_text.endswith("\n")
+
+    with canonical_path.open("a", encoding="utf-8") as fh:
+        if needs_leading_newline:
+            fh.write("\n")
+        for line in new_lines:
+            fh.write(line + "\n")
+    return len(new_lines)
+
+
+def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
+    stray_dir = entry.path
+    canonical_events = repo_root / ".agentic" / "events.jsonl"
+    stray_events = stray_dir / "events.jsonl"
+
+    merged_lines = 0
+    if stray_events.is_file() and stray_events.stat().st_size > 0:
+        try:
+            merged_lines = _merge_events(canonical_events, stray_events)
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            # UnicodeDecodeError (raised by `.read_text(encoding="utf-8")`
+            # on undecodable bytes, e.g. a foreign writer or a truncated
+            # write) is a ValueError, NOT an OSError - catching only
+            # OSError here let it propagate all the way out of `main()`'s
+            # per-entry loop uncaught, aborting the run for every stray
+            # after the failing one. This isolates the failure to THIS
+            # entry, matching the per-entry-failure discipline documented
+            # in the module docstring's "Failure modes" section: the
+            # stray's directory is never removed (its data is preserved
+            # in place, unmerged), and the run continues for other
+            # entries.
+            return RepairResult(entry.rel_posix, 0, False, None, False, False, f"merge failed: {exc}")
+
+    # Hard invariant, independent of every classification layer above and
+    # checked BEFORE any archival or removal decision is made: `stray_dir`
+    # must never BE the canonical `.agentic/` tree. Under normal operation
+    # this cannot fire - `rel_posix == ".agentic"` is excluded from ever
+    # classifying as a stray by the flat invariant in `classify()` - but if
+    # that invariant, the resolver, or a future caller ever hands this
+    # function a `ClassifiedDir` for the canonical tree itself (the round-1
+    # shape: canonical and stray being the same directory), the original
+    # archive-destination check below never ran at all for a stray with no
+    # remainder besides `events.jsonl` - `remainder_names` is empty, so the
+    # whole `if remainder_names:` block (including that check) is skipped,
+    # and `shutil.rmtree(stray_dir)` below would delete the canonical
+    # `.agentic/` tree, events.jsonl and all, with no archive. Checked here,
+    # unconditionally, rather than nested inside the remainder branch.
+    #
+    # Deliberately narrow to equality only (round 4): an earlier form also
+    # refused when `canonical_agentic in stray_dir.parents` (i.e. stray is
+    # NESTED INSIDE canonical, the opposite direction from what this guard
+    # protects). That is exactly the shape `_iter_agentic_dirs`'s docstring
+    # calls "the exact shape this repo's live tree exhibits" (e.g.
+    # `.agentic/.agentic`, `.agentic/memory/.agentic`) and is the tool's
+    # primary use case - the wider form refused to repair it. That case
+    # does not need protection here: `_is_excluded` already carries the
+    # `.agentic/stray-agentic-archive/` prefix exclusion (archive
+    # re-ingestion is handled at classify time), and the separate
+    # archive-destination check below still catches stray-contains-archive.
+    canonical_agentic = repo_root / ".agentic"
+    if stray_dir == canonical_agentic:
+        return RepairResult(
+            entry.rel_posix,
+            merged_lines,
+            False,
+            None,
+            False,
+            False,
+            "refused: stray_dir is the canonical .agentic tree",
+        )
+
+    # Archive the remainder (everything except events.jsonl, already
+    # merged above). If nothing remains after removing events.jsonl, no
+    # archive directory is created at all.
+    archive_dir: Optional[Path] = None
+    archived = False
+    try:
+        remainder_names = [n for n in (p.name for p in stray_dir.iterdir()) if n != "events.jsonl"]
+    except OSError as exc:
+        return RepairResult(entry.rel_posix, merged_lines, False, None, False, False, f"listing failed: {exc}")
+
+    if remainder_names:
+        ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        leaf = f"{ts}-{_sanitize_relpath(entry.rel_posix)}"
+        archive_dir = repo_root / ".agentic" / "stray-agentic-archive" / leaf
+
+        # Second, narrower invariant: the archive destination must never be
+        # a descendant of the tree about to be `shutil.rmtree`'d. The guard
+        # above already refuses when `stray_dir` IS the canonical tree
+        # (which is where `archive_dir` always lives); this catches the
+        # separate case of `stray_dir` containing some other ancestor of
+        # `archive_dir` without being the canonical tree itself.
+        is_descendant = archive_dir == stray_dir or stray_dir in archive_dir.parents
+        if is_descendant:
+            return RepairResult(
+                entry.rel_posix,
+                merged_lines,
+                False,
+                str(archive_dir),
+                False,
+                False,
+                "refused: archive_dir would be inside stray_dir",
+            )
+
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=False)
+            for name in remainder_names:
+                src = stray_dir / name
+                dest = archive_dir / name
+                if src.is_dir():
+                    shutil.copytree(src, dest)
+                else:
+                    shutil.copy2(src, dest)
+            archived = True
+        except OSError as exc:
+            return RepairResult(
+                entry.rel_posix, merged_lines, False, str(archive_dir), False, False, f"archive failed: {exc}"
+            )
+
+    try:
+        shutil.rmtree(stray_dir)
+    except OSError as exc:
+        return RepairResult(
+            entry.rel_posix,
+            merged_lines,
+            archived,
+            str(archive_dir) if archive_dir else None,
+            False,
+            False,
+            f"removal failed: {exc}",
+        )
+
+    return RepairResult(
+        entry.rel_posix,
+        merged_lines,
+        archived,
+        str(archive_dir) if archive_dir else None,
+        True,
+        True,
+        "ok",
+    )
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def _resolve_repo(raw: str) -> Path:
+    """Resolves `--repo` via `resolve_agentic_cwd` - NEVER DinoStack's own
+    `repo_dir`/REPO_DIR. See module docstring's `--repo` entry.
+    """
+    root = resolve_agentic_cwd(raw)
+    p = Path(root)
+    if not p.is_dir():
+        raise ValueError(f"not a directory: {raw}")
+    if _REPO_ROOT is not None:
+        diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(raw)
+        if not diag.get("found_git_ancestor"):
+            raise ValueError(f"no git repository found at or above: {raw}")
+    return p
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="ds-agentic-repair",
+        description="Find and repair phantom .agentic/ trees from the pre-DS-171 cwd-drift bug.",
+    )
+    p.add_argument("--repo", default=".")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--fix", action="store_true")
+    p.add_argument("--json", action="store_true")
+    return p.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    if args.dry_run and args.fix:
+        # For a tool whose only irreversible mode is --fix, the defensive-
+        # habit invocation (--dry-run) must never be the one that performs
+        # the destructive action. Reject the combination outright rather
+        # than picking a winner.
+        print("error: --dry-run and --fix are mutually exclusive", file=sys.stderr)
+        return 1
+
+    if _REPO_ROOT is None:
+        # Refuse to run AT ALL (not merely refuse --fix) when the repo-root
+        # resolver could not be loaded. `_is_repo_root_dir` fails closed to
+        # False in this state, which collapses "could not determine" into
+        # "not a repo root" - without this guard, the repo's OWN top-level
+        # `.agentic/` (which always carries runtime markers) would clear
+        # Layer 2 as a false "not a repo root" and be destroyed by --fix.
+        # A degraded resolver makes every classification decision this
+        # tool makes unreliable, not just that one, so the whole run is
+        # refused rather than silently degrading to "just Layer 3".
+        print(
+            "error: repo-root resolver (hooks/lib/repo_root.py) could not be loaded; "
+            "refusing to run in a degraded environment",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        repo_root = _resolve_repo(args.repo)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    results = scan(repo_root)
+    strays = [r for r in results if r.verdict == "stray"]
+    legitimate = [r for r in results if r.verdict == "legitimate"]
+
+    # --fix is the ONLY destructive path. --dry-run and no-flag are
+    # identical (report-only) - stated explicitly per the ticket brief.
+    do_fix = bool(args.fix)
+
+    repairs: List[RepairResult] = []
+    if do_fix:
+        for entry in strays:
+            repairs.append(repair_one(repo_root, entry))
+
+    report = {
+        "repo": str(repo_root),
+        "mode": "fix" if do_fix else "report-only",
+        "total_agentic_dirs": len(results),
+        "strays_found": len(strays),
+        "legitimate_found": len(legitimate),
+        "strays": [{"path": r.rel_posix, "reason": r.reason} for r in strays],
+        "repairs": [
+            {
+                "path": r.rel_posix,
+                "merged_lines": r.merged_lines,
+                "archived": r.archived,
+                "archive_dir": r.archive_dir,
+                "removed": r.removed,
+                "ok": r.ok,
+                "detail": r.detail,
+            }
+            for r in repairs
+        ],
+    }
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"repo={report['repo']} mode={report['mode']}")
+        print(f"total .agentic dirs scanned: {report['total_agentic_dirs']}")
+        print(f"legitimate: {report['legitimate_found']}  strays: {report['strays_found']}")
+        for r in strays:
+            print(f"  STRAY: {r.rel_posix}  ({r.reason})")
+        for rr in repairs:
+            status = "OK" if rr.ok else "FAILED"
+            print(f"  REPAIR[{status}]: {rr.rel_posix} merged={rr.merged_lines} archived={rr.archived} removed={rr.removed} - {rr.detail}")
+
+    if repairs and any(not rr.ok for rr in repairs):
+        # A repair failure prints "REPAIR[FAILED] ... - <detail>" above but
+        # no data is destroyed (repair_one's per-entry isolation leaves the
+        # stray untouched). Still, a nonzero exit is required here so a
+        # caller chaining `ds-agentic-repair --fix && <next step>` cannot
+        # read ANY repair failure (even a single entry among many) as
+        # success - the loop keeps going and repairs every other entry it
+        # can, but the run's exit code reflects that at least one did not.
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
