@@ -242,6 +242,12 @@ def test_negative_worktree_root(tmp_path):
     is a file, never a directory) and misclassify its `.agentic` as a
     stray - corrupting live isolation-worktree state, per the ticket
     brief's central warning.
+
+    Note: `.agentic` directly under `repo` now hits the flat
+    `rel_posix == ".agentic"` invariant (checked before Layer 2, see
+    round-2 rework), so the reason string is "repo-root-agentic" rather
+    than "parent-is-repo-root" - the verdict (legitimate) is what this
+    test guards, not which of the two independent mechanisms produced it.
     """
     repo = tmp_path / "worktree-agent-xyz"
     _make_git_marker(repo, as_file=True)
@@ -251,7 +257,7 @@ def test_negative_worktree_root(tmp_path):
     before = _snapshot(repo)
     result = repair.classify(wt_agentic, repo)
     assert result.verdict == "legitimate"
-    assert result.reason == "parent-is-repo-root"
+    assert result.reason == "repo-root-agentic"
 
     rc = repair.main(["--repo", str(repo), "--fix"])
     assert rc == 0
@@ -455,3 +461,237 @@ def test_repo_not_a_git_repository_errors(tmp_path):
     not_a_repo.mkdir()
     rc = repair.main(["--repo", str(not_a_repo)])
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# Round-2 rework regression tests (Critical + Major 1-3 + Minor). Each was
+# confirmed failing against the pre-fix code before its fix landed - see
+# the engineer return summary for the pre-fix output captured for each.
+# ---------------------------------------------------------------------------
+
+
+def test_critical_degraded_resolver_refuses_entire_run(tmp_path, monkeypatch):
+    """CRITICAL: when the repo-root resolver fails to load (`_REPO_ROOT is
+    None`), the tool must refuse to run AT ALL - not merely refuse --fix -
+    and must NOT delete the repo's own live top-level `.agentic/`.
+
+    Pre-fix behavior (reproduced): `_is_repo_root_dir` returned False
+    unconditionally on a None resolver, collapsing "could not determine"
+    into "not a repo root"; the repo's own `.agentic/` (which always
+    carries runtime markers) then cleared Layer 2 as a false negative and
+    was classified `stray`, and `--fix` destroyed it with `rc == 0`.
+
+    Mutation that reddens: removing the `if _REPO_ROOT is None: return 1`
+    guard at the top of `main()` restores exactly that path.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    live_agentic = repo / ".agentic"
+    _make_runtime_agentic(live_agentic, events_lines=['{"live":1}'])
+
+    monkeypatch.setattr(repair, "_REPO_ROOT", None)
+
+    before = _snapshot(repo)
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 1
+    after = _snapshot(repo)
+    assert before == after
+    assert live_agentic.is_dir()
+
+
+def test_critical_own_agentic_never_stray_even_if_layer2_fails(tmp_path, monkeypatch):
+    """CRITICAL: the flat `rel_posix == ".agentic"` invariant in
+    `classify()` protects the repo's own top-level `.agentic/` even when
+    Layer 2 (`_is_repo_root_dir`) itself is broken/returns False - it must
+    not be the sole thing standing between this directory and destruction.
+
+    Pre-fix behavior (reproduced): with no flat invariant, forcing
+    `_is_repo_root_dir` to return False for ANY input reproduces the exact
+    degraded-resolver collapse from the Critical finding and `classify()`
+    returns "stray".
+
+    Mutation that reddens: removing the `if rel_posix == ".agentic":
+    return ... "legitimate" ...` short-circuit at the top of `classify()`.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    live_agentic = repo / ".agentic"
+    _make_runtime_agentic(live_agentic, events_lines=['{"live":1}'])
+
+    monkeypatch.setattr(repair, "_is_repo_root_dir", lambda path: False)
+
+    result = repair.classify(live_agentic, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "repo-root-agentic"
+
+
+def test_critical_archive_dir_refused_when_descendant_of_stray_dir(tmp_path):
+    """CRITICAL: `repair_one()` must refuse to proceed if the computed
+    `archive_dir` is ever a descendant of the `stray_dir` it is about to
+    `shutil.rmtree`, independent of whether `classify()` should have
+    prevented this shape from ever reaching `repair_one()` in the first
+    place. Constructed directly (bypassing `classify()`/`scan()`, which
+    already exclude this shape via the flat invariant) to prove the guard
+    inside `repair_one()` itself, not merely its callers' good behavior.
+
+    Pre-fix behavior (reproduced): `archive_dir` is computed as
+    `repo_root/.agentic/stray-agentic-archive/<leaf>` with no check that
+    it is outside `stray_dir` - when `stray_dir` IS `repo_root/.agentic`,
+    the archive is written inside the very tree `shutil.rmtree(stray_dir)`
+    then destroys, permanently losing the archived remainder in the same
+    operation that was supposed to preserve it.
+
+    Mutation that reddens: removing the `is_descendant` check (and its
+    early `return RepairResult(..., ok=False, ...)`) in `repair_one()`.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    live_agentic = repo / ".agentic"
+    _make_runtime_agentic(live_agentic, events_lines=['{"live":1}'])
+    # A remainder file besides events.jsonl, so an archive_dir actually
+    # gets computed and this guard has something to refuse.
+    (live_agentic / "extra-remainder.txt").write_text("do not lose me\n", encoding="utf-8")
+
+    entry = repair.ClassifiedDir(live_agentic, ".agentic", "stray", "forced-for-test")
+    result = repair.repair_one(repo, entry)
+
+    assert result.ok is False
+    assert result.archived is False
+    assert result.removed is False
+    assert "archive_dir" in result.detail or "descendant" in result.detail
+    # The directory and its contents must survive completely untouched.
+    assert live_agentic.is_dir()
+    assert (live_agentic / "extra-remainder.txt").read_text(encoding="utf-8") == "do not lose me\n"
+    assert (live_agentic / "context.md").is_file()
+
+
+def test_major1_dry_run_and_fix_together_rejected(tmp_path):
+    """MAJOR 1: `--dry-run --fix` together must be rejected, not silently
+    resolved by letting `--fix` win. For a tool whose only irreversible
+    mode is `--fix`, the defensive-habit invocation must never be the
+    destructive one.
+
+    Pre-fix behavior (reproduced): `do_fix = bool(args.fix)` ignored
+    `--dry-run` entirely; `main(["--repo", R, "--dry-run", "--fix"])`
+    printed `mode=fix` and removed the stray tree, with `rc == 0`.
+
+    Mutation that reddens: removing the `if args.dry_run and args.fix:
+    ... return 1` check at the top of `main()`.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    stray = repo / "src" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=['{"combo":1}'])
+
+    before = _snapshot(repo)
+    rc = repair.main(["--repo", str(repo), "--dry-run", "--fix"])
+    assert rc == 1
+    after = _snapshot(repo)
+    assert before == after
+    assert stray.is_dir()
+
+
+def test_major2_merge_without_trailing_newline_does_not_corrupt(tmp_path):
+    """MAJOR 2: merging into a canonical events.jsonl that does NOT end in
+    a trailing newline (a truncated/interrupted write, or a foreign
+    writer) must not concatenate the first new line onto the end of the
+    last existing line.
+
+    Pre-fix behavior (reproduced): canonical `{"canon":1}` (no trailing
+    newline) plus stray `{"stray":1}` produced the single unparseable line
+    `{"canon":1}{"stray":1}\\n` - BOTH records lost.
+
+    Mutation that reddens: removing the `needs_leading_newline` check (and
+    its `fh.write("\\n")`) in `_merge_events()`.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    canonical = repo / ".agentic" / "events.jsonl"
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text('{"canon":1}', encoding="utf-8")  # deliberately no trailing \n
+    assert not canonical.read_bytes().endswith(b"\n")
+
+    stray = repo / "src" / ".agentic"
+    _make_runtime_agentic(stray, events_lines=['{"stray":1}'])
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+
+    lines = canonical.read_text(encoding="utf-8").splitlines()
+    assert lines == ['{"canon":1}', '{"stray":1}']
+
+
+def test_major3_undecodable_stray_isolated_does_not_abort_run(tmp_path):
+    """MAJOR 3: an undecodable stray events.jsonl (raising
+    UnicodeDecodeError, a ValueError subclass - NOT an OSError) must be
+    isolated to that one entry's per-entry failure and must NOT abort
+    processing of other strays in the same run.
+
+    Pre-fix behavior (reproduced): `repair_one` caught only `OSError`;
+    `UNCAUGHT EXCEPTION: UnicodeDecodeError` propagated out of the
+    per-entry loop in `main()`, and every stray after the failing one was
+    silently never processed.
+
+    Mutation that reddens: narrowing the `except (OSError,
+    UnicodeDecodeError, ValueError)` clause in `repair_one()` back to
+    `except OSError`.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+
+    bad_stray = repo / "aaa-bad" / ".agentic"
+    _make_runtime_agentic(bad_stray)
+    (bad_stray / "events.jsonl").write_bytes(b"\xff\xfe not valid utf-8\n")
+
+    good_stray = repo / "zzz-good" / ".agentic"
+    _make_runtime_agentic(good_stray, events_lines=['{"good":1}'])
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+
+    # The undecodable stray's data is preserved in place, unmerged - never
+    # removed, per the per-entry-failure discipline.
+    assert bad_stray.is_dir()
+
+    # The good stray, sorted AFTER the bad one alphabetically, must still
+    # have been processed and removed - proving the run did not abort.
+    assert not good_stray.exists()
+    canonical = repo / ".agentic" / "events.jsonl"
+    assert '{"good":1}' in canonical.read_text(encoding="utf-8").splitlines()
+
+
+def test_minor_nested_evals_directory_protected(tmp_path):
+    """MINOR: `evals/` protection must apply wherever `evals` appears as a
+    path COMPONENT, not only as a root-anchored prefix - a nested
+    `sub/evals/case/.agentic` must be excluded exactly like a root-level
+    `evals/case/.agentic`. `my-evals/` (a similarly-named but DISTINCT
+    directory) must NOT be excluded by this rule.
+
+    Pre-fix behavior (reproduced): `rel_posix.startswith("evals/")` is
+    False for `"sub/evals/case/.agentic"` (it starts with `"sub/"`), so
+    the fixture fell through Layer 1 to Layers 2/3 and classified `stray`.
+
+    Mutation that reddens: reverting `_is_excluded()` to the
+    root-anchored `rel_posix.startswith("evals/")` form.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+
+    nested_evals = repo / "sub" / "evals" / "case" / ".agentic"
+    _make_runtime_agentic(nested_evals, events_lines=['{"nested-evals":1}'])
+
+    result = repair.classify(nested_evals, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "excluded"
+
+    my_evals = repo / "my-evals" / "case" / ".agentic"
+    _make_runtime_agentic(my_evals, events_lines=['{"my-evals":1}'])
+    my_result = repair.classify(my_evals, repo)
+    assert my_result.verdict == "stray"
+
+    # --fix over the whole tree: nested_evals survives, my_evals is
+    # correctly repaired away (not a false-positive exclusion).
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    assert nested_evals.is_dir()
+    assert not my_evals.exists()

@@ -380,9 +380,13 @@ EXPECTED_RESIDUE_SET: set[tuple[str, str]] = {
     # `agentic-agentic-repair`-style identity to rename FROM (its
     # `bin/agentic-agentic-repair` compat symlink is the alias TARGET
     # convention every ds-* tool gets, per test_ds_rename_regression.py,
-    # not a leftover primary name). content/references/events-log.md is
-    # its sole content/** mention (its Downstream consumers entry).
+    # not a leftover primary name). content/references/events-log.md and
+    # content/sections/09-events-log.md are its two content/** mentions -
+    # the reference doc's Downstream/Append-discipline entries and the
+    # section's Writer-scope sentence respectively (round-2 rework of
+    # DS-agentic-repair added it there as the sixth writer).
     ("content/references/events-log.md", "agentic-repair"),
+    ("content/sections/09-events-log.md", "agentic-repair"),
 }
 
 

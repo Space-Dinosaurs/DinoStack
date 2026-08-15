@@ -26,14 +26,24 @@ Purpose: Finds and repairs phantom `.agentic/` trees left behind by the
     before anything is ever called a stray, not one.
 
 Classification (`classify()`, three layers, ANDed for a STRAY verdict -
-    any one layer returning "legitimate" short-circuits to legitimate):
+    any one layer returning "legitimate" short-circuits to legitimate; a
+    zeroth flat invariant, checked before any layer and independent of
+    resolver state, ALSO short-circuits to legitimate: the repo's own
+    top-level `.agentic/` - `rel_posix == ".agentic"` - is never a stray,
+    which matters specifically because Layer 2 fails closed to "not proven
+    a repo root" whenever the resolver could not be loaded, and `main()`'s
+    own refuse-to-run guard on a missing resolver is the primary defense
+    for that case - this flat check is the second, independent one):
 
     Layer 1 - EXPLICIT EXCLUSION LIST (`_EXCLUDED_PATH_PREFIXES`,
     `_EXCLUDED_PATH_EXACT`). Checked first because it is the cheapest and
     most explicit: named, known-legitimate paths (the five template
-    mirrors, and the `evals/` prefix per repo decision #203 - `evals/` is
-    git-untracked, so its fixtures cannot be verified by content and are
-    protected by name alone) and the tool's OWN archive directory (see
+    mirrors, and any path with an `evals` path COMPONENT anywhere in it,
+    per repo decision #203 - `evals/` is git-untracked, so its fixtures
+    cannot be verified by content and are protected by name alone,
+    matched by component rather than only as a root-anchored prefix so a
+    nested `sub/evals/case/.agentic` is protected too, not only
+    `evals/case/.agentic`) and the tool's OWN archive directory (see
     "Archive placement" below for why the archive dir must be excluded
     rather than merely placed outside the scan).
 
@@ -158,15 +168,30 @@ Downstream consumers: operator-invoked directly; not shelled out to by any
 Failure modes: exits 0 on a successful report or repair, INCLUDING the
     zero-strays-found case. Exits 1 on a usage error (--repo is not a
     directory, or not resolvable to a git repository at all - i.e. no
-    `.git` ancestor found anywhere up the tree). A single stray's merge/
-    archive/remove sequence that fails partway (merge write error, archive
-    copy error, or an unremovable directory) is reported as a per-entry
-    failure and does NOT abort the run for other entries - but a merge or
-    archive failure for a given stray means that stray's directory is NEVER
-    removed (same discipline as bin/ds-reap-worktrees's telemetry-salvage
-    guard: a failed preservation step must never become a silent deletion
-    of the data it was trying to preserve). `--dry-run`/no-flag makes zero
-    filesystem writes of any kind, including no archive-directory creation.
+    `.git` ancestor found anywhere up the tree), on `--dry-run --fix`
+    passed together (rejected outright rather than letting either flag
+    win), and on a degraded repo-root resolver (`hooks/lib/repo_root.py`
+    failed to load) - the WHOLE RUN refuses in that last case, not merely
+    `--fix`, because every classification decision the tool makes depends
+    on that resolver; report-only mode is not a safe fallback either, since
+    a report an operator acts on manually is exactly as unreliable as a
+    repair the tool performs itself. A single stray's merge/archive/remove
+    sequence that fails partway (merge write error, INCLUDING an
+    undecodable stray events.jsonl - UnicodeDecodeError is caught
+    alongside OSError, not just OSError - archive copy error, or an
+    unremovable directory) is reported as a per-entry failure and does NOT
+    abort the run for other entries - but a merge or archive failure for a
+    given stray means that stray's directory is NEVER removed (same
+    discipline as bin/ds-reap-worktrees's telemetry-salvage guard: a failed
+    preservation step must never become a silent deletion of the data it
+    was trying to preserve). Two independent invariants guard against the
+    archive ever being written where a repair could destroy it: `classify()`
+    never lets the repo's own top-level `.agentic/` (`rel_posix == ".agentic"`)
+    classify as a stray regardless of resolver state, and `repair_one()`
+    separately refuses to proceed if the computed `archive_dir` is ever a
+    descendant of the `stray_dir` about to be removed. `--dry-run`/no-flag
+    makes zero filesystem writes of any kind, including no archive-directory
+    creation.
 
 Performance: one `os.walk` over the repo tree (symlinks not followed,
     `_PRUNE_DIR_NAMES` pruned before descent) plus, per confirmed stray, a
@@ -242,18 +267,25 @@ _EXCLUDED_PATH_EXACT = {
     ".codex/skills/dinostack/templates/.agentic",
 }
 
-#: Prefix exclusions. `evals/` is git-untracked (repo decision #203) test
-#: fixture content this tool cannot safely inspect or mutate - protected by
-#: name alone, not by content, since an untracked fixture's shape is not
-#: guaranteed to look like a template. `.agentic/stray-agentic-archive/` is
-#: this tool's OWN archive output (see module docstring, "Archive
-#: placement") - excluded so a re-run can never rediscover and re-archive
-#: its own prior output, redundant with (never solely relied upon instead
-#: of) `_sanitize_relpath()`'s flattening.
+#: Prefix exclusions. `.agentic/stray-agentic-archive/` is this tool's OWN
+#: archive output (see module docstring, "Archive placement") - excluded so
+#: a re-run can never rediscover and re-archive its own prior output,
+#: redundant with (never solely relied upon instead of)
+#: `_sanitize_relpath()`'s flattening.
 _EXCLUDED_PATH_PREFIXES = (
-    "evals/",
     ".agentic/stray-agentic-archive/",
 )
+
+#: `evals/` protection (repo decision #203, git-untracked test fixture
+#: content this tool cannot safely inspect or mutate) must apply wherever
+#: an `evals` path COMPONENT appears - not only at the repo root. A
+#: root-anchored `startswith("evals/")` check protects `evals/foo/.agentic`
+#: but not `sub/evals/foo/.agentic` (a nested evals fixture, e.g. under a
+#: feature worktree's own repo copy), leaving it to fall through to Layers
+#: 2/3 and misclassify as a stray. Matched as a whole path COMPONENT
+#: (`"evals" in parts`), never a substring, so `my-evals/` is correctly NOT
+#: protected by this rule.
+_EVALS_COMPONENT = "evals"
 
 #: Directory names never descended into while walking the tree looking for
 #: `.agentic` candidates - heavyweight, regenerable, and never contain a
@@ -287,7 +319,9 @@ _RUNTIME_STATE_MARKERS = (
 def _is_excluded(rel_posix: str) -> bool:
     if rel_posix in _EXCLUDED_PATH_EXACT:
         return True
-    return any(rel_posix.startswith(prefix) for prefix in _EXCLUDED_PATH_PREFIXES)
+    if any(rel_posix.startswith(prefix) for prefix in _EXCLUDED_PATH_PREFIXES):
+        return True
+    return _EVALS_COMPONENT in rel_posix.split("/")
 
 
 def _is_repo_root_dir(path: Path) -> bool:
@@ -303,10 +337,14 @@ def _is_repo_root_dir(path: Path) -> bool:
     directories sit inside a repo, but are not repo roots themselves).
     """
     if _REPO_ROOT is None:
-        # Degraded: cannot resolve at all. Fail closed as "not proven a
-        # repo root" - Layer 3 (content) still guards the false-positive
-        # risk this would otherwise create, but a missing resolver is
-        # reported, not silently treated as always-legitimate.
+        # Degraded: cannot resolve at all. `main()` refuses to run the
+        # entire tool whenever `_REPO_ROOT is None` (see the check at the
+        # top of `main()`) - this function is never reached in that state
+        # in production. This branch remains as defense in depth for any
+        # future direct caller of `classify()`/`scan()` that bypasses
+        # `main()`'s guard, and fails closed as "not proven a repo root"
+        # rather than silently treating a missing resolver as
+        # always-legitimate.
         return False
     diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(str(path))
     return bool(diag.get("found_git_ancestor")) and diag.get("drift_levels") == 0
@@ -330,6 +368,18 @@ class ClassifiedDir:
 
 def classify(path: Path, repo_root: Path) -> ClassifiedDir:
     rel_posix = path.relative_to(repo_root).as_posix()
+
+    # Flat invariant, independent of every layer below (including a
+    # degraded `_REPO_ROOT` resolver): the repo's OWN top-level
+    # `.agentic/` is never a stray. `_is_repo_root_dir` normally proves
+    # this via Layer 2 (its parent, `repo_root`, is a repo root by
+    # construction), but that proof depends on `_REPO_ROOT` loading
+    # successfully - when it does not, `_is_repo_root_dir` fails closed to
+    # False, which would otherwise collapse "could not determine" into
+    # "not a repo root" and let this directory reach Layer 3, where it
+    # always carries runtime markers. This check needs no resolver at all.
+    if rel_posix == ".agentic":
+        return ClassifiedDir(path, rel_posix, "legitimate", "repo-root-agentic")
 
     if _is_excluded(rel_posix):
         return ClassifiedDir(path, rel_posix, "legitimate", "excluded")
@@ -410,10 +460,10 @@ def _merge_events(canonical_path: Path, stray_events_path: Path) -> int:
     """
     canonical_path.parent.mkdir(parents=True, exist_ok=True)
 
-    existing_lines: List[str] = []
+    existing_text = ""
     if canonical_path.is_file():
-        existing_lines = canonical_path.read_text(encoding="utf-8").splitlines()
-    seen = set(existing_lines)
+        existing_text = canonical_path.read_text(encoding="utf-8")
+    seen = set(existing_text.splitlines())
 
     stray_lines = stray_events_path.read_text(encoding="utf-8").splitlines()
 
@@ -429,7 +479,18 @@ def _merge_events(canonical_path: Path, stray_events_path: Path) -> int:
     if not new_lines:
         return 0
 
+    # If the existing canonical content is non-empty and does NOT already
+    # end in a newline (a truncated/interrupted write, or a foreign
+    # writer - exactly the population this tool targets), an unconditional
+    # `open("a")` + `line + "\n"` would concatenate the first new line
+    # directly onto the end of the last existing line with no separator,
+    # corrupting BOTH records into one unparseable line. Write a leading
+    # newline first to terminate the existing content before appending.
+    needs_leading_newline = bool(existing_text) and not existing_text.endswith("\n")
+
     with canonical_path.open("a", encoding="utf-8") as fh:
+        if needs_leading_newline:
+            fh.write("\n")
         for line in new_lines:
             fh.write(line + "\n")
     return len(new_lines)
@@ -444,7 +505,18 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
     if stray_events.is_file() and stray_events.stat().st_size > 0:
         try:
             merged_lines = _merge_events(canonical_events, stray_events)
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            # UnicodeDecodeError (raised by `.read_text(encoding="utf-8")`
+            # on undecodable bytes, e.g. a foreign writer or a truncated
+            # write) is a ValueError, NOT an OSError - catching only
+            # OSError here let it propagate all the way out of `main()`'s
+            # per-entry loop uncaught, aborting the run for every stray
+            # after the failing one. This isolates the failure to THIS
+            # entry, matching the per-entry-failure discipline documented
+            # in the module docstring's "Failure modes" section: the
+            # stray's directory is never removed (its data is preserved
+            # in place, unmerged), and the run continues for other
+            # entries.
             return RepairResult(entry.rel_posix, 0, False, None, False, False, f"merge failed: {exc}")
 
     # Archive the remainder (everything except events.jsonl, already
@@ -461,6 +533,31 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
         ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         leaf = f"{ts}-{_sanitize_relpath(entry.rel_posix)}"
         archive_dir = repo_root / ".agentic" / "stray-agentic-archive" / leaf
+
+        # Hard invariant, independent of every classification layer above:
+        # the archive destination must never be a descendant of the tree
+        # about to be `shutil.rmtree`'d. Under normal operation
+        # `archive_dir` is always under `repo_root/.agentic/...`, which is
+        # excluded from ever classifying as a stray itself (see the
+        # `rel_posix == ".agentic"` flat invariant in `classify()`), so
+        # this cannot fire in a healthy run - but if that invariant, the
+        # resolver, or a future caller ever let `stray_dir` BE (or
+        # contain) `repo_root/.agentic`, this would otherwise write the
+        # archive INSIDE the directory it is about to delete and then
+        # destroy the archive it just wrote in the same operation. Checked
+        # here, independently, rather than relied upon solely from above.
+        is_descendant = archive_dir == stray_dir or stray_dir in archive_dir.parents
+        if is_descendant:
+            return RepairResult(
+                entry.rel_posix,
+                merged_lines,
+                False,
+                str(archive_dir),
+                False,
+                False,
+                "refused: archive_dir would be inside stray_dir",
+            )
+
         try:
             archive_dir.mkdir(parents=True, exist_ok=False)
             for name in remainder_names:
@@ -534,6 +631,32 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = parse_args(argv)
+
+    if args.dry_run and args.fix:
+        # For a tool whose only irreversible mode is --fix, the defensive-
+        # habit invocation (--dry-run) must never be the one that performs
+        # the destructive action. Reject the combination outright rather
+        # than picking a winner.
+        print("error: --dry-run and --fix are mutually exclusive", file=sys.stderr)
+        return 1
+
+    if _REPO_ROOT is None:
+        # Refuse to run AT ALL (not merely refuse --fix) when the repo-root
+        # resolver could not be loaded. `_is_repo_root_dir` fails closed to
+        # False in this state, which collapses "could not determine" into
+        # "not a repo root" - without this guard, the repo's OWN top-level
+        # `.agentic/` (which always carries runtime markers) would clear
+        # Layer 2 as a false "not a repo root" and be destroyed by --fix.
+        # A degraded resolver makes every classification decision this
+        # tool makes unreliable, not just that one, so the whole run is
+        # refused rather than silently degrading to "just Layer 3".
+        print(
+            "error: repo-root resolver (hooks/lib/repo_root.py) could not be loaded; "
+            "refusing to run in a degraded environment",
+            file=sys.stderr,
+        )
+        return 1
+
     try:
         repo_root = _resolve_repo(args.repo)
     except ValueError as exc:

@@ -82,7 +82,7 @@ Performance: Standard.
 
 ## Append discipline
 
-Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, `hooks/subagent-stop-spawn-emit.js` (DS-160), and `hooks/conductor-overreach-nudge.js` (the registered Stop hook that emits `conductor_overreach`) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
+Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, `hooks/subagent-stop-spawn-emit.js` (DS-160), `hooks/conductor-overreach-nudge.js` (the registered Stop hook that emits `conductor_overreach`), and `bin/ds-agentic-repair --fix` (operator-invoked; merges a phantom `.agentic/` tree's events.jsonl into this file, deduped, order-preserving - see its own module docstring, "Failure modes", for why a non-newline-terminated existing file is handled explicitly rather than assumed well-formed) - all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
 
 ## Atomicity
 

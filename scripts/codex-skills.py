@@ -312,13 +312,14 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
 # $AGENTS_RAW) is itself a valid scope for this assertion.
 PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
-            r"\*\*Writer scope: `\.agentic/events\.jsonl` has five writers\*\*"
+            r"\*\*Writer scope: `\.agentic/events\.jsonl` has six writers\*\*"
             r".*?(?=\n\n)",
             (
                 "**Writer scope (Codex runtime boundary).** "
-                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has five writers on Claude Code (the "
-                "conductor, the Stop hook, two spawn-telemetry hooks, and the warn-only "
-                "conductor-overreach Stop hook), but the current Codex "
+                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the "
+                "conductor, the Stop hook, two spawn-telemetry hooks, the warn-only "
+                "conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair "
+                "--fix` repair tool), but the current Codex "
                 f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "
                 "append `session_total` events, run the spawn-telemetry hooks, or mirror "
                 "project-local orchestration state. The conductor-overreach detector is not "
