@@ -70,10 +70,13 @@ never write anything like these:
 - "Worth noting"
 - "A couple of things stood out"
 
-The ban is on the SHAPE - a package of conductor-selected observations -
-not on the quoted wording; inventing a new label does not satisfy it, and
-the shape is banned wherever it lands in the turn, opening a section as
-readily as closing one. The diagnostic: if the operator would have to ask
+The ban is on the WARRANT the item lacks and on the package SHAPE that
+bundles such items, not on the quoted wording. A labelled package is the
+canonical form of the violation, not its boundary: inventing a new label
+does not satisfy it, and dropping the label to write the same warrantless
+item as a single bare sentence does not satisfy it either. The ban holds
+wherever the item lands in the turn, opening a section as readily as
+closing one. The diagnostic: if the operator would have to ask
 "how does this apply to me", the item failed the warrant test. This is a
 different failure from rules 3 and 4 - the content is new rather than a
 recap, and it is not framed as a disclosure. A process observation about

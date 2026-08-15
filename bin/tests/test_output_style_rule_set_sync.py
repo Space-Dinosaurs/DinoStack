@@ -45,6 +45,20 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          longer defines is asserted stale-present (modulo hyphen/space
          normalization), at each of the ten sites above.
 
+         Round 8 (Skeptic Major A) added a second, orthogonal axis: a
+         DESCRIPTION invariant. Every check above pins only the topic
+         NAME, so six sites kept the pre-widening definition of the
+         editorial-addenda ban ("the ban on a labelled package of
+         conductor-selected observations") for a full round after ban 7
+         was widened to any warrantless conductor-selected item, bundled
+         or not - and every name check stayed green. See
+         `test_no_site_scopes_editorial_addenda_to_a_labelled_package`
+         (conditional: fires only where a site describes the ban in
+         package terms) and
+         `test_widening_is_stated_at_both_normative_sources` (pins the
+         rule at its two origins so a re-narrowing there cannot propagate
+         outward as a newly-consistent narrow definition).
+
 Upstream deps: content/output-styles/dinostack.md (derived source of truth);
                docs/index.html; README.md; docs/configuration-reference.md;
                docs/safe-configuration.md; hooks/enforce-turn-shape.py;
@@ -385,6 +399,105 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
         entry_text = entry_text[:next_bullet]
     _assert_topics_present(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
     _assert_no_stale_topics(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
+
+
+# --- Description invariant (DS-171 round 8, Skeptic Major A) --------------
+# The topic-NAME checks above are the "prose-invariant tests pin promise not
+# mechanism" shape: they assert each site NAMES `editorial addenda`, never
+# that the site's DESCRIPTION of that ban matches the rule. Six sites
+# therefore sat on the pre-widening definition ("the ban on a labelled
+# package of conductor-selected observations") for a full round after ban 7
+# was widened, with every name check green.
+#
+# The invariant below is deliberately CONDITIONAL rather than a wording pin:
+# it fires only where a site chooses to describe the ban in terms of a
+# labelled package at all, and then requires the widening to be present in
+# the same neighbourhood. A site that never mentions a labelled package
+# (docs/index.html today) is unaffected and stays out of scope - the check
+# targets the exact defect shape (a package-scoped definition presented as
+# the ban's boundary), not a house style.
+_NARROW_SCOPE_RE = re.compile(r"labell?ed\s+package", re.IGNORECASE)
+
+# Either phrasing is sufficient evidence the definition is NOT package-
+# scoped. Both are in live use: the config-entry sites say "whether or not
+# it is bundled ... the canonical form, not the boundary"; ban 7 and the
+# style's rule 5 say "not its boundary".
+_WIDENING_RE = re.compile(
+    r"whether or not it is bundled|not the boundary|not its boundary",
+    re.IGNORECASE,
+)
+
+# Scope is the PARAGRAPH, not a character window. A definition and the
+# qualifier that bounds it live in the same block of prose at every live
+# site; a fixed char window instead splits ban 7 (whose widening sits at the
+# top of a very long paragraph while a legitimate non-definitional mention -
+# "belongs in the sentence where it is relevant, not in a labelled package" -
+# sits at the bottom) and produces a false positive on correct text.
+# Whitespace inside a block is normalized first, because a hard-wrapped
+# docstring breaks "whether or not it is bundled" across a newline plus
+# indent.
+_PARAGRAPH_SPLIT_RE = re.compile(r"\n\s*\n")
+
+# Every file this spec already treats as a restatement site, plus the style
+# itself. `docs/index.html` is included deliberately even though it carries
+# no match today - if a future edit adds a package-scoped gloss there, this
+# check must see it.
+_DESCRIPTION_INVARIANT_PATHS = [
+    STYLE_PATH,
+    INDEX_PATH,
+    README_PATH,
+    HOOK_PATH,
+    CTF_PATH,
+    CONFIG_REF_PATH,
+    SAFE_CONFIG_PATH,
+    RISK_CONFIG_PATH,
+    CONVENTIONS_DETAIL_PATH,
+    DS_INIT_PROJECT_PATH,
+    COMPONENTS_PATH,
+]
+
+
+@pytest.mark.parametrize("site_path", _DESCRIPTION_INVARIANT_PATHS, ids=lambda p: p.name)
+def test_no_site_scopes_editorial_addenda_to_a_labelled_package(site_path):
+    text = site_path.read_text(encoding="utf-8")
+    offenders = []
+    cursor = 0
+    for block in _PARAGRAPH_SPLIT_RE.split(text):
+        block_start = text.index(block, cursor) if block else cursor
+        cursor = block_start + len(block)
+        flat = re.sub(r"\s+", " ", block)
+        if not _NARROW_SCOPE_RE.search(flat):
+            continue
+        if not _WIDENING_RE.search(flat):
+            offenders.append(text.count("\n", 0, block_start) + 1)
+    assert not offenders, (
+        f"{site_path} describes the editorial-addenda ban in terms of a "
+        f"labelled package in the paragraph(s) starting at line(s) "
+        f"{offenders} without stating that the "
+        "package is the canonical form and not the boundary. Ban 7 in "
+        f"{CTF_PATH} covers any conductor-selected item carrying none of "
+        "the four turn warrants, bundled or not - a package-scoped gloss "
+        "understates it. Match the wording already used at the other sites."
+    )
+
+
+def test_widening_is_stated_at_both_normative_sources():
+    """The conditional check above can only compare a site against the rule
+    if the rule itself still states the widening. Pin it at BOTH normative
+    sources so a silent re-narrowing at the origin goes red here rather
+    than propagating outward as a newly-consistent narrow definition."""
+    for path, anchor in ((CTF_PATH, "editorial addendum"), (STYLE_PATH, "No editorial addenda")):
+        text = path.read_text(encoding="utf-8")
+        assert anchor.lower() in text.lower(), f"{path} must state the editorial-addenda rule"
+        assert _NARROW_SCOPE_RE.search(text), (
+            f"{path} must name the labelled-package form of the ban so the "
+            "conditional description invariant has something to check"
+        )
+        assert _WIDENING_RE.search(text), (
+            f"{path} no longer states that the labelled package is the "
+            "canonical form and NOT the boundary of the editorial-addenda "
+            "ban - the rule has been re-narrowed at a normative source"
+        )
 
 
 def test_components_names_full_rule_set(rule_set_topics):
