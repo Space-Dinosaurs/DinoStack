@@ -136,7 +136,7 @@ Blocked: nothing
 1. <action> (Recommended) - <one line why>. Reply STOP to skip.
 ```
 
-The `(Recommended)` marker is mandatory even on a single-item list. It is safe to omit today only because the abdication guard's ballot check (`_is_prose_ballot`) requires 2+ items to fire - but the shape shown here is exactly what a second item, added later without noticing the marker was missing, turns into a co-equal ballot that blocks at runtime. Mark the recommended action every time, regardless of item count.
+The `(Recommended)` marker is mandatory on EVERY item under the heading, single-item lists included. The item count is irrelevant to the rule: an unmarked item is already a violation whether it stands alone or sits beside a marked one. As with the admission conditions above, `content/sections/02-delegation.md`'s Operator-decisions rule is the sole normative statement of the marker requirement - read it there, and do not infer the rule's content from what any hook happens to catch. Whether the abdication guard's ballot check (`_is_prose_ballot`) fires on a given turn is a detection limit, never a licence: a turn the hook lets through is unenforced by the hook, not permitted by the rule, and the hook's silence is not something a conductor may act on. The runtime consequence is the lesser reason to comply in any case - the shape shown here is exactly what a second item, added later without noticing the marker was missing, turns into a co-equal ballot. Mark the recommended action every time, regardless of item count.
 
 ## Worked example - an Answer turn
 
