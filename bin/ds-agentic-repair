@@ -519,6 +519,33 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
             # entries.
             return RepairResult(entry.rel_posix, 0, False, None, False, False, f"merge failed: {exc}")
 
+    # Hard invariant, independent of every classification layer above and
+    # checked BEFORE any archival or removal decision is made: `stray_dir`
+    # must never BE (or contain) the canonical `.agentic/` tree. Under
+    # normal operation this cannot fire - `rel_posix == ".agentic"` is
+    # excluded from ever classifying as a stray by the flat invariant in
+    # `classify()` - but if that invariant, the resolver, or a future
+    # caller ever hands this function a `ClassifiedDir` for the canonical
+    # tree itself (the round-1 shape: canonical and stray being the same
+    # directory), the original archive-destination check below never ran
+    # at all for a stray with no remainder besides `events.jsonl` -
+    # `remainder_names` is empty, so the whole `if remainder_names:` block
+    # (including that check) is skipped, and `shutil.rmtree(stray_dir)`
+    # below would delete the canonical `.agentic/` tree, events.jsonl and
+    # all, with no archive. Checked here, unconditionally, rather than
+    # nested inside the remainder branch.
+    canonical_agentic = repo_root / ".agentic"
+    if stray_dir == canonical_agentic or canonical_agentic in stray_dir.parents:
+        return RepairResult(
+            entry.rel_posix,
+            merged_lines,
+            False,
+            None,
+            False,
+            False,
+            "refused: stray_dir is (or contains) the canonical .agentic tree",
+        )
+
     # Archive the remainder (everything except events.jsonl, already
     # merged above). If nothing remains after removing events.jsonl, no
     # archive directory is created at all.
@@ -534,18 +561,12 @@ def repair_one(repo_root: Path, entry: ClassifiedDir) -> RepairResult:
         leaf = f"{ts}-{_sanitize_relpath(entry.rel_posix)}"
         archive_dir = repo_root / ".agentic" / "stray-agentic-archive" / leaf
 
-        # Hard invariant, independent of every classification layer above:
-        # the archive destination must never be a descendant of the tree
-        # about to be `shutil.rmtree`'d. Under normal operation
-        # `archive_dir` is always under `repo_root/.agentic/...`, which is
-        # excluded from ever classifying as a stray itself (see the
-        # `rel_posix == ".agentic"` flat invariant in `classify()`), so
-        # this cannot fire in a healthy run - but if that invariant, the
-        # resolver, or a future caller ever let `stray_dir` BE (or
-        # contain) `repo_root/.agentic`, this would otherwise write the
-        # archive INSIDE the directory it is about to delete and then
-        # destroy the archive it just wrote in the same operation. Checked
-        # here, independently, rather than relied upon solely from above.
+        # Second, narrower invariant: the archive destination must never be
+        # a descendant of the tree about to be `shutil.rmtree`'d. The guard
+        # above already refuses when `stray_dir` IS the canonical tree
+        # (which is where `archive_dir` always lives); this catches the
+        # separate case of `stray_dir` containing some other ancestor of
+        # `archive_dir` without being the canonical tree itself.
         is_descendant = archive_dir == stray_dir or stray_dir in archive_dir.parents
         if is_descendant:
             return RepairResult(
@@ -708,6 +729,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         for rr in repairs:
             status = "OK" if rr.ok else "FAILED"
             print(f"  REPAIR[{status}]: {rr.rel_posix} merged={rr.merged_lines} archived={rr.archived} removed={rr.removed} - {rr.detail}")
+
+    if repairs and any(not rr.ok for rr in repairs):
+        # A repair failure prints "REPAIR[FAILED] ... - <detail>" above but
+        # no data is destroyed (repair_one's per-entry isolation leaves the
+        # stray untouched). Still, a nonzero exit is required here so a
+        # caller chaining `ds-agentic-repair --fix && <next step>` cannot
+        # read total repair failure as success.
+        return 1
 
     return 0
 

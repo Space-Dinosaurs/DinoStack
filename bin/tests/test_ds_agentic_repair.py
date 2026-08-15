@@ -265,6 +265,54 @@ def test_negative_worktree_root(tmp_path):
     assert before == after
 
 
+def test_negative_nested_worktree_root(tmp_path):
+    """Negative control: a linked git worktree whose root sits INSIDE the
+    scanned repo (e.g. `repo/.claude/worktrees/agent-xyz`, the real shape
+    every isolation-worktree spawn produces), carrying its own
+    `.agentic` directly under its own root.
+
+    Round-3 rework: `test_negative_worktree_root` above was reworked in
+    round 2 to give the worktree root ITSELF as `repo` (`.agentic` sits
+    directly under the scanned root), so `rel_posix == ".agentic"` and the
+    flat invariant at the top of `classify()` short-circuits before Layer
+    2 (`_is_repo_root_dir`) ever runs - that test now exercises the flat
+    invariant, not Layer 2, and lost coverage for Layer 2's `.git`-as-FILE
+    handling. This fixture nests the worktree root one level inside the
+    scanned repo instead, so `rel_posix` is
+    `.claude/worktrees/agent-xyz/.agentic` (never the bare string
+    `.agentic`), the flat invariant does not fire, and only Layer 2
+    (`.agentic`'s PARENT, the worktree root, is itself a repo root via a
+    `.git` FILE) can save it from Layer 3's runtime-marker match.
+
+    Mutation that reddens: replacing `_is_repo_root_dir`'s body with
+    `return (path / ".git").is_dir()` treats a linked worktree's `.git`
+    FILE as "not a repo root" (`is_dir()` is False for a file), so the
+    worktree root fails Layer 2, this `.agentic` falls through to Layer 3
+    (which finds real runtime markers), and it misclassifies as a stray -
+    exactly the live corruption hazard this layer exists to prevent for
+    isolation-worktree state. Confirmed: this mutation leaves all tests in
+    this suite green if this test is absent (verified against the
+    pre-fix, round-2 state of this file), and reddens with this test
+    present.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    wt_root = repo / ".claude" / "worktrees" / "agent-xyz"
+    _make_git_marker(wt_root, as_file=True)
+    wt_agentic = wt_root / ".agentic"
+    _make_runtime_agentic(wt_agentic, events_lines=["{\"b\":2}"])
+
+    before = _snapshot(repo)
+    result = repair.classify(wt_agentic, repo)
+    assert result.verdict == "legitimate"
+    assert result.reason == "parent-is-repo-root"
+
+    rc = repair.main(["--repo", str(repo), "--fix"])
+    assert rc == 0
+    after = _snapshot(repo)
+    assert before == after
+
+
 def test_negative_evals_style_fixture(tmp_path):
     """Negative control: an `evals/`-style fixture - git-untracked test
     content (repo decision #203) carrying runtime-shaped markers that
@@ -543,6 +591,17 @@ def test_critical_archive_dir_refused_when_descendant_of_stray_dir(tmp_path):
 
     Mutation that reddens: removing the `is_descendant` check (and its
     early `return RepairResult(..., ok=False, ...)`) in `repair_one()`.
+
+    Round-3 note: this fixture's `stray_dir` (`repo/.agentic`, forced via
+    a hand-built `ClassifiedDir`) now trips the unconditional
+    canonical-tree guard added at the TOP of `repair_one()` (round-3
+    Major 3 fix) before the archive-destination check below it is ever
+    reached - both guards independently refuse this shape, so the detail
+    message assertion below accepts either guard's wording. The narrower
+    `test_critical_repair_one_refuses_canonical_agentic_with_only_events`
+    test below isolates the specific shape (only `events.jsonl`, no
+    remainder) where the archive-destination check alone used to be
+    unreachable.
     """
     repo = tmp_path / "dinostack"
     _make_git_marker(repo)
@@ -558,11 +617,63 @@ def test_critical_archive_dir_refused_when_descendant_of_stray_dir(tmp_path):
     assert result.ok is False
     assert result.archived is False
     assert result.removed is False
-    assert "archive_dir" in result.detail or "descendant" in result.detail
+    assert "archive_dir" in result.detail or "descendant" in result.detail or "canonical" in result.detail
     # The directory and its contents must survive completely untouched.
     assert live_agentic.is_dir()
     assert (live_agentic / "extra-remainder.txt").read_text(encoding="utf-8") == "do not lose me\n"
     assert (live_agentic / "context.md").is_file()
+
+
+def test_critical_repair_one_refuses_canonical_agentic_with_only_events(tmp_path):
+    """Round-3 MAJOR 3 regression: `repair_one()` called directly with a
+    `ClassifiedDir` for the canonical `.agentic` tree, holding ONLY
+    `events.jsonl` (no other remainder), must refuse rather than delete
+    the live canonical tree.
+
+    Pre-fix behavior (reproduced by the reviewer): with `remainder_names`
+    empty, the `if remainder_names:` block - which contained the ONLY
+    guard against `stray_dir` being the canonical tree - never ran at
+    all, so `shutil.rmtree(stray_dir)` proceeded unguarded and deleted
+    `repo/.agentic` (events.jsonl included), returning
+    `ok=True removed=True detail=ok` with no archive and `merged_lines=0`
+    even though canonical and stray were the SAME directory (the
+    round-1 Critical shape, still reachable through this specific
+    remainder-less entry point despite both upstream guards).
+
+    Mutation that reddens: deleting the unconditional
+    `if stray_dir == canonical_agentic or canonical_agentic in
+    stray_dir.parents:` guard at the top of `repair_one()` (added in
+    round 3, before the `remainder_names` branch) restores exactly this
+    behavior - confirmed by removing it and re-running this test, which
+    fails with `result.removed is True` and the canonical tree gone.
+    """
+    repo = tmp_path / "dinostack"
+    _make_git_marker(repo)
+    live_agentic = repo / ".agentic"
+    _make_runtime_agentic(live_agentic, events_lines=['{"live":1}'])
+    # Deliberately NO extra remainder file - only events.jsonl, the exact
+    # shape that left the old archive-destination check unreached.
+    assert sorted(p.name for p in live_agentic.iterdir()) == ["context.md", "events.jsonl", "wrap"]
+    # (context.md/wrap are runtime markers from _make_runtime_agentic;
+    # remove them so the fixture is EXACTLY the reviewer's repro shape -
+    # events.jsonl and nothing else.)
+    (live_agentic / "context.md").unlink()
+    import shutil as _shutil
+
+    _shutil.rmtree(live_agentic / "wrap")
+    assert [p.name for p in live_agentic.iterdir()] == ["events.jsonl"]
+
+    entry = repair.ClassifiedDir(live_agentic, ".agentic", "stray", "forced-for-test")
+    result = repair.repair_one(repo, entry)
+
+    assert result.ok is False
+    assert result.removed is False
+    assert result.archived is False
+    assert "canonical" in result.detail
+    # The canonical tree, events.jsonl included, must survive completely
+    # untouched.
+    assert live_agentic.is_dir()
+    assert (live_agentic / "events.jsonl").read_text(encoding="utf-8") == '{"live":1}\n'
 
 
 def test_major1_dry_run_and_fix_together_rejected(tmp_path):
@@ -635,6 +746,12 @@ def test_major3_undecodable_stray_isolated_does_not_abort_run(tmp_path):
     Mutation that reddens: narrowing the `except (OSError,
     UnicodeDecodeError, ValueError)` clause in `repair_one()` back to
     `except OSError`.
+
+    `rc == 1` (not 0) is asserted below: `bad_stray`'s repair genuinely
+    fails (`ok=False`), and `main()` now returns nonzero whenever any
+    repair fails (round-3 Minor fix) - this test's whole point is that
+    the OTHER stray still gets processed despite that failure, not that
+    the run reports success.
     """
     repo = tmp_path / "dinostack"
     _make_git_marker(repo)
@@ -647,7 +764,7 @@ def test_major3_undecodable_stray_isolated_does_not_abort_run(tmp_path):
     _make_runtime_agentic(good_stray, events_lines=['{"good":1}'])
 
     rc = repair.main(["--repo", str(repo), "--fix"])
-    assert rc == 0
+    assert rc == 1
 
     # The undecodable stray's data is preserved in place, unmerged - never
     # removed, per the per-entry-failure discipline.
