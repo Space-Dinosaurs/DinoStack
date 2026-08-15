@@ -5,7 +5,13 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift
          rules (status-only, volume, answer relevance, self-narrating
          candor) out of `hooks/enforce-turn-shape.py` and into the
          always-injected `dinostack` Claude Code output style
-         (`content/output-styles/dinostack.md`). That rule set is then
+         (`content/output-styles/dinostack.md`). A later change added a
+         FIFTH rule, editorial addenda - the ban on a labelled package of
+         conductor-selected observations, carrying
+         `content/references/conductor-turn-format.md` §5 ban 7. That one
+         was never hook-mechanized, so it was not "moved" from anywhere;
+         it is nonetheless part of the same rule set and subject to the
+         same drift guard. That rule set is then
          RESTATED, by name, at ten separate sites with no mechanical check
          tying them together: `docs/index.html`, `README.md`,
          `docs/configuration-reference.md`, `docs/safe-configuration.md`
@@ -93,6 +99,7 @@ ALL_KNOWN_RULE_TOPICS = [
     "volume",
     "answer relevance",
     "self-narrating candor",
+    "editorial addenda",
 ]
 
 def _hook_module_docstring() -> str:

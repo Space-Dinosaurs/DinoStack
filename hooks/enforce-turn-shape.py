@@ -36,7 +36,11 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
          (content/output-styles/dinostack.md, built by .claude/build.sh,
          installed but not auto-selected by .claude/install.sh), plus a
          new self-narrating-candor ban the operator added at the same
-         time. content/references/conductor-turn-format.md remains the
+         time and, later, an editorial addenda ban (the style's rule 5,
+         carrying conductor-turn-format.md's §5 ban 7 - a labelled
+         package of conductor-selected observations, in any position in
+         the turn; never hook-mechanized, before or after).
+         content/references/conductor-turn-format.md remains the
          normative statement of the rule for every non-Claude-Code
          harness (Codex, Gemini, Cursor, Kimi, OpenCode), which have no
          output-style mechanism and therefore see no proactive nudge at
