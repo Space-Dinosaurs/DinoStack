@@ -199,8 +199,35 @@ def _state_path(cwd: str, session_id: str) -> Path:
     return Path(cwd) / ".agentic" / f".ticket-batch-{safe}.json"
 
 
+def _ensure_git_marker(cwd: str) -> None:
+    """Best-effort: create a `.git` EXISTENCE marker (file-or-dir, matching
+    hooks/lib/repo_root.py's existence-only check - never os.path.isdir())
+    at cwd so `_state_path` resolves via the `.git`-ancestor walk instead
+    of fail-opening.
+
+    Round-4 rework (coverage-gate finding, DS-171 U1): `_state_path` now
+    anchors to the resolved repo root via
+    `resolve_agentic_cwd_with_diagnostics` and skips (returns None,
+    caller fails open) when no `.git` ancestor is found - mirroring
+    `enforce-skeptic-round-cap.py`'s identical strict-tier discipline and
+    its test suite's identical `_ensure_git_marker` helper. Every test
+    below that exercises real batching-counter behavior needs SOME `.git`
+    ancestor to resolve against, or the hook fails open and none of the
+    state-file assertions would ever fire. Silently no-ops (not a
+    failure) when cwd does not exist - no test here needs that path, but
+    matching the round-cap precedent's defensive shape costs nothing.
+    `test_state_resolution_fails_open_with_no_git_ancestor` deliberately
+    does NOT call this helper, since it tests the absence of a `.git`
+    ancestor."""
+    try:
+        Path(cwd, ".git").mkdir(exist_ok=True)
+    except OSError:
+        pass
+
+
 def test_first_creation_allows_silently():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
         assert parsed is None
@@ -211,6 +238,7 @@ def test_first_creation_allows_silently():
 
 def test_second_creation_allows_with_advisory():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
@@ -225,6 +253,7 @@ def test_second_creation_allows_with_advisory():
 
 def test_third_creation_denies():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         _run_hook(_jira_payload(tmp))
         _run_hook(_jira_payload(tmp))
         rc, parsed = _run_hook(_jira_payload(tmp))
@@ -237,6 +266,7 @@ def test_third_creation_denies():
 
 def test_fourth_creation_still_denies():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         for _ in range(4):
             rc, parsed = _run_hook(_jira_payload(tmp))
         assert _is_denied(parsed)
@@ -247,6 +277,7 @@ def test_fourth_creation_still_denies():
 
 def test_bash_get_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Bash",
             "cwd": tmp,
@@ -261,6 +292,7 @@ def test_bash_get_never_matches():
 
 def test_bash_post_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Bash",
             "cwd": tmp,
@@ -278,6 +310,7 @@ def test_bash_post_matches():
 
 def test_bash_post_to_existing_issue_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Bash",
             "cwd": tmp,
@@ -294,6 +327,7 @@ def test_bash_post_to_existing_issue_never_matches():
 
 def test_linear_issue_create_mutation_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Bash",
             "cwd": tmp,
@@ -311,6 +345,7 @@ def test_linear_issue_create_mutation_matches():
 
 def test_linear_save_issue_with_id_is_update():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "mcp__linear__save_issue",
             "cwd": tmp,
@@ -325,6 +360,7 @@ def test_linear_save_issue_with_id_is_update():
 
 def test_linear_save_issue_without_id_is_create():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "mcp__linear__save_issue",
             "cwd": tmp,
@@ -339,6 +375,7 @@ def test_linear_save_issue_without_id_is_create():
 
 def test_jira_create_issue_always_creation():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         rc, parsed = _run_hook(_jira_payload(tmp))
         assert rc == 0
         state = json.loads(_state_path(tmp, "sess-1").read_text())
@@ -421,6 +458,7 @@ def test_triage_marker_exempts_session():
     # round-3 Critical fix and `_TRIAGE_MARKER_RE`'s docstring on the
     # hook itself.
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         tpath = _transcript_with_marker(tmp, "<command-name>/ds-feedback-triage</command-name>")
         for _ in range(5):
             payload = _jira_payload(tmp)
@@ -433,6 +471,7 @@ def test_triage_marker_exempts_session():
 
 def test_ticket_triage_marker_also_exempts():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         tpath = _transcript_with_marker(tmp, "<command-name>/ds-ticket-triage</command-name>")
         payload = _jira_payload(tmp)
         payload["transcript_path"] = tpath
@@ -448,6 +487,7 @@ def test_no_slash_marker_form_still_exempts():
     future harness version ever drops the slash. Regression guard
     against re-narrowing the pattern back to a single hardcoded form."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         tpath = _transcript_with_marker(tmp, "<command-name>ds-ticket-triage</command-name>")
         payload = _jira_payload(tmp)
         payload["transcript_path"] = tpath
@@ -485,6 +525,7 @@ def test_real_ticket_triage_transcript_record_exempts_session():
     `/ds-feedback-triage` sessions found by direct corpus scan - see the
     module docstring "Triage exemption" for the full-corpus figures)."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         tpath = _transcript_with_real_ticket_triage_record(tmp)
         payload = _jira_payload(tmp)
         payload["transcript_path"] = tpath
@@ -521,6 +562,7 @@ def test_command_message_alone_exempts_isolated_from_real_record():
     message_only = _REAL_TICKET_TRIAGE_RECORD_CONTENT.split("\n")[0]
     assert message_only == "<command-message>ds-ticket-triage</command-message>"
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         transcript = Path(tmp) / "transcript.jsonl"
         rec = {
             "type": "user",
@@ -537,6 +579,7 @@ def test_command_message_alone_exempts_isolated_from_real_record():
 
 def test_missing_session_id_failopen():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = _jira_payload(tmp)
         del payload["session_id"]
         rc, parsed = _run_hook(payload)
@@ -560,6 +603,7 @@ def test_missing_cwd_failopen():
 
 def test_kill_switch_disables():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         env = {"AE_TICKET_BATCH_GUARD_DISABLE": "1"}
         for _ in range(4):
             rc, parsed = _run_hook(_jira_payload(tmp), env=env)
@@ -572,6 +616,7 @@ def test_kill_switch_disables():
 
 def test_non_creation_tool_passthrough():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Read",
             "cwd": tmp,
@@ -597,6 +642,7 @@ def test_malformed_stdin_failopen():
 
 def test_corrupt_state_file_treated_as_zero():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         state_path = _state_path(tmp, "sess-1")
         state_path.parent.mkdir(parents=True, exist_ok=True)
         state_path.write_text("{not json")
@@ -609,6 +655,7 @@ def test_corrupt_state_file_treated_as_zero():
 
 def test_unreadable_transcript_not_exempt():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = _jira_payload(tmp)
         payload["transcript_path"] = str(Path(tmp) / "does-not-exist.jsonl")
         rc, parsed = _run_hook(payload)
@@ -620,6 +667,7 @@ def test_unreadable_transcript_not_exempt():
 
 def test_two_sessions_get_independent_counters():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload_a = _jira_payload(tmp, session_id="sess-A")
         payload_b = _jira_payload(tmp, session_id="sess-B")
         _run_hook(payload_a)
@@ -642,6 +690,7 @@ def _bash_payload(tmp: str, command: str, session_id: str = "sess-1") -> dict:
 
 def test_bash_grep_for_token_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         rc, parsed = _run_hook(_bash_payload(tmp, "grep -rn issueCreate hooks/"))
         assert rc == 0
         assert parsed is None
@@ -650,6 +699,7 @@ def test_bash_grep_for_token_never_matches():
 
 def test_bash_git_show_pipe_grep_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "git show HEAD~1 -- hooks/enforce-ticket-batching.py | grep issueCreate"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -659,6 +709,7 @@ def test_bash_git_show_pipe_grep_never_matches():
 
 def test_bash_echo_mentioning_token_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "echo checking issueCreate mutation docs"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -668,6 +719,7 @@ def test_bash_echo_mentioning_token_never_matches():
 
 def test_bash_cat_own_hook_source_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "cat hooks/enforce-ticket-batching.py | grep issueCreate"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -677,6 +729,7 @@ def test_bash_cat_own_hook_source_never_matches():
 
 def test_bash_grep_jira_endpoint_string_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "grep -rn 'POST /rest/api/3/issue' docs/"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -686,6 +739,7 @@ def test_bash_grep_jira_endpoint_string_never_matches():
 
 def test_bash_curl_with_token_but_no_linear_endpoint_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         # Client verb present, "issueCreate" token present, but never
         # targets the Linear GraphQL endpoint - isolates the endpoint
         # requirement itself from the client-verb gate above.
@@ -698,6 +752,7 @@ def test_bash_curl_with_token_but_no_linear_endpoint_never_matches():
 
 def test_bash_linear_mutation_without_client_verb_never_matches():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         # No curl/wget/http/httpie verb present anywhere - a raw payload
         # string being inspected/printed, not an actual outbound call.
         cmd = (
@@ -721,6 +776,7 @@ def test_linear_endpoint_and_token_without_post_or_mutation_signal_never_matches
     flipping this assertion to RED - the isolating test the round-3
     finding required."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "curl -s https://api.linear.app/graphql "
             "-d '{\"query\": \"{ issueCreate }\"}'"
@@ -740,6 +796,7 @@ def test_python_urllib_post_to_jira_create_path_matches():
     creating-ds-jira-tickets.md`), which the round-2 shell-verb-only gate
     could never reach."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "python3 -c \"import urllib.request; "
             "urllib.request.Request('https://jira.example.com/rest/api/3/issue', "
@@ -757,6 +814,7 @@ def test_python_urllib_mention_without_jira_path_never_matches():
     requirement - a urllib.request call to an unrelated URL never
     matches, even though the client-verb gate is satisfied."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "python3 -c \"import urllib.request; urllib.request.urlopen('https://example.com')\""
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -769,6 +827,7 @@ def test_bash_grep_of_curl_post_literal_never_matches():
     a literal curl-POST-to-Jira-issue-create string as DATA (not an
     actual outbound call) never matches - the leading-verb mitigation."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "grep -rn 'curl -X POST https://x/rest/api/3/issue' bin/tests/"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -786,6 +845,7 @@ def test_bash_cat_pipe_grep_linear_mutation_never_matches():
     `test_bash_gh_pipe_no_longer_exempt_after_gh_removal` below for why
     `gh` specifically was moved out of this list)."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "cat pr-body.txt | "
             "grep -c 'curl https://api.linear.app/graphql issueCreate mutation'"
@@ -827,6 +887,7 @@ def test_bash_gh_pipe_no_longer_exempt_after_gh_removal():
     when the literal search text could otherwise satisfy the Linear/Jira
     signal checks."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "gh pr view 123 --json body -q .body | "
             "grep -c 'curl https://api.linear.app/graphql issueCreate mutation'"
@@ -848,6 +909,7 @@ def test_bash_ds_defer_with_watched_tokens_never_matches():
     tokens this hook watches for (the exact example from the deny/
     advisory message templates)."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "bin/ds-defer append --repo . "
             "--description 'curl POST /rest/api/3/issue bypass' "
@@ -869,6 +931,7 @@ def test_bash_pipe_into_curl_after_inspection_verb_matches():
     _BASH_INSPECTION_LEADING_VERBS` (first-segment-only) check flips this
     RED - the leading "cat" alone would suppress the whole command."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "cat p.json | curl -X POST https://jira.example.com/rest/api/3/issue"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -887,6 +950,7 @@ def test_bash_and_compound_curl_after_grep_matches():
     _BASH_INSPECTION_LEADING_VERBS` check with no `&&` awareness) flips
     this RED."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "grep -q x f && curl -X POST https://jira.example.com/rest/api/3/issue"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -904,6 +968,7 @@ def test_bash_newline_compound_curl_after_grep_matches():
     `_COMMAND_SEGMENT_SPLIT_RE` to drop the `\\n` alternative flips this
     RED."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = "grep -q x f\ncurl -X POST https://jira.example.com/rest/api/3/issue"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
@@ -924,6 +989,7 @@ def test_bash_ds_defer_mentioned_in_compound_still_matches():
     check (back to a bare `_DS_DEFER_RE.search(command)`) flips this
     RED."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "curl -X POST https://jira.example.com/rest/api/3/issue "
             "&& echo ds-defer noted for later"
@@ -944,6 +1010,7 @@ def test_bash_post_word_case_sensitive_never_matches_ordinary_word():
     case-sensitivity fix; without it (old case-insensitive \\bPOST\\b),
     this would match and flip to a creation."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         cmd = (
             "curl -s https://jira.example.com/rest/api/2/issue "
             "-d 'post-mortem notes, no real flag here'"
@@ -1011,6 +1078,7 @@ def _transcript_with_records(tmp: str, lines: list[str]) -> str:
 
 def test_conductor_echo_marker_in_transcript_not_exempt():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         # Mirrors the real shape of a Bash tool_result record: type=user,
         # message.content is a LIST of tool_result blocks, not a string.
         forged = json.dumps({
@@ -1042,6 +1110,7 @@ def test_conductor_echo_marker_in_transcript_not_exempt():
 
 def test_genuine_slash_command_user_record_exempts():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         genuine = json.dumps({
             "type": "user",
             "message": {
@@ -1061,6 +1130,7 @@ def test_genuine_slash_command_user_record_exempts():
 
 def test_local_command_system_record_exempts():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         genuine = json.dumps({
             "type": "system",
             "subtype": "local_command",
@@ -1077,6 +1147,7 @@ def test_local_command_system_record_exempts():
 
 def test_malformed_jsonl_line_skipped_not_fatal():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         genuine = json.dumps({
             "type": "user",
             "message": {
@@ -1101,6 +1172,7 @@ def test_pathological_oversized_line_skipped_scan_continues():
     `readline()` call, and the scan continues to the next real line and
     still finds a genuine exempting record there."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         hook = _load_hook_module()
         oversized = "x" * (hook._MAX_LINE_BYTES * 2)
         genuine = json.dumps({
@@ -1183,6 +1255,7 @@ def test_is_triage_exempt_delegates_to_iter_capped_lines():
     hook._iter_capped_lines = _spy
     try:
         with tempfile.TemporaryDirectory() as tmp:
+            _ensure_git_marker(tmp)
             genuine = json.dumps({
                 "type": "user",
                 "message": {
@@ -1197,6 +1270,42 @@ def test_is_triage_exempt_delegates_to_iter_capped_lines():
         hook._iter_capped_lines = original
     assert result is True
     assert len(calls) == 1
+
+
+def test_state_resolution_fails_open_with_no_git_ancestor():
+    """Round-4 rework regression (coverage-gate finding, DS-171 U1): when
+    cwd has NO `.git` ancestor anywhere up the tree, `_state_path` must
+    resolve to None and the hook must fail open (never deny, never write
+    a state file at the unresolved cwd) - matching
+    `enforce-skeptic-round-cap.py`'s identical
+    `test_state_resolution_fails_open_with_no_git_ancestor` and
+    `hooks/lib/repo_root.py`'s Failure modes section.
+
+    Before this fix, `_state_path` joined `Path(cwd) / ".agentic" / ...`
+    directly with no repo-root resolution at all, so it silently wrote
+    the batching counter at the raw, unresolved cwd instead of skipping.
+    Confirmed failing pre-fix: running this test against the unfixed
+    `_state_path` (`return Path(cwd) / ".agentic" / f".ticket-batch-
+    {safe_session}.json"`, no `_load_repo_root`/`found_git_ancestor`
+    check) produced a written state file with `count == 1` at
+    `tmp/.agentic/.ticket-batch-sess-1.json` - this test's own
+    `assert not (Path(tmp) / ".agentic").exists()` line failed with
+    `AssertionError`, since the directory demonstrably existed.
+
+    Builds the payload directly (not via `_jira_payload` +
+    `_ensure_git_marker`) so no `.git` marker is created - this is the
+    one test in this suite that specifically needs cwd to have NO `.git`
+    ancestor."""
+    with tempfile.TemporaryDirectory() as tmp:
+        # Deliberately NOT a git repo - no _ensure_git_marker call.
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert not _is_denied(parsed)
+        assert not (Path(tmp) / ".agentic").exists(), (
+            "a cwd with no .git ancestor must never get a ticket-batch "
+            "state file written at the unresolved cwd - the hook must "
+            "skip (fail open) entirely"
+        )
 
 
 if __name__ == "__main__":
