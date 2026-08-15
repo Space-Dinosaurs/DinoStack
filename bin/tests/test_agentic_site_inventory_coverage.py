@@ -1,8 +1,10 @@
 """
 Purpose: Coverage-diff gate for DS-171's repo-root anchoring fix. Re-derives
     a deliberately OVERINCLUSIVE candidate list of ".agentic" path-
-    construction lines across hooks/, hooks/lib/, and bin/, then asserts
-    every candidate line appears in the fixed inventory
+    construction lines across hooks/, hooks/lib/, and bin/ (RECURSIVELY -
+    round-2 rework fixed a Major finding where a non-recursive walk made any
+    future hooks/<subdir>/* file invisible to this gate), then asserts every
+    candidate line appears in the fixed inventory
     hooks/tests/fixtures/agentic-write-sites.txt. A new .agentic-
     constructing line that is not yet inventoried fails this test, naming
     the offending file:line - closing the gap where a future hook could
@@ -19,10 +21,22 @@ Purpose: Coverage-diff gate for DS-171's repo-root anchoring fix. Re-derives
     own bash-loop discovery mechanism (a DIFFERENT mechanism, not the
     inconsistency it might look like).
 
+    ROUND-2 REWORK (adversarial review found the line-number-keyed
+    inventory laundered regressions - inserting one harmless comment line
+    reddened BOTH tests below and the rational fix, bulk regeneration,
+    would silently absorb a genuinely new un-anchored site added in the
+    same edit): the inventory key is now `path::normalized-snippet[#N]`,
+    NOT `path:line`. A key is stable under any line-number shift elsewhere
+    in the file; it only changes when the site's OWN line content changes.
+    The `#N` disambiguator (N = 1-based occurrence index within the file)
+    only appears for the 2nd and later occurrence of an identical
+    normalized snippet in the same file, so two genuinely different lines
+    that happen to normalize identically still get distinct keys.
+
 Public API: pytest discovers test_candidates_are_all_inventoried() and
     test_inventory_has_no_dangling_entries() automatically.
 
-Upstream deps: Python 3 stdlib only (re, pathlib). Scans the live
+Upstream deps: Python 3 stdlib only (re, os, pathlib). Scans the live
     hooks/, hooks/lib/, and bin/ trees at test-run time - no fixtures for
     the CANDIDATE side (the inventory file at
     hooks/tests/fixtures/agentic-write-sites.txt is the only fixture, and
@@ -32,10 +46,10 @@ Downstream consumers: pytest bin/tests/ (CI, .github/workflows/bin-tests.yml).
 
 Failure modes: a candidate line not present in the inventory fails with an
     assertion message naming every offending file:line (not just the
-    first). A stale inventory entry whose file:line no longer matches any
-    live candidate is reported by test_inventory_has_no_dangling_entries()
-    as a separate, non-blocking-in-spirit informational failure (kept as a
-    real pytest failure so staleness cannot silently accumulate either).
+    first). A stale inventory entry whose key no longer matches any live
+    candidate is reported by test_inventory_has_no_dangling_entries() as a
+    separate, non-blocking-in-spirit informational failure (kept as a real
+    pytest failure so staleness cannot silently accumulate either).
 
 Performance: O(files scanned); a few hundred files, single grep-equivalent
     regex pass each. Sub-second.
@@ -49,12 +63,19 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 INVENTORY_PATH = REPO_ROOT / "hooks" / "tests" / "fixtures" / "agentic-write-sites.txt"
 
-# Directories scanned for candidate .agentic path-construction lines.
-SCAN_DIRS = ["hooks", "hooks/lib", "bin"]
+# Root directories scanned for candidate .agentic path-construction lines.
+# Scanned RECURSIVELY (round-2 rework; was non-recursive, which made any
+# future hooks/<subdir>/* file invisible to this gate). "hooks/lib" is
+# DELIBERATELY NOT listed separately here even though it holds real
+# candidate sites: "hooks" is walked recursively and already covers it -
+# listing both would rglob() every hooks/lib/* file twice (once directly,
+# once as a descendant of "hooks"), duplicating every candidate in that
+# directory. bin/ has no subdirectories today but is walked recursively
+# too for the same forward-looking reason "hooks" is.
+SCAN_DIRS = ["hooks", "bin"]
 
-# File extensions considered (no recursion into hooks/tests/, hooks/lib is
-# flat so no recursion needed there either; bin/ is flat).
-CANDIDATE_EXTENSIONS = {".js", ".py", ".sh", ""}  # "" covers extension-less bin/ CLIs
+# File extensions considered ("" covers extension-less bin/ CLIs).
+CANDIDATE_EXTENSIONS = {".js", ".py", ".sh", ""}
 
 # The resolver modules themselves are what DOES the resolving, not a site
 # to be resolved - excluded from candidate scanning. Also excluded: files
@@ -81,24 +102,85 @@ EXCLUDED_FILES = {
     "bin/ds-doctor",
     "bin/ds-reap-worktrees",
     "bin/ds-update",
+    # Round-2 rework: the scanner-widening pass (Major 3) surfaced these two
+    # additional operator-invoked CLIs' bare relative `Path(".agentic/...")`
+    # constants (bin/ds-config's project config writer, bin/ds-team's
+    # PROJECT_TEAM_YML). Verified zero hooks/*.js call sites shell out to
+    # either binary - both are exclusively human/CLI-invoked, same
+    # rationale as bin/ds-doctor/ds-migrate/ds-update above.
+    "bin/ds-config",
+    "bin/ds-team",
 }
 
-# Test/fixture paths are never scanned as candidates.
+# Test/fixture paths (at any depth) are never scanned as candidates.
 EXCLUDED_DIR_PREFIXES = (
     "hooks/tests/",
     "bin/tests/",
 )
 
-# A candidate line must mention ".agentic" AND one of these path-
-# construction primitives. Deliberately overinclusive - a resolver-wrapped
-# site (e.g. `path.join(resolveAgenticCwd(cwd), '.agentic', ...)`) still
-# matches and must still be inventoried, which is exactly the point: the
-# inventory is a complete site list, not just a list of un-fixed sites.
-PRIMITIVE_RE = re.compile(
-    r"\.agentic.*(?:path\.join|os\.path\.join|Path\([^)]*\)\s*/)"
-    r"|(?:path\.join|os\.path\.join|Path\([^)]*\)\s*/).*\.agentic"
-    r"|\$\{?\w+\}?/\.agentic"  # $var/.agentic or ${var}/.agentic (bash)
-)
+# Individual regex primitives for ".agentic" path construction, deliberately
+# overinclusive - a resolver-wrapped site (e.g. `path.join(resolveAgenticCwd
+# (cwd), '.agentic', ...)`) still matches and must still be inventoried,
+# which is exactly the point: the inventory is a complete site list, not
+# just a list of un-fixed sites. Round-2 rework widened this list after
+# adversarial review proved several shapes slipped past the original single
+# regex: `path.resolve(cwd, '.agentic')`, string concatenation
+# (`cwd + '/.agentic/...'`), Python f-strings (`f"{cwd}/.agentic/..."`),
+# `Path(os.getcwd()) / ".agentic"` (nested-call parens), `.joinpath(...)`,
+# and `"$(pwd)/.agentic"`.
+_PRIMITIVE_PATTERNS = [
+    # JS/Python join calls: path.join(...) / os.path.join(...) anywhere on
+    # the line (paired with the outer ".agentic in line" prefilter).
+    r"\bpath\.join\(",
+    r"\bos\.path\.join\(",
+    # pathlib slash-join: Path(<balanced-one-level-nesting>) / ... - handles
+    # one level of nested call parens, e.g. Path(os.getcwd()) / ".agentic".
+    r"Path\((?:[^()]|\([^()]*\))*\)\s*/",
+    # .resolve(...) / .joinpath(...) method calls (path.resolve, os.path.
+    # resolve, a pathlib Path's .resolve()/.joinpath()).
+    r"\.resolve\(",
+    r"\.joinpath\(",
+    # A call result (any function, not just Path(...)) divided by a
+    # ".agentic"-bearing string literal - covers bin/ds-status's/ds-cost's
+    # `_agentic_root() / ".agentic" / ...` module-level constants, which P3
+    # above (Path(...)-specific) does not reach.
+    r"\)\s*/\s*[\"']\.agentic",
+    # Any call whose (first) argument is a ".agentic"-bearing string
+    # literal - covers bin/ds-memory's `_LazyAgenticPath(".agentic", ...)`
+    # constructor calls (a path-construction primitive local to that
+    # file's own lazy-proxy wrapper, not path.join/Path()/.resolve()).
+    r"\(\s*[\"']\.agentic",
+    # Shell/JS-template variable interpolation immediately before /.agentic:
+    # $var/.agentic, ${var}/.agentic, `${cwd}/.agentic`.
+    r"\$\{?\w+\}?/\.agentic",
+    # Shell command substitution: "$(pwd)/.agentic".
+    r"\$\(pwd\)",
+    # Python f-string interpolation: f"{cwd}/.agentic/...".
+    r"f[\"'][^\"']*\{[^}]*\}[^\"']*\.agentic",
+    # String concatenation with a .agentic-bearing literal on either side:
+    # cwd + '/.agentic/...'  or  '/.agentic/...' + cwd
+    r"\+\s*[\"'][^\"']*\.agentic",
+    r"[\"'][^\"']*\.agentic[^\"']*[\"']\s*\+",
+]
+PRIMITIVE_RE = re.compile("|".join(f"(?:{p})" for p in _PRIMITIVE_PATTERNS))
+
+# Deliberately HOME-scoped sites (os.homedir(), $HOME, ~/.agentic, etc.) are
+# a DIFFERENT, permanently-correct pattern - never anchored to a project's
+# repo root by design (e.g. stop-context.js's ~/.agentic/.identity-nudged
+# sentinel). Round-2 rework: tightened from a bare `"HOME" in line`
+# substring check (which silently dropped any line merely CONTAINING the
+# substring "HOME" - e.g. a trailing `# HOMEBREW note` comment - from
+# candidate scanning) to explicit HOME-variable-reference patterns.
+_HOME_PATTERNS = [
+    r"homedir\(",
+    r"~/\.agentic",
+    r"\$HOME\b",
+    r"\$\{HOME\}",
+    r"os\.environ(?:\.get)?\(\s*[\"']HOME[\"']",
+    r"process\.env\.HOME\b",
+    r"getenv\(\s*[\"']HOME[\"']",
+]
+HOME_RE = re.compile("|".join(f"(?:{p})" for p in _HOME_PATTERNS))
 
 
 def _iter_candidate_files():
@@ -106,10 +188,9 @@ def _iter_candidate_files():
         base = REPO_ROOT / d
         if not base.is_dir():
             continue
-        # Non-recursive: each of hooks/, hooks/lib/, bin/ is scanned at its
-        # own single level only (matches the brief's explicit dir list;
-        # hooks/tests/ and bin/tests/ are separately excluded above anyway).
-        for entry in sorted(base.iterdir()):
+        # Recursive walk (round-2 rework; was base.iterdir(), single-level
+        # only). Sorted for deterministic scan order.
+        for entry in sorted(base.rglob("*")):
             # Skip symlinks (e.g. bin/agentic-* -> bin/ds-*): scanning both
             # the symlink and its target would double-report every site in
             # the target file under two different names.
@@ -127,26 +208,35 @@ def _iter_candidate_files():
             yield rel, entry
 
 
+def _normalize_snippet(line: str) -> str:
+    """Collapse whitespace so a key is stable across re-indentation and
+    unrelated line-number shifts elsewhere in the file."""
+    return re.sub(r"\s+", " ", line.strip())
+
+
 def _find_candidates() -> list[str]:
-    """Return a sorted list of "path:line" candidate strings."""
+    """Return a sorted list of content-keyed candidate strings, one per
+    matching line: "path::normalized-snippet" (or "path::snippet#N" for the
+    Nth+ occurrence of an identical normalized snippet within one file)."""
     candidates = []
     for rel, entry in _iter_candidate_files():
         try:
             text = entry.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
+        seen_counts: dict[str, int] = {}
+        for line in text.splitlines():
             if ".agentic" not in line:
                 continue
-            # Deliberately HOME-scoped sites (os.homedir(), $HOME, ~/.agentic)
-            # are a DIFFERENT, permanently-correct pattern - never anchored
-            # to a project's repo root by design (e.g. stop-context.js's
-            # ~/.agentic/.identity-nudged sentinel). Excluded by content,
-            # not by file, since a file can legitimately mix both patterns.
-            if "homedir(" in line or "HOME" in line or "~/.agentic" in line:
+            if HOME_RE.search(line):
                 continue
-            if PRIMITIVE_RE.search(line):
-                candidates.append(f"{rel}:{lineno}")
+            if not PRIMITIVE_RE.search(line):
+                continue
+            snippet = _normalize_snippet(line)
+            seen_counts[snippet] = seen_counts.get(snippet, 0) + 1
+            idx = seen_counts[snippet]
+            key = f"{rel}::{snippet}" if idx == 1 else f"{rel}::{snippet}#{idx}"
+            candidates.append(key)
     return sorted(candidates)
 
 
@@ -174,16 +264,16 @@ def test_candidates_are_all_inventoried():
 
 
 def test_inventory_has_no_dangling_entries():
-    """An inventory entry whose file:line no longer matches any live
-    candidate is stale - either the line moved (inventory needs updating)
-    or the site was removed/rewritten. Keeps the inventory honest as the
-    only mechanically-checked evidence of coverage."""
+    """An inventory entry whose key no longer matches any live candidate is
+    stale - either the site's line content changed (inventory needs
+    updating) or the site was removed/rewritten. Keeps the inventory honest
+    as the only mechanically-checked evidence of coverage."""
     candidates = set(_find_candidates())
     inventory = _load_inventory()
     dangling = sorted(inventory - candidates)
     assert not dangling, (
         f"The following inventory entries in {INVENTORY_PATH.relative_to(REPO_ROOT)} "
         "no longer match any live .agentic path-construction candidate line - "
-        "the site moved, was rewritten, or was removed; update the inventory:\n  "
+        "the site's content changed, was rewritten, or was removed; update the inventory:\n  "
         + "\n  ".join(dangling)
     )

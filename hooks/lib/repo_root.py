@@ -20,9 +20,36 @@ Downstream consumers: hooks/lib/loop_guard.py, hooks/lib/enforcement_log.py,
 Failure modes: never raises. Any OSError (EACCES/ENOENT) while probing a
     given level is treated as "not found here, keep walking". If no
     `.git` ancestor is found within MAX_DEPTH, returns the realpath'd
-    start_dir unchanged with found_git_ancestor=False - callers must treat
-    that as a resolution failure and SKIP the write, never silently write
-    at the fallback path.
+    start_dir unchanged with found_git_ancestor=False.
+
+    ROUND-2 REWORK (adversarial review Major 6): this file previously
+    stated an UNCONDITIONAL "callers must SKIP, never silently write at
+    the fallback path" contract that no plain `resolve_agentic_cwd()`
+    caller in the repo actually implemented - hooks/lib/enforcement_log.py,
+    hooks/lib/loop_guard.py, and hooks/enforce-turn-shape.py (at last
+    audit) all use the returned path directly and discard
+    found_git_ancestor. That is a deliberate, reviewed choice, not an
+    unfixed bug: these are enforcement-counter and log-append call sites
+    whose worst case on the rare "no .git ancestor anywhere up the tree"
+    path (e.g. a harness cwd of $HOME or /tmp - NOT the far more common
+    "drifted into a subdirectory of a real repo" case, which
+    found_git_ancestor=True already handles correctly) is a degraded,
+    recoverable state at a non-repo location, not silent corruption of
+    real project state. Two callers genuinely DO skip on
+    found_git_ancestor=False because a write at the wrong location would
+    actively corrupt cross-session state: hooks/enforce-skeptic-round-
+    cap.py (a round counter) and hooks/session-start-wrap.sh (a shell
+    caller of hooks/lib/repo-root.sh, guards every write on
+    `-n "$resolved_root"`, zero fallback). bin/ds-identity's
+    `write-hook`/`resolve-hook` (the Stop-hook session-log telemetry path,
+    which fires on every turn) was added to this stricter category in the
+    same round-2 rework: telemetry misattributed to a phantom non-repo
+    `.agentic/session-log/` is a correctness bug (wrong developer_id/
+    project_slug), not a merely degraded artifact. Callers needing the
+    SKIP discipline must consult found_git_ancestor explicitly via
+    resolve_agentic_cwd_with_diagnostics and refuse the write themselves
+    when it is False - this module never enforces that policy on a
+    caller's behalf.
 
 Performance: a handful of os.path.exists calls per invocation (at most
     MAX_DEPTH), no subprocess, no network.

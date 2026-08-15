@@ -21,8 +21,37 @@
  * Failure modes: never throws. EACCES/ENOENT at any level along the walk is
  *   treated as "not found here, keep walking". If no `.git` ancestor is
  *   found within MAX_DEPTH, returns the realpath'd startDir unchanged with
- *   foundGitAncestor:false - callers must treat that as a resolution
- *   failure and SKIP the write, never silently write at the fallback path.
+ *   foundGitAncestor:false.
+ *
+ *   ROUND-2 REWORK (adversarial review Major 6): this file previously
+ *   stated an UNCONDITIONAL "callers must SKIP, never silently write at
+ *   the fallback path" contract that no plain `resolveAgenticCwd()`
+ *   caller in the repo actually implemented - every one of them (12 JS
+ *   consumers below, at last audit) uses the returned path directly and
+ *   discards foundGitAncestor. That is a deliberate, reviewed choice for
+ *   MOST of them, not an unfixed bug: these are advisory nudge state,
+ *   telemetry caches, and enforcement counters (config-nudge suppression
+ *   sentinels, capture-gap cursors, skill-candidate tallies, events.jsonl
+ *   appends) whose worst case on the rare "no .git ancestor anywhere up
+ *   the tree" path (e.g. a harness cwd of $HOME or /tmp - NOT the far
+ *   more common "drifted into a subdirectory of a real repo" case, which
+ *   foundGitAncestor:true already handles correctly) is a degraded,
+ *   recoverable advisory artifact at a non-repo location - not silent
+ *   corruption of real project state. Two consumers genuinely DO skip on
+ *   foundGitAncestor:false because a write at the wrong location would
+ *   actively corrupt cross-session state: `hooks/enforce-skeptic-round-
+ *   cap.py` (a round counter) and `hooks/session-start-wrap.sh` (guards
+ *   every write on `-n "$resolved_root"`, zero `|| echo "$cwd"`
+ *   fallback) - both Python/shell callers of the sibling resolvers below,
+ *   not this file. `bin/ds-identity`'s `write-hook`/`resolve-hook` (the
+ *   Stop-hook session-log telemetry path, which fires on every turn) was
+ *   added to this stricter category in the same round-2 rework: telemetry
+ *   misattributed to a phantom non-repo `.agentic/session-log/` is a
+ *   correctness bug (wrong developer_id/project_slug), not a merely
+ *   degraded advisory. Callers needing the SKIP discipline must consult
+ *   `foundGitAncestor` explicitly via `resolveAgenticCwdWithDiagnostics`
+ *   and refuse the write themselves when it is false - this module never
+ *   enforces that policy on a caller's behalf.
  *
  * Performance: a handful of fs.existsSync calls per invocation (at most
  *   MAX_DEPTH), no subprocess, no network.

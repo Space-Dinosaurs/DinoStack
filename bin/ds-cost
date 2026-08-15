@@ -89,7 +89,12 @@ V1_FOOTER = (
 def _load_repo_root():
     """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
     enforce-*.py lazy-loader pattern). Returns None on any load failure -
-    _agentic_root() then falls back to Path.cwd()."""
+    _agentic_root() then falls back to Path.cwd().
+
+    DELIBERATELY DUPLICATED across bin/ds-status, bin/ds-cost, and
+    bin/ds-memory rather than shared - see bin/ds-status's copy of this
+    docstring for the full rationale (symlink-invocation __file__
+    resolution)."""
     try:
         import importlib.util as _ilu
 

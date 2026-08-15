@@ -67,7 +67,22 @@
  */
 
 const path = require('path');
-const { resolveAgenticCwd } = require(path.join(__dirname, '..', 'hooks', 'lib', 'repo-root.js'));
+// Round-2 rework (Minor): guarded, not a bare top-level require. This
+// module-level require previously sat OUTSIDE any try/catch while the
+// sibling wrap-marker.js require below is explicitly guarded with a
+// "Lib not loadable ... fail-open, exit 0" comment - a missing
+// repo-root.js turned lock RELEASE into an uncaught throw (an immortal
+// wrap lock) before that fail-open path ever ran. resolveAgenticCwd is
+// only ever used as a fallback (see the lockPath default below), so an
+// identity fallback here is safe: if repo-root.js cannot be loaded, the
+// wrap-marker.js require below almost certainly cannot either, and its
+// own try/catch already handles that case explicitly.
+let resolveAgenticCwd;
+try {
+  ({ resolveAgenticCwd } = require(path.join(__dirname, '..', 'hooks', 'lib', 'repo-root.js')));
+} catch (_) {
+  resolveAgenticCwd = (cwd) => cwd;
+}
 
 function main() {
   const cwd = path.resolve(process.argv[2] && !process.argv[2].startsWith('--')

@@ -69,13 +69,16 @@ Public API (module-level functions, no class):
         completion notifications, <system-reminder>, <command-name>) and
         must not be mistaken for a genuine human turn.
 
-Upstream deps: Python 3 stdlib only (json, os, sys). Imports the sibling
-               hooks/lib/repo_root.py module (resolve_agentic_cwd) via a
-               sys.path.insert of this file's own directory - anchors every
-               .agentic/ path below to the repo root instead of the raw cwd
-               argument, since __file__ resolves correctly however this
-               module itself was loaded (plain import or the dynamic
-               importlib loader below). Writes ONLY
+Upstream deps: Python 3 stdlib only (json, os). Imports the sibling
+               hooks/lib/repo_root.py module via an isolated
+               importlib.util.spec_from_file_location load (_load_repo_root
+               - round-2 rework: was a `sys.path.insert(0, ...)` + `from
+               repo_root import ...` pair, a global process-wide side
+               effect for every caller that dynamically loads this file)
+               - anchors every .agentic/ path below to the repo root
+               instead of the raw cwd argument, since __file__ resolves
+               correctly however this module itself was loaded (plain
+               import or the dynamic importlib loader below). Writes ONLY
                [resolved root]/.agentic/<counter_filename> (creates that
                .agentic/ dir with os.makedirs(exist_ok=True) if absent).
                Reads ONLY that file and, in count_user_messages and
@@ -122,10 +125,45 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from repo_root import resolve_agentic_cwd  # noqa: E402
+
+def _load_repo_root():
+    """Best-effort dynamic import of the sibling hooks/lib/repo_root.py
+    module. Round-2 rework (Minor): replaces a `sys.path.insert(0, ...)` +
+    `from repo_root import ...` pair - a GLOBAL process-wide side effect
+    that shadowed any other `repo_root`/`git_worktree`/`loop_guard`/
+    `enforcement_log`-named module for the rest of the process, for every
+    caller that dynamically loads this file via importlib.util. Uses the
+    same isolated importlib.util.spec_from_file_location loader every
+    other Python .agentic/ consumer in this repo uses."""
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "repo_root.py")
+        spec = _ilu.spec_from_file_location("repo_root", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_REPO_ROOT = _load_repo_root()
+
+
+def resolve_agentic_cwd(cwd: str) -> str:
+    """Thin wrapper preserving this module's pre-existing call shape
+    (`resolve_agentic_cwd(cwd)`) for its own callers below. Falls back to
+    cwd unchanged if the resolver failed to load, matching this module's
+    fully fail-open contract."""
+    if _REPO_ROOT is None:
+        return cwd
+    try:
+        return _REPO_ROOT.resolve_agentic_cwd(cwd)
+    except Exception:
+        return cwd
+
 
 # Harness-injected `type:"user"` lines that are NOT a genuine human turn even
 # though they carry real text content and no isMeta flag. Confirmed against

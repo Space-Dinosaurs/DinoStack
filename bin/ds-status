@@ -80,7 +80,21 @@ def _load_repo_root():
     """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
     enforce-*.py lazy-loader pattern). Returns None on any load failure -
     _agentic_root() then falls back to Path.cwd() (matches this file's
-    pre-existing implicit-cwd behavior in a degraded environment)."""
+    pre-existing implicit-cwd behavior in a degraded environment).
+
+    DELIBERATELY DUPLICATED (round-2 rework, Minor): bin/ds-status,
+    bin/ds-cost, and bin/ds-memory each carry this ~25-line function
+    verbatim rather than sharing one helper module. Each of these three
+    CLIs is invoked both directly (`bin/ds-status`) and through a
+    same-directory legacy-alias symlink pointed at it; Python resolves
+    `__file__` to the invocation path, not the symlink target,
+    so `Path(__file__).resolve().parent` already does the right thing
+    without extra indirection precisely because this loader has no
+    cross-file dependency of its own to resolve - introducing a shared
+    `bin/lib/repo_root_loader.py` would just relocate the exact same
+    __file__-resolution problem into a fourth file, for a ~25-line net
+    savings across three CLIs each already independently exercised by
+    their own test suite's `monkeypatch.setattr(_mod, ...)` contracts."""
     try:
         import importlib.util as _ilu
 

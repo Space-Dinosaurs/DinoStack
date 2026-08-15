@@ -1259,6 +1259,145 @@ def test_write_hook_checkpoint_survives_sigkill_mid_global_append():
         print("PASS test_write_hook_checkpoint_survives_sigkill_mid_global_append")
 
 
+def test_write_hook_anchors_session_log_to_repo_root_from_drifted_cwd():
+    """Round-2 rework regression (adversarial review Major 1): write-hook
+    previously used the raw harness-payload --cwd verbatim, so a drifted
+    cwd (e.g. a stray `cd` into a subdirectory across Bash tool calls)
+    produced a PHANTOM `.agentic/session-log/` tree at the subdirectory
+    instead of the real repo root - the exact bug class this ticket fixes,
+    and the single highest-frequency producer of it since write-hook fires
+    on every Stop. Confirmed failing pre-fix: running this test against
+    the round-1 code (raw `cwd / ".agentic" / "session-log" / ...`, no
+    resolver) writes the session-log line at
+    `<project>/deep/nested/dir/.agentic/session-log/<dev>.jsonl` and
+    leaves `<project>/.agentic/session-log/` entirely absent.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        subprocess.run(
+            ["git", "init", "-q"], cwd=project_dir, check=True,
+            capture_output=True,
+        )
+        drifted_cwd = project_dir / "deep" / "nested" / "dir"
+        drifted_cwd.mkdir(parents=True)
+
+        dev_id = "drift-dev"
+        global_identity = fake_home / ".agentic" / "identity.yml"
+        _write_identity_file(global_identity, dev_id, provisional=False)
+        global_log_path = fake_home / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        global_log_path.parent.mkdir(parents=True, exist_ok=True)
+        global_log_path.touch()
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        for key in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+                    "PI_CODING_AGENT_DIR", "AE_IDENTITY_DEBUG"):
+            env.pop(key, None)
+
+        request = json.dumps({
+            "identity": {
+                "developer_id": dev_id,
+                "provisional": False,
+                "identity_scope": "global",
+            },
+            "session_uuid": "drift-session",
+            "branch": "main",
+            "data": {
+                "wall_seconds": 1,
+                "tokens": {"input": 1, "output": 1, "cache_creation": 0, "cache_read": 0},
+                "spawn_count": 1,
+                "by_agent": {},
+            },
+        })
+
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "write-hook", "--cwd", str(drifted_cwd)],
+            input=request, capture_output=True, text=True, env=env, timeout=10,
+        )
+        assert result.returncode == 0, (result.stdout, result.stderr)
+        status = json.loads(result.stdout)
+        assert status.get("project") is True, status
+
+        anchored_log = project_dir / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        drifted_log = drifted_cwd / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        assert anchored_log.is_file(), (
+            "write-hook must anchor the session-log write to the repo root "
+            f"({project_dir}), not the drifted payload cwd; expected {anchored_log} "
+            "to exist"
+        )
+        assert not drifted_log.exists(), (
+            "write-hook must NOT create a phantom .agentic/session-log/ tree "
+            f"at the drifted cwd; found one at {drifted_log}"
+        )
+        rows = [
+            json.loads(line)
+            for line in anchored_log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert [row["session_uuid"] for row in rows] == ["drift-session"], rows
+        print("PASS test_write_hook_anchors_session_log_to_repo_root_from_drifted_cwd")
+
+
+def test_write_hook_skips_when_cwd_has_no_git_ancestor():
+    """When the harness-payload cwd has no `.git` ancestor at all (e.g. the
+    cwd itself was never inside a repo), write-hook must SKIP the write
+    entirely rather than falling back to writing `.agentic/session-log/`
+    at the raw unresolved cwd - the manifest-mandated discipline in
+    hooks/lib/repo_root.py ("callers must treat that as a resolution
+    failure and SKIP the write, never silently write at the fallback
+    path"). Mirrors hooks/tests/fixtures/repo-root-cases.json's
+    "no-git-ancestor-fallback" case setup (an orphan tmp subtree with no
+    git_at key)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        orphan_cwd = tmp_path / "orphan" / "deep"
+        orphan_cwd.mkdir(parents=True)
+
+        dev_id = "orphan-dev"
+        global_identity = fake_home / ".agentic" / "identity.yml"
+        _write_identity_file(global_identity, dev_id, provisional=False)
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        for key in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+                    "PI_CODING_AGENT_DIR", "AE_IDENTITY_DEBUG"):
+            env.pop(key, None)
+
+        request = json.dumps({
+            "identity": {
+                "developer_id": dev_id,
+                "provisional": False,
+                "identity_scope": "global",
+            },
+            "session_uuid": "orphan-session",
+            "branch": "",
+            "data": {
+                "wall_seconds": 1,
+                "tokens": {"input": 1, "output": 1, "cache_creation": 0, "cache_read": 0},
+                "spawn_count": 1,
+                "by_agent": {},
+            },
+        })
+
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "write-hook", "--cwd", str(orphan_cwd)],
+            input=request, capture_output=True, text=True, env=env, timeout=10,
+        )
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        orphan_log = orphan_cwd / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        assert not orphan_log.exists(), (
+            f"write-hook must skip the write when no .git ancestor is found, "
+            f"found a phantom log at {orphan_log}"
+        )
+        print("PASS test_write_hook_skips_when_cwd_has_no_git_ancestor")
+
+
 def test_missing_log_race_dedups_against_locked_append_fd():
     """The first flush reads UUIDs only after opening and locking the log fd."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -4051,4 +4190,6 @@ if __name__ == "__main__":
     test_descriptor_parent_swap_aba_cannot_select_attacker_identity()
     test_mutations_share_parent_lock_under_cross_command_races()
     test_activation_preflight_uses_one_bounded_identity_resolver()
+    test_write_hook_anchors_session_log_to_repo_root_from_drifted_cwd()
+    test_write_hook_skips_when_cwd_has_no_git_ancestor()
     print("All tests passed.")
