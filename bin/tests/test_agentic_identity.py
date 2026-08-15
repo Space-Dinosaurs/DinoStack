@@ -1465,6 +1465,65 @@ def test_write_hook_does_not_climb_to_home_agentic_marker():
         print("PASS test_write_hook_does_not_climb_to_home_agentic_marker")
 
 
+def test_write_hook_rejects_cwd_equal_to_home():
+    """Round-4 rework regression (adversarial review Major): unlike the two
+    tests above, this one calls write-hook with --cwd pointed AT fake_home
+    itself, not a descendant of it. `~/.agentic/` always exists (it is the
+    global identity/session store), so raw_cwd == $HOME always satisfies
+    _resolved_hook_root's `.agentic/`-marker check - before the round-4 fix,
+    $HOME was blessed as its own project root and write-hook wrote a
+    project-shaped `session_total` line with a fabricated project_slug of
+    the home directory's basename straight into the real global session-log
+    file. This is depth-0 of the same corruption the round-3 fix closed one
+    level up (an orphan cwd climbing to $HOME); here the cwd IS $HOME.
+    Confirmed failing pre-fix: running this test against the unfixed
+    _resolved_hook_root produced returncode 0 (not the required 1) and a
+    poisoned `session_total` line in the global session-log."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+
+        dev_id = "home-cwd-dev"
+        global_identity = fake_home / ".agentic" / "identity.yml"
+        _write_identity_file(global_identity, dev_id, provisional=False)
+        global_log_path = fake_home / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        for key in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+                    "PI_CODING_AGENT_DIR", "AE_IDENTITY_DEBUG"):
+            env.pop(key, None)
+
+        request = json.dumps({
+            "identity": {
+                "developer_id": dev_id,
+                "provisional": False,
+                "identity_scope": "project",
+            },
+            "session_uuid": "home-cwd-session",
+            "branch": "",
+            "data": {
+                "wall_seconds": 1,
+                "tokens": {"input": 1, "output": 1, "cache_creation": 0, "cache_read": 0},
+                "spawn_count": 1,
+                "by_agent": {},
+            },
+        })
+
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "write-hook", "--cwd", str(fake_home)],
+            input=request, capture_output=True, text=True, env=env, timeout=10,
+        )
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        assert not global_log_path.exists(), (
+            f"write-hook must never bless $HOME itself as a project root and "
+            f"poison the real global $HOME/.agentic/ store with a fabricated "
+            f"project_slug, found a poisoned global log at {global_log_path}"
+        )
+        print("PASS test_write_hook_rejects_cwd_equal_to_home")
+
+
 def test_missing_log_race_dedups_against_locked_append_fd():
     """The first flush reads UUIDs only after opening and locking the log fd."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -4260,4 +4319,5 @@ if __name__ == "__main__":
     test_write_hook_anchors_session_log_to_repo_root_from_drifted_cwd()
     test_write_hook_skips_when_cwd_has_no_git_ancestor()
     test_write_hook_does_not_climb_to_home_agentic_marker()
+    test_write_hook_rejects_cwd_equal_to_home()
     print("All tests passed.")

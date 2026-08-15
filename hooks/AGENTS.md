@@ -4,12 +4,18 @@ Claude Code lifecycle hooks that enforce methodology rules at the harness
 level and write session telemetry to disk. Twenty-one scripts in the table
 below (11 Python PreToolUse/Stop enforcers, 7 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
-hook, and is out of scope for this table. `lib/` holds shared utilities
-consumed by the JS hooks, 5 Python hooks, 1 Bash hook, and 6 `bin/` scripts
+hook, and is out of scope for this table. `lib/` holds shared utilities;
+the repo-root resolver trio specifically (`lib/repo_root.py`/
+`lib/repo-root.js`/`lib/repo-root.sh`, added by DS-171) is consumed by 7 JS
+hooks, 5 Python hooks, 1 Bash hook, and 6 `bin/` scripts respectively - see
+the `lib/` table below for the three new rows and their exact consumer
+lists. Other `lib/` modules have their own, different consumer counts
 (round-3 rework, Major 5: this previously said "the JS hooks and one bin
-script", stale since DS-171's `lib/repo_root.py`/`lib/repo-root.js`/
-`lib/repo-root.sh` repo-root resolvers were added - see the `lib/` table
-below for the three new rows). Each script ships with a
+script", stale since the trio was added; round-4 rework, Minor 1: the
+"5/1/6" figures scoped this sentence to the trio only, since the same
+sentence used to read as a `lib/`-wide claim and contradicted
+`lib/enforcement_log.py`'s own row, which is consumed by ten of the eleven
+enforce-*.py hooks, not five). Each script ships with a
 module-manifest docstring; read the script for full detail. This file is the
 module-group map.
 

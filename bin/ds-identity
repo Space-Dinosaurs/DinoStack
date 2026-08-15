@@ -203,19 +203,39 @@ def _resolved_hook_root(raw_cwd: Path) -> Path | None:
     resolver-load failure alone does not force None when cwd itself
     already has an `.agentic/`). Callers MUST treat None as a resolution
     failure and skip the write/read rather than silently falling back to
-    the raw cwd."""
+    the raw cwd.
+
+    Round-4 rework (Major): raw_cwd == $HOME itself always satisfies the
+    `.agentic/`-marker check above, because `~/.agentic/` is the global
+    identity/session store and therefore always exists - so `write-hook
+    --cwd $HOME` used to be blessed as its OWN project root and wrote
+    project-shaped telemetry (a fabricated project_slug of "home")
+    straight into the real global session-log. This is depth-0 of the
+    same corruption the round-3 upward-walk removal closed one level up.
+    $HOME is therefore an explicit non-root: any candidate root that
+    resolves (realpath) to $HOME is rejected before it can be returned,
+    from EITHER stage above."""
+    try:
+        home = Path(os.path.realpath(os.path.expanduser("~")))
+    except OSError:
+        home = None
+
     if _REPO_ROOT is not None:
         try:
             diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(str(raw_cwd))
         except Exception:
             diag = None
         if diag is not None and diag.get("found_git_ancestor"):
-            return Path(diag["root"])
+            candidate = Path(diag["root"])
+            if home is None or candidate != home:
+                return candidate
 
     try:
         current = Path(os.path.realpath(str(raw_cwd)))
     except OSError:
         current = raw_cwd
+    if home is not None and current == home:
+        return None
     try:
         if (current / ".agentic").exists():
             return current

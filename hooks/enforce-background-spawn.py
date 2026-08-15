@@ -285,6 +285,13 @@ def _resolve_role_harness(config: dict, role: str) -> tuple[str | None, str | No
 FOREGROUND_EXEMPT = {"wrap-ticket"}
 
 # Sentinel path relative to cwd.
+#
+# DS-175: this path is read off the raw Stop-hook payload cwd with no
+# repo-root anchoring - the same unanchored-.agentic/-access class DS-171 U1
+# fixed for bin/ds-identity's write-hook/resolve-hook. Deliberately deferred
+# out of DS-171 U1's round-4 rework rather than fixed inline, because this
+# check is read-only (it only gates whether a spawn nudge fires, never
+# writes .agentic/ state) - see DS-175 for the follow-up anchoring fix.
 _SENTINEL_REL = ".agentic/teamrun/.active"
 
 # Maximum age (seconds) before a sentinel is treated as stale regardless of PID.

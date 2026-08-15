@@ -46,10 +46,10 @@ Test groups:
  15. test_unextractable_identity_failopen             - prompt has no "Diff under review:" line -> allow,
                                                          no state file written (the unit cannot be
                                                          determined - never falls back to a weaker key).
- 16. test_non_git_cwd_still_enforces_via_unit_key_not_git - the unit key (round-counter identity) comes
+ 16. test_state_resolution_fails_open_with_no_git_ancestor - the unit key (round-counter identity) comes
                                                          from the prompt, not `git rev-parse` - proven by
                                                          switching branches on a real (`.git`-anchored) repo
-                                                         without disturbing round state (see
+                                                         without disturbing round state (see item 10,
                                                          test_branch_of_cwd_does_not_affect_unit_key). A cwd
                                                          with NO `.git` ancestor at all is a genuinely
                                                          separate, distinct case - see
@@ -188,7 +188,7 @@ def _ensure_git_marker(cwd: str) -> None:
     for tests that don't care about branch identity; existence of a
     `.git` path is the entire check. Silently no-ops (not a failure) when
     cwd does not exist or `.git` already exists (e.g. `_init_repo`'s real
-    git repos) - `test_non_git_cwd_still_enforces` and
+    git repos) - `test_state_resolution_fails_open_with_no_git_ancestor` and
     `test_nonexistent_cwd_failopen_no_crash` build their payloads directly
     rather than through this helper precisely because they test the
     absence of a `.git` ancestor."""
