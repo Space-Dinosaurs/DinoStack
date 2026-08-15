@@ -1398,6 +1398,73 @@ def test_write_hook_skips_when_cwd_has_no_git_ancestor():
         print("PASS test_write_hook_skips_when_cwd_has_no_git_ancestor")
 
 
+def test_write_hook_does_not_climb_to_home_agentic_marker():
+    """Round-3 rework regression (adversarial review Critical): the orphan
+    cwd in test_write_hook_skips_when_cwd_has_no_git_ancestor above is a
+    SIBLING of fake_home, so it never exercises the `.agentic/`-marker
+    upward walk climbing all the way to $HOME (which always has
+    `.agentic/` - it is the global identity/session store). This test
+    places the orphan cwd as a DESCENDANT of fake_home instead: no `.git`
+    anywhere, and the only `.agentic/` directory findable by an upward
+    walk is fake_home's own global store. Before the round-3 fix,
+    _resolved_hook_root's second-stage walk climbed past the orphan cwd
+    all the way to $HOME and returned it, so write-hook appended a
+    fabricated `project_slug` line straight into the REAL global
+    session-log file - the exact poisoning the manifest's "skip, never
+    fall back" discipline exists to prevent. Confirmed failing pre-fix:
+    running this test against the unfixed _resolved_hook_root produced
+    returncode 0 (not the required 1) and a `session_total` line bearing
+    project_slug == fake_home.name appended to the global session-log."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        # No .git anywhere in this tree - only fake_home/.agentic exists,
+        # created below by writing the global identity file into it.
+        orphan_cwd = fake_home / "scratchdir" / "deep"
+        orphan_cwd.mkdir(parents=True)
+
+        dev_id = "home-climb-dev"
+        global_identity = fake_home / ".agentic" / "identity.yml"
+        _write_identity_file(global_identity, dev_id, provisional=False)
+        global_log_path = fake_home / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        for key in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+                    "PI_CODING_AGENT_DIR", "AE_IDENTITY_DEBUG"):
+            env.pop(key, None)
+
+        request = json.dumps({
+            "identity": {
+                "developer_id": dev_id,
+                "provisional": False,
+                "identity_scope": "project",
+            },
+            "session_uuid": "home-climb-session",
+            "branch": "",
+            "data": {
+                "wall_seconds": 1,
+                "tokens": {"input": 1, "output": 1, "cache_creation": 0, "cache_read": 0},
+                "spawn_count": 1,
+                "by_agent": {},
+            },
+        })
+
+        result = subprocess.run(
+            [sys.executable, str(_BIN_PATH), "write-hook", "--cwd", str(orphan_cwd)],
+            input=request, capture_output=True, text=True, env=env, timeout=10,
+        )
+        assert result.returncode == 1, (result.stdout, result.stderr)
+        assert not global_log_path.exists(), (
+            f"write-hook must never climb an orphan cwd's ancestor tree to "
+            f"the global $HOME/.agentic/ store and poison it with a "
+            f"fabricated project_slug, found a poisoned global log at "
+            f"{global_log_path}"
+        )
+        print("PASS test_write_hook_does_not_climb_to_home_agentic_marker")
+
+
 def test_missing_log_race_dedups_against_locked_append_fd():
     """The first flush reads UUIDs only after opening and locking the log fd."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -4192,4 +4259,5 @@ if __name__ == "__main__":
     test_activation_preflight_uses_one_bounded_identity_resolver()
     test_write_hook_anchors_session_log_to_repo_root_from_drifted_cwd()
     test_write_hook_skips_when_cwd_has_no_git_ancestor()
+    test_write_hook_does_not_climb_to_home_agentic_marker()
     print("All tests passed.")

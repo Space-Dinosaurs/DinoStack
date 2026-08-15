@@ -46,9 +46,22 @@ Test groups:
  15. test_unextractable_identity_failopen             - prompt has no "Diff under review:" line -> allow,
                                                          no state file written (the unit cannot be
                                                          determined - never falls back to a weaker key).
- 16. test_non_git_cwd_still_enforces                  - cwd is NOT a git repo -> the hook no longer calls
-                                                         git at all, so rounds are still tracked normally
-                                                         (this is the fix, not a fail-open case).
+ 16. test_non_git_cwd_still_enforces_via_unit_key_not_git - the unit key (round-counter identity) comes
+                                                         from the prompt, not `git rev-parse` - proven by
+                                                         switching branches on a real (`.git`-anchored) repo
+                                                         without disturbing round state (see
+                                                         test_branch_of_cwd_does_not_affect_unit_key). A cwd
+                                                         with NO `.git` ancestor at all is a genuinely
+                                                         separate, distinct case - see
+                                                         test_state_resolution_fails_open_with_no_git_ancestor
+                                                         below (round-3 rework, Major 2: this file's own
+                                                         docstring and hooks/lib/repo_root.py's Failure modes
+                                                         section both already documented this hook as one of
+                                                         only two callers in the repo implementing the strict
+                                                         "skip rather than write at an unresolved cwd"
+                                                         discipline; the code did not actually implement it
+                                                         until this rework, and this test previously asserted
+                                                         the opposite of the documented, now-fixed behavior).
  17. test_nonexistent_cwd_failopen_no_crash           - cwd path does not exist -> never crashes, never
                                                          denies (state directory creation is best-effort).
  18. test_main_session_and_subagent_payload_shapes    - hook behaves identically whether agent_id/agent_type
@@ -113,9 +126,15 @@ _MAX_KEY_LEN = 80
 def _init_repo(tmp_path: Path, branch: str = "main") -> str:
     """Create a throwaway git repo at tmp_path checked out on *branch*.
 
-    Only used by tests that specifically want to prove branch-independence;
-    most tests use a plain (non-git) tempdir to prove the hook no longer
-    depends on git at all.
+    Only used by tests that specifically want to prove branch-independence
+    (the round-counter KEY comes from the prompt, not from `git
+    rev-parse`). Most other tests rely on `_ensure_git_marker`'s cheaper
+    `.git`-existence-only marker instead of a full git init - round-3
+    rework: _state_path now genuinely requires a `.git` ancestor to
+    resolve (fail-open discipline, Major 2), so unlike this file's
+    pre-round-3 design, no test can leave cwd with neither a `.git`
+    marker nor an `_init_repo` real repo and still expect the hook to
+    enforce.
     """
     subprocess.run(["git", "init", "-q", "-b", branch, str(tmp_path)], check=True)
     subprocess.run(
@@ -152,12 +171,40 @@ def _prompt(unit: str, what_to_review: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _ensure_git_marker(cwd: str) -> None:
+    """Best-effort: create a `.git` EXISTENCE marker (file-or-dir, matching
+    hooks/lib/repo_root.py's existence-only check - never os.path.isdir())
+    at cwd so _state_path resolves via the `.git`-ancestor walk instead of
+    fail-opening.
+
+    Round-3 rework (Major 2): _state_path now genuinely implements the
+    manifest-mandated strict SKIP-on-no-`.git`-ancestor discipline (it
+    previously fell back to writing at the raw unresolved cwd, contrary
+    to both this hook's own docstring and hooks/lib/repo_root.py's
+    Failure modes section). Every test below that exercises real
+    round-counting behavior needs SOME `.git` ancestor to resolve against
+    now, or the hook fails open and none of the state-file assertions
+    below it would ever fire - a full `_init_repo` git init is unneeded
+    for tests that don't care about branch identity; existence of a
+    `.git` path is the entire check. Silently no-ops (not a failure) when
+    cwd does not exist or `.git` already exists (e.g. `_init_repo`'s real
+    git repos) - `test_non_git_cwd_still_enforces` and
+    `test_nonexistent_cwd_failopen_no_crash` build their payloads directly
+    rather than through this helper precisely because they test the
+    absence of a `.git` ancestor."""
+    try:
+        Path(cwd, ".git").mkdir(exist_ok=True)
+    except OSError:
+        pass
+
+
 def _skeptic_payload(
     cwd: str,
     unit: str = "feature/round-cap-test",
     what_to_review: str | None = None,
     extra: dict | None = None,
 ) -> dict:
+    _ensure_git_marker(cwd)
     payload = {
         "tool_name": "Agent",
         "cwd": cwd,
@@ -565,17 +612,48 @@ def test_unextractable_identity_failopen():
         )
 
 
-def test_non_git_cwd_still_enforces():
-    """The fix's whole point: cwd no longer needs to be a git repo at all -
-    the unit key comes from the prompt, not `git rev-parse`."""
+def test_state_resolution_fails_open_with_no_git_ancestor():
+    """Round-3 rework regression (adversarial review Major 2): when cwd has
+    NO `.git` ancestor anywhere up the tree, _state_path must resolve to
+    None and the hook must fail open (never deny, never write a state
+    file at the unresolved cwd) - matching both this hook's own docstring
+    ("on load failure _state_path returns None and the caller skips the
+    round-cap check entirely (fail-open) rather than falling back to a raw
+    cwd") and hooks/lib/repo_root.py's Failure modes section, which names
+    this hook as one of only two callers that genuinely implement the
+    strict skip discipline because a write at the wrong location would
+    actively corrupt cross-session state. Before the fix, _state_path
+    called the plain resolve_agentic_cwd() and never consulted
+    found_git_ancestor, so it silently wrote the round counter at the
+    realpath'd raw cwd instead of skipping - confirmed failing pre-fix:
+    running this test against the unfixed _state_path produced a written
+    state file with round_count == 1 at tmp/.agentic/, not the required
+    absence of any .agentic/ tree.
+
+    Builds the payload directly (not via _skeptic_payload/
+    _ensure_git_marker) so no `.git` marker is created - this is the one
+    test in this suite that specifically needs cwd to have NO `.git`
+    ancestor."""
     with tempfile.TemporaryDirectory() as tmp:
-        # Deliberately NOT a git repo.
+        # Deliberately NOT a git repo - no _ensure_git_marker call.
         unit = "feature/round-cap-test"
-        rc, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review="round 1"))
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmp,
+            "tool_input": {
+                "subagent_type": "skeptic",
+                "description": "review",
+                "prompt": _prompt(unit, "round 1"),
+            },
+        }
+        rc, parsed = _run_hook(payload)
         assert rc == 0
         assert not _is_denied(parsed)
-        state = _read_state(tmp, unit)
-        assert state["round_count"] == 1
+        assert not (Path(tmp) / ".agentic").exists(), (
+            "a cwd with no .git ancestor must never get a round-cap state "
+            "file written at the unresolved cwd - the hook must skip "
+            "(fail open) entirely"
+        )
 
 
 def test_nonexistent_cwd_failopen_no_crash():
@@ -667,6 +745,7 @@ def _raw_prompt(diff_line: str, what_to_review: str | None = None) -> str:
 
 
 def _raw_payload(tmp: str, diff_line: str, what_to_review: str | None = None) -> dict:
+    _ensure_git_marker(tmp)
     return {
         "tool_name": "Agent",
         "cwd": tmp,
@@ -850,6 +929,7 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
     frozen at 1 across 5 real sequential spawns, never denying)."""
     diff_line = "6. Diff under review: git diff origin/main...feature/round-cap-test"
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         for i in range(1, 4):
             # The constant intro line ("Worker output below.") before the
             # varying content is deliberate - it reproduces the exact

@@ -51,6 +51,22 @@ Failure modes: a candidate line not present in the inventory fails with an
     separate, non-blocking-in-spirit informational failure (kept as a real
     pytest failure so staleness cannot silently accumulate either).
 
+    ROUND-3 REWORK (adversarial review Minor 3, left as documented rather
+    than mechanically closed): this gate asserts only that a candidate
+    line is LISTED in the inventory, never that the site it names is
+    actually ANCHORED via resolveAgenticCwd/resolve_agentic_cwd/
+    resolve_agentic_root. A new un-anchored `.agentic` write, dutifully
+    copy-pasted into the inventory by whoever added it, passes this test
+    exactly as cleanly as a genuinely anchored one - the "after confirming
+    it is anchored" instruction in the assertion message below is a
+    human-review prompt, not something this test verifies. No cheap
+    mechanical check closes this: "anchored" means "the value flowing into
+    this join traces back to a resolveAgenticCwd/resolve_agentic_cwd/
+    resolve_agentic_root call or an equally-safe explicit CLI argument",
+    which requires dataflow analysis this line-pattern scanner does not
+    and cannot do. Left as a known, named gap rather than a false
+    assurance.
+
 Performance: O(files scanned); a few hundred files, single grep-equivalent
     regex pass each. Sub-second.
 """
@@ -106,10 +122,63 @@ EXCLUDED_FILES = {
     # additional operator-invoked CLIs' bare relative `Path(".agentic/...")`
     # constants (bin/ds-config's project config writer, bin/ds-team's
     # PROJECT_TEAM_YML). Verified zero hooks/*.js call sites shell out to
-    # either binary - both are exclusively human/CLI-invoked, same
-    # rationale as bin/ds-doctor/ds-migrate/ds-update above.
+    # either binary - both take an explicit --repo/--workdir-style argument
+    # rather than a bare cwd, same rationale as bin/ds-doctor/ds-migrate/
+    # ds-update above.
     "bin/ds-config",
+    # Round-3 rework (Major 4): the round-2 comment above claimed bin/ds-team
+    # is "exclusively human/CLI-invoked" - FALSE. hooks/enforce-background-
+    # spawn.py:398,411,433,463 instructs the CONDUCTOR to run
+    # `bin/ds-team dispatch --harness ... --workdir <dir>` via Bash as part
+    # of its normal deny-message-driven remediation flow. The exemption
+    # itself is still correct, but for a DIFFERENT, narrower reason: every
+    # `.agentic`-writing call in bin/ds-team (the `dispatch` subcommand's
+    # run_dir/active_sentinel writes) is anchored to an EXPLICIT, REQUIRED
+    # `--workdir` argument (argparse `required=True`, no cwd default) -
+    # matching the explicit-argument pattern that already exempts
+    # bin/ds-evaluate (--repo) and bin/ds-migrate (--project-root) below,
+    # not a bare Path.cwd()/os.getcwd() fallback of the drift-prone class
+    # this ticket fixes.
+    #
+    # This does NOT cover the separate reader-side bug also found in
+    # round-3 review: hooks/enforce-background-spawn.py's own
+    # `_sentinel_is_live(cwd)` (lines 288-300) reads
+    # `Path(cwd) / ".agentic/teamrun/.active"` against the raw, UNANCHORED
+    # harness-payload cwd (`data.get("cwd") or os.getcwd()`) - the exact
+    # writer/reader split this ticket exists to close, and it is invisible
+    # to THIS scanner because the join line (`Path(cwd) / _SENTINEL_REL`)
+    # contains no `.agentic` string literal at all (the literal lives on a
+    # separate line, `_SENTINEL_REL = ".agentic/teamrun/.active"`, which
+    # itself matches no join-primitive shape). Deliberately DEFERRED, not
+    # fixed, in this rework - anchoring hooks/enforce-background-spawn.py's
+    # sentinel read is separable from correcting this exclusion rationale,
+    # and widening the scanner to catch bare-constant-then-later-joined
+    # `.agentic` strings is a separate, riskier regex change. Tracked as an
+    # open gap, not silently dropped.
     "bin/ds-team",
+    # Round-3 rework (Major 3 audit): bin/ds-evaluate is a slash-command-
+    # driven signal collector (`/ds-evaluate`, `content/commands/
+    # ds-evaluate.md`), never shelled out to from any hooks/*.js or
+    # hooks/*.py call site. Its `.agentic`-reading sites (session-log,
+    # events.jsonl, enforcement-fires.jsonl) all derive from `repo`, which
+    # comes from an explicit `--repo` argument (default "." - the
+    # conductor's OWN cwd, not a harness-payload cwd handed across a
+    # Bash-tool boundary) - same explicit-argument exemption rationale as
+    # bin/ds-doctor/bin/ds-update above.
+    "bin/ds-evaluate",
+    # Round-3 rework (Major 3 audit): bin/ds-migrate is a project-
+    # scaffolding/migration CLI invoked from `/ds-init-project`,
+    # `/ds-migrate-project`, and `/ds-wrap`'s scaffolding step, never from
+    # a hooks/*.js or hooks/*.py call site. Its `.agentic`-writing sites
+    # all derive from `project_root`, which comes from an explicit
+    # `--project-root` argument (default `Path.cwd()` - the conductor's
+    # own invoking cwd, not a drifted harness-payload cwd) - same
+    # explicit-argument exemption rationale as bin/ds-doctor/bin/ds-update
+    # above. (The round-2 comment two entries up already referenced
+    # "bin/ds-doctor/ds-migrate/ds-update" as sharing this rationale, but
+    # bin/ds-migrate itself was never actually added to this set until
+    # now - a stale cross-reference this rework corrects.)
+    "bin/ds-migrate",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.
@@ -145,6 +214,15 @@ _PRIMITIVE_PATTERNS = [
     # `_agentic_root() / ".agentic" / ...` module-level constants, which P3
     # above (Path(...)-specific) does not reach.
     r"\)\s*/\s*[\"']\.agentic",
+    # Round-3 rework (Major 3): a BARE identifier/attribute (no preceding
+    # `)`, no Path(...) wrapper) divided by a ".agentic"-bearing string
+    # literal - e.g. `some_root / ".agentic" / "probe.json"` or
+    # `self.root / ".agentic"`. The `)`-anchored primitive above and the
+    # Path(...)-slash primitive both required something in front of the
+    # `/` that this shape lacks; mutation-proved (a variable-then-slash
+    # line reddened this gate only after adding this pattern; it slipped
+    # past silently before).
+    r"\b\w+(?:\.\w+)*\s*/\s*[\"']\.agentic",
     # Any call whose (first) argument is a ".agentic"-bearing string
     # literal - covers bin/ds-memory's `_LazyAgenticPath(".agentic", ...)`
     # constructor calls (a path-construction primitive local to that

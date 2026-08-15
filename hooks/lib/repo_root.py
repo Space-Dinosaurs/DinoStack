@@ -34,8 +34,20 @@ Failure modes: never raises. Any OSError (EACCES/ENOENT) while probing a
     path (e.g. a harness cwd of $HOME or /tmp - NOT the far more common
     "drifted into a subdirectory of a real repo" case, which
     found_git_ancestor=True already handles correctly) is a degraded,
-    recoverable state at a non-repo location, not silent corruption of
-    real project state. Two callers genuinely DO skip on
+    recoverable state, not silent corruption of real project state.
+
+    ROUND-3 REWORK (adversarial review Minor 2): the framing above ("a
+    non-repo location") understated where the fallback root actually
+    lands for the common $HOME case specifically - it is NOT some inert
+    throwaway scratch directory. When start_dir has no `.git` ancestor
+    anywhere up to and including $HOME, the fallback root IS $HOME
+    itself, and these callers' `<root>/.agentic/...` writes then land
+    inside the REAL global `~/.agentic/` store (identity.yml,
+    session-log/, etc.) - still "degraded, recoverable" in the sense that
+    nothing here corrupts a real PROJECT's state (the correctness
+    property this section defends), but not the low-stakes "harmless
+    scratch write" the prior wording implied. Two callers genuinely DO
+    skip on
     found_git_ancestor=False because a write at the wrong location would
     actively corrupt cross-session state: hooks/enforce-skeptic-round-
     cap.py (a round counter) and hooks/session-start-wrap.sh (a shell

@@ -36,8 +36,20 @@
  *   the tree" path (e.g. a harness cwd of $HOME or /tmp - NOT the far
  *   more common "drifted into a subdirectory of a real repo" case, which
  *   foundGitAncestor:true already handles correctly) is a degraded,
- *   recoverable advisory artifact at a non-repo location - not silent
- *   corruption of real project state. Two consumers genuinely DO skip on
+ *   recoverable advisory artifact - not silent corruption of real project
+ *   state.
+ *
+ *   ROUND-3 REWORK (adversarial review Minor 2): "at a non-repo location"
+ *   above understated where the fallback root actually lands for the
+ *   common $HOME case specifically - it is NOT some inert throwaway
+ *   scratch directory. When start_dir has no `.git` ancestor anywhere up
+ *   to and including $HOME, the fallback root IS $HOME itself, and these
+ *   consumers' `<root>/.agentic/...` writes then land inside the REAL
+ *   global `~/.agentic/` store - still "degraded, recoverable" in the
+ *   sense that nothing here corrupts a real PROJECT's state (the
+ *   correctness property this section defends), but not the low-stakes
+ *   "harmless scratch write" the prior wording implied. Two consumers
+ *   genuinely DO skip on
  *   foundGitAncestor:false because a write at the wrong location would
  *   actively corrupt cross-session state: `hooks/enforce-skeptic-round-
  *   cap.py` (a round counter) and `hooks/session-start-wrap.sh` (guards

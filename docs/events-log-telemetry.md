@@ -143,11 +143,15 @@ This event is also mirrored to `.agentic/session-log/<developer_id>.jsonl`
 for team rollup via `ds-cost team`, written by `bin/ds-identity write-hook`
 - the mirror does not carry the two `agentic_root_*` fields.
 `write-hook` performs its own independent repo-root resolution and skips
-the write entirely when no `.git` ancestor is found (DS-171 round-2
-rework), so an existing mirror line does correctly imply resolution
-succeeded; the two fields are simply not threaded through from
-`session_total`'s separately-computed resolution for `events.jsonl`, not
-evidence of a weaker discipline on this path.
+the write entirely when neither a `.git` ancestor nor an `.agentic/`
+directory already present at the cwd itself is found (DS-171 round-3
+rework: the `.agentic/`-marker fallback previously walked upward from cwd
+and could resolve to the always-present global `~/.agentic/` store,
+silently poisoning it - it never climbs past the starting cwd now), so an
+existing mirror line does correctly imply resolution succeeded; the two
+fields are simply not threaded through from `session_total`'s
+separately-computed resolution for `events.jsonl`, not evidence of a
+weaker discipline on this path.
 
 ### meta_review_complete
 

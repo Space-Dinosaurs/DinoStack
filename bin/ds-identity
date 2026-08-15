@@ -176,16 +176,34 @@ def _resolved_hook_root(raw_cwd: Path) -> Path | None:
     """Anchor a Stop-hook-supplied cwd to its repo root before any
     .agentic/ read or write. Tries the shared `.git`-ancestor walk first
     (hooks/lib/repo_root.py, shared with every other .agentic/ consumer);
-    if that finds no `.git` ancestor, falls back to a second walk looking
-    for an EXISTING `.agentic/` directory - ds-identity already treats
-    `.agentic/` as an equally valid project-root marker for --scope
-    project (see _require_repo_root's dual .git-or-.agentic check), so a
-    project directory that has `.agentic/` but is not itself (yet) a git
-    repo - the shape several tests in bin/tests/test_agentic_identity.py
-    deliberately construct - must resolve too. Returns None only when
-    NEITHER marker is found anywhere up the tree (or the resolver failed
-    to load) - callers MUST treat None as a resolution failure and skip
-    the write/read rather than silently falling back to the raw cwd."""
+    if that finds no `.git` ancestor, falls back to checking whether raw_cwd
+    ITSELF (no upward walk) already has an `.agentic/` directory - ds-identity
+    already treats `.agentic/` as an equally valid project-root marker for
+    --scope project (see _require_repo_root's dual .git-or-.agentic check),
+    so a project directory that has `.agentic/` but is not itself (yet) a
+    git repo - the shape several tests in bin/tests/test_agentic_identity.py
+    deliberately construct, always at the cwd itself - must resolve too.
+
+    Round-3 rework (Critical): the fallback used to walk UPWARD looking for
+    any `.agentic/` ancestor, same as the .git walk. Because `~/.agentic/`
+    always exists (it is the global identity/session store), that walk
+    resolved to $HOME for ANY cwd with no `.git` ancestor - e.g. a scratch
+    directory deep under $HOME with no repo anywhere above it - and
+    write-hook then wrote project telemetry into the REAL global session
+    log with a fabricated `project_slug` of the home directory's basename.
+    The upward walk was never required by the tests it was introduced to
+    keep green (they place `.agentic/` at the starting cwd, not an
+    ancestor), so it is removed rather than narrowed: this function now
+    NEVER climbs past raw_cwd on the `.agentic/`-marker path. Returns None
+    when raw_cwd resolves via NEITHER marker: the `.git`-ancestor walk
+    (skipped entirely, not merely unable to find a marker, when the
+    resolver failed to load - `_REPO_ROOT is None`) found nothing, AND
+    raw_cwd itself has no `.agentic/` directory (this second check runs
+    unconditionally, independent of whether the resolver loaded, so a
+    resolver-load failure alone does not force None when cwd itself
+    already has an `.agentic/`). Callers MUST treat None as a resolution
+    failure and skip the write/read rather than silently falling back to
+    the raw cwd."""
     if _REPO_ROOT is not None:
         try:
             diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(str(raw_cwd))
@@ -194,21 +212,15 @@ def _resolved_hook_root(raw_cwd: Path) -> Path | None:
         if diag is not None and diag.get("found_git_ancestor"):
             return Path(diag["root"])
 
-    max_depth = getattr(_REPO_ROOT, "MAX_DEPTH", 64) if _REPO_ROOT is not None else 64
     try:
         current = Path(os.path.realpath(str(raw_cwd)))
     except OSError:
         current = raw_cwd
-    for _ in range(max_depth + 1):
-        try:
-            if (current / ".agentic").exists():
-                return current
-        except OSError:
-            pass
-        parent = current.parent
-        if parent == current:
-            break
-        current = parent
+    try:
+        if (current / ".agentic").exists():
+            return current
+    except OSError:
+        pass
     return None
 
 

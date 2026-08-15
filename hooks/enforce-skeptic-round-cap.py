@@ -499,10 +499,28 @@ _REPO_ROOT = _load_repo_root()
 
 def _state_path(cwd: str, key: str) -> Path | None:
     """Returns None when the repo root cannot be resolved - callers must
-    skip the read/write on None rather than fall back to a raw cwd."""
+    skip the read/write on None rather than fall back to a raw cwd.
+
+    Round-3 rework (Major 2): this previously called the plain
+    `resolve_agentic_cwd()` and never consulted `found_git_ancestor`, so
+    the round counter still wrote at the unresolved fallback root (the
+    realpath'd raw cwd) on a "no .git ancestor found" cwd - contradicting
+    both this hook's own docstring and hooks/lib/repo_root.py's own
+    Failure modes section, which name this hook as one of only two
+    callers in the repo that genuinely implement the strict "write at the
+    wrong location would actively corrupt cross-session state" SKIP
+    discipline. Now consults `found_git_ancestor` explicitly via
+    resolve_agentic_cwd_with_diagnostics and returns None (skip) when it
+    is False, matching the manifest's stated tier."""
     if _REPO_ROOT is None:
         return None
-    return Path(_REPO_ROOT.resolve_agentic_cwd(cwd)) / ".agentic" / f"skeptic-round-{key}.json"
+    try:
+        diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(cwd)
+    except Exception:
+        return None
+    if not diag.get("found_git_ancestor"):
+        return None
+    return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"
 
 
 def _load_state(path: Path) -> dict:
