@@ -20,9 +20,19 @@ Purpose: regression guard for enforce-no-abdication.py's fire-log wiring.
          pass while the exact reverted line ships - see
          hooks/AGENTS.md and the repo's regression-test discipline.
 
-         Verified RED by deletion during authoring: removing the deny-path
-         _fire_log() call fails cases 1/2/9; removing the clean-turn
-         _fire_log() call fails cases 3/4/10.
+         Verified RED by deletion, for ALL FIVE _fire_log() call sites in
+         the hook - each deleted in turn, the whole file re-run, and the
+         hook restored from a copy (never `git checkout --`, which restores
+         the INDEX and would silently discard unstaged edits):
+           deny path             -> fails cases 1/2/9
+           clean-turn path       -> fails cases 3/4/10
+           cap_reached path      -> fails case 14b
+           no_message_text path  -> fails case 15b
+           counter_write_failed  -> fails case 16b
+         The last two cases exist BECAUSE that sweep found their call sites
+         unasserted: deleting either one originally left the whole file
+         green. Re-run the sweep after any change to this file - a call
+         site with no RED is a call site with no regression guard.
 
 Public API: run as a standalone script (the hooks/tests/test-*.py CI glob
             in .github/workflows/bin-tests.yml hooks-python-tests runs it
@@ -504,6 +514,71 @@ def test_cap_reached_path_logs() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# 15-16: the two remaining allow paths (no_message_text, counter_write_failed)
+#
+# Both were reachable-but-unasserted in the first round of this test file:
+# deleting either _fire_log() call left every other assertion green, so the
+# rows they write had no regression guard at all. Mutation-verified RED by
+# deleting the corresponding call (see the module docstring).
+# ---------------------------------------------------------------------------
+
+
+def test_no_message_text_path_logs() -> None:
+    print("\nNo-message-text allow path:")
+    cwd = make_cwd()
+    # Empty message text and no transcript to recover it from - the hook
+    # cannot classify, so it allows the stop and logs path=no_message_text.
+    rc, stdout, _ = run_hook(cwd, make_payload(cwd, "   "))
+    check(
+        "15. empty message text -> ALLOW (behavior unchanged)",
+        rc == 0 and stdout.strip() == "",
+        "stdout=%r" % stdout[:120],
+    )
+    rows = [
+        r
+        for r in read_rows(cwd)
+        if r.get("decision") == "allow"
+        and r.get("detail", {}).get("path") == "no_message_text"
+    ]
+    check(
+        "15b. the unclassifiable turn is logged as allow/path=no_message_text",
+        len(rows) == 1
+        and rows[0].get("hook") == "enforce-no-abdication"
+        and rows[0]["detail"].get("scanned") is False,
+        "rows=%r" % read_rows(cwd),
+    )
+
+
+def test_counter_write_failure_path_logs() -> None:
+    print("\nCounter-write-failure allow path:")
+    cwd = make_cwd()
+    # Force loop_guard.write_counter() to fail without making .agentic itself
+    # unwritable (which would also suppress the fire-log row we are asserting):
+    # a DIRECTORY at the counter path makes os.replace() raise, so the hook
+    # takes its "classifier fired but the counter write failed" branch.
+    counter_dir = os.path.join(cwd, ".agentic", ".abdication-guard-fire-count")
+    os.makedirs(counter_dir, exist_ok=True)
+
+    rc, stdout, _ = run_hook(cwd, make_payload(cwd, BALLOT_MSG))
+    check(
+        "16. a fired classifier with no loop bound -> ALLOW, not block",
+        rc == 0 and stdout.strip() == "",
+        "stdout=%r" % stdout[:120],
+    )
+    rows = [
+        r
+        for r in read_rows(cwd)
+        if r.get("decision") == "allow"
+        and r.get("detail", {}).get("path") == "counter_write_failed"
+    ]
+    check(
+        "16b. the unbounded turn is logged as allow/path=counter_write_failed",
+        len(rows) == 1 and rows[0]["detail"].get("c3_ballot") is True,
+        "rows=%r" % read_rows(cwd),
+    )
+
+
 def main() -> None:
     print("Fire-log wiring regression tests for enforce-no-abdication.py")
     test_deny_path_logs()
@@ -516,6 +591,8 @@ def main() -> None:
     test_unwritable_log_dir_does_not_change_verdict()
     test_bad_detail_still_writes_canonical_row()
     test_cap_reached_path_logs()
+    test_no_message_text_path_logs()
+    test_counter_write_failure_path_logs()
 
     print()
     if _failures:

@@ -159,7 +159,7 @@ Upstream deps: Python 3 stdlib only (json, os, re, sys) plus three shared
                    only loses the telemetry row.
                No external dependencies.
 
-Observability: every verdict path this hook reaches AFTER the
+Observability: every VERDICT path this hook reaches AFTER the
                abdication_guard_enabled gate appends one row to
                .agentic/.enforcement-fires.jsonl via lib/enforcement_log.py
                - "deny" on a block, "allow" on each non-blocking outcome
@@ -184,6 +184,18 @@ Observability: every verdict path this hook reaches AFTER the
                repo ever enabled this guard. Moving that check after the
                config read to make it loggable would be a behavior change
                and is deliberately not done.
+
+               One POST-gate exit is also unlogged, and it is the single
+               counterexample to the opening sentence's scope: main()'s
+               outermost `except Exception: sys.exit(0)` fail-open. It is
+               not a verdict path - it is reached only when a verdict could
+               not be computed, from anywhere in the body including inside
+               the logging call itself, so there is no verdict state to
+               record and a log attempt there could re-raise the very
+               failure being absorbed. Consequence for a consumer: rows are
+               a complete census of this hook's VERDICTS, not of its
+               INVOCATIONS - an unexpected internal error leaves no trace in
+               the fire log at all.
 
                Unlike a PreToolUse hook, this runs once per conductor turn,
                so every-verdict logging is bounded by turn count. It only

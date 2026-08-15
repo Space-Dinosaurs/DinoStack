@@ -20442,16 +20442,6 @@
       "source_token": "**2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/ds-wrap` (sync or background enrichment) last successfully wrote `_wrap.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide \"was this session wrapped.\" Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker)."
     },
     {
-      "expected_target": "bin/ds-codex-session-id",
-      "generated_token": "$AE_SESSION_ID",
-      "kind": "operational",
-      "occurrence_hash": "43f77b725b134fae9e39b5bc3dc9f73a6acbc7edb5eaf4f699624fbda9350f4c",
-      "resolution_mode": "runtime-helper",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "$CLAUDE_CODE_SESSION_ID"
-    },
-    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -20500,16 +20490,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": ".agentic/.enforcement-fires.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "466fea3c9caa8a0dce8edca3b479f5f149a0d9ff726e85e351a2b1042d1bd09c",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
       "expected_target": "wrap",
@@ -20782,16 +20762,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "hooks/lib/enforcement_log.py",
-      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
-      "kind": "operational",
-      "occurrence_hash": "5774d1a1c379406ea8919ceda77610591acabf8dd05bb8f09b34792e42298d51",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "hooks/lib/enforcement_log.py"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -21040,6 +21010,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "bin/tests/reach_model.py"
+    },
+    {
+      "expected_target": ".agentic/events.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "64cdd096d0b75eb392f35f361c2981d24d523e2c5e6c2026604e66ddce5dff54",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/events.jsonl"
     },
     {
       "expected_target": "fi",
@@ -21392,6 +21372,16 @@
       "source_token": "<cwd>/.agentic/wrap/memory-backups/"
     },
     {
+      "expected_target": "bin/ds-codex-session-id",
+      "generated_token": "$AE_SESSION_ID",
+      "kind": "operational",
+      "occurrence_hash": "7b3040805d9637a8be6f082c8e819cd6faa22d68e842ccf99972deca62ec5702",
+      "resolution_mode": "runtime-helper",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "$CLAUDE_CODE_SESSION_ID"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -21610,6 +21600,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": ".agentic/.enforcement-fires.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "870543cea30d3aba61a1d0b2aa1f4466c4c656e4c2505a4d2570b0950e28eea9",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
       "expected_target": "wrap",
@@ -23122,16 +23122,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": ".agentic/events.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "eccec4922a58ecf0d6a128cc4595c4cf7c47ae5b3268722571d86961583817ba",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/events.jsonl"
-    },
-    {
       "expected_target": "content/commands/ds-init-project.md",
       "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
@@ -23230,6 +23220,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/compression-state.json"
+    },
+    {
+      "expected_target": "hooks/lib/enforcement_log.py",
+      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
+      "kind": "operational",
+      "occurrence_hash": "f1a287ac05f12c560264ce38b06c8302f427d14d898425846d5fccab184cd8f4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "hooks/lib/enforcement_log.py"
     },
     {
       "expected_target": "implement-ticket",

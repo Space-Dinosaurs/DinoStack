@@ -1051,6 +1051,16 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 #                         field (was omitted from this sweep entirely, which
 #                         is exactly why it went stale for two fix passes -
 #                         see hooks/lib/enforcement_log.py's own history).
+#   enforce-no-abdication.py - two sites: the deny-path call-site comment
+#                         ("the other nine enforce-*.py hooks", the same
+#                         print-before-telemetry convention count
+#                         enforce-planning-artifact-spawn.py restates) and
+#                         the Observability manifest's posture split ("the
+#                         other ten log actions only"). Both were added by
+#                         the same change that made this hook the sole
+#                         every-verdict caller; registering them here is
+#                         the fix for exactly the omission the
+#                         enforcement_log.py note above describes.
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
@@ -1124,6 +1134,27 @@ _ENFORCER_SUBCOUNT_SITES = [
         # print-then-log ordering on its block path.
         REPO_ROOT / "hooks" / "enforce-planning-artifact-spawn.py",
         "convention in the other nine enforce-*.py hooks",
+    ),
+    (
+        # Same print-before-telemetry-convention fact as the site above,
+        # restated from enforce-no-abdication.py's own perspective. Two
+        # hooks now carry the identical "the other nine" phrasing about
+        # each other, so the cardinal moves in BOTH files whenever the
+        # convention's membership changes - both must be pinned or one
+        # goes stale silently.
+        REPO_ROOT / "hooks" / "enforce-no-abdication.py",
+        "convention in the other nine enforce-*.py hooks",
+    ),
+    (
+        # Distinct fact again: the action-only/every-verdict POSTURE split,
+        # restated in enforce-no-abdication.py's own Observability manifest
+        # ("this hook is the sole every-verdict caller; the other ten log
+        # actions only"). It is the same split events-log.md's Consumer
+        # rule pins, counted from the sole every-verdict caller's side, so
+        # it moves whenever a twelfth enforcer is added OR a second hook
+        # adopts the every-verdict posture.
+        REPO_ROOT / "hooks" / "enforce-no-abdication.py",
+        "other ten log actions only",
     ),
 ]
 

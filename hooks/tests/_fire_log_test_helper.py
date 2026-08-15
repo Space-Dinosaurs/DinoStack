@@ -1,6 +1,6 @@
 # Not matched by the `hooks/tests/test-*.py` CI glob (bin-tests.yml
 # hooks-python-tests job) by design - this is a shared helper imported by
-# the seven enforce-*.py fire-log regression tests below, not a standalone
+# the nine enforce-*.py fire-log regression tests below, not a standalone
 # test file with its own assertions.
 """
 Purpose: shared regression-test helper that proves a raising log_fire()
@@ -43,11 +43,15 @@ Public API:
         without touching the real hooks/lib/enforcement_log.py at all.
 
 Upstream deps: Python 3 stdlib only (os, shutil, subprocess, sys, tempfile).
-Downstream consumers: test-enforce-tier.py, test-enforce-background-spawn.py,
+Downstream consumers (9; derive with
+    `grep -rl _fire_log_test_helper hooks/tests/ | grep -v _fire_log_test_helper.py`,
+    never by hand-counting this list):
+    test-enforce-askuserquestion-default.py, test-enforce-background-spawn.py,
+    test-enforce-no-abdication-fire-log.py,
     test-enforce-orchestrator-singularity.py,
-    test-enforce-askuserquestion-default.py, test-enforce-shippable-edit.py,
-    test-enforce-planning-artifact-spawn.py,
-    test-enforce-no-abdication-fire-log.py.
+    test-enforce-planning-artifact-spawn.py, test-enforce-shippable-edit.py,
+    test-enforce-tier.py, test-enforce-worktree-read.py,
+    test-enforce-worktree-write.py.
 """
 
 from __future__ import annotations

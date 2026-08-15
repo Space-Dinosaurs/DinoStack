@@ -61,10 +61,11 @@ The conductor runs the deterministic collector and reads its JSON rollup (stdout
 bin/ds-evaluate --repo <repo>
 ```
 
-The rollup is the single measured-signal input to every pillar lens. Pass it verbatim to each lens. Per-signal data-quality caveats - both documented facts; state them in the report rather than "fixing" the numbers:
+The rollup is the single measured-signal input to every pillar lens. Pass it verbatim to each lens. Per-signal data-quality caveats - all documented facts; state them in the report rather than "fixing" the numbers:
 
 - **Tokens zero-filled:** token fields are zero when token attribution is unavailable (e.g. no opt-in pricing configured for `/ds-cost`). A 0 tokens signal is an absence of data, not a measurement of 0 - the report must say so.
 - **Enforcement-fires is repo-cumulative, not session-scoped:** the enforcement-fires tally the collector reads (`.agentic/.enforcement-fires.jsonl`) is a repo-wide cumulative count. Never present an enforcement-fires figure as a per-session count.
+- **Enforcement-fires figures count fires, not hook invocations:** `enforce-no-abdication.py` logs every verdict path it reaches, including plain `"allow"` rows for turns it evaluated and declined to fire. The collector excludes those rows from `newest_ts` and `last_10_days` (and they were never in `deny_total`/`allow_advisory_total`), so all four figures mean fires. A hook that logged only `"allow"` rows still appears under `by_hook` with its counts at 0 - read that as "ran, never fired", never as "absent". Do not re-derive a fire rate from raw line counts of that file; it also grows with conductor turns.
 
 If the collector fails or returns an empty rollup, treat the invocation as a sparsity finding (see Edge cases) - never proceed with an invented signal baseline.
 
@@ -105,7 +106,7 @@ After the lenses return, the conductor:
 
 ## Signals
 - Collector rollup: [signals present, coverage]
-- Caveats: [tokens zero-filled / enforcement-fires repo-cumulative stated if used]
+- Caveats: [tokens zero-filled / enforcement-fires repo-cumulative / enforcement-fires count fires not invocations - stated if used]
 
 ## Per-pillar scorecard
 
