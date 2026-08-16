@@ -262,9 +262,15 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line>, OR n/a - <reason>
 ```
 
+### Set-shaped claim discipline
+
+When composing field 4 (per-consumer impact table) and field 5 (related files), or any adversarial-brief prose that enumerates a set (a file list, a count of instances or call sites, a "related files" enumeration), present the enumeration as navigational context, never as a proven result. State the search method or property a reviewer can use to verify the set, not the claimed enumeration as settled fact - the Skeptic independently re-derives any set-shaped claim before relying on it (see `content/agents/skeptic.md` §Rules and Step 7).
+
 On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
 
 **Rejected design (signed rationale, recorded as a remark):** field 7's value is required to carry the claim-bearing text itself, not a pointer to it - a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths.
+
+Fields 4 and 5 are conductor/architect-supplied navigational context, not verified evidence - the Skeptic independently re-derives any set-shaped claim before relying on it (see §Set-shaped claim discipline above).
 
 ### Enumerated `n/a` rationale set
 

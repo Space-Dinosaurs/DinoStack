@@ -592,6 +592,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/references/code-standards-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/code-standards-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "46f2af26c8f73dd6727ff9b550dc078d78dc834b6296e9557953dc4665a7ac3e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/code-standards-detail.md"
+    },
+    {
       "expected_target": "content/references/agent-team.md",
       "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
       "kind": "operational",
@@ -2090,16 +2100,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/**"
-    },
-    {
-      "expected_target": "content/references/code-standards-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/code-standards-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "e74ea2278c40d96d9bf4e42f4e700c9e56d204e92c9069efad7120b906f07981",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/code-standards-detail.md"
     },
     {
       "expected_target": "spawn_agent",
