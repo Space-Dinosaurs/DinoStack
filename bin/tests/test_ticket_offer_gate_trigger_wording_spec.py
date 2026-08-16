@@ -11,8 +11,17 @@ Purpose: Regression guard for the stale ticket-offer-gate trigger wording
          hand-maintained-closed-list defect this PR removes) and asserts
          none of them restate the narrow "first/any implementer" trigger.
 Public API: pytest test functions only.
-Upstream deps: every tracked *.md / *.html file under content/, docs/, and
-         the repo-root README.md - read fresh on each run, no cached list.
+Upstream deps: every GIT-TRACKED *.md / *.html file under content/, docs/,
+         and the repo-root README.md - read fresh on each run via `git
+         ls-files` (never a cached list, never an unfiltered directory
+         walk). Filtering through `git ls-files` matters beyond accuracy:
+         `docs/planning/`, `docs/research/`, `docs/technical/`, and
+         `docs/_archive/` are gitignored, and the rubric this test's PR
+         was reviewed under explicitly exempts gitignored planning docs -
+         an unfiltered `rglob()` walk would scan them anyway and could go
+         red in a local checkout (which has those files present) over
+         content this test has no authority to require a fix for, while
+         staying silently green in a fresh worktree (which does not).
 Downstream consumers: bin-tests.yml python-bin-tests job
          (`pytest bin/tests/ -q`), full-directory glob discovery under
          `bin/tests/`, no per-file wiring required.
@@ -30,17 +39,29 @@ False-positive reasoning: "implementer" alone is legitimate role-framing
          A blanket ban on the bare word would misfire immediately. This
          test narrows in two stages: (1) discover only lines whose content
          is about the ticket-offer-gate TRIGGER itself (ticket_driven /
-         ticket-offer gate / "before a ticket exists" / "before spawning"),
-         then (2) within that already-narrow candidate set, forbid only the
-         specific phrases "first implementer" / "any implementer" that
-         restate the narrow pre-widening trigger - a plain mention of
-         "implementer" inside a gate-context line that does NOT narrow the
-         trigger (e.g. "before spawning any subagent") still passes.
+         ticket-offer gate / "before a ticket exists" / "before spawning" /
+         "ticket ... spawn" within 80 chars, which also catches phrasings
+         like "ticket before the first implementer spawns" that name
+         neither "before spawning" nor "before a ticket exists" verbatim),
+         then (2) within that already-narrow candidate set, forbid the
+         phrases "first implementer" / "any implementer" / "no implementer"
+         (singular or plural) that restate the narrow pre-widening trigger
+         - a plain mention of "implementer" inside a gate-context line that
+         does NOT narrow the trigger (e.g. "before spawning any subagent")
+         still passes. Known residual blind spots (measured, not
+         hypothetical - see test_no_gate_context_line_restates_narrow_trigger
+         docstring): a restatement using the bare word "implementer" with
+         no first/any/no qualifier (e.g. "do not spawn an implementer
+         before a ticket exists"), or one that names no "implementer"
+         token at all (e.g. "no engineer or architect spawns before a
+         ticket exists", "before the first implementing agent spawns")
+         will not be caught by this test.
 """
 from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -54,25 +75,57 @@ SEARCH_FILES = [
 SEARCH_SUFFIXES = {".md", ".html"}
 
 # Stage 1: lines that are ABOUT the ticket-offer-gate trigger, by content -
-# never a hardcoded file list.
+# never a hardcoded file list. The `ticket[^.]{0,80}spawn` alternative
+# catches phrasings that name neither "before spawning" nor "before a
+# ticket exists" verbatim, e.g. "creates a tracker ticket before the first
+# implementer spawns" (docs/index.html - a real historical carrier that
+# the first three alternatives alone do not see).
 GATE_CONTEXT_PATTERN = re.compile(
-    r"ticket_driven|ticket-offer gate|before a ticket exists|before spawning",
+    r"ticket_driven|ticket-offer gate|before a ticket exists|before spawning"
+    r"|ticket[^.]{0,80}spawn",
     re.IGNORECASE,
 )
 
 # Stage 2: the specific narrow-trigger restatement this test guards against.
-# Matches "first implementer" and "any implementer" (the two forms the
-# stale text took pre-widening) without banning the bare word.
+# Matches "first implementer", "any implementer", and "no implementer"
+# (singular or plural) - the forms the stale text took pre-widening -
+# without banning the bare word "implementer" on its own.
 NARROW_TRIGGER_PATTERN = re.compile(
-    r"\b(?:first|any)\s+implementer\b", re.IGNORECASE
+    r"\b(?:first|any|no)\s+implementers?\b", re.IGNORECASE
 )
 
 
+def _tracked_relative_paths() -> set[pathlib.Path]:
+    """Git-tracked *.md / *.html paths under content/, docs/, and
+    README.md, resolved to absolute paths. Scoping discovery to tracked
+    files (rather than an unfiltered directory walk) matters because
+    docs/planning/, docs/research/, docs/technical/, and docs/_archive/
+    are gitignored - present in a local checkout, absent in a fresh
+    worktree - and the review rubric this test exists under exempts
+    gitignored planning docs from this test's authority."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "content", "docs", "README.md"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tracked: set[pathlib.Path] = set()
+    for rel in result.stdout.splitlines():
+        rel = rel.strip()
+        if not rel:
+            continue
+        path = REPO_ROOT / rel
+        if path.suffix in SEARCH_SUFFIXES:
+            tracked.add(path)
+    return tracked
+
+
 def _candidate_files() -> list[pathlib.Path]:
-    files: list[pathlib.Path] = list(SEARCH_FILES)
+    tracked = _tracked_relative_paths()
+    files: list[pathlib.Path] = [f for f in SEARCH_FILES if f in tracked]
     for root in SEARCH_ROOTS:
         for path in root.rglob("*"):
-            if path.is_file() and path.suffix in SEARCH_SUFFIXES:
+            if path.is_file() and path.suffix in SEARCH_SUFFIXES and path in tracked:
                 files.append(path)
     return files
 
@@ -110,15 +163,26 @@ def test_discovery_finds_gate_context_lines():
 
 def test_no_gate_context_line_restates_narrow_trigger():
     """The regression assertion. There are 8 known historical restatement
-    sites (content/sections/02-delegation.md, content/references/
-    conventions-detail.md, content/references/delegation-detail.md,
-    content/references/risk-config-and-tiers.md, content/commands/
-    ds-implement-ticket.md, docs/components.md, docs/configuration-
+    sites, verified by direct discovery against origin/main (README.md,
+    content/commands/ds-init-project.md, content/references/conventions-
+    detail.md, content/references/risk-config-and-tiers.md, content/
+    sections/02-delegation.md, docs/components.md, docs/configuration-
     reference.md, docs/index.html) - discovery is expected to find
     candidate lines in at least that many distinct files; the exact
     total line count is not pinned here since it is expected to grow
     as the docs evolve, and pinning it would recreate the same
-    hand-maintained-list defect this PR removes."""
+    hand-maintained-list defect this PR removes.
+
+    Known residual blind spots (measured, not hypothetical): this
+    assertion will NOT catch a restatement using the bare word
+    "implementer" with no first/any/no qualifier (e.g. "do not spawn an
+    implementer before a ticket exists"), or one that names no
+    "implementer" token at all (e.g. "no engineer or architect spawns
+    before a ticket exists", "before the first implementing agent
+    spawns"). Widening NARROW_TRIGGER_PATTERN further to catch the bare
+    word would misfire on the legitimate "implementer"-as-role-framing
+    prose documented in the False-positive reasoning section of this
+    file's module docstring."""
     hits = _gate_context_lines()
     offenders = [
         (path, lineno, line)
@@ -128,7 +192,8 @@ def test_no_gate_context_line_restates_narrow_trigger():
     assert not offenders, (
         "found "
         f"{len(offenders)} gate-context line(s) restating the narrow "
-        "pre-widening trigger ('first implementer' / 'any implementer'):\n"
+        "pre-widening trigger ('first implementer' / 'any implementer' / "
+        "'no implementer', singular or plural):\n"
         + "\n".join(f"  {p}:{n}: {l.strip()}" for p, n, l in offenders)
     )
 
@@ -137,13 +202,22 @@ def test_discovery_covers_known_historical_files():
     """Sanity check (not a hardcoded pin on line content): the 8 files
     known to have carried the stale restatement must each still surface
     at least one gate-context candidate line, so a future narrowing of
-    GATE_CONTEXT_PATTERN can't silently stop scanning them."""
+    GATE_CONTEXT_PATTERN can't silently stop scanning them. This list was
+    derived by discovering every origin/main file whose narrow-trigger
+    restatement matches GATE_CONTEXT_PATTERN + NARROW_TRIGGER_PATTERN
+    together - not copied from an earlier draft of this test, which had
+    named content/references/delegation-detail.md and content/commands/
+    ds-implement-ticket.md (neither ever carried the restatement: the
+    former's "implementer" mentions are generic Worker-Autonomy-Contract
+    prose with no gate-context keyword nearby; the latter has no
+    "implementer" mention at origin/main at all) while omitting README.md
+    and content/commands/ds-init-project.md (which both did carry it)."""
     known_files = {
-        REPO_ROOT / "content" / "sections" / "02-delegation.md",
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "content" / "commands" / "ds-init-project.md",
         REPO_ROOT / "content" / "references" / "conventions-detail.md",
-        REPO_ROOT / "content" / "references" / "delegation-detail.md",
         REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
-        REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md",
+        REPO_ROOT / "content" / "sections" / "02-delegation.md",
         REPO_ROOT / "docs" / "components.md",
         REPO_ROOT / "docs" / "configuration-reference.md",
         REPO_ROOT / "docs" / "index.html",
