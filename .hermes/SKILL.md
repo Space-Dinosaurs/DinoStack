@@ -83,19 +83,19 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
 
 **No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
-**Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
+**Pre-spawn checklist - ticket-offer gate:** Before the FIRST subagent spawn of any kind (exemptions apply) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `/ds-brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/ds-brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/ds-brief.md` Section 1.
 
-**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper) before proceeding. Mid-session discoveries are governed by a separate carve-out, promotion bar, and absolute batching rule: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn any subagent not on the exemption list (`content/references/delegation-detail.md` §Ticket-Offer Gate - Exemption Set) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper) before proceeding. Mid-session discoveries: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
 **`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
 
 - **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/ds-implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
 
-- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+- **`require` mode (hard gate):** do not spawn any non-exempt subagent before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
 
 **Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
@@ -2700,7 +2700,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent or malformed `.agentic/config.json` = guard does not fire at all; the shipped template and `/ds-init-project` set it). When active, a Stop hook detects three shapes of conductor abdication - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the stop, injecting a directive. Mechanizes the Proactive autonomy / default-and-proceed rule in `content/sections/02-delegation.md`. All three classifiers are false-negative-biased; the classic interrogative path's suppression surface widened further in that direction in a later fix pass. Two loop-guard layers: `stop_hook_active` flag (primary) and a consecutive-block counter cap (backstop for CC bug #54360), shared across all three classifiers. Set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns (clustered by `domain_tag` / `Domain`) and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). Layer 3 (`/ds-skill-candidates` command) is also gated on this toggle. When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking on this project.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
-- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate. Mid-session discovery tickets follow a separate rule: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning any subagent (exemptions apply) on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no subagent spawns before a ticket exists (exemptions apply); creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate. Mid-session discovery tickets follow a separate rule: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
@@ -2774,17 +2774,23 @@ Apply these rules to every external-facing comment:
 
 ### Ticket descriptions
 
-Lead with the Problem. These are soft targets, not hard caps: the bounds below bind only where every line earns its place, because the signal-per-line test (`conventions-detail.md:160`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic - a 7-line Problem that is all load-bearing passes, and a 3-line Problem that restates the ticket fails.
+**The recoverability test governs content, not just length.** At creation time, capture what cannot be recovered later - the operator's intent: the Problem, why it matters, and what done looks like (Acceptance Criteria). Everything else - a proposed approach, a root cause, a file list, an implementation sequence, a blast-radius map - is recoverable at any later time by re-deriving it fresh against the tree as it exists at pickup, and is strictly better derived then: the picking-up session's own Investigator and Architect produce it independently, verified against current state rather than graded against a possibly-stale guess. Exclude it regardless of whether it is already free in context - a design costs nothing to write down and still anchors the implementing session, still goes stale before pickup, and still lets a Skeptic mistake two descendants of the same guess for independent corroboration.
+
+**Problem and Acceptance Criteria are mandatory, not optional.** They are the irrecoverable half - once the operator's moment of intent passes, a later session can only guess or re-interrupt the operator. When Acceptance Criteria are genuinely undecided at creation time, write that down explicitly (`Acceptance Criteria: not yet defined - <what is blocking a decision>`) rather than omitting the section - an honest "unknown" preserves the fact that nobody has answered it yet; silent omission is indistinguishable from nobody having asked.
+
+**Evidence is intent-bearing; a proposed fix is not.** A failing command, a log line, a stack trace, the file:line where a defect was observed, the commit that introduced it, or what was already tried and did not work - these anchor the Problem and belong in the ticket, however much space they take. A proposed approach, a diagnosis presented as established fact, or an implementation sequence anchors a design instead, and does not belong regardless of length or cost.
+
+Lead with the Problem. These are soft targets, not hard caps, and they bound derived-content risk, not the intent content above - the signal-per-line test (`content/references/conventions-detail.md` §External Comment Discipline) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic: a 7-line Problem that is all load-bearing operator intent passes, evidence that legitimately runs long passes, and a 3-line Problem that restates the ticket fails.
 
 - **Problem:** soft target ≤ 5 lines.
 - **Acceptance Criteria:** soft target ≤ 8 bullets.
 - **Total:** soft target ≈ 15 lines.
 
-The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check at `content/commands/ds-implement-ticket.md:518`) is excluded from the budget.
+The fixed-form `## Scope boundary` append (written by the Create Helper collision pre-check - see `content/commands/ds-implement-ticket.md` §Tracker Create Helper) is excluded from the budget.
 
-Per-line self-check: would a future reader need this line to know what to build, or when it is done? If not, delete it.
+Per-line self-check: would a future reader need this line to know what to build, or when it is done? If not, delete it. A line that describes HOW rather than WHAT or WHY fails this check even when short.
 
-**Cross-reference.** The direct-tool and follow-up ticket-creation path is governed by `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline - its carve-out, promotion bar, and batching rules decide whether a discovery becomes a ticket at all, independently of verbosity. These soft bounds apply to tickets authored through the Tracker Create Helper (`content/commands/ds-implement-ticket.md:501`); they do not reach the direct-tool path.
+**Cross-reference.** The direct-tool and follow-up ticket-creation path is governed by `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline - its carve-out, promotion bar, and batching rules decide whether a discovery becomes a ticket at all, independently of content. These soft length bounds apply to tickets authored through the Tracker Create Helper (see `content/commands/ds-implement-ticket.md` §Tracker Create Helper); the recoverability test applies to all three authoring paths (Tracker Create Helper direct, `/ds-brief`, `/ds-feedback-triage`) - nothing exempts hand-authored ticket bodies from the intent-vs-derived boundary, even though the length guidance does not reach the direct-tool path.
 
 ### Commit messages
 
@@ -3273,7 +3279,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Decision
+         signal + table; Ticket-Body Content Is a Closed List To
+         Re-Derive (Phase 3 architect-consumption scope discipline: treat
+         embedded design/root-cause content as unverified and re-derive
+         independently); Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
          Absence-claim scope axes (calibration worked example, both
@@ -3295,7 +3304,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          (d) turns on authorization rather than sentence shape; marker
          necessity, placement discipline); Digest-return
          discipline; Orchestration enforcement hooks + fan-out
-         `skeptic_strategy` detail; Background-spawn enforcement detail.
+         `skeptic_strategy` detail; Background-spawn enforcement detail;
+         Mid-Session Ticket Composition is Zero-Spawn (composing a
+         mid-session discovery ticket draws only on context already held,
+         never a fresh agent spawn, protecting the in-flight session's
+         terrain).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -3412,6 +3425,28 @@ mechanically denied. `/ds-feedback-triage` and `/ds-ticket-triage`
 5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
    gated by an explicit per-batch human greenlight (`ds-feedback-triage.md`
    §"Step 2 - Group and present"), a stronger control than anything here.
+
+### Mid-Session Ticket Composition is Zero-Spawn
+
+Draw only on context already held from the in-flight work when composing a mid-session discovery's ticket body - no investigator, debugger, or other agent spawn to enrich it before creating it; that context belongs to the task already underway, not the offshoot. If context already held is insufficient to name a design or root cause, that is not a reason to spawn - the evidence that made the conductor notice (the failing command, the log line, the file:line) is itself a valid, complete Problem per `content/references/conventions-detail.md` §Ticket descriptions ("Evidence is intent-bearing"). Create the ticket with that evidence as the Problem and move on.
+
+### Ticket-Offer Gate - Exemption Set
+
+The gate (`content/sections/02-delegation.md` §Ticket-offer gate) fires on the FIRST spawn of any kind for net-new, not-yet-ticketed work - an inclusion list of which agents count fails open (a new agent file is silently ungated); an exemption list fails safe (a new agent file is gated by default until someone argues it out). The following are exempt because each is structurally incapable of being the first spawn for net-new untracked work, or operates above the level of any single ticket-sized unit:
+
+- `skeptic` - always reviews another agent's output; never a first spawn.
+- `qa-engineer` - fires only after Skeptic sign-off; never a first spawn.
+- `learning-extractor` - mechanically wired to Phase 6 clean exit, post-ticket-close only.
+- `learnings-agent` - session-scoped background capture, not investigation of the work.
+- `wrap-ticket` - fires at PR-open time, strictly post-implementation.
+- `goal-condition-evaluator` - fires strictly after a clean Skeptic sign-off on an open-goal iteration.
+- `product-discovery` - not gated because it operates on the project's intent layer (vision.md/requirements.md) above the level of any single ticket-sized unit of work, not because a ticket for it could never be formed.
+
+Every other spawnable role - `investigator`, `debugger`, `architect`, `orchestration-planner`, `engineer`, `security-auditor`, `dependency-auditor`, `perf-analyst`, `adr-generator`, `adr-drift-detector`, `general-purpose`, `release-orchestrator` - is gated by default, including `release-orchestrator`: an operator ask to roll back the last release (`content/references/agent-team.md` §Use release-orchestrator when) is net-new, not-yet-ticketed work where it is the first and only spawn, and it writes files. A newly added agent role is gated unless explicitly argued onto the exemption list above in a reviewed change. Both lists here are mirrored verbatim in `bin/tests/test_ticket_offer_gate_exemption_spec.py`'s `EXEMPT_ROLES`/`GATED_ROLES` constants, asserted as bidirectional set equality against the disk-derived agent list - update both in the same PR when adding, removing, or reclassifying an agent.
+
+## Ticket-Body Content Is a Closed List To Re-Derive
+
+Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings ("a too-narrow search repeats the same wrong answer on a fresher tree... broaden a closed list by deriving its members independently and diffing against it"), the same scope defect applies to a ticket body consumed by the architect at Phase 3: if the description already names specific files, a root cause, or an approach - from an earlier session, a human author, or an import - treat that content as `[per ticket-body, unverified]` and re-derive the design and its blast radius independently rather than treating the named files as complete. The architect's plan is graded against the Problem and Acceptance Criteria, never against embedded ticket-body content.
 
 ## Common Rationalizations to Reject
 
@@ -5621,7 +5656,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-three project-level
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; the shipped template and `/ds-init-project` set it). When active, a Stop hook detects three shapes of conductor abdication - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the stop, injecting a directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Set to `false` to opt out once enabled. See `content/rules/conventions.md` §Project Config for full semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook scans `.agentic/events.jsonl` and `.agentic/learnings.md` for recurring friction patterns and writes candidates to `.agentic/skill-candidates.md`; the conductor emits a session-start notice when new candidates are found (Layer 1). When `false`, the detector exits immediately and all layers are dark. Set to `false` to opt out of skill-candidate tracking entirely.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
-- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate. Mid-session discovery tickets follow a separate rule: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
+- `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning any subagent (exemptions apply) on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-spawn (exemptions apply); operator can reply STOP to skip. `require`: hard gate - no subagent spawns before a ticket exists (exemptions apply); create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate. Mid-session discovery tickets follow a separate rule: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
@@ -13584,7 +13619,7 @@ Write `status: iterating` during revision rounds.
    git add docs/planning/<slug>.md
    git commit -m "docs(brief): add <slug> brief"
    ```
-4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate; mid-session discoveries instead follow `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria, TICKET_TYPE from the Brief type (default `feature`); then:
+4. If `TRACKER != none` AND `ticket_driven` active (per resolution rule in `content/sections/02-delegation.md` §Ticket-offer gate; mid-session discoveries instead follow `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): derive TICKET_TITLE from the Brief's Feature Name, TICKET_BODY from Problem + Success criteria (the ticket's Acceptance Criteria; when Success criteria is empty, write `Acceptance Criteria: not yet defined - <blocking reason>` per `content/references/conventions-detail.md` §Ticket descriptions rather than omitting it), TICKET_TYPE from the Brief type (default `feature`); then:
    - **`offer` mode:** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` Wait one turn. If no STOP: invoke the Tracker Create Helper (cross-ref `content/commands/ds-implement-ticket.md` §Tracker Create Helper). If STOP: skip creation, proceed ad-hoc (architect spawn, step 6).
    - **`require` mode:** invoke the Tracker Create Helper immediately (no skip path).
    - On CREATE_STATUS=created: hand off to `/ds-implement-ticket <CREATED_TICKET_ID>` with `brief_path` in the execution contract INSTEAD of spawning the architect directly (skip steps 5-6).
@@ -14808,8 +14843,7 @@ Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`
-- `TICKET_BODY` = `item.suggested_body`, with the following block appended
-  so the ticket stays traceable back to its origin:
+- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Plus Acceptance Criteria: feedback items rarely carry operator-stated AC, so default to `Acceptance Criteria: not yet defined - <blocking reason>` per `content/references/conventions-detail.md` §Ticket descriptions rather than synthesizing AC the triage agent has no basis for. Then append the traceability block:
   ```
 
   ---
@@ -15813,7 +15847,7 @@ Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before 
 
 Caller supplies:
 - `TICKET_TITLE` - one-line summary of the work
-- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known; lead with Problem; ≈15-line soft total (§Ticket descriptions, conventions-detail.md)
+- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (conventions-detail.md §Ticket descriptions)
 - `TICKET_TYPE` - `feature` | `bug` | `task`
 
 Helper returns:
@@ -16601,11 +16635,11 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 
 ## Phase 3: Architecture plan
 
-Spawn an `architect` agent. Provide:
-- The full ticket title and description
-- The relevant code snippets you gathered
-- The AGENTS.md conventions
-- Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
+Spawn `architect`. Provide:
+- Ticket title/description, conductor-labeled `[per ticket-body, unverified]`: `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
+- Relevant code snippets
+- AGENTS.md conventions
+- Architectural decisions/rationale from MEMORY.md (or custom decision log)
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
@@ -20003,7 +20037,7 @@ Seed with these documented defaults exactly:
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; this template sets it). When active, a Stop hook (`hooks/enforce-no-abdication.py`) detects three shapes - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - in the final assistant message and blocks the stop, injecting a directive. Set to `false` to opt out once enabled. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
-- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
+- `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning any subagent (exemptions apply) on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for full semantics.

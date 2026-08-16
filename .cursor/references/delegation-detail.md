@@ -3,7 +3,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Decision
+         signal + table; Ticket-Body Content Is a Closed List To
+         Re-Derive (Phase 3 architect-consumption scope discipline: treat
+         embedded design/root-cause content as unverified and re-derive
+         independently); Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
          Absence-claim scope axes (calibration worked example, both
@@ -25,7 +28,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          (d) turns on authorization rather than sentence shape; marker
          necessity, placement discipline); Digest-return
          discipline; Orchestration enforcement hooks + fan-out
-         `skeptic_strategy` detail; Background-spawn enforcement detail.
+         `skeptic_strategy` detail; Background-spawn enforcement detail;
+         Mid-Session Ticket Composition is Zero-Spawn (composing a
+         mid-session discovery ticket draws only on context already held,
+         never a fresh agent spawn, protecting the in-flight session's
+         terrain).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -142,6 +149,28 @@ mechanically denied. `/ds-feedback-triage` and `/ds-ticket-triage`
 5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
    gated by an explicit per-batch human greenlight (`ds-feedback-triage.md`
    §"Step 2 - Group and present"), a stronger control than anything here.
+
+### Mid-Session Ticket Composition is Zero-Spawn
+
+Draw only on context already held from the in-flight work when composing a mid-session discovery's ticket body - no investigator, debugger, or other agent spawn to enrich it before creating it; that context belongs to the task already underway, not the offshoot. If context already held is insufficient to name a design or root cause, that is not a reason to spawn - the evidence that made the conductor notice (the failing command, the log line, the file:line) is itself a valid, complete Problem per `content/references/conventions-detail.md` §Ticket descriptions ("Evidence is intent-bearing"). Create the ticket with that evidence as the Problem and move on.
+
+### Ticket-Offer Gate - Exemption Set
+
+The gate (`content/sections/02-delegation.md` §Ticket-offer gate) fires on the FIRST spawn of any kind for net-new, not-yet-ticketed work - an inclusion list of which agents count fails open (a new agent file is silently ungated); an exemption list fails safe (a new agent file is gated by default until someone argues it out). The following are exempt because each is structurally incapable of being the first spawn for net-new untracked work, or operates above the level of any single ticket-sized unit:
+
+- `skeptic` - always reviews another agent's output; never a first spawn.
+- `qa-engineer` - fires only after Skeptic sign-off; never a first spawn.
+- `learning-extractor` - mechanically wired to Phase 6 clean exit, post-ticket-close only.
+- `learnings-agent` - session-scoped background capture, not investigation of the work.
+- `wrap-ticket` - fires at PR-open time, strictly post-implementation.
+- `goal-condition-evaluator` - fires strictly after a clean Skeptic sign-off on an open-goal iteration.
+- `product-discovery` - not gated because it operates on the project's intent layer (vision.md/requirements.md) above the level of any single ticket-sized unit of work, not because a ticket for it could never be formed.
+
+Every other spawnable role - `investigator`, `debugger`, `architect`, `orchestration-planner`, `engineer`, `security-auditor`, `dependency-auditor`, `perf-analyst`, `adr-generator`, `adr-drift-detector`, `general-purpose`, `release-orchestrator` - is gated by default, including `release-orchestrator`: an operator ask to roll back the last release (`content/references/agent-team.md` §Use release-orchestrator when) is net-new, not-yet-ticketed work where it is the first and only spawn, and it writes files. A newly added agent role is gated unless explicitly argued onto the exemption list above in a reviewed change. Both lists here are mirrored verbatim in `bin/tests/test_ticket_offer_gate_exemption_spec.py`'s `EXEMPT_ROLES`/`GATED_ROLES` constants, asserted as bidirectional set equality against the disk-derived agent list - update both in the same PR when adding, removing, or reclassifying an agent.
+
+## Ticket-Body Content Is a Closed List To Re-Derive
+
+Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings ("a too-narrow search repeats the same wrong answer on a fresher tree... broaden a closed list by deriving its members independently and diffing against it"), the same scope defect applies to a ticket body consumed by the architect at Phase 3: if the description already names specific files, a root cause, or an approach - from an earlier session, a human author, or an import - treat that content as `[per ticket-body, unverified]` and re-derive the design and its blast radius independently rather than treating the named files as complete. The architect's plan is graded against the Problem and Acceptance Criteria, never against embedded ticket-body content.
 
 ## Common Rationalizations to Reject
 
