@@ -22,6 +22,16 @@
       "source_token": ".codex/skills/**"
     },
     {
+      "expected_target": "content/commands/ds-implement-ticket.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
+      "kind": "operational",
+      "occurrence_hash": "05ea776a93528c5346c16f211950c137b7999c6713900d720fec21d81d201ceb",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/commands/ds-implement-ticket.md"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -952,6 +962,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "6d97d7b9be45b237acca83f81a9b553b9776a55c20ce4ad7ad08a57f5431c1ee",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "content/references/risk-config-and-tiers.md",
       "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
       "kind": "operational",
@@ -1572,16 +1592,6 @@
       "source_token": "model-param mapping"
     },
     {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "b5182037487835f7e35a09b529ad30ad24d6e825353096bf2cae1f5585bb0a82",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -1820,16 +1830,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": "content/commands/ds-implement-ticket.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
-      "kind": "operational",
-      "occurrence_hash": "d0f3d63124a778b5da73b57b8d0b9d71833d032da8ed0bdde530b0fbdbf58042",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
       "expected_target": "content/commands/ds-identity.md",
@@ -2260,6 +2260,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "fabc3029c2ffbe68579b15d9c4d2ef858a82d88de9f617499256b008296b7608",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "content/references/events-log.md",
@@ -2792,16 +2802,6 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "9fb5e12e368c6747aadb693decac9734ee4e99d1ad1412dc4ae10c087b8a2c13",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/sections/02-delegation.md"
-    },
-    {
       "expected_target": "git",
       "generated_token": "git",
       "kind": "operational",
@@ -2820,16 +2820,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-brief.md",
       "source_token": "content/commands/ds-implement-ticket.md"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "badfd8bf1caa312c9bf77b767fc6a2fb6f598c30c4ff18a2fc13d22fc08ab585",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-brief.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "brief",
@@ -2860,6 +2850,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-brief.md",
       "source_token": ".agentic/brief-session.json"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "c63615853b46308bab370f47d50cdadde5915245b59f486d419bca074cb05291",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": ".gitignore",
@@ -2952,6 +2952,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "eade6c666120a31d014a6e77d857cde5aba208f3b8346b824007e8cd5840ce4c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/conventions-detail.md"
+    },
+    {
       "expected_target": ".agentic/brief-session.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/brief-session.json",
       "kind": "operational",
@@ -2990,6 +3000,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-brief.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "f5e7e8433c228964bc593c05dd65e7d7f9098825e87a4270ef1116204f463dc5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/sections/02-delegation.md"
     },
     {
       "expected_target": "content/references/planning-artifacts.md",

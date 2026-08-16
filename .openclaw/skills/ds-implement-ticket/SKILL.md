@@ -503,7 +503,7 @@ Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before 
 
 Caller supplies:
 - `TICKET_TITLE` - one-line summary of the work
-- `TICKET_BODY` - markdown description; include Problem + Acceptance Criteria when known; lead with Problem; ≈15-line soft total (§Ticket descriptions, conventions-detail.md)
+- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (§Ticket descriptions, conventions-detail.md)
 - `TICKET_TYPE` - `feature` | `bug` | `task`
 
 Helper returns:
@@ -1292,7 +1292,7 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
-- The full ticket title and description
+- The full ticket title and description (Problem/AC only verified - delegation-detail.md)
 - The relevant code snippets you gathered
 - The AGENTS.md conventions
 - Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket

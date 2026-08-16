@@ -143,8 +143,7 @@ Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`
-- `TICKET_BODY` = `item.suggested_body`, with the following block appended
-  so the ticket stays traceable back to its origin:
+- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Then append the traceability block:
   ```
 
   ---
