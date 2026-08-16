@@ -1354,7 +1354,7 @@ fi
 
 # ============================================================
 # Test 21: orphan cleanup, the "evals/.worktrees/" candidate added for
-#          Major 1 (content/commands/ds-cleanup-worktrees.md:38's
+#          Major 1 (content/commands/ds-cleanup-worktrees.md's
 #          "evals/.worktrees/wt-*" instance).
 # ============================================================
 

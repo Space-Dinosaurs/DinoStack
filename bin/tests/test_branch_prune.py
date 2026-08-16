@@ -448,7 +448,7 @@ def test_develop_and_development_never_deleted_even_when_not_the_configured_base
     UNCONDITIONALLY, not only the local name of whatever `--base` happens to
     be passed. Reproduces the shipped session-start call site
     (content/references/worktree-lifecycle.md, content/commands/
-    ds-cleanup-worktrees.md Step 5), which invokes `ds-branch-prune` with NO
+    ds-cleanup-worktrees.md Step 3), which invokes `ds-branch-prune` with NO
     `--base` at all by design - a repo using a develop-based workflow
     (content/rules/conventions.md Base branch resolution) needs `develop`
     protected even when `--base` resolves to something else entirely. Here

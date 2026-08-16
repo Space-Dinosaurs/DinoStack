@@ -71,12 +71,13 @@ Downstream consumers: test_worktree_model.py (pytest suite);
                       (DS-153) rather than restating the evidence gate
                       inline - no branch-deleting shell remains in either
                       block for this module to be checked against);
-                      content/commands/ds-cleanup-worktrees.md Steps 2/3/4
-                      (classify_entry is the normative classification Step 2
-                      describes; disposition_for is the normative gate Steps
-                      3/4 describe, in disposition_for's own locked -> dirty
-                      -> merge-evidence order - Step 4's dirty check, absent
-                      before this ticket, was added to close that gap).
+                      content/commands/ds-cleanup-worktrees.md Step 2
+                      (bin/ds-reap-worktrees, invoked directly by that step,
+                      is the sole caller of classify_entry for
+                      classification and disposition_for for the
+                      locked -> dirty -> merge-evidence gate order - no
+                      hand-authored copy of either remains in that command
+                      file).
                       **`bin/ds-branch-prune` DOES literally import this
                       module at runtime** (`DEFAULT_BASE_BRANCHES`,
                       `Disposition`, `DispositionFacts`,

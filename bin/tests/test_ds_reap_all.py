@@ -473,6 +473,23 @@ def test_cli_runs_through_path_symlink_and_finds_sibling_tool(tmp_path):
 
     repo = tmp_path / "symlink-target-repo"
     init_bare_git_repo(repo)
+    # Round-4 rework: ds-reap-worktrees now resolves its own --base when
+    # omitted (this test's PATH-symlink invocation passes none), so the
+    # fixture repo needs a real commit and a real `origin` remote with a
+    # `main` branch for the main-fallback resolution tier to succeed -
+    # `init_bare_git_repo` alone (no commits, no remote) leaves every
+    # resolution candidate unresolvable and the run correctly (fail-safe)
+    # skips with no per-entry summary at all, which is what this test was
+    # observed to hit before this fixture addition.
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "spec@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "spec"], check=True)
+    (repo / "README.md").write_text("init\n")
+    subprocess.run(["git", "-C", str(repo), "add", "README.md"], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", "init"], check=True)
+    origin = tmp_path / "symlink-target-repo-origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(origin)], check=True)
+    subprocess.run(["git", "-C", str(repo), "push", "-q", "-u", "origin", "main"], check=True)
 
     result = subprocess.run(
         [
