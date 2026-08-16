@@ -364,7 +364,10 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       --count-only nudge line when the non-root worktree
                       count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
-                      anything from that call site).
+                      anything from that call site);
+                      bin/ds-reap-all (invokes this tool once per repo in
+                      a cross-repo sweep, forwarding flags verbatim -
+                      pre-existing since PR #735, not new to this branch).
                       CI: bin/tests/test_reap_worktrees.py (pytest,
                       auto-collected by `python3 -m pytest bin/tests/`).
 
@@ -383,7 +386,10 @@ Failure modes: exits 0 on success INCLUDING partial degradation (gh
                resolution - or, when no declaration exists, every
                automatic candidate (origin/HEAD, local develop/development,
                main falling back to master) fails `git rev-parse --verify`
-               against origin. Either way `resolve_base_branch` names every
+               against the local remote-tracking ref (not the remote
+               itself - a stale or unfetched ref reads as missing even when
+               the branch exists on origin; `git fetch origin` may resolve
+               it). Either way `resolve_base_branch` names every
                candidate tried (printed to stderr) and the run exits 0
                having done nothing - a resolved-but-invalid base fails
                SAFE, matching the shell pipeline this replaces (a WARNING,
@@ -743,6 +749,10 @@ def _origin_head_branch(repo: str) -> Optional[str]:
 
 
 def _ref_exists(repo: str, ref: str) -> bool:
+    # Checks the LOCAL remote-tracking ref (e.g. `origin/main`), not the
+    # remote itself - no network call is made here. A branch that genuinely
+    # exists on origin but whose local remote-tracking ref is stale or was
+    # never fetched will report as missing; `git fetch origin` is the fix.
     proc = _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", ref])
     return proc.returncode == 0
 
@@ -762,7 +772,10 @@ def resolve_base_branch(
     "master-fallback", or "unresolved" when resolved_ref is None;
     `diagnostics` is zero or more human-readable lines - one per candidate
     that resolved to a value but failed `git rev-parse --verify` against
-    origin, plus (only when every candidate failed) a final line naming
+    the LOCAL remote-tracking ref (e.g. `origin/main`), not the remote
+    itself - a ref that is stale or was never fetched reads as missing even
+    when the branch genuinely exists on origin (`git fetch origin` fixes
+    this) - plus (only when every candidate failed) a final line naming
     every candidate tried.
     """
     diagnostics: List[str] = []
@@ -790,11 +803,13 @@ def resolve_base_branch(
                 return ref, "agents-md", diagnostics
             diagnostics.append(
                 f"ds-reap-worktrees: declared base candidate '{ref}' (source: agents-md) "
-                "does not exist on origin - AGENTS.md's BASE_BRANCH declaration is "
-                "authoritative and is never silently overridden by a different base; "
-                "resolution fails rather than falling through. Fix the branch name in "
-                "AGENTS.md's BASE_BRANCH declaration so it resolves on origin, or pass "
-                "--base explicitly to override the declaration for this run."
+                "does not exist as a local remote-tracking ref - AGENTS.md's BASE_BRANCH "
+                "declaration is authoritative and is never silently overridden by a "
+                "different base; resolution fails rather than falling through. If the "
+                "branch genuinely exists on origin, this ref may simply be stale or "
+                "unfetched - try `git fetch origin` first. Otherwise, fix the branch name "
+                "in AGENTS.md's BASE_BRANCH declaration, or pass --base explicitly to "
+                "override the declaration for this run."
             )
             return None, "unresolved", diagnostics
 
