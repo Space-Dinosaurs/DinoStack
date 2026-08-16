@@ -1861,16 +1861,34 @@ def test_resolve_base_branch_agents_md_declaration_wins_over_lower_tiers(tmp_pat
     assert diagnostics == []
 
 
-def test_resolve_base_branch_falls_through_a_nonexistent_declared_branch(tmp_path):
+def test_resolve_base_branch_declared_but_unresolvable_fails_never_falls_through(tmp_path):
+    # AGENTS.md's BASE_BRANCH declaration is authoritative (conventions.md:
+    # "wins. Highest priority."). A declared-but-unresolvable value must
+    # fail resolution outright, never silently substitute a different
+    # (possibly perfectly valid) base such as main-fallback - a wrong-but-
+    # resolvable substitution is a more dangerous failure than a skipped
+    # run, since the substituted base could be a valid ref the operator
+    # never declared.
     repo, _origin = init_repo_with_origin(tmp_path)
     write_agents_md(repo, "BASE_BRANCH: totally-made-up-branch\n")
     ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
-    # Falls through past the invalid AGENTS.md declaration all the way to
-    # the main-fallback tier (no develop/development branch exists here).
-    assert (ref, source) == ("origin/main", "main-fallback")
+    assert ref is None
+    assert source == "unresolved"
     assert len(diagnostics) == 1
     assert "totally-made-up-branch" in diagnostics[0]
     assert "agents-md" in diagnostics[0]
+
+
+def test_resolve_base_branch_declared_but_unresolvable_ignores_valid_lower_tiers(tmp_path):
+    # Reinforces the test above: even when a LOWER tier (local develop
+    # branch) would resolve cleanly, a declared-but-unresolvable AGENTS.md
+    # base still fails resolution rather than falling through to it.
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "develop")
+    write_agents_md(repo, "BASE_BRANCH: totally-made-up-branch\n")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert ref is None
+    assert source == "unresolved"
 
 
 def test_resolve_base_branch_origin_head_symbolic_ref(tmp_path):

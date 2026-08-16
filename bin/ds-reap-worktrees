@@ -223,11 +223,15 @@ Public API (CLI):
                           against. Default: None - when omitted, resolved
                           automatically via `resolve_base_branch` (see that
                           function's docstring for the full tier order:
-                          AGENTS.md's `BASE_BRANCH:` declaration, then
-                          `origin/HEAD`, then a local develop/development
-                          branch, then main falling back to master, each
-                          validated against origin and skipped with a
-                          diagnostic on failure). Passing --base explicitly
+                          AGENTS.md's `BASE_BRANCH:` declaration - which is
+                          AUTHORITATIVE, failing resolution outright rather
+                          than falling through if declared but unresolvable
+                          - then `origin/HEAD`, then a local develop/
+                          development branch, then main falling back to
+                          master, with tiers after the AGENTS.md
+                          declaration each validated against origin and
+                          skipped with a diagnostic on failure). Passing
+                          --base explicitly
                           uses it verbatim, no validation or fallthrough -
                           this preserves the tool's pre-existing precedence
                           for an operator override. Round-4 rework: this
@@ -385,7 +389,7 @@ Failure modes: exits 0 on success INCLUDING partial degradation (gh
                those classify UNMANAGED under `classify_entry` and are
                always reported, never touched, same as any other
                UNMANAGED entry. Every network-touching subprocess call
-               (`git ls-remote`, `gh auth status`, `gh pr view`) is
+               (`git ls-remote`, `gh auth status`, `gh pr list`) is
                wrapped with a timeout (`_NETWORK_TIMEOUT_SECONDS`); a
                timeout degrades that leg to inconclusive exactly like a
                `gh` error does, never a false ELIGIBLE.
@@ -395,7 +399,7 @@ Performance: `--count-only` - one `git worktree list --porcelain` call,
              the re-measured figure). Full mode - the above plus, per
              managed worktree entry: `git status --porcelain
              --ignored=matching`, `git merge-base --is-ancestor`, and
-             (unless --no-gh) `git ls-remote` + one `gh pr view`, plus a
+             (unless --no-gh) `git ls-remote` + one `gh pr list`, plus a
              final `git worktree prune`. Not designed for repositories
              with very large worktree counts; v1's full-mode `--no-gh`
              run measured 14.94s across ~31 entries on the live 38-
@@ -440,7 +444,7 @@ from worktree_model import (  # noqa: E402
 
 #: Every network-touching subprocess call in this file is bounded by this
 #: timeout (round-2 Major 4) - `git ls-remote`, `gh auth status`, and
-#: `gh pr view` all cross the network. A timeout degrades that evidence
+#: `gh pr list` all cross the network. A timeout degrades that evidence
 #: leg to inconclusive, identically to a `gh` error - it can only ever
 #: cause FEWER removals, never a false ELIGIBLE.
 _NETWORK_TIMEOUT_SECONDS = 8
@@ -590,21 +594,30 @@ def _resolve_repo(path: str) -> str:
 #      VERBATIM, no validation/fallthrough (preserves this tool's
 #      pre-existing precedence for an operator override; a bad explicit
 #      value is not silently second-guessed).
-#   b. a `BASE_BRANCH:` declaration in the repo's AGENTS.md.
+#   b. a `BASE_BRANCH:` declaration in the repo's AGENTS.md - AUTHORITATIVE,
+#      not merely first-ranked: if declared but its `origin/<name>` ref does
+#      not validate, resolution fails outright (source "unresolved") rather
+#      than falling through to tier c or below. conventions.md's canonical
+#      order says the declaration "wins. Highest priority," and a silent
+#      substitution of a different (possibly perfectly valid) base is a
+#      more dangerous failure than a skipped run - the substituted base
+#      being valid is exactly what would let a wrongful reap slip through
+#      undetected. Only tiers c-f below have a same-tier-to-next-tier
+#      fallthrough on validation failure.
 #   c. `git symbolic-ref refs/remotes/origin/HEAD`.
 #   d. a local `develop` branch.
 #   e. a local `development` branch.
 #   f. `main`, then `master`.
 # Tiers b-f each resolve to an `origin/<name>` ref (mirroring the shell
 # pipeline this replaces, which always compared against the REMOTE branch)
-# and are each validated with `git rev-parse --verify` before use; a
-# resolved-but-nonexistent candidate is reported via a diagnostic and the
-# next candidate is tried, never a hard failure on the first miss. Only
-# when every candidate fails does resolution fail, naming every candidate
-# tried.
+# and are each validated with `git rev-parse --verify` before use. Among
+# tiers c-f, a resolved-but-nonexistent candidate is reported via a
+# diagnostic and the next candidate is tried, never a hard failure on the
+# first miss (tier b is the sole exception - see above). Only when every
+# candidate fails does resolution fail, naming every candidate tried.
 #
 # This order deliberately differs from content/rules/conventions.md's
-# canonical §Base branch resolution in two ways, both because this tool
+# canonical §Base branch resolution in three ways, all because this tool
 # runs non-interactively with no operator to prompt:
 #   1. it inserts an extra tier (c, origin/HEAD) between the AGENTS.md
 #      declaration and the local develop/development tiers - the
@@ -615,7 +628,12 @@ def _resolve_repo(path: str) -> str:
 #   2. conventions.md's final step is an interactive prompt (offering
 #      main, falling back to master, with an explicit decline path) - this
 #      tool has no operator to prompt, so it resolves main (falling back
-#      to master) directly instead of stopping to ask.
+#      to master) directly instead of stopping to ask;
+#   3. a declared-but-unresolvable AGENTS.md base fails resolution outright
+#      instead of falling through to a lower tier - conventions.md's prose
+#      does not itself specify fallthrough-on-declared-but-unresolvable
+#      behavior, since its resolution is interactive; this tool makes the
+#      choice explicit rather than picking silent substitution by default.
 # --------------------------------------------------------------------------
 
 #: Matches a `BASE_BRANCH:` declaration line, tolerating an optional
@@ -727,7 +745,10 @@ def resolve_base_branch(
 ) -> Tuple[Optional[str], str, List[str]]:
     """Resolve the --base ref per the tier order documented in the module
     comment above. Returns (resolved_ref, source_tier, diagnostics):
-    `resolved_ref` is None only when every automatic candidate failed
+    `resolved_ref` is None either when an AGENTS.md `BASE_BRANCH:`
+    declaration is present but its ref fails validation (declaration is
+    authoritative, never falls through to a lower tier - see module
+    comment), or when every tier-c-through-f automatic candidate failed
     validation (`explicit_base` given always resolves, tier "explicit");
     `source_tier` is one of "explicit", "agents-md", "origin-head",
     "local-develop", "local-development", "main-fallback",
@@ -742,13 +763,33 @@ def resolve_base_branch(
     if explicit_base is not None:
         return explicit_base, "explicit", diagnostics
 
-    candidates: List[Tuple[str, str]] = []
-
+    # A `BASE_BRANCH:` declaration in AGENTS.md is authoritative, not just a
+    # ranked candidate - conventions.md's canonical resolution order says
+    # the declaration "wins. Highest priority." A declared-but-unresolvable
+    # value must never silently fall through to origin/HEAD, a local
+    # develop/development branch, or main/master: those could easily be
+    # VALID branches that resolve cleanly, so a fallthrough would reap
+    # against a base the operator never declared, with no error surfaced -
+    # the dangerous case is exactly the one where the substituted base is
+    # itself valid. Fail the whole resolution here (never a hard crash;
+    # `resolved_ref is None` already fails safe at the caller, which skips
+    # the reap for this run without exiting nonzero).
     agents_md_text = _read_agents_md(repo)
     if agents_md_text is not None:
         declared = _parse_base_branch_declaration(agents_md_text)
         if declared:
-            candidates.append((f"origin/{declared}", "agents-md"))
+            ref = f"origin/{declared}"
+            if _ref_exists(repo, ref):
+                return ref, "agents-md", diagnostics
+            diagnostics.append(
+                f"ds-reap-worktrees: declared base candidate '{ref}' (source: agents-md) "
+                "does not exist on origin - AGENTS.md's BASE_BRANCH declaration is "
+                "authoritative and is never silently overridden by a different base; "
+                "resolution fails rather than falling through."
+            )
+            return None, "unresolved", diagnostics
+
+    candidates: List[Tuple[str, str]] = []
 
     origin_head = _origin_head_branch(repo)
     if origin_head:
