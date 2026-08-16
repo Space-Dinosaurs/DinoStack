@@ -28,7 +28,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          (d) turns on authorization rather than sentence shape; marker
          necessity, placement discipline); Digest-return
          discipline; Orchestration enforcement hooks + fan-out
-         `skeptic_strategy` detail; Background-spawn enforcement detail.
+         `skeptic_strategy` detail; Background-spawn enforcement detail;
+         Mid-Session Ticket Composition is Zero-Spawn (composing a
+         mid-session discovery ticket draws only on context already held,
+         never a fresh agent spawn, protecting the in-flight session's
+         terrain).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing

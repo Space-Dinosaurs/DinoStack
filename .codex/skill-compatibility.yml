@@ -11122,16 +11122,6 @@
       "source_token": "done"
     },
     {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "83ff4cf652a3ca57e6ec7f9f9bc222dca640dda578fdc8ba87b6145c4a407c51",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
       "expected_target": "node",
       "generated_token": "node",
       "kind": "operational",
@@ -12990,6 +12980,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "a2e019e538f4e44cce08f8f6aefd7b36247ce8f94b67ebb6303bd77b8ea83be1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "fi",

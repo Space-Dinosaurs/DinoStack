@@ -3304,7 +3304,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          (d) turns on authorization rather than sentence shape; marker
          necessity, placement discipline); Digest-return
          discipline; Orchestration enforcement hooks + fan-out
-         `skeptic_strategy` detail; Background-spawn enforcement detail.
+         `skeptic_strategy` detail; Background-spawn enforcement detail;
+         Mid-Session Ticket Composition is Zero-Spawn (composing a
+         mid-session discovery ticket draws only on context already held,
+         never a fresh agent spawn, protecting the in-flight session's
+         terrain).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -15843,7 +15847,7 @@ Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before 
 
 Caller supplies:
 - `TICKET_TITLE` - one-line summary of the work
-- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (§Ticket descriptions, conventions-detail.md)
+- `TICKET_BODY` - markdown description; Problem + Acceptance Criteria mandatory (conventions-detail.md §Ticket descriptions)
 - `TICKET_TYPE` - `feature` | `bug` | `task`
 
 Helper returns:
@@ -16631,11 +16635,11 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 
 ## Phase 3: Architecture plan
 
-Spawn an `architect` agent. Provide:
-- Ticket title/description, label design content unverified/non-binding: read `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
+Spawn `architect`. Provide:
+- Ticket title/description, conductor-labeled `[per ticket-body, unverified]`: `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
 - Relevant code snippets
 - AGENTS.md conventions
-- Architectural decisions/rationale from MEMORY.md (or custom decision log) for this ticket
+- Architectural decisions/rationale from MEMORY.md (or custom decision log)
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
