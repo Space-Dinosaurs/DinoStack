@@ -293,3 +293,21 @@ def test_every_spawn_template_site_points_at_section_4_5() -> None:
         "Skeptic spawn template(s) missing a 'Section 4.5' pointer to the "
         "canonical Global-context block format:\n" + "\n".join(failures)
     )
+
+
+def test_set_shaped_claim_discipline_heading_is_non_dangling() -> None:
+    """DS-176: content/agents/skeptic.md's new Rules bullet points at
+    skeptic-protocol.md's '### Set-shaped claim discipline' heading - if
+    that heading is ever renamed or removed, the pointer goes dangling
+    silently (no build failure, no runtime error). Mirrors
+    test_skeptic_agent_delegates_by_reference's non-dangling-pointer shape."""
+    agent_text = _read(SKEPTIC_AGENT)
+    assert "Set-shaped claim discipline" in agent_text, (
+        f"{SKEPTIC_AGENT} no longer points at the Set-shaped claim discipline "
+        "section (Rules bullet removed or reworded)"
+    )
+    protocol_text = _read(SKEPTIC_PROTOCOL)
+    assert "### Set-shaped claim discipline" in protocol_text, (
+        f"{SKEPTIC_PROTOCOL} no longer carries the '### Set-shaped claim "
+        "discipline' heading the skeptic.md Rules bullet points at"
+    )

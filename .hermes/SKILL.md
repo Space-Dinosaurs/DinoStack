@@ -538,7 +538,7 @@ Claude Code locks each isolation worktree while its agent is running, so git ref
 | **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, two-class summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
 | **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
 | **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
-| **Code standards detail** | implementing or modifying code in a specific language | `content/references/code-standards-detail.md` §Per-Language Strict Defaults - TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs; §Browser Verification - `agent-browser` usage patterns |
+| **Code standards detail** | implementing or modifying code in a specific language, or writing a discovery-based check | `content/references/code-standards-detail.md` §Per-Language Strict Defaults - TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs; §Browser Verification - `agent-browser` usage patterns; §Discovery-Based Check Discipline - empty-discovery-set hard-fail requirement |
 | **Conventions detail** | consulting the intent layer, context economy, or external comment rules | `content/references/conventions-detail.md` §The Intent Layer - artifact list, Project Config toggle catalog; §Context Economy - context-window discipline; §External Comment Discipline - PR/review comment, ticket description, commit message, and assembled PR-body rules |
 | **Capture classification** | deciding whether to write a learning entry at a mandatory trigger | `content/references/capture-classification.md` - guardrail-first precedence chain, two-gate MUST/SHOULD/SKIP table, per-trigger declaration format. Mandatory triggers and the `Capture:` block format: `content/references/conductor-operating-rules.md §learnings-agent` |
 | **Outcome rubric** | authoring or reviewing a Brief for Elevated work | `content/references/planning-artifacts.md` - line schema (`{id, line, verification_type: deterministic \| judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), verification-gate `Rubric lines resolved` subsection. Co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/ds-brief` Section 3 copies the staged draft or elicits rubric lines inline. Independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding |
@@ -631,7 +631,7 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - **New projects (via `/ds-init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
 - **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
 
-Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults and §Browser Verification when implementing or modifying code.
+Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults, §Browser Verification, and §Discovery-Based Check Discipline when implementing or modifying code.
 
 ## Package Management
 
@@ -1835,8 +1835,10 @@ A trigger event with no declaration is a protocol gap; the Stop-hook backstop
 Purpose: Detailed code-standards reference blocks extracted from
          content/rules/code-standards.md. Contains: the verbose Per-language
          strict defaults block (TypeScript/JS, Python, Go, Rust, Next.js
-         strict settings) and the Browser Verification block (agent-browser
-         CLI usage for all browser verification tasks).
+         strict settings), the Browser Verification block (agent-browser
+         CLI usage for all browser verification tasks), and the
+         Discovery-Based Check Discipline block (mandated hard-fail forms
+         for any check whose result depends on a discovered set of items).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
@@ -1884,6 +1886,20 @@ agent-browser close           # close the session when done (close --all closes 
 ```
 
 After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+
+## Discovery-Based Check Discipline
+
+A discovery-based check is one whose pass/fail result depends on a set of items it finds at run time (files matching a glob, lines matching a pattern, entries produced by a scan) rather than a fixed, hand-typed expectation. This class of check passes vacuously - and certifies a gap closed that is still open - the moment its discovery step silently returns zero items: an empty result is trivially "consistent" with almost any assertion built on top of it.
+
+Every discovery-based check MUST hard-fail on zero discovered items, and MUST do so in one of three detectable forms. A check written in a fourth, undetectable idiom is a standards violation to be reported, not a guard silently missed:
+
+- **Form A (shell).** The failure phrase is written to a line using `>&2`, followed by `exit 1` or an equivalent non-zero exit within a few lines.
+- **Form B (python).** The failure phrase appears in a `print(..., file=sys.stderr)` call or a `sys.stderr.write(...)` call, followed by `sys.exit(1)` or `raise SystemExit` within a few lines.
+- **Form C (pytest-assert).** A single `assert <non-empty-check>, "<message containing the phrase>"` statement, where the assert statement is both the phrase-carrier and the failure mechanism. This is the dominant form in this repository.
+
+A docstring reference to a guard's failure phrase (documenting what the guard does, or citing it as precedent for a sibling check) is the only sanctioned way to mention the phrase outside an actual guard - it is classified DOCUMENTATION, not a violation and not a guard, and does not count toward a check's live-guard total. A phrase mention anywhere else that is not a docstring (a `#` comment, a non-first-statement string, ordinary prose) reports as NON-CONFORMING; this is deliberate, not an oversight, so route future mentions of a guard phrase into a docstring or an actual guard.
+
+Reference implementations that conform: the `hooks-python-tests`, `bin-sh-tests`, `hooks-js-tests`, and `hooks-sh-tests` CI jobs, and `hooks/tests/test-hooks-pep604-guard.py`'s Form-B guards.
 
 ---
 
@@ -6173,9 +6189,15 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 7. Conductor spawn brief (claim-bearing text only): <the conductor-composed sentences that assert a value, path, count, or rationale - excluding the pasted execution-contract boilerplate, .agentic/context.md content, and SESSION_KEY line>, OR n/a - <reason>
 ```
 
+### Set-shaped claim discipline
+
+When composing field 4 (per-consumer impact table) and field 5 (related files), or any adversarial-brief prose that enumerates a set (a file list, a count of instances or call sites, a "related files" enumeration), present the enumeration as navigational context, never as a proven result. State the search method or property a reviewer can use to verify the set, not the claimed enumeration as settled fact - the Skeptic independently re-derives any set-shaped claim before relying on it (see `content/agents/skeptic.md` §Rules and Step 7).
+
 On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
 
 **Rejected design (signed rationale, recorded as a remark):** field 7's value is required to carry the claim-bearing text itself, not a pointer to it - a path-to-persisted-brief-file form was rejected because a worktree-isolated Skeptic cannot resolve primary-checkout paths.
+
+Fields 4 and 5 are conductor/architect-supplied navigational context, not verified evidence - the Skeptic independently re-derives any set-shaped claim before relying on it (see §Set-shaped claim discipline above).
 
 ### Enumerated `n/a` rationale set
 
@@ -12901,7 +12923,7 @@ dependency_scan: clean | cves_found | not_run
 ---
 name: skeptic
 model: opus
-description: "Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a \"## Global-context inputs\" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format."
+description: "Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a \"## Global-context inputs\" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, diff under review, and conductor spawn brief (claim-bearing text only, or n/a)). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format."
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -12989,7 +13011,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 4.6. **Async error-handling check.** For any diff that invokes <!-- shared:async-primitive-list -->an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome<!-- /shared --> ("fire-and-forget"), verify there is an explicit failure path: a `.catch()`/`try-catch` attached at the call site, or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors (log, metric, error reporter). A fire-and-forget call with no attached error handler is a **Major** finding regardless of whether the existing test suite and typecheck pass - unhandled rejections are invisible to `tsc`/`mypy` and to unit tests that only assert the happy path. Do not accept the presence of an unrelated global error handler (a process-level `unhandledRejection` listener, a generic framework error middleware, a top-level Sentry init) as sufficient unless the Worker's output demonstrates that specific call site is wired into it - a global catch-all that merely logs and continues is observability, not resolution, and does not by itself downgrade the finding.
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
-7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it.
+7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it. Do not accept the table's row count as complete: before applying this check, independently re-derive the consumer set (Grep/Glob for the changed symbol, utility, or shared path) and diff it against the table. A table that omits a real consumer is itself a **Major** finding (undercounted per-consumer impact table), in addition to any unaddressed row.
 8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it. Emit the result of this check via the fixed `Manifest check:` sign-off line defined below - do not fold it into free-form prose.
 
    **Prose-scoped re-check (verification-cost lever, not a severity change).** When every unresolved finding from the current round is prose-only (stale module manifest, doc-sync attestation, or a comment/count wording defect) AND the fix diff contains no code, test, or behavior change, the NEXT verification is a prose-scoped re-check rather than a full fresh adversarial pass: verify only (a) the changed prose lines against the live tree facts they assert, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. A code, test, or behavior finding newly discovered during this narrower pass is classified and escalated normally - it is not suppressed by the narrower scope. This does not apply while any code/test/behavior finding remains unresolved. See `content/references/skeptic-protocol.md` §Prose-scoped re-check for the round-loop mechanics, invocation contract, and required sign-off `Scope:` line this modifies.
@@ -13073,6 +13095,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 ## Rules
 
+- **Never accept a supplied set as verified - re-derive it.** When a spawn input or the diff asserts a SET (a file list, a per-consumer impact table, a "related files" enumeration, a claimed count of instances or call sites), treat it as an unverified claim from the conductor/architect/Worker, not evidence. Before using it to ground a finding or its absence, independently re-derive the set with Grep/Glob/Bash and compare. This governs Step 4.5 (cross-file reference consistency) and Step 7 (per-consumer impact check) specifically, and any other point in this review where a finding rests on a claimed enumeration you did not derive yourself. See `content/references/skeptic-protocol.md` §Set-shaped claim discipline for the conductor-side brief-composition half of this rule.
 - Never omit the "Active search:" line. Never grant sign-off without it.
 - The conductor validates format - if format is wrong, a format re-invocation will follow. Respond with the same findings in the correct format.
 - **No `learnings_candidate[]` block, ever.** Your sign-off is checked for a fixed set of required elements, and the conductor's routing hop reads `learnings_candidate[]` only from `engineer`, `investigator` and `debugger` returns - so a block appended here is unparsed text inside a validated format, not capture. A defect you found belongs in the Findings list, which the conductor already routes through the mandatory triggers on resolution. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
