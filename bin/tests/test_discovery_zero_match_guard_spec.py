@@ -49,12 +49,16 @@ False-positive reasoning: two prose references to the guard phrase exist
          constant of a Module/FunctionDef), out of scope, not a violation -
          see `test_docstring_reference_not_flagged_as_violation`.
 AC-5 scope justification (re-derive fresh at PR time, never trust a cited
-         cardinal): as of this file's introduction, 30-of-80
-         `bin/tests/*.py` files use a discovery pattern (`glob`, `rglob`,
-         `os.walk`, or `git ls-files`), against 7 live guards (this file's
-         own guard plus the 6 documented above) carrying the mandated-form
-         phrase, across 4 files. A universal meta-linter over all 30 is out
-         of this ticket's two-item scope and requires the same
+         cardinal): as of this file's introduction, 30-of-77 files matched
+         by the flat (non-recursive) `bin/tests/*.py` glob use a discovery
+         pattern (`.glob(`, `.rglob(`, `os.walk(`, or `git ls-files`),
+         against 7 live guards (this file's own guard plus the 6
+         documented above) carrying the mandated-form phrase, across 4
+         files. (The recursive `bin/tests/**/*.py` glob yields 80, not 77
+         - a different method with a different denominator; this
+         justification cites the flat glob because that is the method
+         that was actually run.) A universal meta-linter over all 30 is
+         out of this ticket's two-item scope and requires the same
          DOCUMENTATION-vs-CODE judgment the AST approach makes tractable
          for these 4 files but not yet repo-wide - a deliberate,
          documented limitation, not a silent gap.
@@ -265,9 +269,29 @@ def _check_form_b(lines: list[str], line_range: tuple[int, int]) -> bool:
     return "sys.exit(1)" in joined_after or "raise SystemExit" in joined_after
 
 
-def _check_form_c(lines: list[str], line_range: tuple[int, int]) -> bool:
-    window = lines[max(0, line_range[0] - 4) : min(len(lines), line_range[1] + 4)]
-    return bool(re.search(r"\bassert\b", "\n".join(window)))
+def _check_form_c(text: str, line_range: tuple[int, int]) -> bool:
+    """AST-based, not proximity regex (DS-176 rework Major fix). A
+    `\\bassert\\b` window scan fails open: it matches an unrelated `assert
+    True` sitting a few lines from a phrase that is only ever `print()`ed
+    (no `sys.exit`, no real assert), so a log-only guard misclassifies as
+    conforming. The mandated form requires the assert statement itself to
+    CARRY the phrase and BE the failure mechanism - so this walks the
+    parsed module for `ast.Assert` nodes and requires the phrase hit's own
+    line range to fall inside that specific assert statement's own source
+    span (its `lineno`..`end_lineno`), not merely be textually nearby."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return False
+    hit_start, hit_end = line_range
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        node_start = node.lineno
+        node_end = getattr(node, "end_lineno", node.lineno)
+        if node_start <= hit_end and hit_start <= node_end:
+            return True
+    return False
 
 
 def _conforms_to_mandated_form(
@@ -278,8 +302,10 @@ def _conforms_to_mandated_form(
     `print(..., file=sys.stderr)` or `sys.stderr.write(...)`; `sys.exit(1)`
     or `raise SystemExit` within a few lines after. Form C (pytest-assert -
     the dominant repo form): a single `assert <expr>, "<msg>"` statement,
-    where the assert IS both phrase-carrier and failure mechanism. For .py
-    files, a phrase occurring inside a docstring is classified
+    where the assert IS both phrase-carrier and failure mechanism -
+    AST-verified (the phrase hit must fall inside that specific assert
+    statement's own source span), not a `\\bassert\\b` proximity regex.
+    For .py files, a phrase occurring inside a docstring is classified
     DOCUMENTATION - out of scope, not a violation, not a guard."""
     lines = text.splitlines()
     if suffix in (".yml", ".yaml"):
@@ -290,16 +316,27 @@ def _conforms_to_mandated_form(
             return (True, "DOCUMENTATION")
         if _check_form_b(lines, line_range):
             return (True, "B")
-        if _check_form_c(lines, line_range):
+        if _check_form_c(text, line_range):
             return (True, "C")
         return (False, "NONE")
     return (False, "NONE")
 
 
-def _discover_live_sites() -> set[tuple[str, str]]:
+def _discover_live_sites(
+    root: pathlib.Path = REPO_ROOT,
+    rel_paths: list[pathlib.Path] | None = None,
+) -> set[tuple[str, str]]:
+    """`root`/`rel_paths` default to the real repo tree (`REPO_ROOT` /
+    `_tracked_relative_paths()`) - every non-mutation call site relies on
+    those defaults and is unaffected by this signature. The parameters
+    exist so `test_mutation_guard_entirely_removed_reddens` can exercise
+    THIS function against a real, disposable fixture file (DS-176 rework
+    Critical fix: the prior version of that test asserted on two local set
+    literals and never called this function at all)."""
     sites: set[tuple[str, str]] = set()
-    for rel in _tracked_relative_paths():
-        abs_path = REPO_ROOT / rel
+    paths = rel_paths if rel_paths is not None else _tracked_relative_paths()
+    for rel in paths:
+        abs_path = root / rel
         try:
             text = abs_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
@@ -353,7 +390,10 @@ def test_live_guard_sites_bidirectional_set_equality() -> None:
         f"live guard site(s) found on disk but not pinned in LIVE_GUARD_SITES: {sorted(only_on_disk)}"
     )
     assert not only_pinned, (
-        f"LIVE_GUARD_SITES pin(s) not found on disk (phantom entry or deleted guard): {sorted(only_pinned)}"
+        "LIVE_GUARD_SITES pin(s) not found on disk (phantom entry, deleted "
+        "guard, or - most likely for this file's own 7th entry - this "
+        "test file itself is not yet `git add`ed and so invisible to the "
+        f"`git ls-files`-scoped discovery in an uncommitted checkout): {sorted(only_pinned)}"
     )
 
 
@@ -394,6 +434,40 @@ def test_own_vacuous_pass_guard_conforms_to_form_c() -> None:
     assert ok and form == "C", f"expected this file's own guard to conform to Form C, got ({ok}, {form})"
 
 
+def test_form_c_rejects_log_only_guard_with_unrelated_adjacent_assert() -> None:
+    """DS-176 rework Major fix regression test. Proven live on
+    hooks/tests/test-hooks-pep604-guard.py: replacing its `hook_files`
+    guard with a bare `print(...)` (no stderr, no exit) left an unrelated
+    `assert True` two lines away, and the old `\\bassert\\b` proximity
+    regex classified it as conforming Form C anyway. The assert must
+    CARRY the phrase and BE the failure mechanism, not merely sit nearby."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    print("ERROR: zero matched - {GUARD_PHRASE}")\n'
+        "    assert True\n"
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"log-only guard with an unrelated adjacent assert should NOT conform, got ({ok}, {form})"
+    )
+
+
+def test_form_c_accepts_assert_that_itself_carries_the_phrase() -> None:
+    """Positive companion to the test above: a real
+    `assert <expr>, "<msg with phrase>"` statement, where the assert IS
+    the failure mechanism, must still classify as Form C."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    assert hook_files, "zero matched - {GUARD_PHRASE}"\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert ok and form == "C", f"expected Form C, got ({ok}, {form})"
+
+
 def test_mutation_weakened_to_log_only_reddens() -> None:
     """AC-4 variant 1: delete only the failure statement (exit 1), leaving
     the log line - the classic 'we log but don't fail' vacuous-pass shape.
@@ -408,16 +482,50 @@ def test_mutation_weakened_to_log_only_reddens() -> None:
     assert not ok, f"weakened (no exit 1) guard should NOT conform, got ({ok}, {form})"
 
 
-def test_mutation_guard_entirely_removed_reddens() -> None:
+def test_mutation_guard_entirely_removed_reddens(tmp_path: pathlib.Path) -> None:
     """AC-4 variant 2: delete the whole guard block - the phrase (and thus
-    the site) simply vanishes from disk. Confirmed via a phantom-pin
-    scenario: a LIVE_GUARD_SITES entry naming a site absent from a fixture
-    tree is flagged by the bidirectional set-equality logic (exercised
-    directly here on an in-memory fixture rather than the tracked tree)."""
-    fixture_sites: set[tuple[str, str]] = set()  # guard removed - nothing discovered
-    phantom_pin = frozenset({("fake/deleted-guard.yml", "deleted-job")})
-    only_pinned = phantom_pin - fixture_sites
-    assert only_pinned, "phantom-classification check itself is broken (should be non-empty)"
+    the site) simply vanishes from disk. DS-176 rework Critical fix: the
+    prior version of this test built `phantom_pin - fixture_sites` from
+    two LOCAL LITERALS - pure set arithmetic that referenced no module
+    symbol and exercised no code path (proven vacuous by gutting
+    `_discover_live_sites()` to `return set()`: four other tests failed
+    and this one still passed). This version writes a REAL fixture file to
+    a disposable `tmp_path`, calls the ACTUAL `_discover_live_sites()`
+    against it before and after the guard block is deleted, and asserts
+    the real discovery+comparison path reports the phantom - exactly the
+    logic `test_live_guard_sites_bidirectional_set_equality` runs against
+    the tracked tree."""
+    fixture_rel = pathlib.Path("fixture-guard.yml")
+    fixture_path = tmp_path / fixture_rel
+    fixture_path.write_text(
+        "jobs:\n"
+        "  some-job:\n"
+        "    steps:\n"
+        f'      - run: echo "ERROR: zero matched - {GUARD_PHRASE}" >&2; exit 1\n'
+    )
+
+    before = _discover_live_sites(root=tmp_path, rel_paths=[fixture_rel])
+    assert ("fixture-guard.yml", "some-job") in before, (
+        "setup sanity check failed: the real _discover_live_sites() did "
+        f"not discover the fixture guard before removal, got {sorted(before)}"
+    )
+
+    # Mutate on disk: delete the whole guard block, mirroring a real
+    # accidental deletion - the phrase (and thus the site) vanishes.
+    fixture_path.write_text(
+        "jobs:\n"
+        "  some-job:\n"
+        "    steps:\n"
+        "      - run: echo done\n"
+    )
+
+    after = _discover_live_sites(root=tmp_path, rel_paths=[fixture_rel])
+    phantom_pin = frozenset({("fixture-guard.yml", "some-job")})
+    only_pinned = phantom_pin - after
+    assert only_pinned, (
+        "guard removal not detected: the real _discover_live_sites() "
+        f"still reports the removed site as present, got {sorted(after)}"
+    )
 
 
 def test_docstring_reference_not_flagged_as_violation() -> None:
