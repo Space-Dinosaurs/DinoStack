@@ -375,14 +375,21 @@ Failure modes: exits 0 on success INCLUDING partial degradation (gh
                an internal/usage error: --repo is not a directory or not a
                git repository, or an unhandled exception while
                enumerating worktrees. (round-4 rework) When --base is
-               omitted and every automatic resolution candidate fails
-               `git rev-parse --verify` against origin,
-               `resolve_base_branch` names every candidate tried (printed
-               to stderr) and the run exits 0 having done nothing - a
-               resolved-but-invalid base fails SAFE, matching the shell
-               pipeline this replaces (a WARNING, never a hard exit, so a
-               caller's subsequent steps still run); nothing is ever
-               removed against a guessed-wrong base regardless. Never
+               omitted, base resolution can fail two ways, both exiting 0
+               having done nothing: either AGENTS.md declares a
+               `BASE_BRANCH:` whose `origin/<name>` ref does not validate -
+               the declaration is AUTHORITATIVE and never falls through to
+               a lower tier on failure, so this alone is fatal to
+               resolution - or, when no declaration exists, every
+               automatic candidate (origin/HEAD, local develop/development,
+               main falling back to master) fails `git rev-parse --verify`
+               against origin. Either way `resolve_base_branch` names every
+               candidate tried (printed to stderr) and the run exits 0
+               having done nothing - a resolved-but-invalid base fails
+               SAFE, matching the shell pipeline this replaces (a WARNING,
+               never a hard exit, so a caller's subsequent steps still
+               run); nothing is ever removed against a guessed-wrong base
+               regardless. Never
                removes a dirty, self, too-
                young, locked, or ignored-content-bearing worktree under
                any circumstance. Never removes `evals/.worktrees/*` -
@@ -785,7 +792,9 @@ def resolve_base_branch(
                 f"ds-reap-worktrees: declared base candidate '{ref}' (source: agents-md) "
                 "does not exist on origin - AGENTS.md's BASE_BRANCH declaration is "
                 "authoritative and is never silently overridden by a different base; "
-                "resolution fails rather than falling through."
+                "resolution fails rather than falling through. Fix the branch name in "
+                "AGENTS.md's BASE_BRANCH declaration so it resolves on origin, or pass "
+                "--base explicitly to override the declaration for this run."
             )
             return None, "unresolved", diagnostics
 
