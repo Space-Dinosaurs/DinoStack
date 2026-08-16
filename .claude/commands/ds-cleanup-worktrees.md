@@ -39,7 +39,7 @@ git worktree prune
 
 Resolve `bin/ds-reap-worktrees`: check `$REPO_DIR/bin/ds-reap-worktrees` first (the `REPO_DIR` env var, when the operator's shell happens to have it set), else fall back to PATH. This is NOT the same mechanism `hooks/session-start-wrap.sh` uses (it resolves `AE_REPO_DIR` via `resolve_ae_repo_dir_with_fallback`, sourced relative to that script's own on-disk location - a trick this inline Bash block, run ad hoc with no stable file location of its own, cannot reproduce) or `bin/ds-base-sync` (which resolves its colocated `$SCRIPT_DIR/ds-reap-worktrees` directly, with no PATH fallback at all). `REPO_DIR` is rarely set in an interactive or conductor shell, so this almost always lands on the PATH fallback - which is exactly why every adapter's install script wires `bin/` onto PATH. This single call replaces the entire manual classify (`classify_entry`) -> lock/dirty -> merge-evidence -> disposition (`disposition_for`) walk a hand-authored version of this step used to spell out here: same normative predicate, no second copy to drift.
 
-Derive the project's base branch the same non-interactive way the rest of the methodology does (`content/rules/conventions.md` §Base branch resolution, steps 1-3 and 5 - no interactive prompt here): a `BASE_BRANCH:` declaration in `AGENTS.md` wins; else a local `develop` branch; else a local `development` branch; else `main` (falling back to `master` if `main` does not exist locally). Pass the result explicitly via `--base` - leaving it at the tool's own `origin/main` default silently evaluates merge evidence against the wrong branch on a `develop`-based repo.
+**Base-branch resolution is no longer this command file's job (round-4 rework).** A prior version of this step hand-derived `--base` here via a grep/awk/sed text-extraction pipeline over `AGENTS.md`; that pipeline produced a fresh defect in three consecutive review rounds (a prose sentence that merely mentioned `BASE_BRANCH:` matching, mishandled quotes, a doubled `origin/` prefix, trailing whitespace surviving normalization, a fence-stripper that missed indented and `~~~` fences) - each fix was an input-variant patch on the last. `bin/ds-reap-worktrees` now resolves its own base automatically when `--base` is omitted: an `AGENTS.md` `BASE_BRANCH:` declaration, then `git symbolic-ref refs/remotes/origin/HEAD`, then a local `develop` branch, then a local `development` branch, then `main` falling back to `master` - each candidate validated against origin before use, with a diagnostic and fallthrough to the next candidate on a resolved-but-nonexistent value. See `resolve_base_branch`'s docstring in `bin/ds-reap-worktrees` for the full tier order and its documented, deliberate deviations from `content/rules/conventions.md` §Base branch resolution. Simply omit `--base` below; do not re-derive it here. When every automatic candidate fails validation, the binary names every candidate tried on stderr and exits 0 having removed nothing (fail-safe, not fatal - the same asymmetry the old inline pipeline had: a WARNING and a skipped reap for the session, never a hard nonzero exit that would abort Steps 3/4 below).
 
 ```bash
 DS_REAP_BIN=""
@@ -50,52 +50,18 @@ elif command -v ds-reap-worktrees >/dev/null 2>&1; then
 fi
 
 if [[ -n "$DS_REAP_BIN" ]]; then
-  # Declaration extraction is anchored to end-of-line (modulo an optional
-  # surrounding backtick/quote/trailing period) so a prose sentence that
-  # merely MENTIONS `BASE_BRANCH:` (e.g. "BASE_BRANCH: resolution rules.")
-  # can never match - only a genuine one-token declaration line can reach
-  # end-of-line before a second word appears. Fenced code blocks are
-  # stripped first so an illustrative example inside a ```-fence can never
-  # beat a real declaration via `head -1`. Quotes and a leading `origin/`
-  # prefix (an operator writing `BASE_BRANCH: origin/develop`) are both
-  # stripped from the extracted value before use, since this value is
-  # concatenated after our own `origin/` prefix below (round-3 Skeptic
-  # Minor 2).
-  DS_BASE_BRANCH="$(awk '/^```/{f=!f;next} !f' AGENTS.md 2>/dev/null \
-    | grep -oE '`?BASE_BRANCH:[[:space:]]*"?[A-Za-z0-9_./-]+"?`?\.?[[:space:]]*$' \
-    | head -1 \
-    | sed -E 's/^`?BASE_BRANCH:[[:space:]]*//; s/"//g; s/`//g; s/\.[[:space:]]*$//; s/^origin\///')"
-  if [[ -z "$DS_BASE_BRANCH" ]] && git show-ref --verify --quiet refs/heads/develop; then
-    DS_BASE_BRANCH="develop"
-  elif [[ -z "$DS_BASE_BRANCH" ]] && git show-ref --verify --quiet refs/heads/development; then
-    DS_BASE_BRANCH="development"
-  fi
-  if [[ -z "$DS_BASE_BRANCH" ]]; then
-    DS_BASE_BRANCH="main"
-    git show-ref --verify --quiet refs/heads/main || DS_BASE_BRANCH="master"
-  fi
-
-  # Validate the resolved ref actually exists on origin before using it -
-  # a bogus/misresolved base (malformed declaration, typo, renamed branch)
-  # otherwise fails SAFE inside ds-reap-worktrees (merge evidence silently
-  # reads "unmerged" for everything, `removed=0`, no error) which is the
-  # same silent-no-op operator-attention defect the round-1 age-floor NOTE
-  # was added to close (round-3 Skeptic Minor 2).
-  if ! git rev-parse --verify --quiet "origin/$DS_BASE_BRANCH" >/dev/null 2>&1; then
-    echo "WARNING: resolved base branch 'origin/$DS_BASE_BRANCH' does not exist on origin - check AGENTS.md's BASE_BRANCH: declaration (or the local develop/development/main fallback) for a typo or a renamed branch. Skipping the reap this session rather than running it against a base that would silently evaluate every branch as unmerged (removed=0 with no explanation)." >&2
-  else
-    # Default: actually remove, with a full per-entry breakdown. If the
-    # operator asked for a preview/dry run instead ("show me what would be
-    # removed", "don't delete anything yet"), add --dry-run - --explain
-    # stays on either way so the report below has real detail to work from.
-    # `--explain` alone does NOT imply `--dry-run`: without --dry-run this
-    # invocation deletes.
-    "$DS_REAP_BIN" --base "origin/$DS_BASE_BRANCH" --explain
-    DS_REAP_STATUS=$?
-    if [[ "$DS_REAP_STATUS" -ne 0 ]]; then
-      echo "ERROR: ds-reap-worktrees exited $DS_REAP_STATUS - do NOT treat this as a completed reap. Stop and report the failure output above instead of proceeding to Steps 3/4 as though removal succeeded." >&2
-      exit "$DS_REAP_STATUS"
-    fi
+  # Default: actually remove, with a full per-entry breakdown. If the
+  # operator asked for a preview/dry run instead ("show me what would be
+  # removed", "don't delete anything yet"), add --dry-run - --explain
+  # stays on either way so the report below has real detail to work from.
+  # `--explain` alone does NOT imply `--dry-run`: without --dry-run this
+  # invocation deletes. No --base flag: the binary resolves it itself (see
+  # above) and prints which candidate it used.
+  "$DS_REAP_BIN" --explain
+  DS_REAP_STATUS=$?
+  if [[ "$DS_REAP_STATUS" -ne 0 ]]; then
+    echo "ERROR: ds-reap-worktrees exited $DS_REAP_STATUS - do NOT treat this as a completed reap. Stop and report the failure output above instead of proceeding to Steps 3/4 as though removal succeeded." >&2
+    exit "$DS_REAP_STATUS"
   fi
 else
   echo "WARNING: ds-reap-worktrees not found (REPO_DIR/bin or PATH) - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Worktree reap skipped this session." >&2

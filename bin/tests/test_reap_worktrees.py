@@ -57,6 +57,17 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "ds-reap-worktrees"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import importlib.machinery as _ilm  # noqa: E402
+import importlib.util as _ilu  # noqa: E402
+
+_loader = _ilm.SourceFileLoader("ds_reap_worktrees", str(SCRIPT))
+_spec = _ilu.spec_from_loader("ds_reap_worktrees", _loader)
+ds_reap_worktrees = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_loader.exec_module(ds_reap_worktrees)
+
 
 # --------------------------------------------------------------------------
 # git helpers
@@ -1757,3 +1768,273 @@ def test_too_young_note_line_printed_when_nonzero(tmp_path):
     assert "NOTE: 1 worktree(s) skipped because they are younger than" in proc.stdout, proc.stdout
     assert "--min-age-hours 0" in proc.stdout
     assert str(wt) in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 34. Base-branch resolution (round-4 rework, DS-cleanup-worktrees). Moves
+#     content/commands/ds-cleanup-worktrees.md's former hand-rolled
+#     grep/awk/sed pipeline into `resolve_base_branch` /
+#     `_parse_base_branch_declaration` - table-driven, direct unit coverage
+#     of every input variant that broke a prior review round, plus a few
+#     end-to-end CLI checks confirming the wiring.
+# --------------------------------------------------------------------------
+
+
+def set_origin_head(repo: Path, branch: str) -> None:
+    """Sets `refs/remotes/origin/HEAD` locally (no real network query - a
+    direct `symbolic-ref` write against the already-pushed local
+    remote-tracking ref) so tier (c) is reachable in a test without relying
+    on `git remote set-head -a`'s remote-advertisement behavior."""
+    _git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", f"refs/remotes/origin/{branch}")
+
+
+def write_agents_md(repo: Path, text: str) -> None:
+    (repo / "AGENTS.md").write_text(text)
+
+
+def push_new_branch(repo: Path, branch: str) -> None:
+    """Creates and pushes a new branch from current HEAD without checking
+    it out (so the repo's own working branch is left untouched) and without
+    creating a worktree for it."""
+    _git(repo, "branch", branch)
+    _git(repo, "push", "-q", "origin", f"{branch}:{branch}")
+
+
+@pytest.mark.parametrize(
+    "agents_md_text,expected",
+    [
+        pytest.param("BASE_BRANCH: main\n", "main", id="bare_declaration"),
+        pytest.param("BASE_BRANCH: develop   \n", "develop", id="trailing_whitespace"),
+        pytest.param("   BASE_BRANCH: develop\n", "develop", id="leading_whitespace"),
+        pytest.param('BASE_BRANCH: "develop"\n', "develop", id="double_quoted"),
+        pytest.param("BASE_BRANCH: 'develop'\n", "develop", id="single_quoted"),
+        pytest.param("BASE_BRANCH: `develop`\n", "develop", id="backtick_quoted"),
+        pytest.param("BASE_BRANCH: origin/develop\n", "develop", id="origin_prefix"),
+        pytest.param("BASE_BRANCH: refs/heads/develop\n", "develop", id="refs_heads_prefix"),
+        pytest.param("BASE_BRANCH: staging  # our integration branch\n", "staging", id="trailing_comment"),
+        pytest.param(
+            "**Base branch:** Declaration: `BASE_BRANCH: main`.\n",
+            "main",
+            id="whole_phrase_backtick_wrapped_with_period",
+        ),
+        pytest.param(
+            "```\nBASE_BRANCH: wrong-fenced-example\n```\nBASE_BRANCH: staging\n",
+            "staging",
+            id="fenced_example_then_real_declaration",
+        ),
+        pytest.param(
+            "~~~\nBASE_BRANCH: wrong-tilde-fenced-example\n~~~\nBASE_BRANCH: staging\n",
+            "staging",
+            id="tilde_fenced_example_then_real_declaration",
+        ),
+        pytest.param(
+            "    BASE_BRANCH: wrong-indented-example\nBASE_BRANCH: staging\n",
+            "staging",
+            id="indented_fence_then_real_declaration",
+        ),
+        pytest.param("Some notes.\nBASE_BRANCH: resolution rules.\n", None, id="prose_mention_not_a_declaration"),
+        pytest.param("Nothing here about a base branch.\n", None, id="no_base_branch_line_at_all"),
+        pytest.param("", None, id="empty_file"),
+    ],
+)
+def test_parse_base_branch_declaration_table(agents_md_text, expected):
+    assert ds_reap_worktrees._parse_base_branch_declaration(agents_md_text) == expected
+
+
+def test_resolve_base_branch_explicit_argument_wins_verbatim_no_validation(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    write_agents_md(repo, "BASE_BRANCH: develop\n")
+    # A nonexistent explicit ref is used VERBATIM, no fallthrough - this
+    # preserves the tool's pre-existing precedence for an operator
+    # override, per the ticket brief.
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), "origin/does-not-exist")
+    assert (ref, source) == ("origin/does-not-exist", "explicit")
+    assert diagnostics == []
+
+
+def test_resolve_base_branch_agents_md_declaration_wins_over_lower_tiers(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "staging")
+    write_agents_md(repo, "BASE_BRANCH: staging\n")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/staging", "agents-md")
+    assert diagnostics == []
+
+
+def test_resolve_base_branch_falls_through_a_nonexistent_declared_branch(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    write_agents_md(repo, "BASE_BRANCH: totally-made-up-branch\n")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    # Falls through past the invalid AGENTS.md declaration all the way to
+    # the main-fallback tier (no develop/development branch exists here).
+    assert (ref, source) == ("origin/main", "main-fallback")
+    assert len(diagnostics) == 1
+    assert "totally-made-up-branch" in diagnostics[0]
+    assert "agents-md" in diagnostics[0]
+
+
+def test_resolve_base_branch_origin_head_symbolic_ref(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "release")
+    set_origin_head(repo, "release")
+    # No AGENTS.md at all - origin/HEAD is the next tier.
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/release", "origin-head")
+    assert diagnostics == []
+
+
+def test_resolve_base_branch_agents_md_beats_origin_head(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "release")
+    set_origin_head(repo, "release")
+    push_new_branch(repo, "staging")
+    write_agents_md(repo, "BASE_BRANCH: staging\n")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/staging", "agents-md")
+
+
+def test_resolve_base_branch_local_develop(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "develop")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/develop", "local-develop")
+
+
+def test_resolve_base_branch_local_development(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "development")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/development", "local-development")
+
+
+def test_resolve_base_branch_main_fallback_no_agents_md(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/main", "main-fallback")
+    assert diagnostics == []
+
+
+def test_resolve_base_branch_agents_md_with_no_base_branch_line(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    write_agents_md(repo, "# Some Project\n\nJust ordinary prose, no declaration.\n")
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert (ref, source) == ("origin/main", "main-fallback")
+    assert diagnostics == []
+
+
+def test_resolve_base_branch_every_candidate_fails_names_all_tried(tmp_path):
+    # A repo whose origin has neither main nor master - both fallback
+    # candidates fail validation, and (no AGENTS.md, no origin/HEAD symref,
+    # no local develop/development) every other tier is simply absent, so
+    # this reaches the terminal "every candidate failed" case.
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "trunk", str(origin)], check=True)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "trunk")
+    _git(repo, "config", "user.email", "spec@example.com")
+    _git(repo, "config", "user.name", "spec")
+    (repo / "README.md").write_text("init\n")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-q", "-u", "origin", "trunk")
+
+    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    assert ref is None
+    assert source == "unresolved"
+    assert len(diagnostics) == 3, diagnostics  # main-fallback, master-fallback, final summary
+    assert "origin/main" in diagnostics[-1]
+    assert "origin/master" in diagnostics[-1]
+    assert "main-fallback" in diagnostics[-1]
+    assert "master-fallback" in diagnostics[-1]
+
+
+def test_cli_auto_resolves_base_when_flag_omitted(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    push_new_branch(repo, "staging")
+    write_agents_md(repo, "BASE_BRANCH: staging\n")
+    cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "base auto-resolved to 'origin/staging' via agents-md" in proc.stdout
+    assert "base=origin/staging" in proc.stdout
+
+
+def test_cli_explicit_base_flag_suppresses_auto_resolve_message(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    cmd = [
+        sys.executable, str(SCRIPT), "--repo", str(repo), "--base", "origin/main",
+        "--dry-run", "--no-gh", "--min-age-hours", "0",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "auto-resolved" not in proc.stdout
+    assert "base=origin/main" in proc.stdout
+
+
+def test_cli_fails_safe_exit_0_when_every_base_candidate_fails(tmp_path):
+    """Preserves the shell pipeline this replaces' deliberate asymmetry: a
+    resolved-but-invalid/unresolvable base is a WARNING and a skipped reap
+    for the session, never a hard nonzero exit - so a caller (Step 2's
+    wrapper) that treats a nonzero `ds-reap-worktrees` exit as fatal and
+    aborts its remaining steps does NOT abort just because no base could
+    be resolved this run. Exit 1 stays reserved for a genuine
+    internal/usage error (bad --repo, an unhandled exception)."""
+    origin = tmp_path / "origin2.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "trunk", str(origin)], check=True)
+    repo = tmp_path / "repo2"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "trunk")
+    _git(repo, "config", "user.email", "spec@example.com")
+    _git(repo, "config", "user.name", "spec")
+    (repo / "README.md").write_text("init\n")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "push", "-q", "-u", "origin", "trunk")
+
+    cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0"]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "could not resolve a base branch" in proc.stderr
+    assert "base could not be resolved - reap skipped this run" in proc.stderr
+    assert "entries=" not in proc.stdout
+
+
+def test_count_only_still_makes_zero_base_resolution_git_calls(tmp_path):
+    """Regression guard (ticket brief regression #1): --count-only must
+    still make ZERO network calls and ZERO per-entry git calls beyond one
+    `git worktree list --porcelain` - base resolution must never run on
+    this path. A `git` stub that fails any invocation OTHER than `worktree
+    list` proves this directly rather than merely timing the call."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    real_git = shutil.which("git")
+    bin_dir = tmp_path / "onlylistbin"
+    bin_dir.mkdir()
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        # Allowed: `-C <repo> rev-parse --show-toplevel` (repo resolution,
+        # runs unconditionally, before the --count-only check) and
+        # `-C <repo> worktree list --porcelain` (entry enumeration). Any
+        # OTHER invocation - in particular anything base-resolution-shaped
+        # (symbolic-ref, show-ref, rev-parse --verify against a base ref) -
+        # fails deterministically, proving base resolution never runs on
+        # this path.
+        'if [ "$3" = "worktree" ] && [ "$4" = "list" ]; then\n'
+        f'  exec "{real_git}" "$@"\n'
+        "fi\n"
+        'if [ "$3" = "rev-parse" ] && [ "$4" = "--show-toplevel" ]; then\n'
+        f'  exec "{real_git}" "$@"\n'
+        "fi\n"
+        'echo "unexpected git invocation: $@" >&2\n'
+        "exit 99\n"
+    )
+    git_stub.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--count-only"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "entries=" in proc.stdout

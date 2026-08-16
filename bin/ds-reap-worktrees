@@ -220,7 +220,26 @@ Public API (CLI):
 
   --repo <path>          Repository to operate on. Default: cwd.
   --base <ref>           Base ref to prove ancestor-of-base evidence
-                          against. Default: "origin/main".
+                          against. Default: None - when omitted, resolved
+                          automatically via `resolve_base_branch` (see that
+                          function's docstring for the full tier order:
+                          AGENTS.md's `BASE_BRANCH:` declaration, then
+                          `origin/HEAD`, then a local develop/development
+                          branch, then main falling back to master, each
+                          validated against origin and skipped with a
+                          diagnostic on failure). Passing --base explicitly
+                          uses it verbatim, no validation or fallthrough -
+                          this preserves the tool's pre-existing precedence
+                          for an operator override. Round-4 rework: this
+                          replaces `content/commands/ds-cleanup-worktrees.md`
+                          Step 2's former hand-rolled grep/awk/sed
+                          text-extraction pipeline, which produced a fresh
+                          defect in three consecutive review rounds (prose
+                          false-match, quote/prefix mishandling, fence-
+                          stripper misses, trailing-whitespace survival,
+                          missing validation fallthrough) - tested Python
+                          instead of a shell pipeline nobody could
+                          exhaustively regression-test.
   --dry-run              Compute and report; remove nothing.
   --no-gh                Force degraded mode: skip BOTH the PR-state leg
                           AND `git ls-remote` (round-2 Major 4 - v1's
@@ -351,7 +370,16 @@ Failure modes: exits 0 on success INCLUDING partial degradation (gh
                reported to stderr and the run continues). Exits 1 ONLY on
                an internal/usage error: --repo is not a directory or not a
                git repository, or an unhandled exception while
-               enumerating worktrees. Never removes a dirty, self, too-
+               enumerating worktrees. (round-4 rework) When --base is
+               omitted and every automatic resolution candidate fails
+               `git rev-parse --verify` against origin,
+               `resolve_base_branch` names every candidate tried (printed
+               to stderr) and the run exits 0 having done nothing - a
+               resolved-but-invalid base fails SAFE, matching the shell
+               pipeline this replaces (a WARNING, never a hard exit, so a
+               caller's subsequent steps still run); nothing is ever
+               removed against a guessed-wrong base regardless. Never
+               removes a dirty, self, too-
                young, locked, or ignored-content-bearing worktree under
                any circumstance. Never removes `evals/.worktrees/*` -
                those classify UNMANAGED under `classify_entry` and are
@@ -544,6 +572,210 @@ def _resolve_repo(path: str) -> str:
     if proc.returncode != 0:
         raise ValueError(f"not a git repository: {path}")
     return proc.stdout.strip()
+
+
+# --------------------------------------------------------------------------
+# Base-branch resolution (round-4 rework, DS-cleanup-worktrees). Replaces
+# content/commands/ds-cleanup-worktrees.md's former Step 2 hand-rolled
+# grep/awk/sed text-extraction pipeline, which produced a fresh defect in
+# three consecutive review rounds (matched prose, mishandled quotes,
+# doubled origin/ prefix, a fenced-example `head -1` win; trailing
+# whitespace surviving normalization; a fence-stripper that missed indented
+# and ~~~ fences; unstripped single quotes; end-of-line anchoring that
+# rejected a trailing comment) - each fix was an input-variant patch on the
+# last, so this round moves resolution into tested Python instead.
+#
+# Resolution order, first candidate that resolves AND validates wins:
+#   a. explicit --base CLI argument, if the operator passed one - used
+#      VERBATIM, no validation/fallthrough (preserves this tool's
+#      pre-existing precedence for an operator override; a bad explicit
+#      value is not silently second-guessed).
+#   b. a `BASE_BRANCH:` declaration in the repo's AGENTS.md.
+#   c. `git symbolic-ref refs/remotes/origin/HEAD`.
+#   d. a local `develop` branch.
+#   e. a local `development` branch.
+#   f. `main`, then `master`.
+# Tiers b-f each resolve to an `origin/<name>` ref (mirroring the shell
+# pipeline this replaces, which always compared against the REMOTE branch)
+# and are each validated with `git rev-parse --verify` before use; a
+# resolved-but-nonexistent candidate is reported via a diagnostic and the
+# next candidate is tried, never a hard failure on the first miss. Only
+# when every candidate fails does resolution fail, naming every candidate
+# tried.
+#
+# This order deliberately differs from content/rules/conventions.md's
+# canonical §Base branch resolution in two ways, both because this tool
+# runs non-interactively with no operator to prompt:
+#   1. it inserts an extra tier (c, origin/HEAD) between the AGENTS.md
+#      declaration and the local develop/development tiers - the
+#      strongest automatic signal of a repo's actual configured default
+#      branch when AGENTS.md declares nothing, ahead of a local
+#      develop/development branch that could be an unrelated leftover
+#      branch a contributor happened to create locally;
+#   2. conventions.md's final step is an interactive prompt (offering
+#      main, falling back to master, with an explicit decline path) - this
+#      tool has no operator to prompt, so it resolves main (falling back
+#      to master) directly instead of stopping to ask.
+# --------------------------------------------------------------------------
+
+#: Matches a `BASE_BRANCH:` declaration line, tolerating an optional
+#: leading backtick before the label (a whole-phrase inline-code span, a
+#: common markdown convention), an optional matching quote/backtick pair
+#: wrapping just the value, and an optional `refs/heads/`/`origin/`
+#: prefix. The `trailer` group captures everything after the value so
+#: `_ALLOWED_DECL_TRAILER_RE` below can distinguish a genuine declaration
+#: from a prose sentence that merely MENTIONS `BASE_BRANCH:` (e.g.
+#: "BASE_BRANCH: resolution rules.", the round-2 false-match defect).
+_BASE_BRANCH_DECL_RE = re.compile(
+    r"`?BASE_BRANCH:\s*"
+    r"(?P<quote>[`\"']?)"
+    r"(?P<value>(?:refs/heads/|origin/)?[A-Za-z0-9][A-Za-z0-9_./-]*)"
+    r"(?P=quote)"
+    r"`?"  # closes an optional whole-phrase-wrapping leading backtick above
+    r"(?P<trailer>.*)$"
+)
+
+#: A declaration's trailer is allowed to be empty, a bare closing period,
+#: and/or a `#`- or `//`-prefixed trailing comment - anything else (extra
+#: prose words) means the whole line was a mention, not a declaration.
+_ALLOWED_DECL_TRAILER_RE = re.compile(r"^\s*(\.\s*)?(#.*|//.*)?\s*$")
+
+
+def _strip_fenced_and_indented_lines(text: str) -> List[str]:
+    """Blank out fenced (``` / ~~~) and 4-space/tab-indented code regions
+    so a `BASE_BRANCH:` mention inside an illustrative example can never
+    match - only a genuine declaration in prose can. Line COUNT and ORDER
+    are preserved (fenced/indented lines become empty strings, never
+    removed), so a real declaration appearing AFTER a fenced example in
+    the same file is still reachable on its own line."""
+    lines = text.splitlines()
+    out: List[str] = []
+    in_fence = False
+    for line in lines:
+        stripped = line.lstrip(" \t")
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            in_fence = not in_fence
+            out.append("")
+            continue
+        if in_fence:
+            out.append("")
+            continue
+        if line[:4] == "    " or line[:1] == "\t":
+            out.append("")
+            continue
+        out.append(line)
+    return out
+
+
+def _parse_base_branch_declaration(agents_md_text: str) -> Optional[str]:
+    """Extract a `BASE_BRANCH:` declaration's value from AGENTS.md prose.
+    Returns None when no genuine declaration is found (no matching line,
+    every match is inside a fenced/indented example, or every match is a
+    prose mention that fails the trailer check)."""
+    for line in _strip_fenced_and_indented_lines(agents_md_text):
+        m = _BASE_BRANCH_DECL_RE.search(line)
+        if not m:
+            continue
+        if not _ALLOWED_DECL_TRAILER_RE.match(m.group("trailer")):
+            continue
+        value = m.group("value")
+        if value.startswith("refs/heads/"):
+            value = value[len("refs/heads/"):]
+        elif value.startswith("origin/"):
+            value = value[len("origin/"):]
+        # Branch names never legitimately end in "." (git rejects them,
+        # git-check-ref-format(1)) - the value char class allows "." mid-
+        # token (e.g. "release-1.2") so a trailing sentence period gets
+        # greedily consumed into the value at true end-of-line; strip
+        # exactly one.
+        if len(value) > 1 and value.endswith("."):
+            value = value[:-1]
+        return value
+    return None
+
+
+def _read_agents_md(repo: str) -> Optional[str]:
+    try:
+        return (Path(repo) / "AGENTS.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _local_branch_exists(repo: str, name: str) -> bool:
+    proc = _run(["git", "-C", repo, "show-ref", "--verify", "--quiet", f"refs/heads/{name}"])
+    return proc.returncode == 0
+
+
+def _origin_head_branch(repo: str) -> Optional[str]:
+    proc = _run(["git", "-C", repo, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"])
+    if proc.returncode != 0:
+        return None
+    ref = proc.stdout.strip()
+    prefix = "refs/remotes/origin/"
+    if ref.startswith(prefix) and len(ref) > len(prefix):
+        return ref[len(prefix):]
+    return None
+
+
+def _ref_exists(repo: str, ref: str) -> bool:
+    proc = _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", ref])
+    return proc.returncode == 0
+
+
+def resolve_base_branch(
+    repo: str, explicit_base: Optional[str]
+) -> Tuple[Optional[str], str, List[str]]:
+    """Resolve the --base ref per the tier order documented in the module
+    comment above. Returns (resolved_ref, source_tier, diagnostics):
+    `resolved_ref` is None only when every automatic candidate failed
+    validation (`explicit_base` given always resolves, tier "explicit");
+    `source_tier` is one of "explicit", "agents-md", "origin-head",
+    "local-develop", "local-development", "main-fallback",
+    "master-fallback", or "unresolved" when resolved_ref is None;
+    `diagnostics` is zero or more human-readable lines - one per candidate
+    that resolved to a value but failed `git rev-parse --verify` against
+    origin, plus (only when every candidate failed) a final line naming
+    every candidate tried.
+    """
+    diagnostics: List[str] = []
+
+    if explicit_base is not None:
+        return explicit_base, "explicit", diagnostics
+
+    candidates: List[Tuple[str, str]] = []
+
+    agents_md_text = _read_agents_md(repo)
+    if agents_md_text is not None:
+        declared = _parse_base_branch_declaration(agents_md_text)
+        if declared:
+            candidates.append((f"origin/{declared}", "agents-md"))
+
+    origin_head = _origin_head_branch(repo)
+    if origin_head:
+        candidates.append((f"origin/{origin_head}", "origin-head"))
+
+    if _local_branch_exists(repo, "develop"):
+        candidates.append(("origin/develop", "local-develop"))
+    if _local_branch_exists(repo, "development"):
+        candidates.append(("origin/development", "local-development"))
+
+    candidates.append(("origin/main", "main-fallback"))
+    candidates.append(("origin/master", "master-fallback"))
+
+    for ref, source in candidates:
+        if _ref_exists(repo, ref):
+            return ref, source, diagnostics
+        diagnostics.append(
+            f"ds-reap-worktrees: base candidate '{ref}' (source: {source}) does not exist "
+            "on origin - trying the next candidate."
+        )
+
+    tried = ", ".join(f"{ref} ({source})" for ref, source in candidates)
+    diagnostics.append(
+        f"ds-reap-worktrees: could not resolve a base branch - every candidate failed. "
+        f"Tried: {tried}. Declare BASE_BRANCH in AGENTS.md, or pass --base explicitly."
+    )
+    return None, "unresolved", diagnostics
 
 
 def _worktree_list(repo: str) -> str:
@@ -1083,7 +1315,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         description="Executable implementation of the /ds-cleanup-worktrees removal predicate.",
     )
     p.add_argument("--repo", default=".")
-    p.add_argument("--base", default="origin/main")
+    p.add_argument("--base", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-gh", action="store_true")
     p.add_argument("--explain", action="store_true")
@@ -1147,6 +1379,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ds-reap-worktrees: mode=count-only entries={len(entries)}")
         return 0
 
+    # Round-4 rework: base-branch resolution runs here, strictly AFTER the
+    # --count-only early return above, so that mode's zero-added-git-calls
+    # contract (bin/ds-base-sync, hooks/session-start-wrap.sh both depend
+    # on it) is unaffected by this tool now resolving --base itself.
+    resolved_base, base_source, base_diagnostics = resolve_base_branch(repo, args.base)
+    for line in base_diagnostics:
+        print(line, file=sys.stderr)
+    if resolved_base is None:
+        # Fails SAFE, not fatal: this mirrors the asymmetry the shell
+        # pipeline this replaces already had (a resolved-but-invalid base
+        # printed a WARNING and skipped the reap for the session WITHOUT
+        # exiting nonzero, so a caller's subsequent steps still ran) - exit
+        # 1 stays reserved for a genuine internal/usage error (bad --repo,
+        # an unhandled exception), never "no base could be resolved this
+        # run." Every candidate tried is already named in base_diagnostics
+        # above (printed to stderr).
+        print("ds-reap-worktrees: base could not be resolved - reap skipped this run.", file=sys.stderr)
+        return 0
+    if base_source != "explicit":
+        print(f"ds-reap-worktrees: base auto-resolved to '{resolved_base}' via {base_source}")
+
     # Round-6 (Skeptic Major 2): `--archive-unproven` REFUSES to run at all
     # in degraded gh mode - a real `gh_ok`/`degraded` computed here, ahead
     # of the (rare) empty-entries branch below, so the refusal check and
@@ -1182,7 +1435,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         empty_mode = ", ".join(empty_mode_parts) if empty_mode_parts else "live"
         empty_fields = " ".join(f"{_field_name(o)}=0" for o in _ALL_OUTCOMES if o != "REMOVE")
         print(
-            f"ds-reap-worktrees: base={args.base} mode={empty_mode} entries=0 removed=0 "
+            f"ds-reap-worktrees: base={resolved_base} mode={empty_mode} entries=0 removed=0 "
             f"{empty_fields} pruned-admin=0 salvaged=0"
         )
         return 0
@@ -1196,7 +1449,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             continue
         results.append(
             evaluate_entry(
-                repo, entry, wt_class, args.base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+                repo, entry, wt_class, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
             )
         )
 
@@ -1389,7 +1642,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # --dry-run unconditionally - matches the `pruned-admin` "action
     # taken, not a candidate count" convention above.
     print(
-        f"ds-reap-worktrees: base={args.base} mode={mode} entries={len(results)} "
+        f"ds-reap-worktrees: base={resolved_base} mode={mode} entries={len(results)} "
         f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}"
     )
 
