@@ -3,7 +3,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Decision
+         signal + table; Ticket-Body Content Is a Closed List To
+         Re-Derive (Phase 3 architect-consumption scope discipline: treat
+         embedded design/root-cause content as unverified and re-derive
+         independently); Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
          Absence-claim scope axes (calibration worked example, both

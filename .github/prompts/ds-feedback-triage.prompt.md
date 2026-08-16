@@ -146,7 +146,7 @@ Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`
-- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Then append the traceability block:
+- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Plus Acceptance Criteria: feedback items rarely carry operator-stated AC, so default to `Acceptance Criteria: not yet defined - <blocking reason>` per `content/references/conventions-detail.md` §Ticket descriptions rather than synthesizing AC the triage agent has no basis for. Then append the traceability block:
   ```
 
   ---

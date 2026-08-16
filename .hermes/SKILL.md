@@ -95,7 +95,7 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
 
 - **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/ds-implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
 
-- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+- **`require` mode (hard gate):** do not spawn any non-exempt subagent before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
 
 **Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
@@ -2780,7 +2780,7 @@ Apply these rules to every external-facing comment:
 
 **Evidence is intent-bearing; a proposed fix is not.** A failing command, a log line, a stack trace, the file:line where a defect was observed, the commit that introduced it, or what was already tried and did not work - these anchor the Problem and belong in the ticket, however much space they take. A proposed approach, a diagnosis presented as established fact, or an implementation sequence anchors a design instead, and does not belong regardless of length or cost.
 
-Lead with the Problem. These are soft targets, not hard caps, and they bound derived-content risk, not the intent content above - the signal-per-line test (`conventions-detail.md:161`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic: a 7-line Problem that is all load-bearing operator intent passes, evidence that legitimately runs long passes, and a 3-line Problem that restates the ticket fails.
+Lead with the Problem. These are soft targets, not hard caps, and they bound derived-content risk, not the intent content above - the signal-per-line test (`content/references/conventions-detail.md` §External Comment Discipline) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic: a 7-line Problem that is all load-bearing operator intent passes, evidence that legitimately runs long passes, and a 3-line Problem that restates the ticket fails.
 
 - **Problem:** soft target ≤ 5 lines.
 - **Acceptance Criteria:** soft target ≤ 8 bullets.
@@ -3279,7 +3279,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Decision
+         signal + table; Ticket-Body Content Is a Closed List To
+         Re-Derive (Phase 3 architect-consumption scope discipline: treat
+         embedded design/root-cause content as unverified and re-derive
+         independently); Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
          Absence-claim scope axes (calibration worked example, both
@@ -14836,7 +14839,7 @@ Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
 
 - `TICKET_TITLE` = `item.suggested_title`
-- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Then append the traceability block:
+- `TICKET_BODY` = Problem built from `item.evidence` (the observed friction - not `item.suggested_body`, which is a proposed fix and derived content per `content/references/conventions-detail.md` §Ticket descriptions). When `item.suggested_body` is present, append it as a separately labeled, unverified line rather than substituting it for the Problem. Plus Acceptance Criteria: feedback items rarely carry operator-stated AC, so default to `Acceptance Criteria: not yet defined - <blocking reason>` per `content/references/conventions-detail.md` §Ticket descriptions rather than synthesizing AC the triage agent has no basis for. Then append the traceability block:
   ```
 
   ---
@@ -16629,10 +16632,10 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
-- The full ticket title and description (Problem/AC only verified - delegation-detail.md)
-- The relevant code snippets you gathered
-- The AGENTS.md conventions
-- Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
+- Ticket title/description, label design content unverified/non-binding: read `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
+- Relevant code snippets
+- AGENTS.md conventions
+- Architectural decisions/rationale from MEMORY.md (or custom decision log) for this ticket
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`

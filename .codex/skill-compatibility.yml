@@ -122,16 +122,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "0e3294b97f172bae72d6e3dac6a2d9b5a2af12d5589f70f9ff5b10f5aa54c960",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
       "expected_target": "content/sections/03-planning-artifacts.md",
       "generated_token": "$AE_REPO_DIR/content/sections/03-planning-artifacts.md",
       "kind": "operational",
@@ -1490,6 +1480,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/cross-harness-teams.md"
+    },
+    {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "acd81f45b5a1529bd1ad89cb89a4bdf6c8678d443cc251867053b98803ad6741",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "filesystem read",
@@ -11120,6 +11120,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "done"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "83ff4cf652a3ca57e6ec7f9f9bc222dca640dda578fdc8ba87b6145c4a407c51",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "node",

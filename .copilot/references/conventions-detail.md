@@ -170,7 +170,7 @@ Apply these rules to every external-facing comment:
 
 **Evidence is intent-bearing; a proposed fix is not.** A failing command, a log line, a stack trace, the file:line where a defect was observed, the commit that introduced it, or what was already tried and did not work - these anchor the Problem and belong in the ticket, however much space they take. A proposed approach, a diagnosis presented as established fact, or an implementation sequence anchors a design instead, and does not belong regardless of length or cost.
 
-Lead with the Problem. These are soft targets, not hard caps, and they bound derived-content risk, not the intent content above - the signal-per-line test (`conventions-detail.md:161`) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic: a 7-line Problem that is all load-bearing operator intent passes, evidence that legitimately runs long passes, and a 3-line Problem that restates the ticket fails.
+Lead with the Problem. These are soft targets, not hard caps, and they bound derived-content risk, not the intent content above - the signal-per-line test (`content/references/conventions-detail.md` §External Comment Discipline) and DS-156's relevance-over-length rule (`content/references/conductor-turn-format.md` §Length discipline) override any arithmetic: a 7-line Problem that is all load-bearing operator intent passes, evidence that legitimately runs long passes, and a 3-line Problem that restates the ticket fails.
 
 - **Problem:** soft target ≤ 5 lines.
 - **Acceptance Criteria:** soft target ≤ 8 bullets.

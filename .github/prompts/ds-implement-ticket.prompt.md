@@ -1290,10 +1290,10 @@ Emit breadcrumb: `[phase: tracker-state-discovery | cached=<true|false> | misses
 ## Phase 3: Architecture plan
 
 Spawn an `architect` agent. Provide:
-- The full ticket title and description (Problem/AC only verified - delegation-detail.md)
-- The relevant code snippets you gathered
-- The AGENTS.md conventions
-- Any architectural decisions and rationale from MEMORY.md (or the project's custom decision log) that bear on this ticket
+- Ticket title/description, label design content unverified/non-binding: read `content/references/delegation-detail.md` §Ticket-Body Content Is a Closed List To Re-Derive
+- Relevant code snippets
+- AGENTS.md conventions
+- Architectural decisions/rationale from MEMORY.md (or custom decision log) for this ticket
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`

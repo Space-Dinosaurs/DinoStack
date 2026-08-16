@@ -75,7 +75,7 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
 
 - **`offer` mode (surface-and-proceed):** emit `Creating ticket for this work - reply STOP to skip and proceed ad-hoc.` If no STOP arrives in one turn: invoke the Create Helper. On CREATE_STATUS=created: route via `/ds-implement-ticket <CREATED_TICKET_ID>`. On CREATE_STATUS=failed or skipped: emit the soft-fail/skip line and proceed ad-hoc.
 
-- **`require` mode (hard gate):** do not spawn any implementer before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
+- **`require` mode (hard gate):** do not spawn any non-exempt subagent before a ticket exists. Invoke the Create Helper immediately. On created: route to `/ds-implement-ticket <CREATED_TICKET_ID>`. On failed: surface the error and WAIT for operator resolution. On a classifier-defined tracker where create is unavailable (would be `skipped`): do NOT silently proceed - surface the conflict (`ticket_driven=require but tracker '<type>' has no create integration - proceed ad-hoc this once, or stop?`) and WAIT for the operator.
 
 **Exemptions:** existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) skip the gate entirely. `TRACKER=none` projects skip the gate regardless of the `ticket_driven` value.
 
