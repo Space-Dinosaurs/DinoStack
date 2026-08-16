@@ -12,11 +12,14 @@ Purpose: Regression guard for DS-176 (the vacuous-pass check class): every
          weakening edit (e.g. dropping the `exit 1`, or turning the guard
          into a bare log statement) reddens this suite.
 Public API: pytest test functions only. `_normalized_scan`, `_site_label`,
-         and `_conforms_to_mandated_form` are internal helpers exercised
-         directly by the mutation tests below.
+         `_conforms_to_mandated_form`, and `_discover_live_sites` are
+         internal helpers exercised directly by the mutation tests below.
 Upstream deps: `git ls-files` (repo-relative, tracked-only discovery -
-         this checkout carries 40+ `.claude/worktrees/agent-*` copies of
-         every guard site; an unfiltered `rglob()` from the repo root would
+         this checkout's `.claude/worktrees/agent-*` count fluctuates
+         session-to-session as isolation worktrees are created and reaped
+         (measured 35-36 across two checks in one review), each a full
+         copy of every guard site; an unfiltered `rglob()` from the repo
+         root would
          multiply every LIVE_GUARD_SITES entry by (1 + worktree count) and
          either mask the problem under bare-basename keys or redden this
          gate locally while CI, a clean checkout, stays green - see
@@ -49,7 +52,7 @@ False-positive reasoning: two prose references to the guard phrase exist
          constant of a Module/FunctionDef), out of scope, not a violation -
          see `test_docstring_reference_not_flagged_as_violation`.
 AC-5 scope justification (re-derive fresh at PR time, never trust a cited
-         cardinal): as of this file's introduction, 30-of-77 files matched
+         cardinal): as of this file's introduction, 29-of-77 files matched
          by the flat (non-recursive) `bin/tests/*.py` glob use a discovery
          pattern (`.glob(`, `.rglob(`, `os.walk(`, or `git ls-files`),
          against 7 live guards (this file's own guard plus the 6
@@ -57,7 +60,7 @@ AC-5 scope justification (re-derive fresh at PR time, never trust a cited
          files. (The recursive `bin/tests/**/*.py` glob yields 80, not 77
          - a different method with a different denominator; this
          justification cites the flat glob because that is the method
-         that was actually run.) A universal meta-linter over all 30 is
+         that was actually run.) A universal meta-linter over all 29 is
          out of this ticket's two-item scope and requires the same
          DOCUMENTATION-vs-CODE judgment the AST approach makes tractable
          for these 4 files but not yet repo-wide - a deliberate,
@@ -70,6 +73,9 @@ import ast
 import pathlib
 import re
 import subprocess
+import sys
+
+import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 
@@ -120,13 +126,14 @@ def _tracked_relative_paths() -> list[pathlib.Path]:
     return paths
 
 
-def _normalized_scan(text: str) -> list[tuple[int, int]]:
+def _normalized_scan_positions(text: str) -> list[tuple[int, int]]:
     """Whitespace-normalize (collapse runs of whitespace to a single ' ')
-    before matching GUARD_PHRASE, then back-map each match's normalized
-    offset to an original-text (start_line, end_line) 1-indexed, inclusive
-    line range. Catches a wrapped/reformatted occurrence a single-line scan
-    misses (DS-176 Round-2 Major 2) - see
-    test_wrap_tolerant_scan_finds_split_occurrence."""
+    before matching GUARD_PHRASE, then back-map each match to an
+    original-text (orig_start, orig_end) 0-indexed, inclusive CHARACTER
+    offset pair - not a line range. Form C needs this column-level
+    precision (a one-line assert's condition and message share the same
+    line number, so line comparison alone cannot distinguish them);
+    `_normalized_scan` below derives its line ranges from this."""
     orig_indices: list[int] = []
     normalized_chars: list[str] = []
     prev_was_space = False
@@ -142,7 +149,7 @@ def _normalized_scan(text: str) -> list[tuple[int, int]]:
             prev_was_space = False
     normalized = "".join(normalized_chars)
 
-    matches: list[tuple[int, int]] = []
+    positions: list[tuple[int, int]] = []
     search_from = 0
     phrase_len = len(GUARD_PHRASE)
     while True:
@@ -152,10 +159,33 @@ def _normalized_scan(text: str) -> list[tuple[int, int]]:
         end_idx = idx + phrase_len - 1
         orig_start = orig_indices[idx]
         orig_end = orig_indices[end_idx]
+        positions.append((orig_start, orig_end))
+        search_from = idx + 1
+    return positions
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    """`starts[i]` is the absolute character offset of the start of
+    (1-indexed) line `i + 1`. Used to convert an AST node's
+    `lineno`/`col_offset` into an absolute character offset comparable
+    against `_normalized_scan_positions`' output."""
+    starts = [0]
+    for line in text.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    return starts
+
+
+def _normalized_scan(text: str) -> list[tuple[int, int]]:
+    """Back-map each `_normalized_scan_positions` character-offset match
+    to an original-text (start_line, end_line) 1-indexed, inclusive line
+    range. Catches a wrapped/reformatted occurrence a single-line scan
+    misses (DS-176 Round-2 Major 2) - see
+    test_wrap_tolerant_scan_finds_split_occurrence."""
+    matches: list[tuple[int, int]] = []
+    for orig_start, orig_end in _normalized_scan_positions(text):
         start_line = text.count("\n", 0, orig_start) + 1
         end_line = text.count("\n", 0, orig_end) + 1
         matches.append((start_line, end_line))
-        search_from = idx + 1
     return matches
 
 
@@ -270,26 +300,49 @@ def _check_form_b(lines: list[str], line_range: tuple[int, int]) -> bool:
 
 
 def _check_form_c(text: str, line_range: tuple[int, int]) -> bool:
-    """AST-based, not proximity regex (DS-176 rework Major fix). A
-    `\\bassert\\b` window scan fails open: it matches an unrelated `assert
-    True` sitting a few lines from a phrase that is only ever `print()`ed
-    (no `sys.exit`, no real assert), so a log-only guard misclassifies as
-    conforming. The mandated form requires the assert statement itself to
-    CARRY the phrase and BE the failure mechanism - so this walks the
-    parsed module for `ast.Assert` nodes and requires the phrase hit's own
-    line range to fall inside that specific assert statement's own source
-    span (its `lineno`..`end_lineno`), not merely be textually nearby."""
+    """AST-based, at CHARACTER-OFFSET precision, not proximity regex or
+    line-span containment (DS-176 rework-2 Major fix, then re-fixed to
+    column granularity in the same round). Line-range containment on
+    `node.msg` alone is still not sufficient: a one-liner assert's
+    CONDITION and MESSAGE share the same physical line number
+    (`assert "<phrase>" not in out, "unexpected"` - phrase in the
+    condition, "unexpected" the message, both on line N), so line-level
+    comparison cannot tell them apart. This re-locates the phrase hit's
+    exact character-offset span (via `_normalized_scan_positions`, not
+    just its line range) and requires that span to fall inside `node.msg`'s
+    own character-offset span (from `lineno`/`col_offset` to
+    `end_lineno`/`end_col_offset`) - never the whole assert statement, and
+    never `node.test`. Also still catches the earlier same-line
+    `print("...phrase"); assert True` shape: `assert True` has no `msg` at
+    all, so it is skipped outright."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return False
-    hit_start, hit_end = line_range
+
+    hit_start_offset: int | None = None
+    hit_end_offset: int | None = None
+    for orig_start, orig_end in _normalized_scan_positions(text):
+        start_line = text.count("\n", 0, orig_start) + 1
+        end_line = text.count("\n", 0, orig_end) + 1
+        if (start_line, end_line) == line_range:
+            hit_start_offset, hit_end_offset = orig_start, orig_end
+            break
+    if hit_start_offset is None:
+        return False
+
+    line_starts = _line_start_offsets(text)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assert):
             continue
-        node_start = node.lineno
-        node_end = getattr(node, "end_lineno", node.lineno)
-        if node_start <= hit_end and hit_start <= node_end:
+        msg = node.msg
+        if msg is None:
+            continue
+        msg_start_offset = line_starts[msg.lineno - 1] + msg.col_offset
+        msg_end_lineno = getattr(msg, "end_lineno", msg.lineno)
+        msg_end_col = getattr(msg, "end_col_offset", msg.col_offset)
+        msg_end_offset = line_starts[msg_end_lineno - 1] + msg_end_col - 1
+        if msg_start_offset <= hit_end_offset and hit_start_offset <= msg_end_offset:
             return True
     return False
 
@@ -302,11 +355,13 @@ def _conforms_to_mandated_form(
     `print(..., file=sys.stderr)` or `sys.stderr.write(...)`; `sys.exit(1)`
     or `raise SystemExit` within a few lines after. Form C (pytest-assert -
     the dominant repo form): a single `assert <expr>, "<msg>"` statement,
-    where the assert IS both phrase-carrier and failure mechanism -
-    AST-verified (the phrase hit must fall inside that specific assert
-    statement's own source span), not a `\\bassert\\b` proximity regex.
-    For .py files, a phrase occurring inside a docstring is classified
-    DOCUMENTATION - out of scope, not a violation, not a guard."""
+    where the assert's MESSAGE (`node.msg`, not the whole statement and not
+    `node.test`) IS the phrase-carrier and the assert IS the failure
+    mechanism - AST-verified (the phrase hit must fall inside `node.msg`'s
+    own source span), not a `\\bassert\\b` proximity regex and not
+    whole-statement line-span containment. For .py files, a phrase
+    occurring inside a docstring is classified DOCUMENTATION - out of
+    scope, not a violation, not a guard."""
     lines = text.splitlines()
     if suffix in (".yml", ".yaml"):
         ok = _check_form_a(lines, line_range)
@@ -397,6 +452,33 @@ def test_live_guard_sites_bidirectional_set_equality() -> None:
     )
 
 
+def test_bidirectional_comparison_reddens_on_phantom_pin(monkeypatch) -> None:
+    """Minor 3 (DS-176 rework-2): on the real, synced tree there is no
+    phantom pin, so `only_pinned = LIVE_GUARD_SITES - disk_live` at :424
+    and a neutered `only_pinned = frozenset()` both report zero difference
+    - nothing in the suite would catch that line being neutered. This
+    injects a genuine phantom entry into LIVE_GUARD_SITES via monkeypatch,
+    then calls the real production test function - which executes the
+    actual subtraction against a live-computed `disk_live` - and asserts
+    it raises. If that comparison is ever neutered to a constant, this
+    test's own `pytest.fail` below fires instead of the expected
+    AssertionError, reddening the suite."""
+    phantom = ("bin/tests/this-file-does-not-exist.py", "nonexistent_guard")
+    monkeypatch.setattr(
+        sys.modules[__name__], "LIVE_GUARD_SITES", LIVE_GUARD_SITES | {phantom}
+    )
+    try:
+        test_live_guard_sites_bidirectional_set_equality()
+    except AssertionError:
+        pass
+    else:
+        pytest.fail(
+            "expected test_live_guard_sites_bidirectional_set_equality to "
+            "raise AssertionError on a phantom LIVE_GUARD_SITES entry, but "
+            "it passed - the only_pinned comparison is not discriminating"
+        )
+
+
 def test_each_live_guard_conforms_to_mandated_form() -> None:
     failures = []
     for rel_str, label in sorted(LIVE_GUARD_SITES):
@@ -451,6 +533,43 @@ def test_form_c_rejects_log_only_guard_with_unrelated_adjacent_assert() -> None:
     ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
     assert not ok, (
         f"log-only guard with an unrelated adjacent assert should NOT conform, got ({ok}, {form})"
+    )
+
+
+def test_form_c_rejects_same_line_print_and_unrelated_assert() -> None:
+    """DS-176 rework-2 Major fix regression test. `_check_form_c` used to
+    be interval-OVERLAP on the whole assert statement's line span - a
+    ONE-LINER `print("...phrase"); assert True` puts the phrase hit and
+    the unrelated assert on the SAME line, which line-granular overlap
+    admits regardless. Must NOT conform: `assert True` carries no message
+    at all, let alone the phrase."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    print("ERROR: zero matched - {GUARD_PHRASE}"); assert True\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"same-line print+unrelated-assert should NOT conform, got ({ok}, {form})"
+    )
+
+
+def test_form_c_rejects_phrase_in_assert_condition_not_message() -> None:
+    """DS-176 rework-2 Major fix regression test. A phrase living in the
+    assert's CONDITION rather than its MESSAGE is not a zero-discovery
+    guard at all - `assert "<phrase>" not in out, "unexpected"` fails with
+    the message "unexpected", which says nothing about discovery being
+    broken. Must NOT conform."""
+    fixture = (
+        "def check_output(out):\n"
+        f'    assert "{GUARD_PHRASE}" not in out, "unexpected"\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"phrase-in-condition (not message) should NOT conform, got ({ok}, {form})"
     )
 
 
