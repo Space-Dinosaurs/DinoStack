@@ -5,9 +5,9 @@ Purpose: pytest suite for bin/ds-cleanup-worktrees' `--multi-repo`/`--report`
          discovery (explicit `--repo` xN, positional roots, additive
          combination, dedup), the `~/.agentic/cleanup-worktrees.json`
          config-file fallback (including malformed-JSON, non-list, and
-         non-string-element edge cases - ported from
-         bin/tests/test_ds_reap_all.py, whose coverage this suite subsumes
-         ahead of that file's own Unit-3 retirement), per-repo base
+         non-string-element edge cases - ported from the now-retired
+         bin/tests/test_ds_reap_all.py, whose coverage this suite fully
+         subsumed), per-repo base
          resolution isolation, every usage-error path, the `--report` mode's
          structural read-only guarantee (never calls `git worktree remove`
          even with an eligible entry present), and the fast-vs-deep report

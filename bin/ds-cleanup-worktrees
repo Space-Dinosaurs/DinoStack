@@ -242,19 +242,16 @@ Public API (CLI):
                           cleanup-worktrees.json` (shape `{"roots": [...],
                           "repos": [...]}`, either key optional, consulted
                           ONLY when neither an explicit `--repo` nor a
-                          positional root was given at all - identical
-                          precedence to `bin/ds-reap-all`'s own
-                          `~/.agentic/reap-all.json`, only the path
-                          differs). Explicit `--repo` entries and positional
+                          positional root was given at all). Explicit
+                          `--repo` entries and positional
                           roots are ADDITIVE explicit sources - both are
                           honored when both are given, deduped by canonical
                           resolved path (first-seen-wins). Every repo is
                           swept SEQUENTIALLY, never in parallel - legible
                           output, no concurrent `git`/`gh` rate-limit
-                          contention across repos (the same rationale
-                          `bin/ds-reap-all` already documented, now stronger
-                          because `--archive-unproven` makes per-entry `gh pr
-                          list` calls too). `root ...` positional arguments
+                          contention across repos - a concern sharpened by
+                          `--archive-unproven`, which makes per-entry `gh pr
+                          list` calls too. `root ...` positional arguments
                           or `--depth` given WITHOUT `--multi-repo` is a
                           usage error (exit 2). `--base` combined with
                           `--multi-repo` is a usage error (exit 2) - each
@@ -278,11 +275,10 @@ Public API (CLI):
                           `swept`; 2 on a usage error, INCLUDING zero repos
                           discovered with zero root errors (no `--repo`, no
                           roots, no usable config).
-                          This binary does NOT port `bin/ds-reap-all`'s
-                          `--timeout`: that flag bounded a SEPARATE
-                          `ds-cleanup-worktrees` subprocess that could wedge
-                          as a whole. Folded in-process, there is no second
-                          process to wedge - every network-touching call this
+                          This binary has no separate `--timeout` flag: since
+                          discovery and sweep run in-process rather than as a
+                          subprocess-per-repo, there is no outer process to
+                          wedge as a whole. Every network-touching call this
                           binary makes (`git ls-remote`, `gh auth status`,
                           `gh pr list`) already carries its own
                           `_NETWORK_TIMEOUT_SECONDS` bound (see that constant
@@ -537,16 +533,7 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       --count-only nudge line when the non-root worktree
                       count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
-                      anything from that call site);
-                      bin/ds-reap-all (invokes this tool once per repo in
-                      a cross-repo sweep, forwarding flags verbatim - this
-                      binary's OWN `--multi-repo`/`--report` now serve the
-                      same "sweep several repos" + "which repo is worst"
-                      needs in-process; ds-reap-all is UNCHANGED and still
-                      the way to reach a cross-repo sweep by shelling out
-                      one subprocess per repo, retained per-unit until a
-                      later unit retires it - see this file's own
-                      module-level Purpose note above).
+                      anything from that call site).
                       CI: bin/tests/test_cleanup_worktrees.py (single-repo
                       surface, pytest, auto-collected by `python3 -m
                       pytest bin/tests/`) and
@@ -1672,13 +1659,9 @@ def _evaluate_entries(
 
 
 # --------------------------------------------------------------------------
-# Multi-repo discovery (DS-cleanup-worktrees-multi-repo Unit 2). Ported from
-# bin/ds-reap-all's own RepoTarget/_scan_root/discover_repos/dedupe/
-# _load_config/_config_string_list - proven and tested there; only the
-# config path changes (`~/.agentic/cleanup-worktrees.json`, not
-# `~/.agentic/reap-all.json`). bin/ds-reap-all is UNCHANGED by this unit and
-# remains available as the subprocess-per-repo alternative until a later
-# unit retires it (see the module docstring's Downstream consumers note).
+# Multi-repo discovery (DS-cleanup-worktrees-multi-repo Unit 2; the standalone
+# bin/ds-reap-all wrapper this originally ported from was retired in Unit 3
+# once this in-process implementation fully subsumed it).
 # --------------------------------------------------------------------------
 
 _MULTI_REPO_CONFIG_PATH = Path("~/.agentic/cleanup-worktrees.json").expanduser()
