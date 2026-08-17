@@ -335,6 +335,68 @@ def test_dedupe_explicit_repo_and_root_scan_same_repo_runs_once(tmp_path):
     assert len(matching) == 1
 
 
+def test_dedupe_collapses_two_subdirectories_of_the_same_repo(tmp_path):
+    """Round-N Major 3: `RepoTarget.canonical` is the resolved GIT TOPLEVEL,
+    not the operator-supplied path resolved on its own - two different
+    subdirectories of the same repo must dedupe to ONE target, not two."""
+    repo = tmp_path / "repo"
+    init_bare_git_repo(repo)
+    sub_a = repo / "sub-a"
+    sub_b = repo / "sub-b"
+    sub_a.mkdir()
+    sub_b.mkdir()
+
+    mod = _load_module_directly()
+    targets, _skipped, _errors = mod.discover_repos_multi([str(sub_a), str(sub_b)], [], 1)
+    assert {t.canonical for t in targets} == {repo.resolve()}
+    deduped = mod.dedupe(targets)
+    assert len(deduped) == 1
+    assert deduped[0].canonical == repo.resolve()
+
+
+def test_repo_target_canonical_is_git_toplevel_not_raw_subdirectory(tmp_path):
+    """Round-N Major 3 direct regression: `RepoTarget(subdir).canonical`
+    must be the repo's TOPLEVEL, not the subdirectory itself - the bug was
+    `RepoTarget.__init__` running `git rev-parse --show-toplevel` only to
+    check its return code, discarding stdout, and leaving `canonical` as
+    `Path(subdir).resolve()`."""
+    repo = tmp_path / "repo"
+    init_bare_git_repo(repo)
+    sub = repo / "sub"
+    sub.mkdir()
+
+    mod = _load_module_directly()
+    target = mod.RepoTarget(str(sub), "explicit")
+    assert target.discovery_error is None
+    assert target.canonical == repo.resolve()
+
+
+def test_subdirectory_repo_arg_resolves_identically_in_single_and_multi_repo_mode(tmp_path):
+    """Round-N Major 3 end-to-end reproduction: identical `--repo
+    <repo>/sub` input must produce the SAME verdict counts under
+    single-repo mode and `--multi-repo` - before the fix, single-repo mode
+    gave `removed=1 skipped-dirty=1` while multi-repo mode gave `removed=0
+    skipped-unmanaged=2` for the identical input, because multi-repo mode
+    ran every `git -C` call against the raw subdirectory instead of the
+    repo's toplevel."""
+    repo = init_repo_with_origin(tmp_path)
+    add_worktree(repo, ".claude/worktrees/agent-eligible", "worktree-agent-eligible", push=False)
+    dirty_wt = add_worktree(repo, ".claude/worktrees/agent-dirty", "worktree-agent-dirty", push=False)
+    (dirty_wt / "uncommitted.txt").write_text("dirty\n")
+    sub = repo / "sub"
+    sub.mkdir()
+
+    single = run_cli(["--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    assert single.returncode == 0, single.stderr
+    assert "removed=1" in single.stdout
+    assert "skipped-dirty=1" in single.stdout
+
+    multi = run_cli(["--multi-repo", "--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    assert multi.returncode == 0, multi.stderr
+    assert "removed=1" in multi.stdout
+    assert "skipped-dirty=1" in multi.stdout
+
+
 # --------------------------------------------------------------------------
 # 5. Per-repo base resolution isolation: repo A's declared BASE_BRANCH must
 #    never leak into repo B's resolution.
@@ -410,17 +472,18 @@ def test_report_never_removes_even_with_eligible_and_dirty_entries(tmp_path):
     assert dirty_wt.is_dir()
 
 
-def test_report_dry_run_combination_still_never_removes(tmp_path):
-    """`--dry-run` is irrelevant to --report's read-only guarantee - report
-    never even reaches the removal code path, dry-run or not."""
-    repo = init_repo_with_origin(tmp_path)
-    eligible_wt = add_worktree(repo, ".claude/worktrees/agent-eligible", "worktree-agent-eligible", push=False)
-
-    result = run_cli(
-        ["--multi-repo", "--repo", str(repo), "--report", "--dry-run", "--no-gh", "--min-age-hours", "0"]
-    )
-    assert result.returncode == 0, result.stderr
-    assert eligible_wt.is_dir()
+# Round-N Minor fix: a `--report --dry-run` combination test used to live
+# here, but it was VACUOUS for its own docstring's claim - it passed
+# unchanged under a mutation deleting `main()`'s `if args.report: return
+# _run_report(...)` short-circuit, because `--dry-run` alone already
+# suppresses removal regardless of whether `--report`'s own early-return
+# ever ran (the removal loop still computes `removed = len(remove_results)`
+# but never calls `_salvage_and_remove` under `--dry-run`, so nothing is
+# ever destroyed either way - the mutation is invisible from this angle).
+# `test_report_never_removes_even_with_eligible_and_dirty_entries` above
+# (no `--dry-run`) is the test that actually exercises and did go RED
+# against that same mutation; the dry-run combination added no coverage
+# beyond it, so it is deleted rather than kept as false confidence.
 
 
 # --------------------------------------------------------------------------
@@ -478,7 +541,10 @@ def test_json_output_shape(tmp_path):
 
     result = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
     assert result.returncode == 0, result.stderr
-    rows = json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    assert set(payload.keys()) == {"tier", "rows"}
+    assert payload["tier"] == "fast"
+    rows = payload["rows"]
     assert isinstance(rows, list)
     assert len(rows) == 1
     row = rows[0]
@@ -496,8 +562,29 @@ def test_json_deep_tier_eligible_is_an_int(tmp_path):
         ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
     )
     assert result.returncode == 0, result.stderr
-    rows = json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    assert payload["tier"] == "deep"
+    rows = payload["rows"]
     assert rows[0]["eligible"] == 1
+    # Round-N Minor fix: the deep tier now populates oldest_age_hours too
+    # (previously hardcoded None, contradicting the documented shape).
+    assert isinstance(rows[0]["oldest_age_hours"], float)
+
+
+def test_json_tier_marker_present_and_correct_for_both_tiers(tmp_path):
+    """Round-N Major 5: a machine JSON consumer must be able to tell a
+    fast-tier approximation from a deep-tier result without separately
+    tracking which flags produced it."""
+    repo = init_repo_with_origin(tmp_path)
+    add_worktree(repo, ".claude/worktrees/agent-a", "worktree-agent-a", push=False)
+
+    fast = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
+    assert json.loads(fast.stdout)["tier"] == "fast"
+
+    deep = run_cli(
+        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
+    )
+    assert json.loads(deep.stdout)["tier"] == "deep"
 
 
 # --------------------------------------------------------------------------
@@ -546,6 +633,64 @@ def test_all_repos_clean_sweep_exits_0(tmp_path):
     assert result.returncode == 0, result.stderr
 
 
+def test_base_unresolvable_repo_is_skipped_not_swept_and_exits_1(tmp_path):
+    """Round-N Major 1: a repo whose declared BASE_BRANCH cannot be
+    resolved must NOT be silently counted as `swept`, and the sweep exit
+    code must agree with `--report`'s own identical-condition exit 1."""
+    repo_a = init_repo_with_origin(tmp_path, name="repo-a")
+    (repo_a / "AGENTS.md").write_text("BASE_BRANCH: nonexistent-base\n")
+    _git(repo_a, "add", "AGENTS.md")
+    _git(repo_a, "commit", "-q", "-m", "declare unresolvable base")
+    _git(repo_a, "push", "-q", "origin", "main")
+
+    repo_b = init_repo_with_origin(tmp_path, name="repo-b")
+
+    sweep = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--dry-run",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+        ]
+    )
+    assert sweep.returncode == 1, sweep.stderr
+    summary_line = [ln for ln in sweep.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    assert "repos=2" in summary_line
+    assert "swept=1" in summary_line  # only repo_b, not repo_a
+    assert "skipped-base-unresolved=1" in summary_line
+
+    # --report agrees with the sweep on this exact condition (both exit 1).
+    report = run_cli(
+        ["--multi-repo", "--repo", str(repo_a), "--repo", str(repo_b), "--report", "--no-gh", "--min-age-hours", "0"]
+    )
+    assert report.returncode == 1, report.stderr
+
+
+def test_one_bad_root_among_good_ones_still_sweeps_the_rest(tmp_path):
+    """Ported from bin/tests/test_ds_reap_all.py's own test of the same
+    name (Skeptic-mapped coverage-subsumption gap): a root that is not a
+    directory must not halt the sweep of every other good root/repo, and
+    the root error is reported distinctly from a repo-level error."""
+    root = tmp_path / "workspace"
+    root.mkdir()
+    good_repo = init_repo_with_origin(root, name="good-project")
+    bad_root = tmp_path / "does-not-exist-at-all"
+
+    result = run_cli(["--multi-repo", str(root), str(bad_root), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+
+    assert result.returncode == 1
+    summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    assert "repos=1" in summary_line
+    assert "swept=1" in summary_line
+    assert "errored=0" in summary_line
+    assert "root-errors=1" in summary_line
+
+
 # --------------------------------------------------------------------------
 # 10. Zero-repos-discovered usage error (exit 2), distinct from a discovery
 #     error on a named target.
@@ -586,7 +731,50 @@ def test_fast_tier_ranking_order_nonroot_desc_end_to_end(tmp_path):
         ["--multi-repo", "--repo", str(repo_few), "--repo", str(repo_many), "--report", "--count-only", "--json"]
     )
     assert result.returncode == 0, result.stderr
-    rows = json.loads(result.stdout)
+    rows = json.loads(result.stdout)["rows"]
     assert [Path(r["repo"]).name for r in rows] == ["repo-many", "repo-few"]
     assert rows[0]["nonroot_worktrees"] == 3
     assert rows[1]["nonroot_worktrees"] == 1
+
+
+def test_deep_tier_ranking_order_reflects_eligible_not_raw_count(tmp_path):
+    """Round-N Major 2: two repos with EQUAL raw nonroot_worktrees but
+    genuinely different REMOVE-eligible counts must rank by eligible, not
+    by the tied raw count - drives the real `--multi-repo --report --json`
+    (deep tier) end to end so a mutation to `_run_report`'s actual sort key
+    (`rows.sort(key=lambda r: -(r["eligible"] or 0))`) is caught here, not
+    just at the sort-helper level."""
+    repo_more_eligible = init_repo_with_origin(tmp_path, name="repo-more-eligible")
+    add_worktree(repo_more_eligible, ".claude/worktrees/agent-a", "worktree-agent-a", push=False)
+    add_worktree(repo_more_eligible, ".claude/worktrees/agent-b", "worktree-agent-b", push=False)
+    # Both worktrees clean, never pushed, no unique commits -> both
+    # ancestor-of-base -> both REMOVE-eligible. eligible=2, nonroot=2.
+
+    repo_less_eligible = init_repo_with_origin(tmp_path, name="repo-less-eligible")
+    add_worktree(repo_less_eligible, ".claude/worktrees/agent-a", "worktree-agent-a", push=False)
+    dirty_wt = add_worktree(repo_less_eligible, ".claude/worktrees/agent-b", "worktree-agent-b", push=False)
+    (dirty_wt / "uncommitted.txt").write_text("dirty\n")
+    # One clean+eligible, one dirty (never eligible). eligible=1, nonroot=2
+    # - SAME raw count as repo_more_eligible, so a raw-count-based ranking
+    # (or an inverted eligible sort) cannot distinguish them correctly.
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_more_eligible),
+            "--repo",
+            str(repo_less_eligible),
+            "--report",
+            "--json",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    rows = json.loads(result.stdout)["rows"]
+    assert {r["nonroot_worktrees"] for r in rows} == {2}  # raw counts tied
+    assert [Path(r["repo"]).name for r in rows] == ["repo-more-eligible", "repo-less-eligible"]
+    assert rows[0]["eligible"] == 2
+    assert rows[1]["eligible"] == 1

@@ -268,9 +268,16 @@ Public API (CLI):
                           repo/root was clean; 1 when at least one repo or
                           root had a discovery or evaluation error (one
                           failure never halts the sweep - every other
-                          repo/root is still attempted); 2 on a usage error,
-                          INCLUDING zero repos discovered with zero root
-                          errors (no `--repo`, no roots, no usable config).
+                          repo/root is still attempted) - a repo whose base
+                          could not be resolved counts as this case too
+                          (round-N Major 1 fix; agrees with `--report`,
+                          which already exits 1 on the identical condition
+                          via `_deep_report_row`'s own `err` path), reported
+                          in its own `skipped-base-unresolved=N` summary
+                          field rather than being silently folded into
+                          `swept`; 2 on a usage error, INCLUDING zero repos
+                          discovered with zero root errors (no `--repo`, no
+                          roots, no usable config).
                           This binary does NOT port `bin/ds-reap-all`'s
                           `--timeout`: that flag bounded a SEPARATE
                           `ds-cleanup-worktrees` subprocess that could wedge
@@ -310,7 +317,15 @@ Public API (CLI):
                               --show-toplevel`, `worktree list
                               --porcelain`), zero network calls. Ranks repos
                               by `(nonroot_count desc, oldest_worktree_age_
-                              hours asc)` - age is the ENUMERATED worktree
+                              hours desc)` - on a count tie, the repo whose
+                              OLDEST worktree has accumulated the MOST age
+                              ranks worse (round-N operator decision,
+                              correcting the original spec: the initial
+                              `asc` tiebreak ranked the repo whose oldest
+                              worktree was YOUNGER as the worse offender on
+                              a tie, which is backwards for "which project
+                              is worst" - older accumulation is worse, not
+                              better). Age is the ENUMERATED worktree
                               directory's own `mtime` via `os.stat` (free,
                               no extra subprocess). This tier is a WEAK
                               proxy: a project with 30 legitimately-active
@@ -329,11 +344,24 @@ Public API (CLI):
                           multi-repo removal run - look before you delete.
   --json                   (requires `--report`) Emits the ranked report to
                           stdout as JSON in place of the table:
-                          `[{"repo": str, "nonroot_worktrees": int,
-                          "oldest_age_hours": float, "eligible": int|null},
-                          ...]` - `eligible` is `null` under the fast
-                          (`--count-only`) tier, which never computes it.
-                          Never written to `.agentic/hud/*` - that store is
+                          `{"tier": "fast"|"deep", "rows":
+                          [{"repo": str, "nonroot_worktrees": int,
+                          "oldest_age_hours": float|null, "eligible":
+                          int|null}, ...]}` (round-N Major 5 fix: the
+                          printed table already labels its tier explicitly
+                          - see the fast/deep banner lines above - and the
+                          top-level `tier` field gives a machine consumer
+                          the identical signal the table already gives a
+                          human; the shape is new in this unpushed unit, so
+                          there is no compatibility burden in changing it
+                          from a bare array). `eligible` is `null` ONLY
+                          under the fast (`--count-only`) tier, which never
+                          computes it; `oldest_age_hours` is populated in
+                          BOTH tiers (the deep tier computes it from the
+                          same `entries[1:]` list it already enumerates for
+                          `evaluate_entry`, at no extra subprocess cost) and
+                          is `null` only in the genuinely-unreachable
+                          zero-entries case. Never written to `.agentic/hud/*` - that store is
                           per-worker orchestration telemetry with a
                           different consumer and lifecycle than an
                           operator-invoked report.
@@ -458,10 +486,10 @@ unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
 BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
 independent, additive protections.
 
-Upstream deps: Python 3 stdlib only (argparse, fnmatch, shutil, subprocess,
-               sys, time, pathlib, collections). `git` (CLI) and, unless
-               --no-gh, `gh` (CLI, for the PR-state leg - degrades
-               gracefully when absent or unauthenticated).
+Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, re, shutil,
+               subprocess, sys, time, pathlib, collections, typing). `git`
+               (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
+               degrades gracefully when absent or unauthenticated).
                bin/tests/worktree_model.py (WorktreeClass, classify_entry,
                parse_porcelain, Disposition, DispositionFacts,
                disposition_for - imported by path exactly like
@@ -470,6 +498,16 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, shutil, subprocess,
                the LOCKED/DIRTY/branch-evidence decision - see the module
                docstring's Removal predicate section for why no second
                copy of that logic exists here after round-2).
+               `~/.agentic/cleanup-worktrees.json` (DS-cleanup-worktrees-
+               multi-repo Unit 2, OPTIONAL, `--multi-repo` only): the
+               config-file fallback for repo/root discovery, consulted
+               ONLY when neither an explicit `--repo` nor a positional
+               root was given (shape `{"roots": [...], "repos": [...]}`,
+               either key optional; malformed JSON, a non-list value, or a
+               non-string element is reported to stderr and treated as
+               empty for that key - never an uncaught exception) - see
+               `--multi-repo`'s own Public API description above and
+               `_load_multi_repo_config`/`_config_string_list`.
 
 Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       invokes this tool directly - this tool IS the
@@ -492,16 +530,44 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       one subprocess per repo, retained per-unit until a
                       later unit retires it - see this file's own
                       module-level Purpose note above).
-                      CI: bin/tests/test_cleanup_worktrees.py (pytest,
-                      auto-collected by `python3 -m pytest bin/tests/`).
+                      CI: bin/tests/test_cleanup_worktrees.py (single-repo
+                      surface, pytest, auto-collected by `python3 -m
+                      pytest bin/tests/`) and
+                      bin/tests/test_cleanup_worktrees_multi_repo.py
+                      (`--multi-repo`/`--report` surface: discovery,
+                      config-file fallback, dedup, per-repo base
+                      isolation, report read-only guarantee, fast/deep
+                      tier cost and ranking, usage errors, mixed-repo
+                      exit codes - same auto-collection).
 
-Failure modes: exits 0 on success INCLUDING partial degradation (gh
+Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
+               success INCLUDING partial degradation (gh
                unavailable/unauthenticated/erroring/--no-gh/network
                timeout; individual `git worktree remove` failures are
                reported to stderr and the run continues). Exits 1 ONLY on
                an internal/usage error: --repo is not a directory or not a
                git repository, or an unhandled exception while
-               enumerating worktrees. (round-4 rework) When --base is
+               enumerating worktrees. This exit-code contract is UNCHANGED
+               by `--multi-repo`/`--report` (DS-cleanup-worktrees-multi-repo
+               Unit 2) - `bin/ds-base-sync` and
+               `hooks/session-start-wrap.sh` depend on it. MULTI-REPO MODE
+               (`--multi-repo` given) has its OWN, separate exit contract:
+               2 on a usage error (validated before any git subprocess
+               call - see `_validate_args`, and the module docstring's
+               `--multi-repo` section for the full list, including zero
+               repos discovered with zero root errors); 1 when at least
+               one repo or root had a discovery or evaluation error, which
+               now ALSO includes a repo whose base could not be resolved
+               (round-N Major 1 fix - previously silently counted as
+               `swept`, contradicting both this contract and `--report`'s
+               own identical-condition exit 1); 0 only when every
+               discovered repo/root was fully clean. `--report` (also
+               requires `--multi-repo`) shares this same 0/1/2 contract via
+               `_run_report`'s own `errored`/`root_errors` check - it never
+               reaches the removal code path at all (structurally
+               read-only), so its exit code reflects discovery/evaluation
+               errors only, identically to the sweep path.
+               (round-4 rework) When --base is
                omitted, base resolution can fail two ways, both exiting 0
                having done nothing: either AGENTS.md declares a
                `BASE_BRANCH:` whose `origin/<name>` ref does not validate -
@@ -1538,8 +1604,28 @@ _MULTI_REPO_MAX_DEPTH = 3
 
 class RepoTarget:
     """One repo the multi-repo sweep/report will attempt (or has already
-    rejected at discovery time). `canonical` is the resolved path used for
-    dedup (`Path.resolve()`: follows symlinks, normalizes `..`/`.`).
+    rejected at discovery time). `canonical` is the RESOLVED GIT TOPLEVEL
+    path - `git rev-parse --show-toplevel`'s own stdout, re-resolved via
+    `Path.resolve()` (follows symlinks, normalizes `..`/`.`) - never merely
+    the operator-supplied path resolved on its own. This matters whenever
+    an operator (or `~/.agentic/cleanup-worktrees.json`) names a
+    SUBDIRECTORY of a repo rather than its root: `Path(path).resolve()`
+    alone would leave `canonical` pointing at that subdirectory, which
+    `_run_repo` and `_run_report` then pass to `git -C <canonical> ...` -
+    every one of those calls resolves relative to the subdirectory,
+    `git worktree list --porcelain` still enumerates the whole repo's
+    worktrees (git always does), but every other `git -C` call in this
+    file and in `disposition_for`'s evidence-gathering is happy to treat a
+    subdirectory identically to the toplevel where it matters for output
+    (paths, dedup) - so a bare subdirectory silently produced a DIFFERENT
+    verdict than the same input in single-repo mode (round-N Major 3:
+    measured `--repo <repo>/sub --dry-run --no-gh` giving
+    `removed=1 skipped-dirty=1` in single-repo mode but `removed=0
+    skipped-unmanaged=2` under `--multi-repo` for the identical input).
+    Capturing the toplevel here makes `canonical` agree with what
+    single-repo mode's own `_resolve_repo` already returns, and makes
+    dedup correctly collapse two different subdirectories of the same
+    repo to one target.
     """
 
     def __init__(self, path: str, source: str):
@@ -1549,18 +1635,29 @@ class RepoTarget:
         self.discovery_error: Optional[str] = None
 
         try:
-            self.canonical = Path(path).expanduser().resolve()
+            expanded = Path(path).expanduser().resolve()
         except OSError as exc:
             self.discovery_error = f"could not resolve path: {exc}"
             return
 
-        if not self.canonical.is_dir():
+        if not expanded.is_dir():
             self.discovery_error = f"not a directory: {path}"
             return
 
-        proc = _run(["git", "-C", str(self.canonical), "rev-parse", "--show-toplevel"])
+        proc = _run(["git", "-C", str(expanded), "rev-parse", "--show-toplevel"])
         if proc.returncode != 0:
             self.discovery_error = f"not a git repository: {path}"
+            return
+
+        toplevel = proc.stdout.strip()
+        if not toplevel:
+            self.discovery_error = f"git rev-parse --show-toplevel returned no output for: {path}"
+            return
+
+        try:
+            self.canonical = Path(toplevel).resolve()
+        except OSError as exc:
+            self.discovery_error = f"could not resolve git toplevel path {toplevel!r}: {exc}"
 
 
 def _is_git_dir(path: Path) -> bool:
@@ -1744,6 +1841,17 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     if not entries:
         return {"repo": repo, "nonroot_worktrees": 0, "oldest_age_hours": None, "eligible": 0}, None
 
+    # Round-N Minor fix: the deep tier used to hardcode `oldest_age_hours`
+    # to None unconditionally, contradicting the documented `--json` shape
+    # (`"oldest_age_hours": float`, with only `eligible` carved out as
+    # tier-dependent). This tier already enumerates every non-root entry
+    # (`entries[1:]`) below, so computing the same free `os.stat`-based age
+    # the fast tier already computes costs nothing extra here - populate it
+    # rather than leaving the two tiers disagree with the documented shape.
+    nonroot_paths = [e.path for e in entries[1:]]
+    ages = [a for a in (_worktree_age_hours(p) for p in nonroot_paths) if a is not None]
+    oldest_age = max(ages) if ages else None
+
     resolved_base, _base_source, base_diagnostics = resolve_base_branch(repo, None)
     for line in base_diagnostics:
         print(line, file=sys.stderr)
@@ -1759,7 +1867,7 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     return {
         "repo": repo,
         "nonroot_worktrees": len(entries) - 1,
-        "oldest_age_hours": None,
+        "oldest_age_hours": oldest_age,
         "eligible": eligible,
     }, None
 
@@ -1785,17 +1893,32 @@ def _run_report(targets: List[RepoTarget], root_errors: List[str], args: argpars
         rows.append(row)
 
     if args.count_only:
+        # Round-N operator decision: tiebreak by oldest_age_hours DESC, not
+        # ASC - see the module docstring's `--report` `--count-only` tier
+        # description for the full rationale (the original ASC tiebreak
+        # ranked the repo with the YOUNGER oldest worktree as worse on a
+        # count tie, which is backwards). A None age (unreachable in
+        # practice - every enumerated worktree directory can be stat'd)
+        # still sorts last under DESC via `-inf`.
         rows.sort(
             key=lambda r: (
                 -r["nonroot_worktrees"],
-                r["oldest_age_hours"] if r["oldest_age_hours"] is not None else float("inf"),
+                -(r["oldest_age_hours"] if r["oldest_age_hours"] is not None else float("-inf")),
             )
         )
     else:
         rows.sort(key=lambda r: -(r["eligible"] or 0))
 
     if args.json:
-        print(json.dumps(rows))
+        # Round-N Major 5 fix: the printed TABLE already labels its tier
+        # explicitly (the FAST/approximate vs DEEP/accurate banner lines
+        # below), but the JSON used to emit a bare array with no equivalent
+        # signal - a machine consumer had no way to tell a fast-tier
+        # `eligible: null` approximation from a deep-tier result without
+        # separately tracking which flags produced it. Wrap the rows in an
+        # object carrying an explicit `tier` field so JSON and table agree.
+        tier = "fast" if args.count_only else "deep"
+        print(json.dumps({"tier": tier, "rows": rows}))
     else:
         if args.count_only:
             print(
@@ -1897,14 +2020,34 @@ def _field_name(outcome: str) -> str:
     return outcome.lower().replace("skip_", "skipped-").replace("_", "-")
 
 
-def _run_repo(repo: str, args: argparse.Namespace) -> int:
+def _run_repo(
+    repo: str, args: argparse.Namespace, _base_unresolved_out: Optional[List[bool]] = None
+) -> int:
     """The single-repo sweep body - unchanged in behavior from before
-    `--multi-repo`/`--report` existed. `repo` is already a resolved git
-    toplevel path (resolved by the caller: `main()` for single-repo mode
-    via `_resolve_repo`, or `_run_multi_repo` per-target via
-    `RepoTarget.__init__`'s own `git rev-parse --show-toplevel` call).
+    `--multi-repo`/`--report` existed, INCLUDING its exit-code contract
+    (`bin/ds-base-sync` and `hooks/session-start-wrap.sh` depend on it -
+    see the module docstring's Failure modes section). `repo` is already a
+    resolved git toplevel path (resolved by the caller: `main()` for
+    single-repo mode via `_resolve_repo`, or `_run_multi_repo` per-target
+    via `RepoTarget.__init__`'s own `git rev-parse --show-toplevel` call).
     Called once per repo, sequentially, by both modes - this is the ONLY
     place any of this file's removal/archive/prune logic lives.
+
+    `_base_unresolved_out` (round-N Major 1 fix): an OPTIONAL caller-owned
+    output list, unused by single-repo callers (default None, and this
+    function's own return value is completely unaffected either way - it
+    still returns 0 on an unresolvable base, exactly as before). When
+    `_run_multi_repo` passes a list, this function appends `True` to it
+    IFF this run hit the "base could not be resolved" branch below -
+    distinguishing "swept cleanly" from "skipped: base unresolvable" at
+    the AGGREGATION layer without changing this function's own signature-
+    level exit-code meaning. Before this fix, `_run_multi_repo` had no way
+    to see this distinction at all: it only saw `rc == 0`, identical to a
+    fully swept repo, so a base-unresolvable repo silently counted as
+    `swept=1 errored=0` with exit 0 - contradicting both the documented
+    multi-repo exit contract ("1 when at least one repo or root had a
+    discovery or evaluation error") and `--report`, which already exits 1
+    on the identical condition (`_deep_report_row` treats it as an `err`).
     """
     try:
         porcelain = _worktree_list(repo)
@@ -1941,6 +2084,8 @@ def _run_repo(repo: str, args: argparse.Namespace) -> int:
         # run." Every candidate tried is already named in base_diagnostics
         # above (printed to stderr).
         print("ds-cleanup-worktrees: base could not be resolved - reap skipped this run.", file=sys.stderr)
+        if _base_unresolved_out is not None:
+            _base_unresolved_out.append(True)
         return 0
     if base_source != "explicit":
         print(f"ds-cleanup-worktrees: base auto-resolved to '{resolved_base}' via {base_source}")
@@ -2274,6 +2419,7 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
 
     repos_swept = 0
     repos_errored = 0
+    repos_skipped_base = 0
 
     for target in targets:
         header = str(target.canonical) if target.canonical is not None else target.path
@@ -2284,22 +2430,53 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
             repos_errored += 1
             continue
 
-        rc = _run_repo(str(target.canonical), args)
+        # Round-N Major 1 fix: `base_unresolved_flag` distinguishes "base
+        # could not be resolved - reap skipped this run" from a genuinely
+        # clean sweep. Before this fix, `_run_repo`'s rc==0 was identical
+        # in both cases, so a base-unresolvable repo silently counted as
+        # `swept=1`, contradicting both the documented multi-repo exit
+        # contract and `--report`'s own identical-condition exit 1 (see
+        # `_run_repo`'s own `_base_unresolved_out` docstring for the full
+        # rationale). Do NOT count it as `swept` at all - it is reported
+        # in its own bucket below, and it still causes exit 1, same as
+        # `--report`.
+        base_unresolved_flag: List[bool] = []
+        rc = _run_repo(str(target.canonical), args, base_unresolved_flag)
+        if base_unresolved_flag:
+            repos_skipped_base += 1
+            continue
         repos_swept += 1
         if rc != 0:
             repos_errored += 1
 
     print(
         f"ds-cleanup-worktrees: repos={len(targets)} swept={repos_swept} errored={repos_errored} "
-        f"root-errors={len(root_errors)} skipped-not-git={skipped_not_git}"
+        f"root-errors={len(root_errors)} skipped-not-git={skipped_not_git} "
+        f"skipped-base-unresolved={repos_skipped_base}"
     )
 
-    if repos_errored or root_errors:
+    if repos_errored or root_errors or repos_skipped_base:
         return 1
     return 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Round-N Minor fix: stdout defaults to fully block-buffered whenever
+    # it is not a tty (e.g. `> log 2>&1`), while stderr is unbuffered - so
+    # the multi-repo sweep's `== repo ==` header (stdout) and that same
+    # repo's own errors (stderr, printed deep inside `_run_repo`) can
+    # interleave under the WRONG repo when redirected to a single stream.
+    # Line-buffering stdout keeps its ordering synced with stderr's own
+    # unbuffered writes without having to route every per-repo print
+    # through one stream. `reconfigure` is Python 3.7+; guarded for any
+    # stdout object that does not support it (e.g. a test harness's
+    # captured stream) rather than failing the whole run over a cosmetic
+    # ordering guarantee.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError, OSError):
+        pass
+
     args = parse_args(argv)
 
     usage_error = _validate_args(args)
