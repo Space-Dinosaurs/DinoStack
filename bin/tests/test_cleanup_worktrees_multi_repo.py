@@ -745,7 +745,17 @@ def test_deep_tier_ranking_order_reflects_eligible_not_raw_count(tmp_path):
     by the tied raw count - drives the real `--multi-repo --report --json`
     (deep tier) end to end so a mutation to `_run_report`'s actual sort key
     (`rows.sort(key=lambda r: -(r["eligible"] or 0))`) is caught here, not
-    just at the sort-helper level."""
+    just at the sort-helper level.
+
+    Round-4 Major 2 fix: `--repo` is passed LESS-eligible-first, the
+    OPPOSITE of the expected ranked order - a round-3 version of this test
+    passed `--repo` more-eligible-first (matching the expected order), so a
+    stable sort with the deep-tier `rows.sort(...)` call deleted entirely,
+    or reverted to the round-2 pre-fix line `rows.sort(key=lambda r:
+    -(r["eligible"] or 0))` (no tiebreak - irrelevant here since there is
+    no tie), still emitted the correct-looking order by discovery order
+    alone. With the argument order reversed, only the real sort call
+    produces the expected ranking."""
     repo_more_eligible = init_repo_with_origin(tmp_path, name="repo-more-eligible")
     add_worktree(repo_more_eligible, ".claude/worktrees/agent-a", "worktree-agent-a", push=False)
     add_worktree(repo_more_eligible, ".claude/worktrees/agent-b", "worktree-agent-b", push=False)
@@ -763,10 +773,12 @@ def test_deep_tier_ranking_order_reflects_eligible_not_raw_count(tmp_path):
     result = run_cli(
         [
             "--multi-repo",
-            "--repo",
-            str(repo_more_eligible),
+            # Discovery order is LESS-eligible-first, opposite of the
+            # expected ranked order - see the docstring above.
             "--repo",
             str(repo_less_eligible),
+            "--repo",
+            str(repo_more_eligible),
             "--report",
             "--json",
             "--no-gh",
@@ -807,7 +819,13 @@ def test_fast_tier_tiebreak_by_oldest_age_desc_on_count_tie(tmp_path):
     age ranks first/worse) - drives the real `--multi-repo --report
     --count-only --json` path end to end so a mutation to the tiebreak's
     sign (DESC -> ASC) is caught here. Before this test, all 138 tests in
-    this suite stayed green under exactly that mutation."""
+    this suite stayed green under exactly that mutation.
+
+    Round-4 Major 2 fix: `--repo` is passed YOUNGEST-first, the OPPOSITE of
+    the expected ranked order (oldest-first) - a round-3 version passed
+    `--repo` oldest-first (matching the expected order), so a stable sort
+    with the fast-tier `rows.sort(...)` call deleted entirely still emitted
+    the correct-looking order by discovery order alone."""
     repo_old = init_repo_with_origin(tmp_path, name="repo-old-worktree")
     old_wt = add_worktree(repo_old, ".claude/worktrees/agent-old", "worktree-agent-old", push=False)
     _backdate(old_wt, hours_ago=500)
@@ -819,10 +837,12 @@ def test_fast_tier_tiebreak_by_oldest_age_desc_on_count_tie(tmp_path):
     result = run_cli(
         [
             "--multi-repo",
-            "--repo",
-            str(repo_old),
+            # Discovery order is YOUNGEST-first, opposite of the expected
+            # ranked order - see the docstring above.
             "--repo",
             str(repo_young),
+            "--repo",
+            str(repo_old),
             "--report",
             "--count-only",
             "--json",
@@ -841,7 +861,15 @@ def test_deep_tier_tiebreak_by_oldest_age_desc_on_eligible_tie(tmp_path):
     or implemented tiebreak at all, so a tie fell back to undocumented
     discovery order. Drives the real `--multi-repo --report --json` (deep
     tier) end to end so a mutation to `_run_report`'s deep-tier sort key
-    that drops or inverts the tiebreak is caught here."""
+    that drops or inverts the tiebreak is caught here.
+
+    Round-4 Major 2 fix: `--repo` is passed YOUNGEST-first, the OPPOSITE of
+    the expected ranked order (oldest-first) - a round-3 version passed
+    `--repo` oldest-first (matching the expected order), so a stable sort
+    with the deep-tier `rows.sort(...)` call deleted entirely, or reverted
+    to the round-2 pre-fix line `rows.sort(key=lambda r: -(r["eligible"] or
+    0))` (no tiebreak - irrelevant here since eligible is tied at 1), still
+    emitted the correct-looking order by discovery order alone."""
     repo_old = init_repo_with_origin(tmp_path, name="repo-old-eligible")
     old_wt = add_worktree(repo_old, ".claude/worktrees/agent-old", "worktree-agent-old", push=False)
     _backdate(old_wt, hours_ago=500)
@@ -853,10 +881,12 @@ def test_deep_tier_tiebreak_by_oldest_age_desc_on_eligible_tie(tmp_path):
     result = run_cli(
         [
             "--multi-repo",
-            "--repo",
-            str(repo_old),
+            # Discovery order is YOUNGEST-first, opposite of the expected
+            # ranked order - see the docstring above.
             "--repo",
             str(repo_young),
+            "--repo",
+            str(repo_old),
             "--report",
             "--json",
             "--no-gh",
@@ -869,6 +899,72 @@ def test_deep_tier_tiebreak_by_oldest_age_desc_on_eligible_tie(tmp_path):
     assert {r["eligible"] for r in rows} == {1}  # eligible counts tied
     assert [Path(r["repo"]).name for r in rows] == ["repo-old-eligible", "repo-young-eligible"]
     assert rows[0]["oldest_age_hours"] > rows[1]["oldest_age_hours"]
+
+
+def _add_three_mixed_age_worktrees(repo: Path) -> None:
+    """Adds three worktrees to `repo` whose AGES and whose alphabetical
+    NAME order deliberately disagree, so neither `ages[0]` nor `ages[-1]`
+    (whatever order `git worktree list --porcelain` happens to enumerate
+    them in - measured empirically to be alphabetical by path on this
+    entry's fixture naming) can accidentally equal the true max. Only a
+    genuine `max(ages)` reduction produces the correct answer:
+      - agent-1 (alphabetically FIRST)  -> 10h  (youngest)
+      - agent-2 (alphabetically MIDDLE) -> 500h (oldest - the true max)
+      - agent-3 (alphabetically LAST)   -> 50h  (middling)
+    """
+    wt1 = add_worktree(repo, ".claude/worktrees/agent-1", "worktree-agent-1", push=False)
+    _backdate(wt1, hours_ago=10)
+    wt2 = add_worktree(repo, ".claude/worktrees/agent-2", "worktree-agent-2", push=False)
+    _backdate(wt2, hours_ago=500)
+    wt3 = add_worktree(repo, ".claude/worktrees/agent-3", "worktree-agent-3", push=False)
+    _backdate(wt3, hours_ago=50)
+
+
+def test_fast_tier_oldest_age_is_max_not_min_across_worktrees(tmp_path):
+    """Round-4 Major 1: `_fast_report_row`'s `oldest_age = max(ages) if ages
+    else None` (bin/ds-cleanup-worktrees:1902) is an unpinned ordering
+    decision - every prior fixture in this suite gave a repo exactly ONE
+    worktree, so `min(ages) == max(ages)` and mutating `max` to `min` left
+    every test in the suite GREEN. This repo has THREE worktrees whose
+    alphabetical order deliberately disagrees with their age order (see
+    `_add_three_mixed_age_worktrees`), so neither `min(ages)` NOR a
+    non-reducing "pick one element" mutation (`ages[0]`, `ages[-1]`) can
+    accidentally satisfy this test the way a two-worktree, alphabetically-
+    aligned fixture could - confirmed by execution: an `ages[0]`/`ages[-1]`
+    mutation against a two-worktree version of this fixture passed
+    (alphabetical == age order there), motivating this three-worktree
+    redesign."""
+    repo = init_repo_with_origin(tmp_path, name="repo-mixed-ages-fast")
+    _add_three_mixed_age_worktrees(repo)
+
+    result = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
+    assert result.returncode == 0, result.stderr
+    rows = json.loads(result.stdout)["rows"]
+    assert rows[0]["nonroot_worktrees"] == 3
+    # The true max (~500h) must win over both the min (~10h) and the
+    # middling third value (~50h) - only a real max() reduction lands here.
+    assert 400 < rows[0]["oldest_age_hours"] < 600, rows[0]
+
+
+def test_deep_tier_oldest_age_is_max_not_min_across_worktrees(tmp_path):
+    """Round-4 Major 1: same defect as the fast-tier test above, but for
+    `_deep_report_row`'s identical `oldest_age = max(ages) if ages else
+    None` (bin/ds-cleanup-worktrees:1936) - mutating that `max` to `min`
+    also left every prior test in this suite GREEN, because every prior
+    deep-tier fixture likewise gave each repo exactly one worktree per
+    repo. Uses the same three-worktree, alphabetically-disagreeing fixture
+    as the fast-tier test above so a non-reducing "pick one element"
+    mutation cannot accidentally pass either."""
+    repo = init_repo_with_origin(tmp_path, name="repo-mixed-ages-deep")
+    _add_three_mixed_age_worktrees(repo)
+
+    result = run_cli(
+        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
+    )
+    assert result.returncode == 0, result.stderr
+    rows = json.loads(result.stdout)["rows"]
+    assert rows[0]["nonroot_worktrees"] == 3
+    assert 400 < rows[0]["oldest_age_hours"] < 600, rows[0]
 
 
 def test_scan_root_discovers_children_in_alphabetical_order(tmp_path):

@@ -46,6 +46,7 @@ Performance: each scenario performs a handful of real `git` subprocess
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -2058,17 +2059,43 @@ def test_count_only_still_makes_zero_base_resolution_git_calls(tmp_path):
     assert "entries=" in proc.stdout
 
 
-def test_count_only_makes_exactly_two_git_calls_total(tmp_path):
-    """Round-N Major 3 regression guard: mechanically derives the actual
-    subprocess-call count for single-repo `--count-only` by EXECUTION,
-    rather than trusting a hand count - the module docstring's own
-    `Performance:` section claimed "one call, nothing else" for over a
-    round while the code genuinely made two (`rev-parse --show-toplevel`
-    during repo resolution, then `worktree list --porcelain`). A `git`
-    stub logs every invocation's argv to a file (delegating to the real
-    `git` so the run still succeeds) and this test asserts the derived
-    count against the manifest's own stated figure, not a second hand
-    count - so the two can never silently diverge again."""
+_GIT_CALL_COUNT_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def _parse_manifest_git_call_count() -> int:
+    """Parses the `--count-only` git-call-count claim out of the module
+    docstring's `Performance:` section (e.g. "`--count-only` - two git
+    calls total: ...") rather than hand-typing a second copy of the
+    figure. This is the fix for Round-4 Major 3: the prior version of this
+    test defined `EXPECTED_GIT_CALLS = 2` as a bare literal with a
+    "keep in lockstep with the module docstring" comment - a comment is
+    not an assertion, and changing the manifest text alone (e.g. to
+    "three git calls total") left the suite GREEN, which is precisely the
+    class of drift this test claims to guard against (the historical
+    defect was manifest-side: the docstring said "one call" while the code
+    made two)."""
+    source = SCRIPT.read_text()
+    match = re.search(r"--count-only`\s*-\s*(\w+)\s+git calls total", source)
+    assert match, "could not find the Performance: section's git-call-count claim in the module docstring"
+    word = match.group(1).lower()
+    assert word in _GIT_CALL_COUNT_WORDS, f"unrecognized count word in manifest: {word!r}"
+    return _GIT_CALL_COUNT_WORDS[word]
+
+
+def test_count_only_git_call_count_matches_manifest(tmp_path):
+    """Round-N Major 3 regression guard, corrected in Round 4: mechanically
+    derives the actual subprocess-call count for single-repo `--count-only`
+    by EXECUTION, rather than trusting a hand count - the module
+    docstring's own `Performance:` section claimed "one call, nothing
+    else" for over a round while the code genuinely made two
+    (`rev-parse --show-toplevel` during repo resolution, then
+    `worktree list --porcelain`). A `git` stub logs every invocation's
+    argv to a file (delegating to the real `git` so the run still
+    succeeds) and this test asserts the derived count against a figure
+    PARSED out of the manifest's own stated text (`_parse_manifest_git_call_count`),
+    not a second hand-typed count - so the two can never silently diverge
+    again in either direction: mutating the manifest text alone, or making
+    the code perform an extra/fewer call, both fail this test."""
     repo, _origin = init_repo_with_origin(tmp_path)
     real_git = shutil.which("git")
     assert real_git, "real `git` must be on PATH to build this stub"
@@ -2090,7 +2117,7 @@ def test_count_only_makes_exactly_two_git_calls_total(tmp_path):
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
 
     calls = log_path.read_text().splitlines() if log_path.exists() else []
-    EXPECTED_GIT_CALLS = 2  # keep in lockstep with the module docstring's Performance: section
-    assert len(calls) == EXPECTED_GIT_CALLS, calls
+    expected = _parse_manifest_git_call_count()
+    assert len(calls) == expected, (calls, expected)
     assert any("rev-parse" in c and "--show-toplevel" in c for c in calls), calls
     assert any("worktree" in c and "list" in c for c in calls), calls
