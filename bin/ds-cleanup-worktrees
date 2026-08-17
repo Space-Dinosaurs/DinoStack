@@ -288,9 +288,10 @@ Public API (CLI):
                           operator-settable AGGREGATE per-repo ceiling, and
                           that aggregate cap has no replacement here - a repo
                           with N worktree entries is bounded only at
-                          `_NETWORK_TIMEOUT_SECONDS` times (up to 3 network
-                          calls per entry), with no overall per-repo ceiling
-                          - verified against the code, not merely asserted.
+                          `_NETWORK_TIMEOUT_SECONDS` times (up to 2 network
+                          calls per entry, plus 1 per repo for `gh auth
+                          status`), with no overall per-repo ceiling -
+                          verified against the code, not merely asserted.
   root ...                Positional root directories (requires
                           `--multi-repo`; see that flag's description
                           above for the full scan/dedup/config-fallback

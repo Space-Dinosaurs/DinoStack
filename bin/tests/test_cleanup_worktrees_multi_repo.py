@@ -756,6 +756,77 @@ def test_one_bad_root_among_good_ones_still_sweeps_the_rest(tmp_path):
     assert "root-errors=1" in summary_line
 
 
+def test_runtime_repo_failure_mid_sweep_continues_and_errors(tmp_path, monkeypatch, capsys):
+    """Round-3 rework (Skeptic Major): recovers the now-retired
+    bin/tests/test_ds_reap_all.py's `test_one_repo_failure_does_not_stop_the_sweep`
+    / `test_summary_counts_correct_with_mixed_outcomes` coverage, adapted for
+    the in-process `_run_repo` call now that the old subprocess-per-repo
+    boundary (the `FAKE_REAP_FAIL_REPOS` fake-tool env var mechanism) is
+    gone. Every OTHER multi-repo failure test in this file (see
+    `test_mixed_repo_failure_sweep_exits_1`,
+    `test_one_bad_root_among_good_ones_still_sweeps_the_rest`) fails at
+    DISCOVERY (`target.discovery_error is not None`, bin/ds-cleanup-worktrees
+    `_run_multi_repo`'s `continue` branch) and never enters `_run_repo`'s own
+    error handling - proven unreachable by the Skeptic both by mutating
+    `if rc != 0: repos_errored += 1` to `if False:` (suite stayed green) and
+    by marker-file instrumentation of that branch (marker never created).
+
+    This test instead monkeypatches `_worktree_list` - the first real `git`
+    call INSIDE `_run_repo` (bin/ds-cleanup-worktrees:2137), reached only
+    after discovery already succeeded for that repo (`target.discovery_error`
+    is None) - to raise for one named repo only. That is a genuine RUNTIME
+    failure, not a discovery failure, and drives `_run_repo`'s
+    `except (RuntimeError, ValueError)` handler at :2139-2141 (`return 1`),
+    which is the path `_run_multi_repo`'s `if rc != 0: repos_errored += 1`
+    (:2534-2536) exists to aggregate."""
+    mod = _load_module_directly()
+
+    good_a = init_repo_with_origin(tmp_path, name="good-a")
+    bad_b = init_repo_with_origin(tmp_path, name="bad-b")
+    good_c = init_repo_with_origin(tmp_path, name="good-c")
+
+    real_worktree_list = mod._worktree_list
+    calls = []
+
+    def fake_worktree_list(repo):
+        calls.append(Path(repo).name)
+        if Path(repo).name == "bad-b":
+            raise RuntimeError("simulated runtime failure for bad-b")
+        return real_worktree_list(repo)
+
+    monkeypatch.setattr(mod, "_worktree_list", fake_worktree_list)
+
+    args = mod.parse_args(
+        [
+            "--multi-repo",
+            "--repo",
+            str(good_a),
+            "--repo",
+            str(bad_b),
+            "--repo",
+            str(good_c),
+            "--dry-run",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+        ]
+    )
+
+    rc = mod._run_multi_repo(args)
+    captured = capsys.readouterr()
+
+    # The sweep did not halt at bad-b - good-c was still reached.
+    assert calls == ["good-a", "bad-b", "good-c"]
+
+    assert rc == 1
+    summary_line = [
+        ln for ln in captured.out.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")
+    ][-1]
+    assert "repos=3" in summary_line
+    assert "swept=3" in summary_line  # all 3 entered _run_repo (discovery succeeded for all)
+    assert "errored=1" in summary_line
+
+
 # --------------------------------------------------------------------------
 # 10. Zero-repos-discovered usage error (exit 2), distinct from a discovery
 #     error on a named target.
