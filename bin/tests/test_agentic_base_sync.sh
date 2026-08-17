@@ -568,7 +568,7 @@ EOF
 
 echo "=== Case 18 (round-6): worktree-reaper --count-only advisory note ACTUALLY EMITS when the synced repo has a non-root worktree ==="
 # Case 17 above passes vacuously for the worktree-advisory leg specifically:
-# its fixture repo has zero non-root worktrees, so _ds_reap_nonroot is
+# its fixture repo has zero non-root worktrees, so _ds_cleanup_nonroot is
 # always 0 and the note branch is never exercised - nothing in the
 # existing suite actually drives a nonzero non-root count through
 # bin/ds-cleanup-worktrees --count-only and asserts the note text. This case
