@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Cross-repo sweep wrapper around `bin/ds-reap-worktrees`. That tool
+Purpose: Cross-repo sweep wrapper around `bin/ds-cleanup-worktrees`. That tool
          cleans stale worktrees for exactly ONE repo per invocation
          (`--repo <path>`, default cwd) - operators with several project
          checkouts had no single command to sweep all of them. This tool
@@ -9,7 +9,7 @@ Purpose: Cross-repo sweep wrapper around `bin/ds-reap-worktrees`. That tool
          per repo sequentially, and reports a combined summary. It contains
          NO removal logic of its own - every safety gate (locked, dirty,
          self, age floor, protected content, branch evidence,
-         --archive-unproven) lives entirely in `ds-reap-worktrees` and is
+         --archive-unproven) lives entirely in `ds-cleanup-worktrees` and is
          reused unmodified via subprocess.
 
 Public API (CLI):
@@ -37,7 +37,7 @@ Public API (CLI):
                           sweep continues with the remaining repos.
   --dry-run, --explain, --count-only, --no-gh, --min-age-hours <n>,
   --strict-ignored, --archive-unproven, --base <ref>
-                          Forwarded verbatim to every `ds-reap-worktrees`
+                          Forwarded verbatim to every `ds-cleanup-worktrees`
                           invocation. This tool never reimplements or
                           reinterprets any of their semantics - the
                           per-repo tool owns all safety logic.
@@ -48,12 +48,12 @@ Public API (CLI):
   exits 2.
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, subprocess, sys,
-               pathlib). The sibling `ds-reap-worktrees` binary, located
+               pathlib). The sibling `ds-cleanup-worktrees` binary, located
                next to this script's OWN resolved path (`Path(__file__).
                resolve().parent` - follows a PATH symlink back to the real
-               bin/ directory, same discipline `ds-reap-worktrees` itself
-               uses for `worktree_model.py`), falling back to `ds-reap-
-               worktrees` on PATH if no sibling is found. `git` (CLI - one
+               bin/ directory, same discipline `ds-cleanup-worktrees` itself
+               uses for `worktree_model.py`), falling back to
+               `ds-cleanup-worktrees` on PATH if no sibling is found. `git` (CLI - one
                `git rev-parse --show-toplevel` subprocess call PER
                DISCOVERED TARGET, run from `RepoTarget.__init__`: this
                validates both an explicit `--repo` AND every repo the
@@ -78,7 +78,7 @@ Failure modes: exits 0 when zero repos errored AND zero root-discovery
                errors. Exits 1 when at least one of: (a) a discovered
                repo failed discovery (an explicit `--repo` that is not a
                directory or not a git repository), (b) a repo failed
-               invocation (nonzero `ds-reap-worktrees` exit, subprocess
+               invocation (nonzero `ds-cleanup-worktrees` exit, subprocess
                timeout, or an unexpected exception), or (c) a positional
                root directory did not exist at all (`root-errors` in the
                summary line) - one repo's or root's failure never halts
@@ -89,12 +89,12 @@ Failure modes: exits 0 when zero repos errored AND zero root-discovery
                (exit 1), never silently treated as "nothing to do" (exit
                2). Never removes anything itself - all removal logic and
                its own failure/retry semantics belong to
-               `ds-reap-worktrees`. A malformed config file (`"repos"` or
+               `ds-cleanup-worktrees`. A malformed config file (`"repos"` or
                `"roots"` present but not a list, or containing a non-
                string element) is reported to stderr and treated as
                empty for that key - never an uncaught exception.
 
-Performance: one subprocess invocation of `ds-reap-worktrees` per
+Performance: one subprocess invocation of `ds-cleanup-worktrees` per
              discovered repo, run sequentially (never parallel - keeps
              per-repo output legible and avoids concurrent git/gh
              rate-limit contention across repos), each bounded by
@@ -124,7 +124,7 @@ _MAX_DEPTH = 3
 
 _CONFIG_PATH = Path("~/.agentic/reap-all.json").expanduser()
 
-#: Pass-through boolean flags forwarded verbatim to ds-reap-worktrees when
+#: Pass-through boolean flags forwarded verbatim to ds-cleanup-worktrees when
 #: set. Named here once so the forwarding logic and the summary-line
 #: composition can never disagree about which flags exist.
 _PASS_THROUGH_BOOL_FLAGS = (
@@ -145,7 +145,7 @@ _PASS_THROUGH_BOOL_FLAGS = (
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="ds-reap-all",
-        description="Cross-repo sweep wrapper around ds-reap-worktrees.",
+        description="Cross-repo sweep wrapper around ds-cleanup-worktrees.",
     )
     p.add_argument("roots", nargs="*", default=[], help="Root directories to scan for git repos.")
     p.add_argument("--repo", action="append", default=[], help="Explicit repo to sweep. Repeatable.")
@@ -166,7 +166,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 
 
 def _forwarded_flags(args: argparse.Namespace) -> List[str]:
-    """The exact argv fragment forwarded to every `ds-reap-worktrees`
+    """The exact argv fragment forwarded to every `ds-cleanup-worktrees`
     invocation - built once so the subprocess call and the summary line's
     echoed flag set can never drift apart.
     """
@@ -356,8 +356,8 @@ def dedupe(targets: List[RepoTarget]) -> List[RepoTarget]:
 # --------------------------------------------------------------------------
 
 
-def _resolve_reap_worktrees() -> str:
-    """Resolves the underlying `ds-reap-worktrees` binary to invoke.
+def _resolve_cleanup_worktrees() -> str:
+    """Resolves the underlying `ds-cleanup-worktrees` binary to invoke.
     `DS_REAP_ALL_UNDERLYING_TOOL`, when set, overrides this entirely - a
     test-only hook (never documented in the public CLI surface above) that
     lets the test suite substitute a fake stub executable without touching
@@ -366,14 +366,14 @@ def _resolve_reap_worktrees() -> str:
     override = os.environ.get("DS_REAP_ALL_UNDERLYING_TOOL")
     if override:
         return override
-    sibling = _BIN_DIR / "ds-reap-worktrees"
+    sibling = _BIN_DIR / "ds-cleanup-worktrees"
     if sibling.is_file():
         return str(sibling)
-    return "ds-reap-worktrees"
+    return "ds-cleanup-worktrees"
 
 
 def run_one_repo(tool: str, repo_path: str, forwarded: List[str], timeout: float) -> Dict:
-    """Invokes `ds-reap-worktrees --repo <repo_path> <forwarded>` as a
+    """Invokes `ds-cleanup-worktrees --repo <repo_path> <forwarded>` as a
     subprocess. Returns a dict with `ok`, `returncode`, `stdout`,
     `stderr`, `detail`. Never raises - a subprocess failure, timeout, or
     unexpected exception is captured and reported as this repo's own
@@ -432,7 +432,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     forwarded = _forwarded_flags(args)
-    tool = _resolve_reap_worktrees()
+    tool = _resolve_cleanup_worktrees()
 
     repos_swept = 0
     repos_errored = 0

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
 Purpose: pytest suite for bin/ds-reap-all, the cross-repo sweep wrapper
-         around bin/ds-reap-worktrees. Covers discovery (explicit --repo,
+         around bin/ds-cleanup-worktrees. Covers discovery (explicit --repo,
          root-directory scan, config-file fallback, dedup by canonical
          path), pass-through flag forwarding, per-repo error isolation,
          and summary-line composition - never a real reap: every scenario
          that exercises the underlying-tool call substitutes a fake stub
          via the `DS_REAP_ALL_UNDERLYING_TOOL` test-only env-var hook (see
-         `_resolve_reap_worktrees`'s docstring in ds-reap-all itself), so
+         `_resolve_cleanup_worktrees`'s docstring in ds-reap-all itself), so
          no real `git worktree remove` ever runs from this file.
 
 Public API: none (test module; invoked via `python3 -m pytest`).
@@ -18,7 +18,7 @@ Upstream deps: bin/ds-reap-all (module under test, invoked both as a
                bin/tests/test_reap_worktrees.py's `_load_module_directly`
                already established). Real `git` CLI (subprocess, `git
                init` only - to build minimal repos for the discovery
-               scenarios). A fake stub `ds-reap-worktrees` executable
+               scenarios). A fake stub `ds-cleanup-worktrees` executable
                written per-test into tmp_path, never the real binary.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
@@ -79,7 +79,7 @@ def init_bare_git_repo(path: Path) -> None:
 FAKE_TOOL_SOURCE = textwrap.dedent(
     """\
     #!/usr/bin/env python3
-    # Fake ds-reap-worktrees stub for bin/tests/test_ds_reap_all.py. Never
+    # Fake ds-cleanup-worktrees stub for bin/tests/test_ds_reap_all.py. Never
     # touches real git worktree state. Behavior is driven entirely by env
     # vars so each test can configure it independently:
     #   FAKE_REAP_LOG        - path to append one line per invocation's argv
@@ -108,10 +108,10 @@ FAKE_TOOL_SOURCE = textwrap.dedent(
         time.sleep(float(os.environ.get("FAKE_REAP_SLEEP_SECONDS", "1")))
 
     mode = "dry-run" if "--dry-run" in argv else "live"
-    print(f"ds-reap-worktrees: base=main mode={mode} entries=1 removed=0")
+    print(f"ds-cleanup-worktrees: base=main mode={mode} entries=1 removed=0")
 
     if basename in fail_repos:
-        print("ds-reap-worktrees: simulated failure", file=sys.stderr)
+        print("ds-cleanup-worktrees: simulated failure", file=sys.stderr)
         sys.exit(1)
     sys.exit(0)
     """
@@ -119,7 +119,7 @@ FAKE_TOOL_SOURCE = textwrap.dedent(
 
 
 def write_fake_tool(tmp_path: Path) -> Path:
-    fake = tmp_path / "fake-ds-reap-worktrees.py"
+    fake = tmp_path / "fake-ds-cleanup-worktrees.py"
     fake.write_text(FAKE_TOOL_SOURCE)
     fake.chmod(0o755)
     return fake
@@ -458,7 +458,7 @@ def test_timeout_reported_as_repo_error_and_sweep_continues(tmp_path):
 
 # --------------------------------------------------------------------------
 # 9. Symlink invocation: through a real os.symlink, resolving the real
-#    sibling ds-reap-worktrees (DS-66 class regression guard).
+#    sibling ds-cleanup-worktrees (DS-66 class regression guard).
 # --------------------------------------------------------------------------
 
 
@@ -473,7 +473,7 @@ def test_cli_runs_through_path_symlink_and_finds_sibling_tool(tmp_path):
 
     repo = tmp_path / "symlink-target-repo"
     init_bare_git_repo(repo)
-    # Round-4 rework: ds-reap-worktrees now resolves its own --base when
+    # Round-4 rework: ds-cleanup-worktrees now resolves its own --base when
     # omitted (this test's PATH-symlink invocation passes none), so the
     # fixture repo needs a real commit and a real `origin` remote with a
     # `main` branch for the main-fallback resolution tier to succeed -
@@ -507,11 +507,11 @@ def test_cli_runs_through_path_symlink_and_finds_sibling_tool(tmp_path):
     )
 
     # A genuine end-to-end run: through the symlink, ds-reap-all resolves
-    # the REAL sibling ds-reap-worktrees (no fake-tool override here) and
+    # the REAL sibling ds-cleanup-worktrees (no fake-tool override here) and
     # invokes it successfully against a real (trivial) git repo.
     assert result.returncode == 0, result.stderr
     assert "== " in result.stdout
-    assert "ds-reap-worktrees:" in result.stdout
+    assert "ds-cleanup-worktrees:" in result.stdout
 
 
 # --------------------------------------------------------------------------
@@ -630,7 +630,7 @@ def test_no_override_note_when_env_var_unset(tmp_path):
     init_bare_git_repo(repo)
 
     # No fake_tool passed -> DS_REAP_ALL_UNDERLYING_TOOL is not set; this
-    # genuinely invokes the real sibling ds-reap-worktrees.
+    # genuinely invokes the real sibling ds-cleanup-worktrees.
     result = run_reap_all(["--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0"])
 
     assert "underlying-tool override active" not in result.stderr
@@ -639,7 +639,7 @@ def test_no_override_note_when_env_var_unset(tmp_path):
 # --------------------------------------------------------------------------
 # 13. (Skeptic round-1 Major 4) content/ wiring: ds-reap-all must be
 #     mentioned in content/commands/ds-cleanup-worktrees.md, the prose home
-#     of ds-reap-worktrees - "a new module is not done until something in
+#     of ds-cleanup-worktrees - "a new module is not done until something in
 #     content/ invokes it" (repo AGENTS.md rule; precedent:
 #     check_prose_wiring() in bin/tests/test_worktree_lifecycle_spec.sh).
 # --------------------------------------------------------------------------

@@ -341,18 +341,18 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # removes). Resolved the same way as ds-defer above: AE_REPO_DIR (already
   # resolved by resolve_ae_repo_dir_with_fallback for the defer nudge)
   # first, PATH fallback second - the deployed hooks-snapshot layout does
-  # NOT include the rest of bin/, so DS_REAP_BIN is very commonly absent
+  # NOT include the rest of bin/, so DS_CLEANUP_BIN is very commonly absent
   # there and this nudge silently degrades to empty, same as ds-defer's own
   # `command -v ds-defer` fallback comment explains above.
   worktree_msg=""
   WORKTREE_NUDGE_THRESHOLD=5
   if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
-    DS_REAP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
+    DS_CLEANUP_BIN="$AE_REPO_DIR/bin/ds-cleanup-worktrees"
   fi
-  if [[ -z "${DS_REAP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
-    DS_REAP_BIN="$(command -v ds-cleanup-worktrees)"
+  if [[ -z "${DS_CLEANUP_BIN:-}" ]] && command -v ds-cleanup-worktrees >/dev/null 2>&1; then
+    DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
   fi
-  if [[ -n "${DS_REAP_BIN:-}" ]]; then
+  if [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
     # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
     # is needed here (N includes the main worktree, so the non-root count
     # is N-1) - zero network calls, zero per-entry `git` calls beyond the
@@ -361,8 +361,8 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
     # the live checkout because --no-gh suppressed `gh` but NOT `git
     # ls-remote`, one network round-trip per entry - this call site never
     # needed anything beyond a count, so it never needed that cost.
-    reap_summary="$(python3 "$DS_REAP_BIN" --repo "$cwd" --count-only 2>/dev/null || true)"
-    if [[ "$reap_summary" =~ entries=([0-9]+) ]]; then
+    cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null || true)"
+    if [[ "$cleanup_summary" =~ entries=([0-9]+) ]]; then
       total_entries="${BASH_REMATCH[1]}"
       nonroot_count=$((total_entries - 1))
       if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then

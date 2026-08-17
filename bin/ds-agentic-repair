@@ -98,7 +98,7 @@ Archive placement: the archive lives at
     `<repo>/.agentic/stray-agentic-archive/<ts>-<sanitized-relpath>/` -
     UNDER `.agentic/`, per this repo's own precedent
     (`.agentic/reaped-telemetry/`, `.agentic/worktree-archive/` in
-    bin/ds-reap-worktrees) so it needs no new `.gitignore` carve-out (the
+    bin/ds-cleanup-worktrees) so it needs no new `.gitignore` carve-out (the
     existing `/.agentic/*` umbrella already covers it). An EARLIER DESIGN
     archived to `<repo>/.agentic/.stray-agentic-archive/<ts>/<relpath>/`,
     preserving the stray's own relative path (including its own literal
@@ -128,7 +128,7 @@ Public API (CLI):
                 this to bin/ds-doctor's `_load_repo_dir()` and would have
                 inspected the DinoStack install for every consumer,
                 reporting clean while the real damage sat elsewhere in the
-                actual project checkout. Matches bin/ds-reap-worktrees's
+                actual project checkout. Matches bin/ds-cleanup-worktrees's
                 `--repo` precedent (an explicit, operator-supplied
                 argument, not a bare cwd read at a hook call site).
   --dry-run     Compute and report; change nothing. This is also the
@@ -186,7 +186,7 @@ Failure modes: exits 0 on a successful report or repair, INCLUDING the
     abort the run for other entries - but it DOES make the run's overall
     exit code 1, and a merge or archive failure for a given stray means
     that stray's directory is NEVER removed (same discipline as
-    bin/ds-reap-worktrees's telemetry-salvage guard: a failed preservation
+    bin/ds-cleanup-worktrees's telemetry-salvage guard: a failed preservation
     step must never become a silent deletion of the data it was trying to
     preserve). Three independent invariants guard against the archive ever
     being written where a repair could destroy it: `classify()` never lets
@@ -202,7 +202,7 @@ Failure modes: exits 0 on a successful report or repair, INCLUDING the
 Performance: one `os.walk` over the repo tree (symlinks not followed,
     `_PRUNE_DIR_NAMES` pruned before descent) plus, per confirmed stray, a
     handful of small file reads/copies. No network calls, no subprocess
-    calls at all (unlike bin/ds-reap-worktrees, this tool never shells out
+    calls at all (unlike bin/ds-cleanup-worktrees, this tool never shells out
     to `git`/`gh` - repo-root detection is a pure filesystem check via
     hooks/lib/repo_root.py).
 """
