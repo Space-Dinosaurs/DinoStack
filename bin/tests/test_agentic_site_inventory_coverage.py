@@ -194,12 +194,12 @@ EXCLUDED_FILES = {
     # Operator-invoked CLIs whose Path.cwd()/os.getcwd() reflects wherever
     # the human ran them from - correct behavior for a manually-invoked
     # tool, not the harness-payload-cwd-drift-across-Bash-calls bug class
-    # this ticket fixes. bin/ds-reap-worktrees additionally falls under the
+    # this ticket fixes. bin/ds-cleanup-worktrees additionally falls under the
     # brief's explicit "reaped-telemetry consumer wiring" out-of-scope
     # carve-out (its .agentic sites take an explicit --repo/worktree_path
     # argument, not a bare cwd, anyway).
     "bin/ds-doctor",
-    "bin/ds-reap-worktrees",
+    "bin/ds-cleanup-worktrees",
     "bin/ds-update",
     # Round-2 rework: the scanner-widening pass (Major 3) surfaced these two
     # additional operator-invoked CLIs' bare relative `Path(".agentic/...")`
@@ -268,7 +268,7 @@ EXCLUDED_FILES = {
     # resolved once via resolve_agentic_cwd before any .agentic path is
     # constructed) - same explicit-argument exemption rationale as
     # bin/ds-doctor/bin/ds-evaluate/bin/ds-migrate above, matching
-    # bin/ds-reap-worktrees's own precedent for this exact carve-out
+    # bin/ds-cleanup-worktrees's own precedent for this exact carve-out
     # (:111-115 in this file). Not shelled out to by any hooks/*.js or
     # hooks/*.py call site.
     "bin/ds-agentic-repair",

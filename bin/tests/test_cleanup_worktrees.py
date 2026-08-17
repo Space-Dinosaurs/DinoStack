@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: pytest suite for bin/ds-reap-worktrees. Builds synthetic git
+Purpose: pytest suite for bin/ds-cleanup-worktrees. Builds synthetic git
          repositories (with a real bare `origin` remote) in tmp_path and
          drives the CLI end-to-end via subprocess, covering the round-2
          rewrite: the removal predicate delegated to `worktree_model.
@@ -19,7 +19,7 @@ Purpose: pytest suite for bin/ds-reap-worktrees. Builds synthetic git
 
 Public API: none (test module; invoked via `python3 -m pytest`).
 
-Upstream deps: bin/ds-reap-worktrees (module under test, invoked as a
+Upstream deps: bin/ds-cleanup-worktrees (module under test, invoked as a
                subprocess CLI); real `git` CLI (subprocess, incl.
                `git worktree add/lock/prune`). No REAL `gh` invocation in
                any scenario - every scenario either runs with `--no-gh`
@@ -39,7 +39,7 @@ Failure modes: each scenario builds its own isolated tmp_path repo/origin
 
 Performance: each scenario performs a handful of real `git` subprocess
              calls (init, bare-clone remote, worktree add/lock/prune) plus
-             one `ds-reap-worktrees` subprocess invocation. Sub-second per
+             one `ds-cleanup-worktrees` subprocess invocation. Sub-second per
              test.
 """
 
@@ -55,7 +55,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parent.parent / "ds-reap-worktrees"
+SCRIPT = Path(__file__).resolve().parent.parent / "ds-cleanup-worktrees"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -63,10 +63,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import importlib.machinery as _ilm  # noqa: E402
 import importlib.util as _ilu  # noqa: E402
 
-_loader = _ilm.SourceFileLoader("ds_reap_worktrees", str(SCRIPT))
-_spec = _ilu.spec_from_loader("ds_reap_worktrees", _loader)
-ds_reap_worktrees = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-_loader.exec_module(ds_reap_worktrees)
+_loader = _ilm.SourceFileLoader("ds_cleanup_worktrees", str(SCRIPT))
+_spec = _ilu.spec_from_loader("ds_cleanup_worktrees", _loader)
+ds_cleanup_worktrees = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_loader.exec_module(ds_cleanup_worktrees)
 
 
 # --------------------------------------------------------------------------
@@ -294,7 +294,7 @@ def outcomes(stdout: str) -> dict:
 
 def summary_line(stdout: str) -> str:
     for line in stdout.splitlines():
-        if line.startswith("ds-reap-worktrees:"):
+        if line.startswith("ds-cleanup-worktrees:"):
             return line
     return ""
 
@@ -1042,7 +1042,7 @@ def test_count_only_zero_network_dependency(tmp_path):
     cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--count-only"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "ds-reap-worktrees: mode=count-only entries=2"
+    assert proc.stdout.strip() == "ds-cleanup-worktrees: mode=count-only entries=2"
     # --explain must be irrelevant/absent in this mode - no per-entry work done.
     assert "-- per-entry --" not in proc.stdout
 
@@ -1085,8 +1085,8 @@ def test_run_timeout_wrapper_bounds_a_slow_command():
     import importlib.machinery as _ilm
     import importlib.util as _ilu
 
-    loader = _ilm.SourceFileLoader("ds_reap_worktrees", str(SCRIPT))
-    spec = _ilu.spec_from_loader("ds_reap_worktrees", loader)
+    loader = _ilm.SourceFileLoader("ds_cleanup_worktrees", str(SCRIPT))
+    spec = _ilu.spec_from_loader("ds_cleanup_worktrees", loader)
     mod = _ilu.module_from_spec(spec)
     loader.exec_module(mod)
 
@@ -1098,7 +1098,7 @@ def test_run_timeout_wrapper_bounds_a_slow_command():
 
 
 def _load_module_directly():
-    """Imports bin/ds-reap-worktrees as a Python module (not a subprocess)
+    """Imports bin/ds-cleanup-worktrees as a Python module (not a subprocess)
     for tests that need to monkeypatch its internals - notably forcing a
     `git bundle verify` failure specifically, which cannot be triggered
     reliably by any real filesystem manipulation (a bundle `git bundle
@@ -1107,8 +1107,8 @@ def _load_module_directly():
     import importlib.machinery as _ilm
     import importlib.util as _ilu
 
-    loader = _ilm.SourceFileLoader("ds_reap_worktrees_direct", str(SCRIPT))
-    spec = _ilu.spec_from_loader("ds_reap_worktrees_direct", loader)
+    loader = _ilm.SourceFileLoader("ds_cleanup_worktrees_direct", str(SCRIPT))
+    spec = _ilu.spec_from_loader("ds_cleanup_worktrees_direct", loader)
     mod = _ilu.module_from_spec(spec)
     loader.exec_module(mod)
     return mod
@@ -1838,7 +1838,7 @@ def push_new_branch(repo: Path, branch: str) -> None:
     ],
 )
 def test_parse_base_branch_declaration_table(agents_md_text, expected):
-    assert ds_reap_worktrees._parse_base_branch_declaration(agents_md_text) == expected
+    assert ds_cleanup_worktrees._parse_base_branch_declaration(agents_md_text) == expected
 
 
 def test_resolve_base_branch_explicit_argument_wins_verbatim_no_validation(tmp_path):
@@ -1847,7 +1847,7 @@ def test_resolve_base_branch_explicit_argument_wins_verbatim_no_validation(tmp_p
     # A nonexistent explicit ref is used VERBATIM, no fallthrough - this
     # preserves the tool's pre-existing precedence for an operator
     # override, per the ticket brief.
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), "origin/does-not-exist")
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), "origin/does-not-exist")
     assert (ref, source) == ("origin/does-not-exist", "explicit")
     assert diagnostics == []
 
@@ -1856,7 +1856,7 @@ def test_resolve_base_branch_agents_md_declaration_wins_over_lower_tiers(tmp_pat
     repo, _origin = init_repo_with_origin(tmp_path)
     push_new_branch(repo, "staging")
     write_agents_md(repo, "BASE_BRANCH: staging\n")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/staging", "agents-md")
     assert diagnostics == []
 
@@ -1871,7 +1871,7 @@ def test_resolve_base_branch_declared_but_unresolvable_fails_never_falls_through
     # never declared.
     repo, _origin = init_repo_with_origin(tmp_path)
     write_agents_md(repo, "BASE_BRANCH: totally-made-up-branch\n")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert ref is None
     assert source == "unresolved"
     assert len(diagnostics) == 1
@@ -1886,7 +1886,7 @@ def test_resolve_base_branch_declared_but_unresolvable_ignores_valid_lower_tiers
     repo, _origin = init_repo_with_origin(tmp_path)
     push_new_branch(repo, "develop")
     write_agents_md(repo, "BASE_BRANCH: totally-made-up-branch\n")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert ref is None
     assert source == "unresolved"
 
@@ -1896,7 +1896,7 @@ def test_resolve_base_branch_origin_head_symbolic_ref(tmp_path):
     push_new_branch(repo, "release")
     set_origin_head(repo, "release")
     # No AGENTS.md at all - origin/HEAD is the next tier.
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/release", "origin-head")
     assert diagnostics == []
 
@@ -1907,27 +1907,27 @@ def test_resolve_base_branch_agents_md_beats_origin_head(tmp_path):
     set_origin_head(repo, "release")
     push_new_branch(repo, "staging")
     write_agents_md(repo, "BASE_BRANCH: staging\n")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/staging", "agents-md")
 
 
 def test_resolve_base_branch_local_develop(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     push_new_branch(repo, "develop")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/develop", "local-develop")
 
 
 def test_resolve_base_branch_local_development(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     push_new_branch(repo, "development")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/development", "local-development")
 
 
 def test_resolve_base_branch_main_fallback_no_agents_md(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/main", "main-fallback")
     assert diagnostics == []
 
@@ -1935,7 +1935,7 @@ def test_resolve_base_branch_main_fallback_no_agents_md(tmp_path):
 def test_resolve_base_branch_agents_md_with_no_base_branch_line(tmp_path):
     repo, _origin = init_repo_with_origin(tmp_path)
     write_agents_md(repo, "# Some Project\n\nJust ordinary prose, no declaration.\n")
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert (ref, source) == ("origin/main", "main-fallback")
     assert diagnostics == []
 
@@ -1958,7 +1958,7 @@ def test_resolve_base_branch_every_candidate_fails_names_all_tried(tmp_path):
     _git(repo, "remote", "add", "origin", str(origin))
     _git(repo, "push", "-q", "-u", "origin", "trunk")
 
-    ref, source, diagnostics = ds_reap_worktrees.resolve_base_branch(str(repo), None)
+    ref, source, diagnostics = ds_cleanup_worktrees.resolve_base_branch(str(repo), None)
     assert ref is None
     assert source == "unresolved"
     assert len(diagnostics) == 3, diagnostics  # main-fallback, master-fallback, final summary
@@ -1995,7 +1995,7 @@ def test_cli_fails_safe_exit_0_when_every_base_candidate_fails(tmp_path):
     """Preserves the shell pipeline this replaces' deliberate asymmetry: a
     resolved-but-invalid/unresolvable base is a WARNING and a skipped reap
     for the session, never a hard nonzero exit - so a caller (Step 2's
-    wrapper) that treats a nonzero `ds-reap-worktrees` exit as fatal and
+    wrapper) that treats a nonzero `ds-cleanup-worktrees` exit as fatal and
     aborts its remaining steps does NOT abort just because no base could
     be resolved this run. Exit 1 stays reserved for a genuine
     internal/usage error (bad --repo, an unhandled exception)."""

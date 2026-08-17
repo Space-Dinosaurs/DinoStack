@@ -214,7 +214,7 @@ no new `.gitignore` carve-out (same umbrella as
 operator's own responsibility, exactly like `.agentic/branch-archive/`.
 
 Public API (CLI):
-  ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
+  ds-cleanup-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
                     [--strict-ignored] [--archive-unproven]
 
@@ -264,7 +264,7 @@ Public API (CLI):
                           `hooks/session-start-wrap.sh`'s SessionStart
                           nudge both use - neither needs anything beyond a
                           count. Measured 55ms via `time python3
-                          bin/ds-reap-worktrees --repo <repo> --count-only`
+                          bin/ds-cleanup-worktrees --repo <repo> --count-only`
                           against this repo's live 37-worktree checkout on
                           2026-08-11 (replaces the FIRST-round `--dry-run
                           --no-gh` figure of 14.94s against 31 entries on
@@ -368,7 +368,7 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       bin/ds-reap-all (invokes this tool once per repo in
                       a cross-repo sweep, forwarding flags verbatim -
                       pre-existing since PR #735, not new to this branch).
-                      CI: bin/tests/test_reap_worktrees.py (pytest,
+                      CI: bin/tests/test_cleanup_worktrees.py (pytest,
                       auto-collected by `python3 -m pytest bin/tests/`).
 
 Failure modes: exits 0 on success INCLUDING partial degradation (gh
@@ -438,8 +438,8 @@ from typing import Dict, List, Optional, Tuple
 
 # --------------------------------------------------------------------------
 # Shared helpers: worktree_model.py (bin/tests/), imported by resolved path
-# so a bare PATH-symlink invocation (~/.local/bin/ds-reap-worktrees ->
-# repo bin/ds-reap-worktrees) still finds it - .resolve() follows the
+# so a bare PATH-symlink invocation (~/.local/bin/ds-cleanup-worktrees ->
+# repo bin/ds-cleanup-worktrees) still finds it - .resolve() follows the
 # symlink back to the real bin/ directory, matching the pattern established
 # in bin/ds-branch-prune and bin/ds-feedback.
 # --------------------------------------------------------------------------
@@ -802,7 +802,7 @@ def resolve_base_branch(
             if _ref_exists(repo, ref):
                 return ref, "agents-md", diagnostics
             diagnostics.append(
-                f"ds-reap-worktrees: declared base candidate '{ref}' (source: agents-md) "
+                f"ds-cleanup-worktrees: declared base candidate '{ref}' (source: agents-md) "
                 "does not exist as a local remote-tracking ref - AGENTS.md's BASE_BRANCH "
                 "declaration is authoritative and is never silently overridden by a "
                 "different base; resolution fails rather than falling through. If the "
@@ -831,13 +831,13 @@ def resolve_base_branch(
         if _ref_exists(repo, ref):
             return ref, source, diagnostics
         diagnostics.append(
-            f"ds-reap-worktrees: base candidate '{ref}' (source: {source}) does not exist "
+            f"ds-cleanup-worktrees: base candidate '{ref}' (source: {source}) does not exist "
             "on origin - trying the next candidate."
         )
 
     tried = ", ".join(f"{ref} ({source})" for ref, source in candidates)
     diagnostics.append(
-        f"ds-reap-worktrees: could not resolve a base branch - every candidate failed. "
+        f"ds-cleanup-worktrees: could not resolve a base branch - every candidate failed. "
         f"Tried: {tried}. Declare BASE_BRANCH in AGENTS.md, or pass --base explicitly."
     )
     return None, "unresolved", diagnostics
@@ -1376,7 +1376,7 @@ def evaluate_entry(
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="ds-reap-worktrees",
+        prog="ds-cleanup-worktrees",
         description="Executable implementation of the /ds-cleanup-worktrees removal predicate.",
     )
     p.add_argument("--repo", default=".")
@@ -1423,17 +1423,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     try:
         repo = _resolve_repo(args.repo)
     except ValueError as exc:
-        print(f"ds-reap-worktrees: {exc}", file=sys.stderr)
+        print(f"ds-cleanup-worktrees: {exc}", file=sys.stderr)
         return 1
 
     try:
         porcelain = _worktree_list(repo)
         entries = parse_porcelain(porcelain)
     except (RuntimeError, ValueError) as exc:
-        print(f"ds-reap-worktrees: {exc}", file=sys.stderr)
+        print(f"ds-cleanup-worktrees: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 - internal error, report and exit 1
-        print(f"ds-reap-worktrees: internal error: {exc}", file=sys.stderr)
+        print(f"ds-cleanup-worktrees: internal error: {exc}", file=sys.stderr)
         return 1
 
     # --count-only (round-2 Major 4): zero network calls, zero per-entry
@@ -1441,7 +1441,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # the entire cost. Both automatic call sites (ds-base-sync, the
     # SessionStart nudge) use this mode exclusively.
     if args.count_only:
-        print(f"ds-reap-worktrees: mode=count-only entries={len(entries)}")
+        print(f"ds-cleanup-worktrees: mode=count-only entries={len(entries)}")
         return 0
 
     # Round-4 rework: base-branch resolution runs here, strictly AFTER the
@@ -1460,10 +1460,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         # an unhandled exception), never "no base could be resolved this
         # run." Every candidate tried is already named in base_diagnostics
         # above (printed to stderr).
-        print("ds-reap-worktrees: base could not be resolved - reap skipped this run.", file=sys.stderr)
+        print("ds-cleanup-worktrees: base could not be resolved - reap skipped this run.", file=sys.stderr)
         return 0
     if base_source != "explicit":
-        print(f"ds-reap-worktrees: base auto-resolved to '{resolved_base}' via {base_source}")
+        print(f"ds-cleanup-worktrees: base auto-resolved to '{resolved_base}' via {base_source}")
 
     # Round-6 (Skeptic Major 2): `--archive-unproven` REFUSES to run at all
     # in degraded gh mode - a real `gh_ok`/`degraded` computed here, ahead
@@ -1478,7 +1478,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.archive_unproven and degraded:
         print(
-            "ds-reap-worktrees: --archive-unproven requires PR evidence (gh) and refuses to "
+            "ds-cleanup-worktrees: --archive-unproven requires PR evidence (gh) and refuses to "
             "run in degraded mode (gh unavailable/unauthenticated/erroring/--no-gh) - "
             "archiving without PR evidence cannot reliably distinguish a genuinely-unprovable "
             "branch from one behind an open PR. Re-run with `gh` authenticated and without "
@@ -1500,7 +1500,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         empty_mode = ", ".join(empty_mode_parts) if empty_mode_parts else "live"
         empty_fields = " ".join(f"{_field_name(o)}=0" for o in _ALL_OUTCOMES if o != "REMOVE")
         print(
-            f"ds-reap-worktrees: base={resolved_base} mode={empty_mode} entries=0 removed=0 "
+            f"ds-cleanup-worktrees: base={resolved_base} mode={empty_mode} entries=0 removed=0 "
             f"{empty_fields} pruned-admin=0 salvaged=0"
         )
         return 0
@@ -1530,7 +1530,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     outcome_counts = Counter(r["outcome"] for r in results)
     unknown_outcomes = set(outcome_counts) - set(_ALL_OUTCOMES)
     if unknown_outcomes:
-        print(f"ds-reap-worktrees: internal error: unrecognized outcome(s) {sorted(unknown_outcomes)}", file=sys.stderr)
+        print(f"ds-cleanup-worktrees: internal error: unrecognized outcome(s) {sorted(unknown_outcomes)}", file=sys.stderr)
         return 1
 
     remove_results = [r for r in results if r["outcome"] == "REMOVE"]
@@ -1707,7 +1707,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # --dry-run unconditionally - matches the `pruned-admin` "action
     # taken, not a candidate count" convention above.
     print(
-        f"ds-reap-worktrees: base={resolved_base} mode={mode} entries={len(results)} "
+        f"ds-cleanup-worktrees: base={resolved_base} mode={mode} entries={len(results)} "
         f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}"
     )
 

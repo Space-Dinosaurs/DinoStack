@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Regression tests: hooks/session-start-wrap.sh - the worktree-accumulation
- * nudge (5th systemMessage contributor, ds-reap-worktrees --dry-run).
+ * nudge (5th systemMessage contributor, ds-cleanup-worktrees --dry-run).
  *
  * Cases:
  *   W1 - normal PATH, scripts/lib/repo-dir.sh present (dev-checkout layout):
@@ -31,7 +31,7 @@ const { execFileSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPT = path.resolve(__dirname, '..', 'session-start-wrap.sh');
-const DS_REAP = path.resolve(REPO_ROOT, 'bin', 'ds-reap-worktrees');
+const DS_CLEANUP = path.resolve(REPO_ROOT, 'bin', 'ds-cleanup-worktrees');
 
 let passed = 0;
 let failed = 0;
@@ -72,7 +72,7 @@ function seedFakeHome(repoDir) {
 /**
  * Builds a project repo with a real bare `origin` remote and `n` non-root
  * isolation worktrees, each on its own never-pushed branch (so every
- * worktree resolves REMOVE-eligible under ds-reap-worktrees' own
+ * worktree resolves REMOVE-eligible under ds-cleanup-worktrees' own
  * predicate - irrelevant to this nudge, which only counts entries, but
  * keeps the fixture minimal and realistic).
  */
@@ -139,8 +139,8 @@ if (!fs.existsSync(SCRIPT)) {
   console.error(`FAIL: script not found at ${SCRIPT}`);
   process.exit(1);
 }
-if (!fs.existsSync(DS_REAP)) {
-  console.error(`FAIL: bin/ds-reap-worktrees not found at ${DS_REAP}`);
+if (!fs.existsSync(DS_CLEANUP)) {
+  console.error(`FAIL: bin/ds-cleanup-worktrees not found at ${DS_CLEANUP}`);
   process.exit(1);
 }
 

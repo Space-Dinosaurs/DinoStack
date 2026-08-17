@@ -9,10 +9,10 @@
 # Public API: ./bin/tests/test_agentic_base_sync.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp, awk, python3, bin/ds-reap-worktrees (case
+# Upstream deps: bash, git, mktemp, awk, python3, bin/ds-cleanup-worktrees (case
 #                18 exercises bin/agentic-base-sync's worktree-reaper
 #                advisory note, which shells out to `python3
-#                bin/ds-reap-worktrees --count-only` - both are load-bearing
+#                bin/ds-cleanup-worktrees --count-only` - both are load-bearing
 #                for that case, not merely for the tool under test).
 #
 # Downstream consumers: bin-tests CI job (glob-picked-up test_*.sh).
@@ -568,10 +568,10 @@ EOF
 
 echo "=== Case 18 (round-6): worktree-reaper --count-only advisory note ACTUALLY EMITS when the synced repo has a non-root worktree ==="
 # Case 17 above passes vacuously for the worktree-advisory leg specifically:
-# its fixture repo has zero non-root worktrees, so _ds_reap_nonroot is
+# its fixture repo has zero non-root worktrees, so _ds_cleanup_nonroot is
 # always 0 and the note branch is never exercised - nothing in the
 # existing suite actually drives a nonzero non-root count through
-# bin/ds-reap-worktrees --count-only and asserts the note text. This case
+# bin/ds-cleanup-worktrees --count-only and asserts the note text. This case
 # closes that gap by adding one extra worktree to $C/repo before syncing.
 {
   C="$TMP_ROOT/case18"
