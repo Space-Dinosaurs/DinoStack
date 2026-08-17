@@ -342,13 +342,13 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 
 `/ds-implement-ticket` Phase 8's own cleanup only fires on that command's own success path. Any ad-hoc `isolation: "worktree"` spawn outside it is on the conductor: clean it up at the natural completion point, not "eventually."
 
-`bin/ds-reap-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - it delegates the locked/dirty/branch-evidence decision to `worktree_model.disposition_for` (the same normative function the command file cites), never a second copy of that logic:
+`bin/ds-cleanup-worktrees` is the executable form of `/ds-cleanup-worktrees`'s predicate - it delegates the locked/dirty/branch-evidence decision to `worktree_model.disposition_for` (the same normative function the command file cites), never a second copy of that logic:
 
 - Removable only when clean, unlocked, not-self, past an age floor (default 24h), free of PROTECTED gitignored content (`docs/planning/**`, `.env*`, `*.local` block by default; everything else ignored, including generated adapter output, is disposable - `--strict-ignored` for the old fail-safe-allowlist polarity), AND the branch is MERGED/an ancestor of base, or unpushed with zero unique commits - a CLOSED PR or an unpushed branch WITH unique commits is always reported, never removed
 - `.agentic/**` INVERTS the polarity: protected by default, disposable only for a small named set (`events.jsonl`/telemetry, `wrap/`, `codex-prompt-generation/`, `hud/`, cache dirs) - round 3's blanket protection measured `removed=0` here since this repo dogfoods itself and every worktree accumulates telemetry; `.agentic/events.jsonl` is salvaged into the primary repo before removal, and a failed salvage blocks removal rather than risking a silent loss
 - `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
-- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or a bare `ds-reap-worktrees` (no flags) invocation; `--dry-run` computes and reports without removing anything, and `--dry-run --explain` (not `--explain` alone) is the dry-run report form
-- `bin/ds-reap-all` sweeps SEVERAL repos in one invocation - discovers repos via explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback, then runs `ds-reap-worktrees` once per repo sequentially, forwarding every pass-through flag verbatim; it owns no safety logic of its own
+- Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or a bare `ds-cleanup-worktrees` (no flags) invocation; `--dry-run` computes and reports without removing anything, and `--dry-run --explain` (not `--explain` alone) is the dry-run report form
+- `bin/ds-reap-all` sweeps SEVERAL repos in one invocation - discovers repos via explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback, then runs `ds-cleanup-worktrees` once per repo sequentially, forwarding every pass-through flag verbatim; it owns no safety logic of its own
 
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
@@ -366,7 +366,7 @@ Report is automatic; removal is not. The backstop closes the "I forgot" gap with
 
 Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. Left alone, these never resolve.
 
-`bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-reap-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
+`bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-cleanup-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
 
 - Only two dispositions qualify - `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` - an explicit whitelist, never the whole `SKIP_UNPROVEN` bucket: `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set
 - Refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it can't tell a genuinely-unprovable branch from one behind an open PR

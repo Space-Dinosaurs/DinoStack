@@ -2444,7 +2444,7 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
         # silently swallowed by `2>/dev/null || true`, which is exactly how
         # isolation worktrees from failed cleanups accumulated invisibly).
         # A locked-worktree refusal is expected and safe here - the
-        # session-start prune script and bin/ds-reap-worktrees remain the
+        # session-start prune script and bin/ds-cleanup-worktrees remain the
         # backstop that reclaims it once the lock is genuinely released.
         echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
         mkdir -p "$REPO/.agentic" 2>/dev/null || true

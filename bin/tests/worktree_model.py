@@ -72,7 +72,7 @@ Downstream consumers: test_worktree_model.py (pytest suite);
                       inline - no branch-deleting shell remains in either
                       block for this module to be checked against);
                       content/commands/ds-cleanup-worktrees.md Step 2
-                      (bin/ds-reap-worktrees, invoked directly by that step,
+                      (bin/ds-cleanup-worktrees, invoked directly by that step,
                       is the sole caller of classify_entry for
                       classification and disposition_for for the
                       locked -> dirty -> merge-evidence gate order - no
