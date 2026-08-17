@@ -214,11 +214,129 @@ no new `.gitignore` carve-out (same umbrella as
 operator's own responsibility, exactly like `.agentic/branch-archive/`.
 
 Public API (CLI):
-  ds-cleanup-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
+  ds-cleanup-worktrees [--repo <path>]... [root ...] [--multi-repo] [--depth N]
+                    [--report [--json]] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
                     [--strict-ignored] [--archive-unproven]
 
-  --repo <path>          Repository to operate on. Default: cwd.
+  --repo <path>          Repository to operate on. Default: cwd. Repeatable
+                          ONLY when `--multi-repo` is also given - a bare
+                          `--repo <path>` (no `--multi-repo`) behaves exactly
+                          as before this flag existed: `resolved = args.repo[0]
+                          if args.repo else "."`. Passing `--repo` more than
+                          once WITHOUT `--multi-repo` is a usage error (exit
+                          2, before any git subprocess call) - this preserves
+                          byte-identical behavior for every existing caller
+                          (bin/ds-base-sync, hooks/session-start-wrap.sh,
+                          this command's own doc), none of which pass it more
+                          than once.
+  --multi-repo            (round-N, DS-cleanup-worktrees-multi-repo Unit 2)
+                          Enables cross-repo mode: `--repo` becomes
+                          repeatable, bare positional `root ...` arguments
+                          are accepted (each root's children are scanned to
+                          `--depth` levels for git repos - a `.git` dir or
+                          file at that level - non-git directories skipped
+                          silently, nothing beneath a directory once
+                          identified as a repo is scanned further), and a
+                          config-file fallback at `~/.agentic/
+                          cleanup-worktrees.json` (shape `{"roots": [...],
+                          "repos": [...]}`, either key optional, consulted
+                          ONLY when neither an explicit `--repo` nor a
+                          positional root was given at all - identical
+                          precedence to `bin/ds-reap-all`'s own
+                          `~/.agentic/reap-all.json`, only the path
+                          differs). Explicit `--repo` entries and positional
+                          roots are ADDITIVE explicit sources - both are
+                          honored when both are given, deduped by canonical
+                          resolved path (first-seen-wins). Every repo is
+                          swept SEQUENTIALLY, never in parallel - legible
+                          output, no concurrent `git`/`gh` rate-limit
+                          contention across repos (the same rationale
+                          `bin/ds-reap-all` already documented, now stronger
+                          because `--archive-unproven` makes per-entry `gh pr
+                          list` calls too). `root ...` positional arguments
+                          or `--depth` given WITHOUT `--multi-repo` is a
+                          usage error (exit 2). `--base` combined with
+                          `--multi-repo` is a usage error (exit 2) - each
+                          repo ALWAYS resolves its own base independently via
+                          `resolve_base_branch(repo, None)`, per that repo's
+                          own AGENTS.md declaration or automatic tier order;
+                          a single global `--base` value would silently leak
+                          one repo's base into every other repo, which is
+                          exactly the isolation bug this mode must not
+                          reintroduce. Multi-repo exit codes: 0 when every
+                          repo/root was clean; 1 when at least one repo or
+                          root had a discovery or evaluation error (one
+                          failure never halts the sweep - every other
+                          repo/root is still attempted); 2 on a usage error,
+                          INCLUDING zero repos discovered with zero root
+                          errors (no `--repo`, no roots, no usable config).
+                          This binary does NOT port `bin/ds-reap-all`'s
+                          `--timeout`: that flag bounded a SEPARATE
+                          `ds-cleanup-worktrees` subprocess that could wedge
+                          as a whole. Folded in-process, there is no second
+                          process to wedge - every network-touching call this
+                          binary makes (`git ls-remote`, `gh auth status`,
+                          `gh pr list`) already carries its own
+                          `_NETWORK_TIMEOUT_SECONDS` bound (see that constant
+                          above), so an outer per-repo timeout would only
+                          ever re-bound calls that are already individually
+                          bounded - verified against the code, not merely
+                          asserted.
+  root ...                Positional root directories (requires
+                          `--multi-repo`; see that flag's description
+                          above for the full scan/dedup/config-fallback
+                          semantics).
+  --depth N                Scan depth from each root (requires
+                          `--multi-repo`). Default 1 (immediate children
+                          only). Range 1-3.
+  --report                 (requires `--multi-repo`; a single-repo report is
+                          just `--dry-run --explain` and needs no dedicated
+                          flag) Ranked cross-repo visibility - the
+                          "which project is worst" half of this feature,
+                          distinct from the sweep half above. STRUCTURALLY
+                          READ-ONLY: this mode never calls
+                          `_salvage_and_remove`, `git worktree remove`,
+                          `git worktree unlock`, or `git worktree prune`,
+                          regardless of `--dry-run` - there is no removal
+                          code path to reach at all, not merely a
+                          `--dry-run`-shaped one. Incompatible with
+                          `--archive-unproven` (usage error, exit 2 - report
+                          mode never archives or removes anything, so the
+                          combination is meaningless). Two cost tiers,
+                          selected by whether `--count-only` is ALSO given:
+                            - `--report --count-only` (FAST/approximate):
+                              exactly 2 git calls per repo (`rev-parse
+                              --show-toplevel`, `worktree list
+                              --porcelain`), zero network calls. Ranks repos
+                              by `(nonroot_count desc, oldest_worktree_age_
+                              hours asc)` - age is the ENUMERATED worktree
+                              directory's own `mtime` via `os.stat` (free,
+                              no extra subprocess). This tier is a WEAK
+                              proxy: a project with 30 legitimately-active
+                              worktrees is not the same as one with 30 stale
+                              ones - the printed table and JSON both label
+                              this tier explicitly so an operator reading a
+                              fast-tier result knows what it does and does
+                              not tell them.
+                            - `--report` (DEEP/accurate): a full per-entry
+                              `evaluate_entry` pass per repo - the same cost
+                              as `--dry-run --explain` today, just never
+                              acting on the result. Ranks repos by the count
+                              of entries that would resolve `REMOVE`
+                              (`eligible`).
+                          Recommended as the FIRST step before any
+                          multi-repo removal run - look before you delete.
+  --json                   (requires `--report`) Emits the ranked report to
+                          stdout as JSON in place of the table:
+                          `[{"repo": str, "nonroot_worktrees": int,
+                          "oldest_age_hours": float, "eligible": int|null},
+                          ...]` - `eligible` is `null` under the fast
+                          (`--count-only`) tier, which never computes it.
+                          Never written to `.agentic/hud/*` - that store is
+                          per-worker orchestration telemetry with a
+                          different consumer and lifecycle than an
+                          operator-invoked report.
   --base <ref>           Base ref to prove ancestor-of-base evidence
                           against. Default: None - when omitted, resolved
                           automatically via `resolve_base_branch` (see that
@@ -366,8 +484,14 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       `/ds-cleanup-worktrees`; report-only, never removes
                       anything from that call site);
                       bin/ds-reap-all (invokes this tool once per repo in
-                      a cross-repo sweep, forwarding flags verbatim -
-                      pre-existing since PR #735, not new to this branch).
+                      a cross-repo sweep, forwarding flags verbatim - this
+                      binary's OWN `--multi-repo`/`--report` now serve the
+                      same "sweep several repos" + "which repo is worst"
+                      needs in-process; ds-reap-all is UNCHANGED and still
+                      the way to reach a cross-repo sweep by shelling out
+                      one subprocess per repo, retained per-unit until a
+                      later unit retires it - see this file's own
+                      module-level Purpose note above).
                       CI: bin/tests/test_cleanup_worktrees.py (pytest,
                       auto-collected by `python3 -m pytest bin/tests/`).
 
@@ -1369,6 +1493,334 @@ def evaluate_entry(
     return {**base, "outcome": "SKIP_UNPROVEN", "reason": disposition.value}
 
 
+def _evaluate_entries(
+    repo: str,
+    entries,
+    resolved_base: str,
+    gh_ok: bool,
+    allow_network: bool,
+    min_age_hours: float,
+    strict_ignored: bool,
+) -> List[Dict]:
+    """The shared per-entry evaluation loop: entry 0 is always the MAIN
+    worktree (`SKIP_MAIN`), every other entry is resolved via
+    `evaluate_entry`. Factored out of the single-repo sweep body so the
+    `--report` DEEP tier can compute the identical per-entry decision
+    without duplicating this loop - both call sites pass the SAME
+    `evaluate_entry`, so they cannot diverge on what counts as REMOVE.
+    """
+    results: List[Dict] = []
+    for idx, entry in enumerate(entries):
+        is_main = idx == 0
+        wt_class = classify_entry(entry, host=repo, repo_root=repo, is_main=is_main)
+        if is_main:
+            results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
+            continue
+        results.append(
+            evaluate_entry(repo, entry, wt_class, resolved_base, gh_ok, allow_network, min_age_hours, strict_ignored)
+        )
+    return results
+
+
+# --------------------------------------------------------------------------
+# Multi-repo discovery (DS-cleanup-worktrees-multi-repo Unit 2). Ported from
+# bin/ds-reap-all's own RepoTarget/_scan_root/discover_repos/dedupe/
+# _load_config/_config_string_list - proven and tested there; only the
+# config path changes (`~/.agentic/cleanup-worktrees.json`, not
+# `~/.agentic/reap-all.json`). bin/ds-reap-all is UNCHANGED by this unit and
+# remains available as the subprocess-per-repo alternative until a later
+# unit retires it (see the module docstring's Downstream consumers note).
+# --------------------------------------------------------------------------
+
+_MULTI_REPO_CONFIG_PATH = Path("~/.agentic/cleanup-worktrees.json").expanduser()
+_MULTI_REPO_MAX_DEPTH = 3
+
+
+class RepoTarget:
+    """One repo the multi-repo sweep/report will attempt (or has already
+    rejected at discovery time). `canonical` is the resolved path used for
+    dedup (`Path.resolve()`: follows symlinks, normalizes `..`/`.`).
+    """
+
+    def __init__(self, path: str, source: str):
+        self.path = path
+        self.source = source  # "explicit" | "scan" | "config"
+        self.canonical: Optional[Path] = None
+        self.discovery_error: Optional[str] = None
+
+        try:
+            self.canonical = Path(path).expanduser().resolve()
+        except OSError as exc:
+            self.discovery_error = f"could not resolve path: {exc}"
+            return
+
+        if not self.canonical.is_dir():
+            self.discovery_error = f"not a directory: {path}"
+            return
+
+        proc = _run(["git", "-C", str(self.canonical), "rev-parse", "--show-toplevel"])
+        if proc.returncode != 0:
+            self.discovery_error = f"not a git repository: {path}"
+
+
+def _is_git_dir(path: Path) -> bool:
+    git_marker = path / ".git"
+    return git_marker.is_dir() or git_marker.is_file()
+
+
+def _scan_root(root: Path, depth: int) -> Tuple[List[Path], int]:
+    """Returns `(found_repos, skipped_not_git)`. Scans `root`'s children to
+    `depth` levels (depth 1 = immediate children only). A directory that IS
+    a git repo is added and never descended into further. A directory that
+    is NOT a git repo and has no more depth budget to descend is counted as
+    `skipped_not_git`; one still eligible to descend further (depth
+    remaining > 1) is explored instead of counted, since it may itself
+    contain a repo at a deeper level.
+    """
+    found: List[Path] = []
+    skipped_not_git = 0
+
+    def walk(directory: Path, remaining_depth: int) -> None:
+        nonlocal skipped_not_git
+        try:
+            children = sorted(p for p in directory.iterdir() if p.is_dir())
+        except OSError:
+            return
+        for child in children:
+            if _is_git_dir(child):
+                found.append(child)
+                continue
+            if remaining_depth > 1:
+                walk(child, remaining_depth - 1)
+            else:
+                skipped_not_git += 1
+
+    walk(root, depth)
+    return found, skipped_not_git
+
+
+def _load_multi_repo_config() -> Dict:
+    if not _MULTI_REPO_CONFIG_PATH.is_file():
+        return {}
+    try:
+        with open(_MULTI_REPO_CONFIG_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(
+            f"ds-cleanup-worktrees: could not read config {_MULTI_REPO_CONFIG_PATH}: {exc}; treating as empty.",
+            file=sys.stderr,
+        )
+        return {}
+    if not isinstance(data, dict):
+        print(
+            f"ds-cleanup-worktrees: config {_MULTI_REPO_CONFIG_PATH} must be a JSON object - got {data!r}; "
+            "treating as empty.",
+            file=sys.stderr,
+        )
+        return {}
+    return data
+
+
+def _config_string_list(config: Dict, key: str) -> List[str]:
+    """Returns `config[key]` as a `List[str]`, or `[]` when the key is
+    absent. A present-but-malformed value (not a list at all, or a list
+    containing a non-string element) is reported to stderr and treated as
+    empty for that key - never an uncaught exception, never a silent
+    per-character explosion of a bare string.
+    """
+    if key not in config:
+        return []
+    value = config[key]
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        print(
+            f"ds-cleanup-worktrees: ~/.agentic/cleanup-worktrees.json field \"{key}\" must be a list of "
+            f"strings - got {value!r}; ignoring this field.",
+            file=sys.stderr,
+        )
+        return []
+    return list(value)
+
+
+def discover_repos_multi(
+    explicit_repo_paths: List[str], root_paths: List[str], depth: int
+) -> Tuple[List[RepoTarget], int, List[str]]:
+    """Returns `(targets, skipped_not_git, root_errors)`.
+
+    Explicit `--repo` entries and positional root directories are ADDITIVE
+    explicit sources - both are honored when both are given in the same
+    invocation, and the result is deduped by canonical path (see `dedupe`).
+    The config-file fallback (`~/.agentic/cleanup-worktrees.json`) is
+    consulted ONLY when neither an explicit `--repo` nor a positional root
+    was given at all.
+    """
+    skipped_not_git = 0
+    root_errors: List[str] = []
+
+    if not explicit_repo_paths and not root_paths:
+        config = _load_multi_repo_config()
+        explicit_repo_paths = _config_string_list(config, "repos")
+        root_paths = _config_string_list(config, "roots")
+
+    targets: List[RepoTarget] = [RepoTarget(p, "explicit") for p in explicit_repo_paths]
+
+    for root_str in root_paths:
+        root = Path(root_str).expanduser()
+        if not root.is_dir():
+            root_errors.append(f"root not a directory: {root_str}")
+            continue
+        found, skipped = _scan_root(root, depth)
+        skipped_not_git += skipped
+        for repo_path in found:
+            targets.append(RepoTarget(str(repo_path), "scan"))
+
+    return targets, skipped_not_git, root_errors
+
+
+def dedupe(targets: List[RepoTarget]) -> List[RepoTarget]:
+    """First-seen-wins dedup by canonical resolved path. A target whose
+    path could not be resolved at all (`canonical is None`) is never
+    deduped against anything else - it is kept as its own distinct
+    (already-errored) entry so its discovery error is still reported.
+    """
+    seen: set = set()
+    result: List[RepoTarget] = []
+    for target in targets:
+        if target.canonical is None:
+            result.append(target)
+            continue
+        if target.canonical in seen:
+            continue
+        seen.add(target.canonical)
+        result.append(target)
+    return result
+
+
+# --------------------------------------------------------------------------
+# --report (DS-cleanup-worktrees-multi-repo Unit 2). Structurally read-only:
+# neither tier below ever calls _salvage_and_remove, "git worktree remove",
+# "git worktree unlock", or "git worktree prune" - there is no removal code
+# path reachable from here at all, not merely a --dry-run-shaped one.
+# --------------------------------------------------------------------------
+
+
+def _fast_report_row(repo: str) -> Tuple[Optional[Dict], Optional[str]]:
+    """FAST/approximate tier (`--report --count-only`): exactly the 2 git
+    calls named in the module docstring - `rev-parse --show-toplevel`
+    (already paid by `RepoTarget.__init__` during discovery) plus
+    `worktree list --porcelain` here - and zero network calls. Returns
+    `(row, error)`; `row["eligible"]` is always None in this tier (never
+    computed).
+    """
+    try:
+        porcelain = _worktree_list(repo)
+        entries = parse_porcelain(porcelain)
+    except (RuntimeError, ValueError) as exc:
+        return None, str(exc)
+
+    nonroot = entries[1:]
+    ages = [a for a in (_worktree_age_hours(e.path) for e in nonroot) if a is not None]
+    oldest_age = max(ages) if ages else None
+    return {
+        "repo": repo,
+        "nonroot_worktrees": len(nonroot),
+        "oldest_age_hours": oldest_age,
+        "eligible": None,
+    }, None
+
+
+def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict], Optional[str]]:
+    """DEEP/accurate tier (`--report`, no `--count-only`): a full per-entry
+    `evaluate_entry` pass, same cost as `--dry-run --explain` today, but
+    never acting on the result - `_evaluate_entries` is the SAME loop the
+    single-repo sweep uses, so this tier cannot diverge on what counts as
+    REMOVE. Returns `(row, error)`.
+    """
+    try:
+        porcelain = _worktree_list(repo)
+        entries = parse_porcelain(porcelain)
+    except (RuntimeError, ValueError) as exc:
+        return None, str(exc)
+
+    if not entries:
+        return {"repo": repo, "nonroot_worktrees": 0, "oldest_age_hours": None, "eligible": 0}, None
+
+    resolved_base, _base_source, base_diagnostics = resolve_base_branch(repo, None)
+    for line in base_diagnostics:
+        print(line, file=sys.stderr)
+    if resolved_base is None:
+        return None, "base could not be resolved"
+
+    gh_ok = _gh_available(repo, args.no_gh)
+    allow_network = not args.no_gh
+    results = _evaluate_entries(
+        repo, entries, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+    )
+    eligible = sum(1 for r in results if r["outcome"] == "REMOVE")
+    return {
+        "repo": repo,
+        "nonroot_worktrees": len(entries) - 1,
+        "oldest_age_hours": None,
+        "eligible": eligible,
+    }, None
+
+
+def _run_report(targets: List[RepoTarget], root_errors: List[str], args: argparse.Namespace) -> int:
+    rows: List[Dict] = []
+    errored = False
+
+    for target in targets:
+        if target.discovery_error is not None:
+            print(f"ds-cleanup-worktrees: {target.discovery_error}", file=sys.stderr)
+            errored = True
+            continue
+        repo = str(target.canonical)
+        if args.count_only:
+            row, err = _fast_report_row(repo)
+        else:
+            row, err = _deep_report_row(repo, args)
+        if err:
+            print(f"ds-cleanup-worktrees: {repo}: {err}", file=sys.stderr)
+            errored = True
+            continue
+        rows.append(row)
+
+    if args.count_only:
+        rows.sort(
+            key=lambda r: (
+                -r["nonroot_worktrees"],
+                r["oldest_age_hours"] if r["oldest_age_hours"] is not None else float("inf"),
+            )
+        )
+    else:
+        rows.sort(key=lambda r: -(r["eligible"] or 0))
+
+    if args.json:
+        print(json.dumps(rows))
+    else:
+        if args.count_only:
+            print(
+                "ds-cleanup-worktrees --report --count-only: FAST/approximate tier - raw "
+                "worktree count + directory age only, NOT a measure of staleness. Run "
+                "--report (without --count-only) for an accurate eligible-for-removal count."
+            )
+            header = f"{'repo':<60} {'nonroot':>7} {'oldest_age_hrs':>15}"
+        else:
+            print(
+                "ds-cleanup-worktrees --report: DEEP/accurate tier - full per-entry "
+                "evaluation, eligible-for-removal count."
+            )
+            header = f"{'repo':<60} {'nonroot':>7} {'eligible':>9}"
+        print(header)
+        for r in rows:
+            if args.count_only:
+                age = f"{r['oldest_age_hours']:.1f}" if r["oldest_age_hours"] is not None else "n/a"
+                print(f"{r['repo']:<60} {r['nonroot_worktrees']:>7} {age:>15}")
+            else:
+                print(f"{r['repo']:<60} {r['nonroot_worktrees']:>7} {r['eligible']:>9}")
+
+    return 1 if (errored or root_errors) else 0
+
+
 # --------------------------------------------------------------------------
 # CLI
 # --------------------------------------------------------------------------
@@ -1379,7 +1831,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         prog="ds-cleanup-worktrees",
         description="Executable implementation of the /ds-cleanup-worktrees removal predicate.",
     )
-    p.add_argument("--repo", default=".")
+    p.add_argument("--repo", action="append", default=[])
+    p.add_argument("roots", nargs="*", default=[])
+    p.add_argument("--multi-repo", dest="multi_repo", action="store_true")
+    p.add_argument("--depth", type=int, default=None, choices=[1, 2, 3])
+    p.add_argument("--report", action="store_true")
+    p.add_argument("--json", action="store_true")
     p.add_argument("--base", default=None)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--no-gh", action="store_true")
@@ -1389,6 +1846,29 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--strict-ignored", action="store_true")
     p.add_argument("--archive-unproven", action="store_true")
     return p.parse_args(argv)
+
+
+def _validate_args(args: argparse.Namespace) -> Optional[str]:
+    """Returns a usage-error message, or None when valid. Called BEFORE any
+    git subprocess call - see the module docstring's `--multi-repo`/
+    `--report` sections for the full rationale behind each check.
+    """
+    if not args.multi_repo:
+        if len(args.repo) > 1:
+            return "multiple --repo requires --multi-repo"
+        if args.roots:
+            return "positional root arguments require --multi-repo"
+        if args.depth is not None:
+            return "--depth requires --multi-repo"
+        if args.report:
+            return "--report requires --multi-repo (a single-repo report is just --dry-run --explain)"
+    if args.multi_repo and args.base is not None:
+        return "--base cannot be combined with --multi-repo - each repo resolves its own base independently"
+    if args.report and args.archive_unproven:
+        return "--report is incompatible with --archive-unproven (report mode is structurally read-only)"
+    if args.json and not args.report:
+        return "--json requires --report"
+    return None
 
 
 #: Every outcome `evaluate_entry`/the MAIN-entry/UNMANAGED-entry branches in
@@ -1417,15 +1897,15 @@ def _field_name(outcome: str) -> str:
     return outcome.lower().replace("skip_", "skipped-").replace("_", "-")
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    args = parse_args(argv)
-
-    try:
-        repo = _resolve_repo(args.repo)
-    except ValueError as exc:
-        print(f"ds-cleanup-worktrees: {exc}", file=sys.stderr)
-        return 1
-
+def _run_repo(repo: str, args: argparse.Namespace) -> int:
+    """The single-repo sweep body - unchanged in behavior from before
+    `--multi-repo`/`--report` existed. `repo` is already a resolved git
+    toplevel path (resolved by the caller: `main()` for single-repo mode
+    via `_resolve_repo`, or `_run_multi_repo` per-target via
+    `RepoTarget.__init__`'s own `git rev-parse --show-toplevel` call).
+    Called once per repo, sequentially, by both modes - this is the ONLY
+    place any of this file's removal/archive/prune logic lives.
+    """
     try:
         porcelain = _worktree_list(repo)
         entries = parse_porcelain(porcelain)
@@ -1505,18 +1985,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         )
         return 0
 
-    results = []
-    for idx, entry in enumerate(entries):
-        is_main = idx == 0
-        wt_class = classify_entry(entry, host=repo, repo_root=repo, is_main=is_main)
-        if is_main:
-            results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
-            continue
-        results.append(
-            evaluate_entry(
-                repo, entry, wt_class, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
-            )
-        )
+    results = _evaluate_entries(
+        repo, entries, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+    )
 
     # Bucket-membership invariant (round-2 Minor a, round-6 correction):
     # every result must land in exactly one of _ALL_OUTCOMES - fail loudly
@@ -1773,6 +2244,87 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}{offenders}")
 
     return 0
+
+
+def _run_multi_repo(args: argparse.Namespace) -> int:
+    """`--multi-repo` entry point: discovers targets, then either runs the
+    read-only `--report` path or sweeps every discovered repo sequentially
+    via `_run_repo` - the SAME function single-repo mode uses, so the two
+    modes cannot diverge on any removal/safety logic. See the module
+    docstring's `--multi-repo` section for the full exit-code contract.
+    """
+    depth = args.depth if args.depth is not None else 1
+    targets, skipped_not_git, root_errors = discover_repos_multi(list(args.repo), list(args.roots), depth)
+    targets = dedupe(targets)
+
+    for err in root_errors:
+        print(f"ds-cleanup-worktrees: {err}", file=sys.stderr)
+
+    if not targets and not root_errors:
+        print(
+            "ds-cleanup-worktrees: no repos discovered. Usage: ds-cleanup-worktrees --multi-repo "
+            "[--repo <path> ...] [root ...] - or configure ~/.agentic/cleanup-worktrees.json with a "
+            '"roots" and/or "repos" list.',
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.report:
+        return _run_report(targets, root_errors, args)
+
+    repos_swept = 0
+    repos_errored = 0
+
+    for target in targets:
+        header = str(target.canonical) if target.canonical is not None else target.path
+        print(f"== {header} ({target.source}) ==")
+
+        if target.discovery_error is not None:
+            print(f"ds-cleanup-worktrees: {target.discovery_error}", file=sys.stderr)
+            repos_errored += 1
+            continue
+
+        rc = _run_repo(str(target.canonical), args)
+        repos_swept += 1
+        if rc != 0:
+            repos_errored += 1
+
+    print(
+        f"ds-cleanup-worktrees: repos={len(targets)} swept={repos_swept} errored={repos_errored} "
+        f"root-errors={len(root_errors)} skipped-not-git={skipped_not_git}"
+    )
+
+    if repos_errored or root_errors:
+        return 1
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    usage_error = _validate_args(args)
+    if usage_error is not None:
+        print(f"ds-cleanup-worktrees: {usage_error}", file=sys.stderr)
+        return 2
+
+    if args.multi_repo:
+        return _run_multi_repo(args)
+
+    # Single-repo mode: byte-identical to this tool's behavior before
+    # --multi-repo existed. `--repo` is now `action="append"`, but
+    # `_validate_args` above already refused more than one entry when
+    # `--multi-repo` is absent, so this resolution is exactly the old
+    # `args.repo` default-"." behavior for every existing caller
+    # (bin/ds-base-sync, hooks/session-start-wrap.sh, this command's own
+    # doc), none of which pass --repo more than once.
+    resolved_repo_arg = args.repo[0] if args.repo else "."
+    try:
+        repo = _resolve_repo(resolved_repo_arg)
+    except ValueError as exc:
+        print(f"ds-cleanup-worktrees: {exc}", file=sys.stderr)
+        return 1
+
+    return _run_repo(repo, args)
 
 
 if __name__ == "__main__":
