@@ -333,13 +333,30 @@ Public API (CLI):
                               ones - the printed table and JSON both label
                               this tier explicitly so an operator reading a
                               fast-tier result knows what it does and does
-                              not tell them.
+                              not tell them. A SECOND, separate caveat
+                              (round-N Minor 2): this tier never calls
+                              `resolve_base_branch` at all, so a repo whose
+                              base cannot be resolved (e.g. no git remotes -
+                              see `_has_any_remote`) still exits 0 here and
+                              ranks as ordinary, actionable output, even
+                              though the DEEP tier and the real sweep both
+                              exit 1 and skip that same repo. An operator
+                              following the "run --count-only first"
+                              recommendation below can see a clean-looking
+                              table that overstates what is actually
+                              reapable - cross-check against a DEEP
+                              `--report` (or the sweep's own exit code)
+                              before trusting a fast-tier row as reapable.
                             - `--report` (DEEP/accurate): a full per-entry
                               `evaluate_entry` pass per repo - the same cost
                               as `--dry-run --explain` today, just never
-                              acting on the result. Ranks repos by the count
-                              of entries that would resolve `REMOVE`
-                              (`eligible`).
+                              acting on the result. Ranks repos by
+                              `(eligible desc, oldest_worktree_age_hours
+                              desc)` - the count of entries that would
+                              resolve `REMOVE` (`eligible`), with the SAME
+                              oldest-age-DESC tiebreak the fast tier uses
+                              (round-N Minor 3: previously an `eligible` tie
+                              fell back to undocumented discovery order).
                           Recommended as the FIRST step before any
                           multi-repo removal run - look before you delete.
   --json                   (requires `--report`) Emits the ranked report to
@@ -597,9 +614,21 @@ Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
                timeout degrades that leg to inconclusive exactly like a
                `gh` error does, never a false ELIGIBLE.
 
-Performance: `--count-only` - one `git worktree list --porcelain` call,
-             nothing else (see the --count-only flag description above for
-             the re-measured figure). Full mode - the above plus, per
+Performance: `--count-only` - two git calls total: `rev-parse
+             --show-toplevel` (already paid by repo resolution before this
+             mode's own check runs - `_resolve_repo` in single-repo mode,
+             `RepoTarget.__init__` under `--multi-repo`) plus `git worktree
+             list --porcelain` to enumerate. Zero network calls, and zero
+             ADDITIONAL per-entry git calls beyond those two (see the
+             --count-only flag description above for the re-measured
+             figure) - this agrees with, rather than contradicts, the
+             `--report --count-only` tier's own "exactly 2 git calls per
+             repo" text above; round-N Major 3 fix corrects this section,
+             which previously and self-contradictorily claimed only ONE
+             call, mechanically pinned against a live subprocess-call count
+             now (see `bin/tests/test_cleanup_worktrees.py`'s
+             `test_count_only_makes_exactly_two_git_calls_total`). Full
+             mode - the above plus, per
              managed worktree entry: `git status --porcelain
              --ignored=matching`, `git merge-base --is-ancestor`, and
              (unless --no-gh) `git ls-remote` + one `gh pr list`, plus a
@@ -947,8 +976,28 @@ def _ref_exists(repo: str, ref: str) -> bool:
     return proc.returncode == 0
 
 
+def _has_any_remote(repo: str) -> bool:
+    """True when `repo` has at least one git remote configured (`git
+    remote`, no network call). Round-N Major 1 fix: every automatic base
+    candidate is an `origin/<name>` ref, so a repo with zero remotes can
+    never resolve one regardless of which branch name is tried - this is
+    the ACTUAL cause of every live `resolve_base_branch` failure measured
+    under `--multi-repo --report --count-only` (11 of 11 `skipped-base-
+    unresolved` repos, verified: zero non-root worktrees on 10 of the 11,
+    none an AGENTS.md `BASE_BRANCH:` failure). Distinguishing this case
+    lets `resolve_base_branch` give advice that is actually actionable for
+    it, instead of the generic "declare BASE_BRANCH or pass --base" text,
+    which is a dead end here: declaring BASE_BRANCH still resolves against
+    `origin/<name>` and cannot help, and `--base` is a hard usage error
+    under `--multi-repo` (see `_validate_args`)."""
+    proc = _run(["git", "-C", repo, "remote"])
+    if proc.returncode != 0:
+        return False
+    return bool(proc.stdout.strip())
+
+
 def resolve_base_branch(
-    repo: str, explicit_base: Optional[str]
+    repo: str, explicit_base: Optional[str], multi_repo: bool = False
 ) -> Tuple[Optional[str], str, List[str]]:
     """Resolve the --base ref per the tier order documented in the module
     comment above. Returns (resolved_ref, source_tier, diagnostics):
@@ -966,7 +1015,11 @@ def resolve_base_branch(
     itself - a ref that is stale or was never fetched reads as missing even
     when the branch genuinely exists on origin (`git fetch origin` fixes
     this) - plus (only when every candidate failed) a final line naming
-    every candidate tried.
+    every candidate tried. `multi_repo` (round-N Major 1) is used ONLY to
+    keep the final "every candidate failed" diagnostic's remediation
+    advice mode-aware: suggesting `--base` is useless (a hard usage error,
+    exit 2) when this resolution is happening under `--multi-repo`, so
+    that branch of the message is omitted there.
     """
     diagnostics: List[str] = []
 
@@ -1026,10 +1079,40 @@ def resolve_base_branch(
         )
 
     tried = ", ".join(f"{ref} ({source})" for ref, source in candidates)
-    diagnostics.append(
-        f"ds-cleanup-worktrees: could not resolve a base branch - every candidate failed. "
-        f"Tried: {tried}. Declare BASE_BRANCH in AGENTS.md, or pass --base explicitly."
-    )
+
+    # Round-N Major 1 fix: every candidate above is an `origin/<name>` ref,
+    # so a repo with zero git remotes can never resolve ANY of them - this
+    # is the actual, measured cause of every live failure (see
+    # `_has_any_remote`'s docstring). Name that cause specifically and give
+    # mode-aware advice, instead of the generic "declare BASE_BRANCH or
+    # pass --base" text, which is a dead end here: a BASE_BRANCH
+    # declaration still resolves against `origin/<name>` and cannot help,
+    # and suggesting `--base` under `--multi-repo` would recommend a flag
+    # that is a hard usage error there (see `_validate_args`).
+    if not _has_any_remote(repo):
+        remediation = (
+            "This repo has no git remotes configured (`git remote` returned nothing), so no "
+            "`origin/<branch>` ref can ever resolve here regardless of which branch name is "
+            "tried - declaring BASE_BRANCH in AGENTS.md will not help either, since it also "
+            "resolves against `origin/<name>`. Add a remote (`git remote add origin <url>`) "
+            "and fetch, or skip this repo."
+        )
+        if not multi_repo:
+            remediation += (
+                " Alternatively, pass --base <ref> explicitly - it bypasses remote resolution "
+                "entirely and is accepted verbatim."
+            )
+        diagnostics.append(
+            f"ds-cleanup-worktrees: could not resolve a base branch - no git remotes configured. "
+            f"Tried: {tried}. {remediation}"
+        )
+    else:
+        advice = "Declare BASE_BRANCH in AGENTS.md"
+        advice += ", or pass --base explicitly." if not multi_repo else " for this repo."
+        diagnostics.append(
+            f"ds-cleanup-worktrees: could not resolve a base branch - every candidate failed. "
+            f"Tried: {tried}. {advice}"
+        )
     return None, "unresolved", diagnostics
 
 
@@ -1852,7 +1935,7 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     ages = [a for a in (_worktree_age_hours(p) for p in nonroot_paths) if a is not None]
     oldest_age = max(ages) if ages else None
 
-    resolved_base, _base_source, base_diagnostics = resolve_base_branch(repo, None)
+    resolved_base, _base_source, base_diagnostics = resolve_base_branch(repo, None, multi_repo=True)
     for line in base_diagnostics:
         print(line, file=sys.stderr)
     if resolved_base is None:
@@ -1907,7 +1990,20 @@ def _run_report(targets: List[RepoTarget], root_errors: List[str], args: argpars
             )
         )
     else:
-        rows.sort(key=lambda r: -(r["eligible"] or 0))
+        # Round-N Minor 3 fix: give the deep tier the SAME oldest_age_hours
+        # DESC tiebreak the fast tier documents (see the fast-tier sort key
+        # above for the full rationale) - previously an `eligible` tie fell
+        # back to undocumented discovery order (alphabetical, via
+        # `_scan_root`'s own `sorted()`), so two repos comparing the two
+        # tables side by side could see rows reorder for no visible reason.
+        # A None age (unreachable in practice) still sorts last under DESC
+        # via `-inf`, identically to the fast tier.
+        rows.sort(
+            key=lambda r: (
+                -(r["eligible"] or 0),
+                -(r["oldest_age_hours"] if r["oldest_age_hours"] is not None else float("-inf")),
+            )
+        )
 
     if args.json:
         # Round-N Major 5 fix: the printed TABLE already labels its tier
@@ -2071,7 +2167,9 @@ def _run_repo(
     # --count-only early return above, so that mode's zero-added-git-calls
     # contract (bin/ds-base-sync, hooks/session-start-wrap.sh both depend
     # on it) is unaffected by this tool now resolving --base itself.
-    resolved_base, base_source, base_diagnostics = resolve_base_branch(repo, args.base)
+    resolved_base, base_source, base_diagnostics = resolve_base_branch(
+        repo, args.base, multi_repo=args.multi_repo
+    )
     for line in base_diagnostics:
         print(line, file=sys.stderr)
     if resolved_base is None:

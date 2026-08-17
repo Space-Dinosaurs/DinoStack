@@ -2056,3 +2056,41 @@ def test_count_only_still_makes_zero_base_resolution_git_calls(tmp_path):
     proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     assert "entries=" in proc.stdout
+
+
+def test_count_only_makes_exactly_two_git_calls_total(tmp_path):
+    """Round-N Major 3 regression guard: mechanically derives the actual
+    subprocess-call count for single-repo `--count-only` by EXECUTION,
+    rather than trusting a hand count - the module docstring's own
+    `Performance:` section claimed "one call, nothing else" for over a
+    round while the code genuinely made two (`rev-parse --show-toplevel`
+    during repo resolution, then `worktree list --porcelain`). A `git`
+    stub logs every invocation's argv to a file (delegating to the real
+    `git` so the run still succeeds) and this test asserts the derived
+    count against the manifest's own stated figure, not a second hand
+    count - so the two can never silently diverge again."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    real_git = shutil.which("git")
+    assert real_git, "real `git` must be on PATH to build this stub"
+    bin_dir = tmp_path / "countingbin"
+    bin_dir.mkdir()
+    log_path = tmp_path / "git-calls.log"
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        f'echo "$@" >> "{log_path}"\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    git_stub.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--count-only"]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+
+    calls = log_path.read_text().splitlines() if log_path.exists() else []
+    EXPECTED_GIT_CALLS = 2  # keep in lockstep with the module docstring's Performance: section
+    assert len(calls) == EXPECTED_GIT_CALLS, calls
+    assert any("rev-parse" in c and "--show-toplevel" in c for c in calls), calls
+    assert any("worktree" in c and "list" in c for c in calls), calls
