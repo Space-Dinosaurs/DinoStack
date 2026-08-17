@@ -2121,3 +2121,37 @@ def test_count_only_git_call_count_matches_manifest(tmp_path):
     assert len(calls) == expected, (calls, expected)
     assert any("rev-parse" in c and "--show-toplevel" in c for c in calls), calls
     assert any("worktree" in c and "list" in c for c in calls), calls
+
+
+def test_manifest_test_name_cross_references_exist():
+    """Round-4-review regression guard: the module docstring names specific
+    `test_*` functions by name (e.g. the Performance: section's git-call-
+    count pointer) as evidence for a claim it makes. Four consecutive rounds
+    each let a DIFFERENT field of this manifest go stale (Failure modes,
+    Upstream deps, Downstream consumers, and a Performance test-name
+    pointer that this round renamed the target of without updating the
+    pointer) - this test closes the test-name-pointer class mechanically:
+    it extracts every backtick-quoted `test_*` identifier from the module
+    docstring and asserts each one is actually collected as a `def test_...`
+    function in one of the two test files the docstring's own Downstream
+    consumers section names as this tool's CI coverage
+    (test_cleanup_worktrees.py, test_cleanup_worktrees_multi_repo.py) -
+    so a rename on either side (the pointer or the test) fails this test
+    instead of shipping silently, the same discipline
+    `test_count_only_git_call_count_matches_manifest` already applies to
+    the git-call-count figure it derives from the same section."""
+    doc = ds_cleanup_worktrees.__doc__ or ""
+    referenced = sorted(set(re.findall(r"`(test_[A-Za-z0-9_]+)`", doc)))
+    assert referenced, "expected at least one backtick-quoted test_* reference in the module docstring"
+
+    tests_dir = SCRIPT.resolve().parent / "tests"
+    collected: set = set()
+    for test_file in ("test_cleanup_worktrees.py", "test_cleanup_worktrees_multi_repo.py"):
+        text = (tests_dir / test_file).read_text()
+        collected.update(re.findall(r"^def (test_[A-Za-z0-9_]+)\(", text, re.MULTILINE))
+
+    missing = [name for name in referenced if name not in collected]
+    assert not missing, (
+        f"module docstring references test(s) not collected as def test_...(...) in "
+        f"test_cleanup_worktrees.py or test_cleanup_worktrees_multi_repo.py: {missing}"
+    )

@@ -627,7 +627,7 @@ Performance: `--count-only` - two git calls total: `rev-parse
              which previously and self-contradictorily claimed only ONE
              call, mechanically pinned against a live subprocess-call count
              now (see `bin/tests/test_cleanup_worktrees.py`'s
-             `test_count_only_makes_exactly_two_git_calls_total`). Full
+             `test_count_only_git_call_count_matches_manifest`). Full
              mode - the above plus, per
              managed worktree entry: `git status --porcelain
              --ignored=matching`, `git merge-base --is-ancestor`, and
