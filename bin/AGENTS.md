@@ -1,7 +1,9 @@
 # bin/
 
-Nineteen CLI entry points (15 Python, 2 Bash, 2 Node) that the dinostack
-methodology exposes as PATH-wired commands. Each binary ships with a
+CLI entry points (Python, Bash, and Node) that the dinostack
+methodology exposes as PATH-wired commands - the table below is a curated
+subset, not a full enumeration (see `ls bin/ds-*` for the live count).
+Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
 of that command. Read the binary itself for full detail; this file is the
@@ -18,6 +20,7 @@ sunset (external cron jobs and shell aliases reference it).
 |---|---|---|
 | `ds-base-sync` | Bash | Fast-forward the local base branch to `origin/<base-branch>` after a merge, with a normalized exit-code contract (`synced`/`diverged`/`skipped-dirty`/`usage-error`/`inconclusive`); prints a non-blocking DS-54 hooks-snapshot-staleness advisory note after every invocation. |
 | `ds-calibrate` | Python | Render Skeptic calibration rollups (findings density, meta-Skeptic divergence rate) from `.agentic/events.jsonl`. |
+| `ds-cleanup-worktrees` | Python | Single-repo worktree removal (classify -> lock/dirty -> merge-evidence -> disposition, `bin/tests/worktree_model.py`), PLUS an in-process `--multi-repo`/`--report` surface: discovers a set of repos (explicit `--repo` xN, positional root scan, or a `~/.agentic/cleanup-worktrees.json` fallback), sweeps each with its own independently-resolved base branch, and can rank them read-only ("which project is worst") via a cheap 2-git-call FAST tier or a full-cost DEEP tier. |
 | `ds-cost` | Python | Token / wall-time / dollar rollups per agent, session, task, and developer team from `.agentic/events.jsonl` and session logs. |
 | `ds-disable` | Python | Append the opt-out marker to `AGENTS.md`; optionally update the global config. |
 | `ds-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`, DS-54 hooks-snapshot staleness). |
@@ -29,7 +32,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-memory` | Python | Query `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md`; return compact Markdown summaries. |
 | `ds-migrate` | Python | Apply additive project scaffolding migrations (`check` / `apply` / `diff` subcommands). |
 | `ds-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
-| `ds-reap-all` | Python | Cross-repo sweep wrapper around `ds-cleanup-worktrees`: discovers repos (explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback), invokes the per-repo tool sequentially, and reports a combined summary. Contains no removal logic of its own - every safety gate lives in `ds-cleanup-worktrees`, reused unmodified via subprocess. |
+| `ds-reap-all` | Python | Cross-repo sweep wrapper around `ds-cleanup-worktrees`: discovers repos (explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback), invokes the per-repo tool sequentially (one subprocess per repo), and reports a combined summary. Contains no removal logic of its own - every safety gate lives in `ds-cleanup-worktrees`, reused unmodified via subprocess. `ds-cleanup-worktrees`'s own `--multi-repo` now covers the same "sweep several repos" need in-process (see that row above) - `ds-reap-all` is unchanged and retained for now, not the sole cross-repo mechanism. |
 | `ds-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `ds-tracker` | Python | Manage the project-local, gitignored `.agentic/tracker.yml` tracker-config overlay (`init` / `show` / `set` / `resolve` / `path`), merged field-by-field over the `AGENTS.md` tracker resolution chain. |
 | `ds-update` | Python | Non-interactive updater: fetch origin, rebuild adapters (forcing the loop even when `old_head==new_head` if the local DS-54 hooks-snapshot has diverged from the live checkout), reset version-check cache, run `ds-doctor --fix`. |

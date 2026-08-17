@@ -349,6 +349,7 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 - `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
 - Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or a bare `ds-cleanup-worktrees` (no flags) invocation; `--dry-run` computes and reports without removing anything, and `--dry-run --explain` (not `--explain` alone) is the dry-run report form
 - `bin/ds-reap-all` sweeps SEVERAL repos in one invocation - discovers repos via explicit `--repo`, a root-directory scan, or a `~/.agentic/reap-all.json` fallback, then runs `ds-cleanup-worktrees` once per repo sequentially, forwarding every pass-through flag verbatim; it owns no safety logic of its own
+- `ds-cleanup-worktrees --multi-repo` folds that same cross-repo sweep in-process (same discovery sources, each repo resolving its own base independently); `--multi-repo --report` (optionally `--count-only` for a cheap fast tier, or `--json`) is read-only and ranks repos worst-first - "which project is worst" - the recommended first look before a multi-repo removal run
 
 <div class="callout">
 Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
