@@ -368,7 +368,7 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       bin/ds-reap-all (invokes this tool once per repo in
                       a cross-repo sweep, forwarding flags verbatim -
                       pre-existing since PR #735, not new to this branch).
-                      CI: bin/tests/test_reap_worktrees.py (pytest,
+                      CI: bin/tests/test_cleanup_worktrees.py (pytest,
                       auto-collected by `python3 -m pytest bin/tests/`).
 
 Failure modes: exits 0 on success INCLUDING partial degradation (gh

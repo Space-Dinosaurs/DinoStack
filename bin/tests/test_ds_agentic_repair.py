@@ -21,7 +21,7 @@ Upstream deps: bin/ds-agentic-repair (module under test, loaded via
     importlib.util.spec_from_file_location since it has no `.py`
     extension - the same loading mechanism pytest's own bin/tests/
     conftest-less collection already relies on for sibling `bin/ds-*`
-    modules, e.g. bin/tests/test_reap_worktrees.py's subprocess
+    modules, e.g. bin/tests/test_cleanup_worktrees.py's subprocess
     invocation; this file additionally imports IN-PROCESS via importlib
     to call `classify()`/`scan()`/`repair_one()` directly for the unit-
     level assertions, then separately drives `main()` for the CLI-level

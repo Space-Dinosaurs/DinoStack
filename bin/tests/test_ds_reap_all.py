@@ -15,7 +15,7 @@ Public API: none (test module; invoked via `python3 -m pytest`).
 Upstream deps: bin/ds-reap-all (module under test, invoked both as a
                subprocess CLI and, for discovery-only unit tests, imported
                directly via SourceFileLoader - mirrors the pattern
-               bin/tests/test_reap_worktrees.py's `_load_module_directly`
+               bin/tests/test_cleanup_worktrees.py's `_load_module_directly`
                already established). Real `git` CLI (subprocess, `git
                init` only - to build minimal repos for the discovery
                scenarios). A fake stub `ds-cleanup-worktrees` executable
@@ -60,7 +60,7 @@ def _load_module_directly():
     discovery-only unit tests that need to monkeypatch internals (notably
     `_CONFIG_PATH`, to avoid ever touching the real
     `~/.agentic/reap-all.json`). Mirrors
-    bin/tests/test_reap_worktrees.py's `_load_module_directly`."""
+    bin/tests/test_cleanup_worktrees.py's `_load_module_directly`."""
     import importlib.machinery as _ilm
     import importlib.util as _ilu
 
