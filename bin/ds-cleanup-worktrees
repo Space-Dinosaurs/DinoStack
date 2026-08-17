@@ -282,10 +282,15 @@ Public API (CLI):
                           binary makes (`git ls-remote`, `gh auth status`,
                           `gh pr list`) already carries its own
                           `_NETWORK_TIMEOUT_SECONDS` bound (see that constant
-                          above), so an outer per-repo timeout would only
-                          ever re-bound calls that are already individually
-                          bounded - verified against the code, not merely
-                          asserted.
+                          above), so no single call can hang unboundedly.
+                          This is NARROWER parity than the retired flag, not
+                          full parity: the old `--timeout` also gave an
+                          operator-settable AGGREGATE per-repo ceiling, and
+                          that aggregate cap has no replacement here - a repo
+                          with N worktree entries is bounded only at
+                          `_NETWORK_TIMEOUT_SECONDS` times (up to 3 network
+                          calls per entry), with no overall per-repo ceiling
+                          - verified against the code, not merely asserted.
   root ...                Positional root directories (requires
                           `--multi-repo`; see that flag's description
                           above for the full scan/dedup/config-fallback

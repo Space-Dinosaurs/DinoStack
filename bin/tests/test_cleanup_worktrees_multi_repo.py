@@ -243,6 +243,33 @@ def test_nonexistent_root_is_a_root_error(tmp_path):
     assert "root not a directory" in root_errors[0]
 
 
+def test_nonexistent_root_only_cli_exits_1_with_summary_and_stderr(tmp_path):
+    """Round-2 rework Major 2: the deleted bin/tests/test_ds_reap_all.py's
+    `test_nonexistent_root_is_reported_error_exit_1` asserted three
+    CLI-observable things for a bad-root-only invocation: exit code 1, the
+    composed summary line, and the stderr diagnostic. The unit-level
+    replacement above (`test_nonexistent_root_is_a_root_error`) only
+    asserts `discover_repos_multi`'s return value and is mutation-provably
+    blind to the exit-code contract: changing `_run_multi_repo`'s
+    `if not targets and not root_errors:` guard (bin/ds-cleanup-worktrees)
+    to `if not targets:` flips this exact scenario from the documented
+    exit 1 to exit 2 while every other test in this suite (including
+    `test_one_bad_root_among_good_ones_still_sweeps_the_rest`, which always
+    has a good repo and so never reaches this guard) stays green. This
+    test drives the real CLI end to end so that guard is caught."""
+    bad_root = tmp_path / "definitely-not-here-12345"
+    assert not bad_root.exists()
+
+    result = run_cli(["--multi-repo", str(bad_root)])
+
+    assert result.returncode == 1
+    summary_line = [
+        ln for ln in result.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")
+    ][-1]
+    assert "repos=0 swept=0 errored=0 root-errors=1 skipped-not-git=0" in summary_line
+    assert f"root not a directory: {bad_root}" in result.stderr
+
+
 # --------------------------------------------------------------------------
 # 3. Config-file fallback: consulted ONLY when neither --repo nor a root is
 #    given; malformed-JSON / non-list / non-string-element edge cases never
@@ -284,6 +311,34 @@ def test_config_malformed_json_reported_and_treated_as_empty(tmp_path, monkeypat
     assert root_errors == []
 
 
+def test_config_malformed_json_cli_reports_could_not_read_config(tmp_path, monkeypatch):
+    """Round-2 rework Major 1: the deleted bin/tests/test_ds_reap_all.py's
+    `test_malformed_config_json_reports_parse_failure_and_exits_2` asserted
+    the CLI-observable stderr diagnostic (config path plus "could not read
+    config") - its own comment noted this guards against malformed JSON
+    having previously been SILENTLY SWALLOWED. The unit-level replacement
+    above (`test_config_malformed_json_reported_and_treated_as_empty`) only
+    asserts `discover_repos_multi`'s return value and is mutation-provably
+    blind to that regression: deleting the `print(...)` in
+    `_load_multi_repo_config` (bin/ds-cleanup-worktrees) leaves it green.
+    This test drives the real CLI end to end so that print is guarded."""
+    fake_home = tmp_path / "home"
+    agentic_dir = fake_home / ".agentic"
+    agentic_dir.mkdir(parents=True)
+    config_path = agentic_dir / "cleanup-worktrees.json"
+    # Trailing comma - invalid JSON, previously silently swallowed to {}
+    # with no hint at all.
+    config_path.write_text('{"repos": ["/tmp/a",],}')
+
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = run_cli(["--multi-repo"])
+
+    assert result.returncode == 2
+    assert str(config_path) in result.stderr
+    assert "could not read config" in result.stderr
+    assert "no repos discovered" in result.stderr.lower()
+
+
 def test_config_repos_non_list_value_does_not_crash(tmp_path, monkeypatch):
     config_path = tmp_path / "cleanup-worktrees.json"
     config_path.write_text(json.dumps({"repos": None}))
@@ -307,7 +362,7 @@ def test_config_repos_bare_string_not_exploded_per_character(tmp_path, monkeypat
     assert targets == []
 
 
-def test_config_repos_non_string_element_reported_and_ignored(tmp_path, monkeypatch):
+def test_config_repos_non_string_element_reported_and_ignored(tmp_path, monkeypatch, capsys):
     config_path = tmp_path / "cleanup-worktrees.json"
     config_path.write_text(json.dumps({"repos": ["/tmp/a", 5]}))
 
@@ -316,6 +371,13 @@ def test_config_repos_non_string_element_reported_and_ignored(tmp_path, monkeypa
 
     targets, _skipped, _errors = mod.discover_repos_multi([], [], 1)
     assert targets == []
+    # The name says "reported" - assert the stderr report actually happens,
+    # not just that the malformed field was ignored (round-2 rework Minor 2:
+    # the prior version of this test asserted only `targets == []`, which
+    # survives deleting the `print(...)` in `_config_string_list` entirely).
+    captured = capsys.readouterr()
+    assert '"repos"' in captured.err
+    assert "must be a list of strings" in captured.err
 
 
 # --------------------------------------------------------------------------
@@ -674,10 +736,11 @@ def test_base_unresolvable_repo_is_skipped_not_swept_and_exits_1(tmp_path):
 
 
 def test_one_bad_root_among_good_ones_still_sweeps_the_rest(tmp_path):
-    """Ported from bin/tests/test_ds_reap_all.py's own test of the same
-    name (Skeptic-mapped coverage-subsumption gap): a root that is not a
-    directory must not halt the sweep of every other good root/repo, and
-    the root error is reported distinctly from a repo-level error."""
+    """Ported from the now-retired bin/tests/test_ds_reap_all.py's own test
+    of the same name (Skeptic-mapped coverage-subsumption gap): a root that
+    is not a directory must not halt the sweep of every other good
+    root/repo, and the root error is reported distinctly from a repo-level
+    error."""
     root = tmp_path / "workspace"
     root.mkdir()
     good_repo = init_repo_with_origin(root, name="good-project")
