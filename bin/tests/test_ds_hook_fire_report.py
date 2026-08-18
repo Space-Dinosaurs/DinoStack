@@ -402,6 +402,227 @@ def test_log_coverage_days_is_none_when_log_absent(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# (f.1) DS-179 round 3 Major 1 - log_coverage_days (span) alone is not data
+#     adequacy. Reproduces the Skeptic's own two executed fixtures: a
+#     sparse-but-old log can cross the old bare `log_coverage_days >= 30`
+#     gate while containing almost no real data.
+#     Mutation: delete the `log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE`
+#     conjunct from log_confidence_eligible's computation -> both tests
+#     below flip from False to True, since log_coverage_days alone (595.0
+#     and 121.0 respectively) already clears the >= 30 span gate.
+# ---------------------------------------------------------------------------
+
+
+def test_sparse_old_log_crosses_span_gate_but_not_confidence_eligible(tmp_path):
+    """Skeptic fixture 1: 2 records, one dated 2025-01-01 -> log_coverage_days
+    far exceeds 30 (measured: 595.0), but only 2 parsed records exist -
+    nowhere near enough to trust the span as a real measurement."""
+    repo = _make_repo(tmp_path)
+    old_ts = "2025-01-01T00:00:00Z"
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "ts": old_ts,
+                        "hook": "enforce-fake-abdication",
+                        "decision": "allow",
+                        "reason": "ancient",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ts": _RECENT_TS,
+                        "hook": "enforce-fake-abdication",
+                        "decision": "allow",
+                        "reason": "recent",
+                    }
+                ),
+            ]
+        )
+        + "\n",
+    )
+    report = _run_json(repo, "--days", "90")
+    coverage = report["meta"]["log_coverage_days"]
+    assert coverage is not None and coverage >= 30, (
+        f"expected the span gate to be crossed (>= 30), got {coverage}"
+    )
+    assert report["meta"]["log_parsed_lines"] == 2
+    assert report["meta"]["log_confidence_eligible"] is False, (
+        "a 2-record log spanning months must not be confidence-eligible "
+        "even though its span alone clears the 30-day gate"
+    )
+
+
+def test_three_records_spanning_121_days_not_confidence_eligible(tmp_path):
+    """Skeptic fixture 2: 3 records spanning 121 days -> log_coverage_days
+    measured well above 30, still not enough parsed records to trust."""
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc)
+    timestamps = [
+        (now - timedelta(days=121)).isoformat().replace("+00:00", "Z"),
+        (now - timedelta(days=60)).isoformat().replace("+00:00", "Z"),
+        (now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+    ]
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        "\n".join(
+            json.dumps(
+                {
+                    "ts": ts,
+                    "hook": "enforce-fake-abdication",
+                    "decision": "allow",
+                    "reason": "sparse",
+                }
+            )
+            for ts in timestamps
+        )
+        + "\n",
+    )
+    report = _run_json(repo, "--days", "90")
+    coverage = report["meta"]["log_coverage_days"]
+    assert coverage is not None and coverage >= 30
+    assert report["meta"]["log_parsed_lines"] == 3
+    assert report["meta"]["log_confidence_eligible"] is False
+
+
+def test_dense_recent_log_is_confidence_eligible(tmp_path):
+    """Positive control for the density floor: a log with
+    MIN_PARSED_LINES_FOR_CONFIDENCE (30) records spanning >= 30 real days
+    IS confidence-eligible - proving the floor is reachable, not just a
+    one-way gate.
+    Mutation: raise MIN_PARSED_LINES_FOR_CONFIDENCE above 30 -> this test
+    flips from True to False."""
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc)
+    lines = []
+    for i in range(30):
+        ts = (now - timedelta(days=i)).isoformat().replace("+00:00", "Z")
+        lines.append(
+            json.dumps(
+                {
+                    "ts": ts,
+                    "hook": "enforce-fake-abdication",
+                    "decision": "allow",
+                    "reason": f"day {i}",
+                }
+            )
+        )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo, "--days", "90")
+    assert report["meta"]["log_parsed_lines"] == 30
+    coverage = report["meta"]["log_coverage_days"]
+    assert coverage is not None and coverage >= 29
+    assert report["meta"]["log_confidence_eligible"] is True
+
+
+# ---------------------------------------------------------------------------
+# (f.2) DS-179 round 3 Major 2 - a majority-malformed log must not be
+#     treated as a clean measurement even though log_effectively_empty is
+#     False and a real hook status is reported.
+#     Mutation: delete the `log_malformed_ratio <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE`
+#     conjunct from log_confidence_eligible's computation -> the assertion
+#     below flips from False to True.
+# ---------------------------------------------------------------------------
+
+
+def test_majority_malformed_log_reported_and_realistic(tmp_path):
+    """Skeptic's own executed reproduction, verbatim: 99 garbage lines + 1
+    valid record. Pins the exact measured meta values from the round-3
+    finding and confirms status logic is unaffected by (low) confidence
+    eligibility - the hook still reports a real status derived from the one
+    parsed line. Deliberately does NOT assert log_confidence_eligible here:
+    with only 1 parsed line this fixture is already disqualified by the
+    density conjunct alone and would not isolate the corruption conjunct -
+    see test_high_malformed_ratio_disqualifies_a_dense_log below for that."""
+    repo = _make_repo(tmp_path)
+    lines = ["not json at all " + str(i) for i in range(99)]
+    lines.append(
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-abdication",
+                "decision": "allow",
+                "reason": "the one real line",
+            }
+        )
+    )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo)
+    assert report["meta"]["log_effectively_empty"] is False
+    assert report["meta"]["log_parsed_lines"] == 1
+    assert report["meta"]["log_malformed_lines"] == 99
+    assert report["meta"]["log_malformed_ratio"] == 0.99
+    assert report["meta"]["log_confidence_eligible"] is False
+    row = _row_for(report, "enforce-fake-abdication.py")
+    assert row["status"] == "ACTIVE"
+
+
+def test_high_malformed_ratio_disqualifies_a_dense_log(tmp_path):
+    """Isolates the corruption conjunct from the density conjunct: a log
+    with 40 malformed lines and 35 valid, dense, sufficiently-old parsed
+    records (well past the 30-record density floor, well past 30 days of
+    span) is STILL not confidence-eligible once malformed_ratio (40/75 ~
+    0.53) exceeds MAX_MALFORMED_RATIO_FOR_CONFIDENCE (0.5) - proving the
+    corruption check bites even when density and span both pass.
+    Mutation: delete the `log_malformed_ratio <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE`
+    conjunct from log_confidence_eligible's computation -> this test flips
+    from False to True (density and span alone would otherwise pass it)."""
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc)
+    lines = ["garbage line " + str(i) for i in range(40)]
+    for i in range(35):
+        ts = (now - timedelta(days=i)).isoformat().replace("+00:00", "Z")
+        lines.append(
+            json.dumps(
+                {
+                    "ts": ts,
+                    "hook": "enforce-fake-abdication",
+                    "decision": "allow",
+                    "reason": f"day {i}",
+                }
+            )
+        )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo, "--days", "90")
+    assert report["meta"]["log_parsed_lines"] == 35
+    assert report["meta"]["log_malformed_lines"] == 40
+    assert report["meta"]["log_malformed_ratio"] > 0.5
+    coverage = report["meta"]["log_coverage_days"]
+    assert coverage is not None and coverage >= 30
+    assert report["meta"]["log_confidence_eligible"] is False
+
+
+def test_low_malformed_ratio_does_not_disqualify_confidence(tmp_path):
+    """Positive control for the corruption ceiling: a log with a small
+    minority of malformed lines (well under 50%) alongside enough dense,
+    old-enough parsed records is confidence-eligible.
+    Mutation: lower MAX_MALFORMED_RATIO_FOR_CONFIDENCE below the ratio used
+    here -> this test flips from True to False."""
+    repo = _make_repo(tmp_path)
+    now = datetime.now(timezone.utc)
+    lines = ["garbage"]
+    for i in range(30):
+        ts = (now - timedelta(days=i)).isoformat().replace("+00:00", "Z")
+        lines.append(
+            json.dumps(
+                {
+                    "ts": ts,
+                    "hook": "enforce-fake-abdication",
+                    "decision": "allow",
+                    "reason": f"day {i}",
+                }
+            )
+        )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo, "--days", "90")
+    assert report["meta"]["log_parsed_lines"] == 30
+    assert report["meta"]["log_malformed_lines"] == 1
+    assert report["meta"]["log_confidence_eligible"] is True
+
+
+# ---------------------------------------------------------------------------
 # (g) A record with an absent/unparseable ts counts toward
 #     fire_count_all_time but never fire_count_window, and that gap is
 #     now visible via fire_count_unparsed_ts rather than silent.

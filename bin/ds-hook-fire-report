@@ -24,15 +24,38 @@ Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             no Bash in its tool_scope, so the CONDUCTOR runs this command,
             not the Worker). --days sets the fire-count window (default
             14) - this governs `fire_count_window` only, NOT confidence;
-            confidence is keyed on `meta.log_coverage_days`, a MEASURED
-            quantity derived from the log's own earliest parseable
-            timestamp, never on the requested `--days` value (a caller
-            passing `--days 90` against a log that only has 3 days of real
-            history must not be able to claim 90 days of coverage).
-            --repo defaults to cwd, same convention as ds-evaluate. Exit 0
-            always (a missing/absent/malformed fires log is a per-hook
-            UNMEASURED status, not a CLI failure) unless --repo does not
-            look like a DinoStack checkout (no hooks/ dir), which exits 1.
+            confidence is keyed on `meta.log_confidence_eligible`
+            (DS-179 round 3), a single derived bool, never on the requested
+            `--days` value (a caller passing `--days 90` against a log that
+            only has 3 days of real history must not be able to claim 90
+            days of coverage) and never on `meta.log_coverage_days` alone
+            (span without density: a log with 2-3 old records can claim
+            months of "coverage" while never having observed a representative
+            sample of the hook's actual firing behavior - see
+            log_confidence_eligible below). --repo defaults to cwd, same
+            convention as ds-evaluate. Exit 0 always (a missing/absent/
+            malformed fires log is a per-hook UNMEASURED status, not a CLI
+            failure) unless --repo does not look like a DinoStack checkout
+            (no hooks/ dir), which exits 1.
+
+            meta.log_confidence_eligible (DS-179 round 3) - a single derived
+            bool combining BOTH failure modes the Skeptic found in
+            log_coverage_days alone: sparse-but-old (a couple of records
+            spanning months, measured: 2 records dated 2025-01-01 ->
+            log_coverage_days=595.0; 3 records spanning 121 days) and
+            majority-corrupted (measured: 99 garbage lines + 1 valid record
+            -> log_effectively_empty=False, log_malformed_lines=99). True
+            only when ALL of: the log is present and not effectively empty,
+            log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE (density -
+            enough real records exist to have plausibly observed a fire, not
+            just a couple of stray old ones), and the malformed-line ratio
+            (log_malformed_lines / log_total_lines) <=
+            MAX_MALFORMED_RATIO_FOR_CONFIDENCE (corruption - a log that is
+            mostly garbage cannot be trusted even where a handful of lines
+            happened to parse). One derived field rather than three raw
+            fields left for the Signal 8 prose to combine correctly itself -
+            see the two module-level constants below for the exact
+            thresholds and their rationale.
 
 Status enum (binding contract, see content/commands/ds-prune-harness.md
     Signal 8):
@@ -84,8 +107,10 @@ Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
                        Step 0/1 and passes the output into the analyst
                        spawn prompt verbatim - the analyst itself never
                        shells out to this tool). Signal 8's confidence
-                       tier reads `meta.log_coverage_days`, never
-                       `meta.requested_window_days` or a per-row
+                       tier reads `meta.log_confidence_eligible` (gating
+                       whether MEDIUM is reachable at all) together with
+                       `meta.log_coverage_days` (the >= 30 span check),
+                       never `meta.requested_window_days` or a per-row
                        `window_days` - see the Public API note above.
 
 Failure modes: never raises on a missing or malformed fires log - an
@@ -107,7 +132,15 @@ Failure modes: never raises on a missing or malformed fires log - an
                against the window) and is tracked separately per-hook in
                `fire_count_unparsed_ts`, so a caller can see why
                all-time might exceed what the window count alone would
-               suggest.
+               suggest. A log that is present, not effectively empty, but
+               either too sparse (below MIN_PARSED_LINES_FOR_CONFIDENCE
+               real records) or too corrupted (malformed-line ratio above
+               MAX_MALFORMED_RATIO_FOR_CONFIDENCE) still reports a real
+               per-hook status (UNMEASURED/ZERO_*/ACTIVE proceed exactly as
+               documented above - status logic is unaffected) but
+               `meta.log_confidence_eligible` is False, so Signal 8 cannot
+               reach MEDIUM confidence off it regardless of
+               `log_coverage_days`.
 
 Performance: one AST parse per hooks/enforce-*.py file (via
              enforcer_facts) plus one linear pass over the fires log -
@@ -125,6 +158,34 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_DEFAULT = _BIN_DIR.parent
+
+# DS-179 round 3: log_coverage_days alone measures SPAN (how far back the
+# oldest parseable timestamp reaches), not DATA ADEQUACY - a log with as
+# few as 2 old records can claim months of "coverage" without ever having
+# observed a representative sample of real firing behavior. Density and
+# corruption are the two independent ways a log can look adequate on span
+# alone while actually being useless; both feed meta.log_confidence_eligible.
+#
+# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: chosen to roughly match the
+# 30-day MEDIUM-confidence coverage threshold Signal 8 already used before
+# this fix (content/commands/ds-prune-harness.md Signal 8) - i.e. a log
+# claiming ~30 days of genuine coverage should contain on the order of one
+# parsed record per day of that span, not a handful of stray old ones. This
+# is a deliberately loose floor (not "one record per hook per day"), meant
+# to catch the Skeptic's measured failure mode (2-3 records) rather than to
+# model realistic fire cadence precisely.
+MIN_PARSED_LINES_FOR_CONFIDENCE = 30
+
+# MAX_MALFORMED_RATIO_FOR_CONFIDENCE = 0.5: a log where the MAJORITY of
+# lines are unparseable garbage cannot be trusted even where a minority of
+# lines happened to parse cleanly - the parseable lines may themselves be
+# an artifact of partial truncation/corruption rather than a genuine
+# sample of real operation. 0.5 is deliberately a simple majority test
+# (not near-zero-tolerance), so a log with a small number of genuinely
+# transient parse errors (e.g. a line written mid-truncation during a
+# concurrent process crash) does not lose confidence eligibility over a
+# single bad line.
+MAX_MALFORMED_RATIO_FOR_CONFIDENCE = 0.5
 
 _LEGEND = {
     "UNMEASURED": (
@@ -215,8 +276,8 @@ def build_report(repo_root: Path, days: int) -> dict:
     measured back from "now" (UTC) at call time - it governs
     fire_count_window only. Confidence tiering belongs to the caller
     (content/commands/ds-prune-harness.md Signal 8) and must key on
-    meta.log_coverage_days, a measured quantity, never on
-    requested_window_days."""
+    meta.log_confidence_eligible (density + corruption) together with
+    meta.log_coverage_days (span), never on requested_window_days alone."""
     enforcer_facts = _load_enforcer_facts()
     facts = enforcer_facts.derive_enforcer_facts(repo_root)
 
@@ -232,6 +293,24 @@ def build_report(repo_root: Path, days: int) -> dict:
     # avoid. Force every hook to UNMEASURED in that case, not just the
     # ones with zero records.
     log_effectively_empty = log_present and log_parsed_lines == 0
+
+    # DS-179 round 3: log_confidence_eligible gates whether the log can
+    # support ANY confidence claim (never mind log_coverage_days's span) -
+    # see the two constants' module-level rationale above. malformed_ratio
+    # is computed against log_total_lines (not log_parsed_lines), since the
+    # ratio's purpose is "what fraction of the file was garbage", and
+    # log_total_lines is 0 exactly when log_parsed_lines is also 0 (already
+    # covered by log_effectively_empty), so the else-branch 0.0 default
+    # here is never actually consumed by the eligibility check below.
+    log_malformed_ratio = (
+        round(log_malformed_lines / log_total_lines, 3) if log_total_lines else 0.0
+    )
+    log_confidence_eligible = (
+        log_present
+        and not log_effectively_empty
+        and log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE
+        and log_malformed_ratio <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE
+    )
 
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)
@@ -317,8 +396,10 @@ def build_report(repo_root: Path, days: int) -> dict:
         "log_total_lines": log_total_lines,
         "log_parsed_lines": log_parsed_lines,
         "log_malformed_lines": log_malformed_lines,
+        "log_malformed_ratio": log_malformed_ratio,
         "log_effectively_empty": log_effectively_empty,
         "log_coverage_days": log_coverage_days,
+        "log_confidence_eligible": log_confidence_eligible,
         "legend": _LEGEND,
     }
     return {"meta": meta, "hooks": rows}
@@ -336,8 +417,10 @@ def _print_table(report: dict) -> None:
         f"log_total_lines={meta['log_total_lines']} "
         f"log_parsed_lines={meta['log_parsed_lines']} "
         f"log_malformed_lines={meta['log_malformed_lines']} "
+        f"log_malformed_ratio={meta['log_malformed_ratio']} "
         f"log_effectively_empty={meta['log_effectively_empty']} "
         f"log_coverage_days={meta['log_coverage_days']} "
+        f"log_confidence_eligible={meta['log_confidence_eligible']} "
         f"requested_window_days={meta['requested_window_days']}"
     )
     print()
