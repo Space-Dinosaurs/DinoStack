@@ -110,9 +110,16 @@ FLOOR=100000
 # "127107"` and `-S "127,107"` return only the commits that introduced the
 # prose asserting it (baf0b011, part of DS-143/PR #599), never a
 # measurement record naming which build, which session, or which harness
-# version produced it. So CEILING is 1.1x an unrelated build-size snapshot
-# that happened to land about 12,000 B above the injection claim - not 1.1x
-# (or any swept multiple of) the injection-verified figure itself.
+# version produced it. The two figures were plainly related in the
+# authoring commit's own framing - c1d7c90c's message states CEILING as
+# "~1.1x the measured build at authoring time" in the same paragraph as
+# "the harness was empirically verified to inject the full SKILL.md body
+# verbatim at ~127 KB" - but the arithmetic that actually produced 139,160
+# traces only to the 126,509 B build-size snapshot, never to 127,107. So
+# CEILING is 1.1x that build-size snapshot (126,509 B, itself only 598 B
+# below the injection-confirmed figure) - not 1.1x, or any swept multiple
+# of, the injection-verified figure itself. CEILING (139,160 B) ends up
+# roughly 12,053 B above the injection-confirmed point (127,107 B).
 #
 # Consequence, verified 2026-08-18: the live payload on main already
 # measures 138,990 B - inside CEILING by only 170 B, but roughly 11,900 B

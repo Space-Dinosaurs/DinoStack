@@ -19,12 +19,18 @@ Purpose: Byte-exact candidate builder for the skill-embed injection sweep
 Public API: build_candidate(base_path: str, target_bytes: int,
                              out_path: str, sweep_id: str | None = None)
                              -> dict (sweep_id, num_pad_lines, actual_bytes)
-            Also runnable as a CLI - see main()/--help. The CLI is what
+            paths_refer_to_same_file(path_a: str, path_b: str) -> bool -
+                             case-insensitive/symlink/hardlink-aware "same
+                             on-disk file" comparison (DS-45 round-2
+                             Critical fix - see its own docstring).
+            Also runnable as a CLI - see main()/--help, including the
+            `check-out-refusal` subcommand
             scripts/skill-embed-sweep-harness.sh's `candidate` subcommand
-            shells out to; nothing else in this repo imports this module.
+            shells out to for its real-SKILL.md write guard; nothing else
+            in this repo imports this module.
 
-Upstream deps: Python 3 stdlib only (hashlib, pathlib, argparse, secrets).
-               No third-party packages, no network.
+Upstream deps: Python 3 stdlib only (hashlib, os, pathlib, argparse,
+               secrets). No third-party packages, no network.
 
 Downstream consumers: scripts/skill-embed-sweep-harness.sh (candidate
                        subcommand); bin/tests/test_skill_embed_sweep_harness.sh.
@@ -51,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
 import secrets
 import sys
 from pathlib import Path
@@ -58,6 +65,69 @@ from pathlib import Path
 SWEEP_ID_LEN = 12  # hex chars; fixes PAD line width across all seq values
 PAD_SEQ_WIDTH = 6  # zero-padded decimal digits, e.g. seq=000042
 NUM_LINES_WIDTH = 8  # zero-padded decimal digits for declared_total_pad_lines
+
+# Case-folded path tail this shape check refuses regardless of which
+# checkout it is found under - see _tail_matches_skill_artifact_shape().
+_SKILL_ARTIFACT_TAIL = (".claude", "skills", "dinostack", "skill.md")
+
+
+def paths_refer_to_same_file(path_a: str, path_b: str) -> bool:
+    """True if path_a and path_b resolve to the same on-disk file.
+
+    Robust to: case-insensitive-but-preserving filesystems (macOS/APFS is
+    the primary development platform this harness runs on), symlinks (a
+    file symlink or a directory-symlink path component), hardlinks, '..'
+    segments, and a relative-vs-absolute path mismatch.
+
+    Mechanism: os.path.realpath resolves symlinks and '..' segments for
+    both paths, and does so even when the target does not yet exist - it
+    resolves as much of the path as exists on disk and appends whatever
+    remaining components do not yet exist, unchanged. When BOTH resolved
+    paths exist on disk, an (st_dev, st_ino) stat comparison is used and
+    is authoritative: that pair *is* what "same file" means at the
+    filesystem level, and it is the only thing that also catches a
+    hardlink - a hardlink has its own, unrelated path string, so no
+    string comparison (case-folded or not) can ever detect one. When
+    either resolved path does not yet exist (the common case for --out,
+    which is normally about to be created), stat comparison is
+    unavailable, so this explicitly falls back to a case-folded string
+    comparison of the two resolved paths - conservative (a false refusal
+    here is safe; a false negative is not), and it is what closes the
+    case-insensitive-filesystem bypass this function was added for
+    (DS-45 round-2 Critical: `--out .claude/skills/dinostack/skill.MD`
+    resolved to a different os.path.realpath string than the real,
+    lowercase-named file and so passed the previous string-equality
+    guard outright, on a filesystem where the two paths are the same
+    file on disk).
+    """
+    real_a = os.path.realpath(path_a)
+    real_b = os.path.realpath(path_b)
+    if os.path.exists(real_a) and os.path.exists(real_b):
+        try:
+            stat_a = os.stat(real_a)
+            stat_b = os.stat(real_b)
+            return (stat_a.st_dev, stat_a.st_ino) == (stat_b.st_dev, stat_b.st_ino)
+        except OSError:
+            pass  # fall through to the string-comparison fallback below
+    return real_a.casefold() == real_b.casefold()
+
+
+def _tail_matches_skill_artifact_shape(resolved_path: str) -> bool:
+    """True if resolved_path's final four path components case-fold-match
+    .claude/skills/dinostack/SKILL.md, regardless of which checkout it is
+    under. Broadens the write guard from "the current repo's real file"
+    (paths_refer_to_same_file against this REPO_DIR's REAL_SKILL_FILE) to
+    "any checkout's real file" - this machine routinely has many live git
+    worktrees, each with its own real SKILL.md at that same relative path,
+    and each is an equally live, equally undesirable overwrite target
+    (DS-45 round-2 Minor 1). Takes an already-realpath'd string (trailing
+    slash and '..' segments already resolved) so this is a pure string
+    check with no filesystem access of its own.
+    """
+    parts = tuple(
+        part.casefold() for part in resolved_path.rstrip("/").split("/") if part != ""
+    )
+    return len(parts) >= 4 and parts[-4:] == _SKILL_ARTIFACT_TAIL
 
 
 def _pad_line(sweep_id: str, seq: int) -> bytes:
@@ -177,7 +247,48 @@ def build_candidate(base_path: str, target_bytes: int, out_path: str,
     }
 
 
+def _cmd_check_out_refusal(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="skill_embed_sweep.py check-out-refusal",
+        description="Exit 1 (with a reason on stderr) if --out refers to "
+        "the same on-disk file as --real, or matches the "
+        ".claude/skills/dinostack/SKILL.md artifact shape under ANY "
+        "checkout. Exit 0 silently otherwise. Used by "
+        "scripts/skill-embed-sweep-harness.sh's `candidate` write guard "
+        "(DS-45 round-2).",
+    )
+    parser.add_argument("--out", required=True, help="the --out path a caller wants to write to")
+    parser.add_argument("--real", required=True, help="this checkout's real, tracked SKILL.md path")
+    args = parser.parse_args(argv)
+
+    if paths_refer_to_same_file(args.out, args.real):
+        print(
+            "skill_embed_sweep.py check-out-refusal: --out resolves to "
+            f"the same file as the real, tracked SKILL.md ({args.real}) - "
+            "refusing.",
+            file=sys.stderr,
+        )
+        return 1
+
+    out_real = os.path.realpath(args.out)
+    if _tail_matches_skill_artifact_shape(out_real):
+        print(
+            "skill_embed_sweep.py check-out-refusal: --out resolves to "
+            f"{out_real!r}, which matches the "
+            ".claude/skills/dinostack/SKILL.md artifact shape under a "
+            "checkout other than this one - refusing.",
+            file=sys.stderr,
+        )
+        return 1
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:]) if argv is None else list(argv)
+    if raw_argv and raw_argv[0] == "check-out-refusal":
+        return _cmd_check_out_refusal(raw_argv[1:])
+
     parser = argparse.ArgumentParser(
         description="Build a byte-exact, canary-carrying candidate SKILL.md "
         "for the skill-embed injection sweep (DS-45)."
@@ -186,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-bytes", required=True, type=int, help="exact target byte size")
     parser.add_argument("--out", required=True, help="path to write the candidate to")
     parser.add_argument("--sweep-id", default=None, help="override the auto-generated sweep id")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
 
     try:
         result = build_candidate(args.base, args.target_bytes, args.out, args.sweep_id)

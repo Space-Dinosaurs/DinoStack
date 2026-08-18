@@ -5,10 +5,12 @@
 `scripts/check-skill-embed-budget.sh`'s `CEILING` constant (139,160 B) was
 written up as "a safety boundary" anchored to a single empirically-confirmed
 verbatim-injection point (127,107 B). Tracing both figures found that
-`CEILING` is actually `1.1x` an unrelated 2026-08-07 build-size snapshot
-(126,509 B), not `1.1x` the injection-confirmed figure, and the
-injection-confirmed figure's own provenance (which build, which session,
-which harness version) was never recorded. See `scripts/check-skill-embed-budget.sh`'s `CEILING`
+`CEILING`'s arithmetic is actually `1.1x` a 2026-08-07 build-size snapshot
+(126,509 B) - a figure the same commit's own rationale placed alongside the
+injection-confirmed figure, but which the arithmetic never derives from -
+not `1.1x` the injection-confirmed figure itself, and the injection-confirmed
+figure's own provenance (which build, which session, which harness version)
+was never recorded. See `scripts/check-skill-embed-budget.sh`'s `CEILING`
 comment for the full correction.
 
 The only prior injection observation on record (DS-146: 130,015 B, canaries
@@ -29,15 +31,24 @@ license to bump `CEILING`.
   candidate `SKILL.md` at a chosen target size by padding the currently-built,
   real `SKILL.md` with inert, obviously-synthetic marker lines - never real
   methodology prose. It **never** writes to the real, tracked
-  `.claude/skills/dinostack/SKILL.md`; `--out` is refused outright if it
-  resolves to that path.
+  `.claude/skills/dinostack/SKILL.md` of this checkout, or of any other
+  checkout on the machine; `--out` is refused outright if it resolves to the
+  same on-disk file (case-insensitive-filesystem, symlink, and hardlink
+  aware) or matches the `.claude/skills/dinostack/SKILL.md` artifact shape
+  under a different checkout.
 - `scripts/skill-embed-sweep-harness.sh install` is the only subcommand that
-  touches the real file, and only when explicitly invoked. It always writes a
-  timestamped backup first, verifies that backup byte-identical via `cmp`
-  before proceeding, and prints the exact restore command.
+  touches the real file, and only when explicitly invoked. It refuses to run
+  if the real file it is about to back up already carries a DS-45 sweep
+  canary (a previously-installed padded build, not a trustworthy backup
+  source); otherwise it always writes a timestamped backup first, verifies
+  that backup byte-identical via `cmp` before proceeding, and prints the
+  exact restore command.
 - `scripts/skill-embed-sweep-harness.sh restore` copies a backup back over the
-  real file and verifies the result is byte-identical to the backup via
-  `cmp` - not by re-running the build and trusting it.
+  real file, verifies the result is byte-identical to the backup via
+  `cmp` - not by re-running the build and trusting it - and refuses to report
+  success if the restored file still carries a DS-45 sweep canary (the
+  backup itself was padded, so byte-identity to it proves nothing about
+  genuineness).
 
 ## Canary scheme (what a reader looks for)
 
@@ -58,8 +69,17 @@ Every candidate carries three detectable markers:
   either cuts a pad line mid-line (visibly malformed), stops the numbered run
   short of its declared count, or drops the `DS-45-SWEEP-END-OF-FILE` marker
   and its hash entirely. Any one of the three is sufficient evidence of
-  truncation; all three together make a coincidental false "looks complete"
-  read implausible.
+  truncation of the pad block/tail region; all three together make a
+  coincidental false "looks complete" read of that region implausible.
+  **This scheme proves the padding and tail survived intact - it does not
+  independently verify that the base methodology content earlier in the
+  file (before the head canary) is complete or unmodified.** A mid-file
+  elision that drops some base content while leaving the head canary, the
+  full numbered pad run, and the tail block all intact would pass all
+  three checks above undetected. If verifying base-content completeness
+  matters for a given sweep, cross-check it separately (e.g. `git diff`
+  the base content against the last committed build) - this canary scheme
+  was not built to cover that class of truncation.
 
 To verify a candidate's tail canary from inside a session:
 
@@ -86,6 +106,14 @@ Repeat with different `--target-bytes` values for a sweep across several size
 points (e.g. 140000, 145000, 150000, 160000). This step, and choosing the
 size points, can be done by an agent in the current session - no fresh
 session is required to build candidates.
+
+**Repeating the full Steps 1-4 loop across multiple size points:** run Step 4
+(restore) to completion before starting Step 2 (install) for the next size
+point. `install` refuses outright if the real file it is about to back up
+already carries a DS-45 sweep canary (it would be a previously-installed
+padded build, not the genuine one) - so installing a second candidate
+without restoring the first in between is a hard stop, not a silent
+backup-of-padding (DS-45 round-2 Major 2).
 
 ### Step 2 - install a candidate for a live test (human-authorized, agent-executable)
 
@@ -120,19 +148,27 @@ bash scripts/skill-embed-sweep-harness.sh restore \
   --backup <path printed by install in Step 2>
 ```
 
-Then independently confirm the working tree is clean against the last
-committed/tracked build:
+`restore` itself already verifies the restored file byte-identical against
+the backup via `cmp`, and refuses to report success if the restored content
+still carries a DS-45 sweep canary (which would mean the backup itself was
+padded, not genuine - DS-45 round-2 Major 2).
+
+For a second, differently-sourced confirmation, check the restored file
+against git's already-committed copy **before** running anything that
+regenerates it:
 
 ```
-bash scripts/build-all.sh
 git status --short -- .claude/skills/dinostack/SKILL.md
 ```
 
-A clean `git status --short` on that path is the independent, non-"trust the
-rebuild" confirmation that the restore succeeded - `restore` itself already
-verifies byte-identity against the backup via `cmp`, so this step is a
-second, differently-sourced check (against the git-tracked build), not a
-repeat of the same one.
+Run this in this order, not after `bash scripts/build-all.sh`. `build-all.sh`
+regenerates `SKILL.md` from `content/` regardless of whether `restore`
+succeeded, so a `git status --short` taken *after* a rebuild is clean whether
+or not restore actually worked and proves nothing (DS-45 round-2 Major 1 -
+this step previously suggested running the rebuild first, which made the
+confirmation vacuous). A clean status taken directly on the restored file, as
+above, means it is already byte-identical to the last committed build; there
+is no need to also run `build-all.sh` for this confirmation.
 
 ### Step 5 - record the result
 
