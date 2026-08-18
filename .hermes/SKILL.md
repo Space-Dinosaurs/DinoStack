@@ -5937,6 +5937,7 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 4.5 - Global-context input set (required in every spawn brief)
   Section 5 - Re-route limits and convergence failure
   Section 6 - Findings classification (Critical/Major/Minor definitions)
+  Section 7 - Neutrality requirement (independent of completeness)
   Section 8 - Adversarial brief templates (domain-specific)
   Section 9 - Review scope guidance for decomposed tasks
   Section 11 - Sign-off format and validation rules
@@ -5951,7 +5952,8 @@ Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
 Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block),
                       content/commands/ds-implement-ticket.md (Phase 6 Skeptic loop),
                       METHODOLOGY.md (imports loop semantics and re-route limits),
-                      content/agents/architect.md (plan Skeptic references Section 8)
+                      content/agents/architect.md (plan Skeptic references Section 8),
+                      content/references/subagent-protocol.md (references Section 7)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -6611,6 +6613,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
+Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
 No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
@@ -6666,7 +6669,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are six mandatory elements, always required on every Skeptic response regardless of review type:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
@@ -6674,8 +6677,9 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 - (d) the phrase "No unresolved Critical or Major findings. Sign-off granted."
 - (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
 - (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
+- (l) a "Neutrality check:" line, reporting the result of the neutrality check (content/agents/skeptic.md Step 3.9)
 
-A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
+A response missing any of the seven mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
 Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
@@ -6685,7 +6689,7 @@ Further conditional elements are required only when their triggering condition h
 - (j) `Round value: low` line: optional, added only when the Skeptic judges that a further round would buy little on an otherwise-clean or Minor-only state (see §Round budget and value-per-round gate). Never valid while a Critical or Major remains unresolved. Its absence is never format-noncompliant.
 - (k) `Blocking-minor:` line: optional, added only when the Skeptic marks a specific Minor finding as blocking sign-off despite Section 6's default that Minors never block. States the finding id/description and the reason. Its absence is never format-noncompliant.
 
-Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the seven mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
@@ -12993,7 +12997,7 @@ Your spawn prompt will contain four things:
 1. **Adversarial brief** - the specific attack surface or failure scenario to probe. This is your primary lens.
 2. **Worker output** - either pasted inline or as file paths. If file paths are given, read those files before evaluating.
 3. **Resolved issues preflight** - findings from prior rounds that have already been addressed. Round 1 will say "No prior rounds." Rounds 2+ will list each resolved finding and its resolution.
-4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 and the adversarial brief carry provenance-tagged factual claims and category-level domain concerns only, never a conductor hypothesis or suspicion about the artifact under review. If either field appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement, a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the full rule and worked examples. This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
+4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), plus any category-level Brief extension. Neither field ever carries a conductor hypothesis or suspicion about the artifact under review. If either field appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement, a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the full rule and worked examples. This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
 
 ## Classification definitions
 
@@ -13053,6 +13057,8 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If `docs/overview/vision.md` does not exist, skip this step silently.
 3.7. **Spawn-brief provenance check.** Scan Global-context field 7 (conductor spawn brief, claim-bearing text only) for directive-shaped claims - a value, path, count, or root-cause/rationale assertion - that lack a valid provenance tag per the provenance test in `content/sections/04-risk-classification.md`. Any of the 3 tag classes (`[verified: file:line]`, `[per <agent>, unverified]`, `[verified-local: <path> - untracked-by-design|branch-new]`) satisfies the requirement for that claim. A malformed `[verified:]` tag (no evidence the conductor confirmed the cited path against origin/main this session) counts as untagged. A valid field-7 `n/a` (per the canonical reasons in `content/references/skeptic-protocol.md` Section 4.5) silently satisfies this step - no finding - mirroring the Trivial no-Skeptic carve-out. For each untagged directive-shaped claim found, raise a **Major** finding naming the specific claim and stating its provenance is absent.
 3.8. **Diff-scope check.** Applicability gate: skip silently when Global-context field 1 (architect plan) is a valid `n/a - Trivial direct edit`. Otherwise compare the diff against the scope named in the architect plan's implementation steps / acceptance criteria (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a` for a non-Trivial reason. For each hunk in the diff that is not named or clearly implied by that scope AND is not a mechanically necessary side effect (a triggered manifest update, a doc-sync fix, a regression test for a named finding, or a generated adapter artifact): classify behaviorally inert drift (formatting, comment, or dead-code-only changes with no runtime effect) as **Minor**; classify a behavioral change outside the named scope as **Major** by default, escalating to **Critical** when it touches a security-sensitive or production-behavior path per the existing Critical definition. Do not flag a hunk the Worker's summary explicitly and accurately justifies as an in-scope necessity - only an unjustified or inaccurately-justified out-of-scope hunk is a finding.
+
+3.9. **Neutrality check.** Scan Global-context field 7 and the adversarial brief for a conductor-composed hypothesis, suspicion, or attention-steer, per the test defined in "Reading your spawn prompt" item 4 above. For each instance found: disregard it entirely when forming your own independent judgment, and raise a **Minor** finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. Emit the result of this check via the fixed `Neutrality check:` sign-off line defined below - do not fold it into free-form prose.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 4.5. **Cross-file reference-consistency check.** When the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> - <!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared --> - do not conclude the change is complete because the calling code compiles or the colocated test passes. Actively search the full repository (not just the files in the diff) for the OLD identifier: shipped config/fixture files (YAML/TOML/JSON/env), IaC/deploy manifests (Helm values, Terraform, Docker Compose), and documentation that names the identifier. A remaining reference to the old name in a file the diff did not touch is a **Critical** finding when it causes a runtime failure reachable from a normal code path (e.g. a KeyError/undefined lookup at startup or on the hot path), and a **Major** finding when it causes silent drift without an immediate crash (stale docs, a config override that no longer applies). Do not rely on the Worker's own output to enumerate which other files reference the identifier - the Worker's self-report is not evidence of completeness; verify independently. This does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> - those are style, not a consistency risk.
 4.6. **Async error-handling check.** For any diff that invokes <!-- shared:async-primitive-list -->an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome<!-- /shared --> ("fire-and-forget"), verify there is an explicit failure path: a `.catch()`/`try-catch` attached at the call site, or a documented supervisor/queue that owns the task's lifecycle and surfaces its errors (log, metric, error reporter). A fire-and-forget call with no attached error handler is a **Major** finding regardless of whether the existing test suite and typecheck pass - unhandled rejections are invisible to `tsc`/`mypy` and to unit tests that only assert the happy path. Do not accept the presence of an unrelated global error handler (a process-level `unhandledRejection` listener, a generic framework error middleware, a top-level Sentry init) as sufficient unless the Worker's output demonstrates that specific call site is wired into it - a global catch-all that merely logs and continues is observability, not resolution, and does not by itself downgrade the finding.
@@ -13096,6 +13102,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
+Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -19532,7 +19539,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted.`
+   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted.`
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 
@@ -21028,7 +21035,7 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table] (neutral only - no conductor hypothesis, suspicion, or attention-steer; see skeptic-protocol.md Section 7 "Neutrality requirement (independent of completeness)")
+**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer; see skeptic-protocol.md Section 7 "Neutrality requirement (independent of completeness)"]
 
 ## Global-context inputs
 
@@ -21055,7 +21062,7 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
+A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -23490,7 +23497,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -23716,9 +23723,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the six always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 

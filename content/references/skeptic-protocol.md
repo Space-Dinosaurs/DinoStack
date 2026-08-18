@@ -8,6 +8,7 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 4.5 - Global-context input set (required in every spawn brief)
   Section 5 - Re-route limits and convergence failure
   Section 6 - Findings classification (Critical/Major/Minor definitions)
+  Section 7 - Neutrality requirement (independent of completeness)
   Section 8 - Adversarial brief templates (domain-specific)
   Section 9 - Review scope guidance for decomposed tasks
   Section 11 - Sign-off format and validation rules
@@ -22,7 +23,8 @@ Upstream deps: content/agents/skeptic.md (Skeptic agent identity),
 Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block),
                       content/commands/ds-implement-ticket.md (Phase 6 Skeptic loop),
                       METHODOLOGY.md (imports loop semantics and re-route limits),
-                      content/agents/architect.md (plan Skeptic references Section 8)
+                      content/agents/architect.md (plan Skeptic references Section 8),
+                      content/references/subagent-protocol.md (references Section 7)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -682,6 +684,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
+Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
 No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
@@ -737,7 +740,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are six mandatory elements, always required on every Skeptic response regardless of review type:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
@@ -745,8 +748,9 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 - (d) the phrase "No unresolved Critical or Major findings. Sign-off granted."
 - (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
 - (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
+- (l) a "Neutrality check:" line, reporting the result of the neutrality check (content/agents/skeptic.md Step 3.9)
 
-A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
+A response missing any of the seven mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
 Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
@@ -756,7 +760,7 @@ Further conditional elements are required only when their triggering condition h
 - (j) `Round value: low` line: optional, added only when the Skeptic judges that a further round would buy little on an otherwise-clean or Minor-only state (see §Round budget and value-per-round gate). Never valid while a Critical or Major remains unresolved. Its absence is never format-noncompliant.
 - (k) `Blocking-minor:` line: optional, added only when the Skeptic marks a specific Minor finding as blocking sign-off despite Section 6's default that Minors never block. States the finding id/description and the reason. Its absence is never format-noncompliant.
 
-Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the seven mandatory elements only; (e), (f), (i), (j), and (k) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
