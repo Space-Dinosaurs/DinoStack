@@ -90,6 +90,16 @@ GUARD_PHRASE = "discovery is broken, not clean"
 
 SEARCH_SUFFIXES = {".py", ".yml", ".yaml"}
 
+# Single source of truth for the module docstring's "False-positive
+# reasoning" cardinal (DS-177 rework3 Minor fix). The docstring's prose
+# ("currently 2") and test_docstring_reference_not_flagged_as_violation's
+# assertion both read this constant instead of carrying independent
+# hand-typed copies; test_module_docstring_cites_current_reference_count
+# below proves the coupling by asserting the docstring text itself embeds
+# this constant's live value, so a divergence (constant changed, prose
+# not) reddens rather than passing silently.
+DOCSTRING_REFERENCE_COUNT = 2
+
 # Content-derived, never hand-typed (DS-176 Round-2 Critical fix). All but
 # the last entry below pre-date this file; the last entry is this file's
 # own vacuous-pass guard, added because this file's own discovery guard
@@ -847,6 +857,71 @@ def test_form_a_form_feed_does_not_misalign_offsets() -> None:
     )
 
 
+def test_site_label_python_form_feed_does_not_misalign() -> None:
+    """DS-177 rework3 Major regression test. `_site_label_python`'s
+    module-level fallback branch (`if not <ident>:` guard scan) used to
+    split on `str.splitlines()`'s broader break set before this rework's
+    `text.split("\\n")` fix (:305) - the same sibling-site defect class
+    `_line_start_offsets`, `_check_form_c`'s `text_lines`, and
+    `_conforms_to_mandated_form`'s `lines` were already fixed for. Fixture:
+    two form feeds earlier in the file insert two phantom
+    `splitlines()`-only entries, misaligning the reverse index scan so it
+    lands on `DECOY1`'s guard line instead of the nearer, correct
+    `RIGHT_IDENT` guard - both `if not <ident>:` lines exist so a reverted
+    site returns a WRONG label, not merely a missing one. Confirmed RED
+    against a reverted (`splitlines()`) site during this rework: returned
+    'DECOY1' instead of 'RIGHT_IDENT'."""
+    fixture = (
+        "x = 1\x0c\n"
+        "y = 2\x0c\n"
+        "if not DECOY1:\n"
+        "    pass\n"
+        "if not RIGHT_IDENT:\n"
+        f'    print("ERROR - {GUARD_PHRASE}")\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    label = _site_label_python(fixture, matches[0])
+    assert label == "RIGHT_IDENT", (
+        f"a form feed earlier in the file should not misalign the reverse "
+        f"`if not <ident>:` scan and cause it to return the wrong guard's "
+        f"identifier, got {label!r}"
+    )
+
+
+def test_site_label_yaml_form_feed_does_not_misalign() -> None:
+    """DS-177 rework3 Major regression test, mirroring
+    test_site_label_python_form_feed_does_not_misalign above. `_site_label`'s
+    yaml branch (:323) used to split on `str.splitlines()`'s broader break
+    set before this rework's `text.split("\\n")` fix - the same
+    sibling-site defect class. Fixture: two form feeds packed into one
+    line earlier in the file insert two phantom `splitlines()`-only
+    entries, misaligning the reverse upward job-name scan so it lands on
+    the decoy job `decoy1` instead of the nearer, correct job `right-job` -
+    both job-name lines exist so a reverted site returns a WRONG label,
+    not merely a missing one. Confirmed RED against a reverted
+    (`splitlines()`) site during this rework: returned 'decoy1' instead of
+    'right-job'."""
+    fixture = (
+        "jobs:\n"
+        "  filler-job:\n"
+        "    steps:\n"
+        "      - run: ff\x0c\x0cend\n"
+        "    more: stuff\n"
+        "  decoy1:\n"
+        "  right-job:\n"
+        f'      - run: echo "ERROR - {GUARD_PHRASE}" >&2; exit 1\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    label = _site_label(".yml", fixture, matches[0])
+    assert label == "right-job", (
+        f"a form feed earlier in the file should not misalign the reverse "
+        f"job-name scan and cause it to return the wrong job's name, got "
+        f"{label!r}"
+    )
+
+
 def test_form_a_rejects_stdout_only_with_exit() -> None:
     """DS-177 rework Minor 2 regression test. `_check_form_a`'s `>&2`
     check can be silently deleted, leaving only the `exit 1` search, and
@@ -975,14 +1050,18 @@ def test_docstring_reference_not_flagged_as_violation() -> None:
     exact equality, not a `>= 2` lower bound - a lower bound stays green
     if a third occurrence appears on disk, silently going stale exactly
     like the word-form-cardinal class this fix closes in the module
-    docstring above."""
+    docstring above. DS-177 rework3 Minor fix: compares against
+    DOCSTRING_REFERENCE_COUNT, the same module constant this file's own
+    docstring prose is pinned against by
+    test_module_docstring_cites_current_reference_count below - not an
+    independent hand-typed `2` literal."""
     target = REPO_ROOT / "bin" / "tests" / "test_ticket_offer_gate_trigger_wording_spec.py"
     text = target.read_text(encoding="utf-8")
     matches = _normalized_scan(text)
-    assert len(matches) == 2, (
-        f"expected exactly 2 phrase occurrences in {target}, found "
-        f"{len(matches)} - re-derive the module docstring's False-positive "
-        "reasoning citation if this count has changed"
+    assert len(matches) == DOCSTRING_REFERENCE_COUNT, (
+        f"expected exactly {DOCSTRING_REFERENCE_COUNT} phrase occurrences in "
+        f"{target}, found {len(matches)} - re-derive the module docstring's "
+        "False-positive reasoning citation if this count has changed"
     )
     for line_range in matches:
         assert _is_docstring_hit(text, line_range), (
@@ -993,3 +1072,23 @@ def test_docstring_reference_not_flagged_as_violation() -> None:
         assert ok and form == "DOCUMENTATION", (
             f"{target}:{line_range} expected DOCUMENTATION classification, got ({ok}, {form})"
         )
+
+
+def test_module_docstring_cites_current_reference_count() -> None:
+    """DS-177 rework3 Minor regression test. Proves the coupling between
+    DOCSTRING_REFERENCE_COUNT and this module's own docstring prose
+    ("The exact count (currently 2) is asserted with `==`..."): asserts
+    the docstring literally embeds the constant's live value. If the
+    constant is ever changed without updating the prose (or vice versa),
+    this test reddens instead of the two hand-typed copies silently
+    diverging - the exact class Minor 3 (DS-176 rework-2) and the word-
+    form-cardinal class closed above (test_docstring_reference_not_
+    flagged_as_violation's own docstring, three paragraphs up) already
+    describe for other counts in this file."""
+    assert __doc__ is not None
+    needle = f"currently {DOCSTRING_REFERENCE_COUNT}"
+    assert needle in __doc__, (
+        f"module docstring does not contain {needle!r} - DOCSTRING_REFERENCE_COUNT "
+        f"is {DOCSTRING_REFERENCE_COUNT} but the docstring prose was not updated "
+        "to match (or the constant was changed without updating the prose)"
+    )
