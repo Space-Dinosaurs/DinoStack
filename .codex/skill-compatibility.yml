@@ -62,6 +62,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "07503a261a46e7814aa480754ee068d95171f9271fafb739cbb71ceb16b0a440",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "content/rules/conventions.md",
       "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
       "kind": "operational",
@@ -262,16 +272,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "17bb7d0d38bf4092fd718453d0b963bde46a13230cb8c0776f89848aeddc3d66",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -300,16 +300,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "1abf139a2fb62f865975cc77eba3837cea3633e8809475907af52ed5f4094338",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/capture-classification.md",
@@ -670,6 +660,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
+    },
+    {
+      "expected_target": ".agentic/**",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
+      "kind": "operational",
+      "occurrence_hash": "4c412a0c1ea9d2f47cb8df4ae571ef7d0268dc4b3d5ebaf564b3ae058bea9ff8",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/**"
     },
     {
       "expected_target": "hooks/enforce-tier.py",
@@ -1442,6 +1442,16 @@
       "source_token": "content/commands/ds-brief.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a41b6555f1f34d79e4c49812d59cc7297891205a844b562f0bc0ffc7f7ccf1a0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -1862,6 +1872,16 @@
       "source_token": "content/commands/ds-identity.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d10b5e1a0e216ae12dd7a8c98a36b7ad407d8582dd60fd9220e55d25038e29d5",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/sections/11-worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
       "kind": "operational",
@@ -2090,16 +2110,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/task-state-file.md"
-    },
-    {
-      "expected_target": ".agentic/**",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
-      "kind": "operational",
-      "occurrence_hash": "e39cb11c499ab5bcf0eb925c42969cc825756e48c07d7989f6623d7151697935",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/**"
     },
     {
       "expected_target": "spawn_agent",
