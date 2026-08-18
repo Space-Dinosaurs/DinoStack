@@ -4,9 +4,12 @@ Tests for bin/ds-hook-fire-report (DS-179 /ds-prune-harness Signal 8 input).
 
 Covers the binding status-enum contract from the module's own manifest and
 content/commands/ds-prune-harness.md Signal 8: UNMEASURED is never conflated
-with a real zero (ZERO_INVOCATIONS / ZERO_ACTION_IN_WINDOW), and the two
-zero statuses stay distinct per posture. Each test below names the mutation
-that would redden it, per DS-179's own mutation-testing obligation.
+with a real zero (ZERO_INVOCATIONS / ZERO_ACTION_IN_WINDOW), the two zero
+statuses stay distinct per posture, a present-but-unparseable log is never
+read as a real zero-fire measurement, and confidence-bearing coverage is
+measured off the log's own timestamps, never the requested --days window.
+Each test below names the mutation that would redden it, per DS-179's own
+mutation-testing obligation.
 
 Run with: python3 -m pytest bin/tests/test_ds_hook_fire_report.py -q
 """
@@ -14,7 +17,6 @@ Run with: python3 -m pytest bin/tests/test_ds_hook_fire_report.py -q
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -78,13 +80,14 @@ def _run(repo: Path, *extra: str):
     )
 
 
-def _run_json(repo: Path, *extra: str) -> list[dict]:
+def _run_json(repo: Path, *extra: str) -> dict:
     proc = _run(repo, "--json", *extra)
     assert proc.returncode == 0, f"exit {proc.returncode}: {proc.stderr}"
     return json.loads(proc.stdout)
 
 
-def _row_for(rows: list[dict], hook: str) -> dict:
+def _row_for(report: dict, hook: str) -> dict:
+    rows = report["hooks"]
     matches = [r for r in rows if r["hook"] == hook]
     assert matches, f"no row for {hook!r} in {[r['hook'] for r in rows]}"
     return matches[0]
@@ -114,10 +117,10 @@ def test_action_only_zero_window_is_zero_action_not_unmeasured(tmp_path):
         )
         + "\n",
     )
-    rows = _run_json(repo)
-    row = _row_for(rows, "enforce-fake-action.py")
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    row = _row_for(report, "enforce-fake-action.py")
     assert row["posture"] == "ACTION_ONLY"
-    assert row["log_present"] is True
     assert row["fire_count_window"] == 0
     assert row["status"] == "ZERO_ACTION_IN_WINDOW"
 
@@ -129,10 +132,10 @@ def test_action_only_zero_window_flips_to_unmeasured_when_log_absent(tmp_path):
     paths, not one path wearing two labels."""
     repo = _make_repo(tmp_path)
     # No .agentic/.enforcement-fires.jsonl written at all.
-    rows = _run_json(repo)
-    row = _row_for(rows, "enforce-fake-action.py")
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is False
+    row = _row_for(report, "enforce-fake-action.py")
     assert row["posture"] == "ACTION_ONLY"
-    assert row["log_present"] is False
     assert row["status"] == "UNMEASURED"
 
 
@@ -156,8 +159,8 @@ def test_every_verdict_zero_entries_is_zero_invocations(tmp_path):
         )
         + "\n",
     )
-    rows = _run_json(repo)
-    row = _row_for(rows, "enforce-fake-abdication.py")
+    report = _run_json(repo)
+    row = _row_for(report, "enforce-fake-abdication.py")
     assert row["posture"] == "EVERY_VERDICT"
     assert row["fire_count_window"] == 0
     assert row["status"] == "ZERO_INVOCATIONS"
@@ -179,8 +182,8 @@ def test_every_verdict_one_allow_row_flips_to_active(tmp_path):
         )
         + "\n",
     )
-    rows = _run_json(repo)
-    row = _row_for(rows, "enforce-fake-abdication.py")
+    report = _run_json(repo)
+    row = _row_for(report, "enforce-fake-abdication.py")
     assert row["posture"] == "EVERY_VERDICT"
     assert row["fire_count_window"] == 1
     assert row["status"] == "ACTIVE"
@@ -207,8 +210,8 @@ def test_real_repo_hook_set_matches_disk(tmp_path):
         "glob is probably broken, which would make this assertion vacuous"
     )
 
-    rows = _run_json(real_root)
-    reported_hooks = sorted(r["hook"] for r in rows)
+    report = _run_json(real_root)
+    reported_hooks = sorted(r["hook"] for r in report["hooks"])
     assert reported_hooks == real_hooks, (
         f"ds-hook-fire-report reported {reported_hooks}, expected exactly "
         f"the real hooks/enforce-*.py set {real_hooks}"
@@ -228,20 +231,225 @@ def test_hook_count_drops_by_one_when_a_hook_file_is_renamed(tmp_path):
         shutil.copy(p, tmp_repo / "hooks" / p.name)
     shutil.copy(LIB_SRC, tmp_repo / "scripts" / "lib" / "enforcer_facts.py")
 
-    baseline_rows = _run_json(tmp_repo)
-    baseline_count = len(baseline_rows)
+    baseline_report = _run_json(tmp_repo)
+    baseline_count = len(baseline_report["hooks"])
 
     victims = sorted((tmp_repo / "hooks").glob("enforce-*.py"))
     assert victims, "no copied hook files to mutate - setup is broken"
     victim = victims[0]
     victim.rename(tmp_repo / "hooks" / ("renamed-" + victim.name))
 
-    mutated_rows = _run_json(tmp_repo)
-    assert len(mutated_rows) == baseline_count - 1, (
+    mutated_report = _run_json(tmp_repo)
+    assert len(mutated_report["hooks"]) == baseline_count - 1, (
         f"expected count to drop by exactly 1 after renaming "
         f"{victim.name} out of the enforce-*.py glob, got "
-        f"{baseline_count} -> {len(mutated_rows)}"
+        f"{baseline_count} -> {len(mutated_report['hooks'])}"
     )
+
+
+# ---------------------------------------------------------------------------
+# (d) --repo names which tree to MEASURE, not where this tool's OWN code
+#     (scripts/lib/enforcer_facts.py) lives. A --repo target that has
+#     hooks/ but no scripts/lib/enforcer_facts.py of its own must still
+#     succeed, because the tool loads its dependency from its own
+#     resolved install dir, never from --repo.
+#     Mutation: revert _load_enforcer_facts() to resolve
+#     scripts/lib/enforcer_facts.py against repo_root (the --repo target)
+#     instead of the tool's own install dir -> this test must fail with
+#     an uncaught FileNotFoundError (a nonzero/crashed subprocess), since
+#     the fixture repo below deliberately has no scripts/lib/ directory
+#     at all.
+# ---------------------------------------------------------------------------
+
+
+def test_repo_without_its_own_enforcer_facts_still_succeeds(tmp_path):
+    """--repo points at a tree with hooks/ but deliberately WITHOUT
+    scripts/lib/enforcer_facts.py - simulating a partial or non-DinoStack
+    checkout. The tool must still load its dependency from its own
+    install dir and produce a report, not crash."""
+    repo = tmp_path / "bare-repo"
+    (repo / "hooks").mkdir(parents=True, exist_ok=True)
+    _write(repo / "hooks" / "enforce-fake-action.py", _ACTION_ONLY_HOOK_SRC)
+    # Deliberately no scripts/lib/ at all under this --repo target.
+    assert not (repo / "scripts").exists()
+
+    report = _run_json(repo)
+    row = _row_for(report, "enforce-fake-action.py")
+    assert row["posture"] == "ACTION_ONLY"
+    assert row["status"] == "UNMEASURED"
+
+
+# ---------------------------------------------------------------------------
+# (e) A present-but-unparseable log must never read as a real zero-fire
+#     measurement (the PR #723 accumulate-then-return-zero class).
+#     Mutation: revert log_effectively_empty's use in the status branch
+#     (i.e. gate status only on `not log_present`) -> both tests below
+#     must flip from UNMEASURED to ZERO_INVOCATIONS / ZERO_ACTION_IN_WINDOW.
+# ---------------------------------------------------------------------------
+
+
+def test_wholly_malformed_log_reports_unmeasured_not_zero(tmp_path):
+    """A present log file containing 2 lines of garbage (no valid JSON at
+    all) must report UNMEASURED for every hook, not a real zero - a file
+    nothing could be read out of is not evidence of zero invocations."""
+    repo = _make_repo(tmp_path)
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        "not json at all\n{also not json\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["log_parsed_lines"] == 0
+    assert report["meta"]["log_total_lines"] == 2
+    assert report["meta"]["log_malformed_lines"] == 2
+    assert report["meta"]["log_effectively_empty"] is True
+    action_row = _row_for(report, "enforce-fake-action.py")
+    every_verdict_row = _row_for(report, "enforce-fake-abdication.py")
+    assert action_row["status"] == "UNMEASURED"
+    assert every_verdict_row["status"] == "UNMEASURED"
+
+
+def test_empty_present_log_reports_unmeasured(tmp_path):
+    """A present but wholly empty (0-byte) log file must also report
+    UNMEASURED - indistinguishable from the malformed case in terms of
+    "no usable data", by the same rule."""
+    repo = _make_repo(tmp_path)
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "")
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["log_parsed_lines"] == 0
+    assert report["meta"]["log_effectively_empty"] is True
+    row = _row_for(report, "enforce-fake-abdication.py")
+    assert row["status"] == "UNMEASURED"
+
+
+def test_partially_malformed_log_is_a_real_measurement(tmp_path):
+    """A log with SOME valid lines and SOME garbage lines is a real
+    measurement over the lines that parsed - it must NOT collapse to
+    UNMEASURED, and meta must report the malformed-line count so the
+    caller can see the log was not perfectly clean.
+    Mutation: change the effectively-empty predicate from
+    `log_parsed_lines == 0` to `log_malformed_lines > 0` -> this test
+    would flip from ZERO_INVOCATIONS to UNMEASURED even though one line
+    genuinely parsed."""
+    repo = _make_repo(tmp_path)
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        "garbage line, not json\n"
+        + json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-some-other-hook",
+                "decision": "deny",
+                "reason": "real record",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["log_total_lines"] == 2
+    assert report["meta"]["log_parsed_lines"] == 1
+    assert report["meta"]["log_malformed_lines"] == 1
+    assert report["meta"]["log_effectively_empty"] is False
+    row = _row_for(report, "enforce-fake-abdication.py")
+    assert row["status"] == "ZERO_INVOCATIONS"
+
+
+# ---------------------------------------------------------------------------
+# (f) Confidence-bearing coverage must be MEASURED off the log's own
+#     timestamps (meta.log_coverage_days), never the requested --days
+#     window (meta.requested_window_days echoes the caller's input
+#     verbatim and must not be usable as a coverage claim).
+#     Mutation: compute log_coverage_days as `days` (the requested window)
+#     instead of the measured span -> the assertion below (coverage far
+#     less than the requested 90) would flip to false (coverage == 90).
+# ---------------------------------------------------------------------------
+
+
+def test_log_coverage_days_is_measured_not_the_requested_window(tmp_path):
+    repo = _make_repo(tmp_path)
+    three_days_ago = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat().replace(
+        "+00:00", "Z"
+    )
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        json.dumps(
+            {
+                "ts": three_days_ago,
+                "hook": "enforce-fake-abdication",
+                "decision": "allow",
+                "reason": "only 3 days of real history",
+            }
+        )
+        + "\n",
+    )
+    # Request a 90-day window - far more than the log's real 3-day span.
+    report = _run_json(repo, "--days", "90")
+    assert report["meta"]["requested_window_days"] == 90
+    coverage = report["meta"]["log_coverage_days"]
+    assert coverage is not None
+    assert coverage < 5, (
+        f"log_coverage_days={coverage} should reflect the log's real ~3-day "
+        "span, not the requested 90-day window"
+    )
+
+
+def test_log_coverage_days_is_none_when_log_absent(tmp_path):
+    repo = _make_repo(tmp_path)
+    report = _run_json(repo)
+    assert report["meta"]["log_coverage_days"] is None
+
+
+# ---------------------------------------------------------------------------
+# (g) A record with an absent/unparseable ts counts toward
+#     fire_count_all_time but never fire_count_window, and that gap is
+#     now visible via fire_count_unparsed_ts rather than silent.
+#     Mutation: stop incrementing fire_count_unparsed_ts (hardcode 0) ->
+#     this test's assertion would fail.
+# ---------------------------------------------------------------------------
+
+
+def test_unparsed_ts_record_visible_via_unparsed_ts_count(tmp_path):
+    repo = _make_repo(tmp_path)
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        json.dumps(
+            {
+                "ts": "not-a-real-timestamp",
+                "hook": "enforce-fake-abdication",
+                "decision": "allow",
+                "reason": "bad ts",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    row = _row_for(report, "enforce-fake-abdication.py")
+    assert row["fire_count_all_time"] == 1
+    assert row["fire_count_window"] == 0
+    assert row["fire_count_unparsed_ts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Legend surfaces in both output modes.
+# ---------------------------------------------------------------------------
+
+
+def test_legend_present_in_json_and_table(tmp_path):
+    repo = _make_repo(tmp_path)
+    report = _run_json(repo)
+    assert set(report["meta"]["legend"]) == {
+        "UNMEASURED",
+        "ZERO_INVOCATIONS",
+        "ZERO_ACTION_IN_WINDOW",
+        "ACTIVE",
+    }
+    assert "NOT proof" in report["meta"]["legend"]["ZERO_ACTION_IN_WINDOW"]
+
+    table_proc = _run(repo)
+    assert "Legend:" in table_proc.stdout
+    assert "ZERO_ACTION_IN_WINDOW" in table_proc.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -254,8 +462,9 @@ def test_table_output_is_default_and_json_flag_switches_format(tmp_path):
     table_proc = _run(repo)
     assert table_proc.returncode == 0
     assert "posture" in table_proc.stdout  # table header, not JSON
-    with_json = _run_json(repo)
-    assert isinstance(with_json, list)
+    report = _run_json(repo)
+    assert isinstance(report, dict)
+    assert isinstance(report["hooks"], list)
 
 
 def test_days_window_is_respected(tmp_path):
@@ -272,8 +481,8 @@ def test_days_window_is_respected(tmp_path):
         )
         + "\n",
     )
-    rows = _run_json(repo, "--days", "14")
-    row = _row_for(rows, "enforce-fake-abdication.py")
+    report = _run_json(repo, "--days", "14")
+    row = _row_for(report, "enforce-fake-abdication.py")
     assert row["fire_count_window"] == 0
     assert row["fire_count_all_time"] == 1
     assert row["status"] == "ZERO_INVOCATIONS"

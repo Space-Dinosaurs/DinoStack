@@ -16,55 +16,98 @@ Purpose: DS-179 /ds-prune-harness Signal 8 input. Joins each hook's fire
 
 Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
             Default output: a fixed-width table to stdout, one row per
-            hooks/enforce-*.py file. --json emits the same rows as a JSON
-            array (the shape /ds-prune-harness Signal 8 passes verbatim
-            into its analyst spawn prompt - the analyst Worker has no
-            Bash in its tool_scope, so the CONDUCTOR runs this command,
+            hooks/enforce-*.py file, preceded by a legend. --json emits a
+            JSON OBJECT (not a bare array) with two top-level keys: "meta"
+            (log-level facts and the legend) and "hooks" (the array of
+            per-hook rows) - the shape /ds-prune-harness Signal 8 passes
+            verbatim into its analyst spawn prompt (the analyst Worker has
+            no Bash in its tool_scope, so the CONDUCTOR runs this command,
             not the Worker). --days sets the fire-count window (default
-            14). --repo defaults to cwd, same convention as ds-evaluate.
-            Exit 0 always (a missing/absent fires log is a per-hook
+            14) - this governs `fire_count_window` only, NOT confidence;
+            confidence is keyed on `meta.log_coverage_days`, a MEASURED
+            quantity derived from the log's own earliest parseable
+            timestamp, never on the requested `--days` value (a caller
+            passing `--days 90` against a log that only has 3 days of real
+            history must not be able to claim 90 days of coverage).
+            --repo defaults to cwd, same convention as ds-evaluate. Exit 0
+            always (a missing/absent/malformed fires log is a per-hook
             UNMEASURED status, not a CLI failure) unless --repo does not
             look like a DinoStack checkout (no hooks/ dir), which exits 1.
 
 Status enum (binding contract, see content/commands/ds-prune-harness.md
     Signal 8):
-  - UNMEASURED           - the fires log is absent entirely. Never
-                            conflated with a zero count.
-  - ZERO_INVOCATIONS      - posture EVERY_VERDICT and fire_count_window==0.
-                            This posture logs every reached verdict
-                            (including plain "allow"), so zero genuinely
-                            means "never invoked" in the window.
-  - ZERO_ACTION_IN_WINDOW - posture ACTION_ONLY and fire_count_window==0.
-                            Means zero denies/advisories, NOT proof of
-                            zero invocations - a silent allow is never
-                            logged under this posture.
+  - UNMEASURED           - either the fires log is absent entirely, OR it
+                            is present but zero lines in it parsed as a
+                            JSON object (`meta.log_parsed_lines == 0` -
+                            covers both a wholly empty file and a wholly
+                            malformed one). Both cases mean "no usable
+                            data", and are never conflated with a real
+                            zero count - a file nothing could be read out
+                            of cannot be evidence of zero invocations.
+  - ZERO_INVOCATIONS      - posture EVERY_VERDICT and fire_count_window==0,
+                            with at least one line in the log parsing
+                            successfully. This posture logs every reached
+                            verdict (including plain "allow"), so zero
+                            genuinely means "never invoked" in the window.
+  - ZERO_ACTION_IN_WINDOW - posture ACTION_ONLY and fire_count_window==0,
+                            with at least one line in the log parsing
+                            successfully. Means zero denies/advisories,
+                            NOT proof of zero invocations - a silent allow
+                            is never logged under this posture.
   - ACTIVE                - fire_count_window > 0.
+
+  The legend text above (one sentence per status, matching this
+  docstring) is also emitted in BOTH output modes - `meta.legend` in
+  --json, and a printed legend block before the table otherwise - so a
+  JSON consumer never has to fall back to reading this docstring to
+  understand what a zero count does and does not prove.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                pathlib). Loads scripts/lib/enforcer_facts.py via
-               importlib.util.spec_from_file_location using
-               Path(__file__).resolve().parent (symlink-safe-loader
-               convention - a bare `.parent` breaks when this file is
-               invoked through the bin/agentic-hook-fire-report PATH
-               symlink, since __file__ would then resolve relative to
-               the symlink's own directory, not this file's real
-               location). Reads <repo>/.agentic/.enforcement-fires.jsonl.
+               importlib.util.spec_from_file_location, resolved against
+               THIS FILE's own install dir - Path(__file__).resolve().parent
+               (symlink-safe-loader convention - a bare `.parent` breaks
+               when this file is invoked through the
+               bin/agentic-hook-fire-report PATH symlink, since __file__
+               would then resolve relative to the symlink's own directory,
+               not this file's real location) - never against the `--repo`
+               target. `--repo` names which tree to MEASURE (where
+               hooks/enforce-*.py and .agentic/.enforcement-fires.jsonl
+               live); it is independent of where this tool's own code
+               lives, so a `--repo` pointing at a tree lacking
+               scripts/lib/enforcer_facts.py still loads the module
+               correctly from this tool's own checkout. Reads
+               <repo>/.agentic/.enforcement-fires.jsonl.
 
 Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
                        conductor runs `ds-hook-fire-report --json` at
                        Step 0/1 and passes the output into the analyst
                        spawn prompt verbatim - the analyst itself never
-                       shells out to this tool).
+                       shells out to this tool). Signal 8's confidence
+                       tier reads `meta.log_coverage_days`, never
+                       `meta.requested_window_days` or a per-row
+                       `window_days` - see the Public API note above.
 
 Failure modes: never raises on a missing or malformed fires log - an
-               absent file yields UNMEASURED for every hook; a
-               malformed/unparseable line is skipped (same tolerant
-               parse as ds-evaluate's _load_jsonl). A hook name in the
-               log that does not correspond to any hooks/enforce-*.py
-               file on disk is silently excluded from `by_hook` in the
-               enforcer_facts derivation (that hook has been deleted or
-               renamed) - the report never fabricates a row for a
-               nonexistent hook.
+               absent file, or one where zero lines parse, yields
+               UNMEASURED for every hook (see Status enum above). A
+               partially-malformed log (some lines parse, some do not)
+               is treated as a real measurement over the lines that DID
+               parse - `meta.log_malformed_lines` reports the skipped
+               count so the caller can see the log was not perfectly
+               clean, but per-hook status logic proceeds normally,
+               because at least one real data point exists. A hook name
+               in the log that does not correspond to any hooks/enforce-
+               *.py file on disk is silently excluded from `by_hook` in
+               the enforcer_facts derivation (that hook has been deleted
+               or renamed) - the report never fabricates a row for a
+               nonexistent hook. A record whose `ts` field is absent or
+               unparseable counts toward `fire_count_all_time` for its
+               hook but never `fire_count_window` (it cannot be tested
+               against the window) and is tracked separately per-hook in
+               `fire_count_unparsed_ts`, so a caller can see why
+               all-time might exceed what the window count alone would
+               suggest.
 
 Performance: one AST parse per hooks/enforce-*.py file (via
              enforcer_facts) plus one linear pass over the fires log -
@@ -83,9 +126,34 @@ from pathlib import Path
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_DEFAULT = _BIN_DIR.parent
 
+_LEGEND = {
+    "UNMEASURED": (
+        "No usable data: the fires log is either absent, or present but "
+        "zero lines in it parsed as JSON. Never conflated with a real "
+        "zero count."
+    ),
+    "ZERO_INVOCATIONS": (
+        "Posture EVERY_VERDICT logs every reached verdict (including a "
+        "plain 'allow'), so a zero count in the window genuinely means "
+        "this hook was never invoked in that window."
+    ),
+    "ZERO_ACTION_IN_WINDOW": (
+        "Posture ACTION_ONLY logs only denies/advisories. A zero count "
+        "means zero actions were taken in the window - it is NOT proof "
+        "of zero invocations, since a silent allow is never logged."
+    ),
+    "ACTIVE": "fire_count_window > 0 - the hook fired at least once in the requested window.",
+}
 
-def _load_enforcer_facts(repo_root: Path):
-    module_path = repo_root / "scripts" / "lib" / "enforcer_facts.py"
+
+def _load_enforcer_facts():
+    """Load enforcer_facts.py from this tool's own resolved install dir
+    (symlink-safe-loader convention), never from the `--repo` target - the
+    two are independent: `--repo` names which tree to MEASURE, this names
+    where the tool's OWN code lives. A `--repo` pointing at a tree that has
+    `hooks/` but lacks `scripts/lib/enforcer_facts.py` (e.g. a partial or
+    non-DinoStack checkout) must still be able to load this module."""
+    module_path = _REPO_ROOT_DEFAULT / "scripts" / "lib" / "enforcer_facts.py"
     spec = importlib.util.spec_from_file_location("enforcer_facts", module_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -110,36 +178,60 @@ def _parse_ts(value) -> datetime | None:
     return dt
 
 
-def _load_jsonl(path: Path) -> list[dict]:
-    """Parse a JSONL file into dicts, skipping blank/malformed lines."""
+def _load_jsonl(path: Path) -> tuple[list[dict], int, int]:
+    """Parse a JSONL file into dicts, skipping blank/malformed lines.
+    Returns (records, total_nonblank_lines, malformed_lines) so the caller
+    can distinguish "present but nothing parsed" from "present and clean"
+    from "present and partially malformed" - a bare `records` list alone
+    cannot make that distinction (an empty list looks identical whether
+    the file had 0 lines or 500 unparseable ones)."""
     records: list[dict] = []
+    total = 0
+    malformed = 0
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
-        return records
+        return records, total, malformed
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
+        total += 1
         try:
             rec = json.loads(line)
         except ValueError:
+            malformed += 1
             continue
         if isinstance(rec, dict):
             records.append(rec)
-    return records
+        else:
+            malformed += 1
+    return records, total, malformed
 
 
-def build_report(repo_root: Path, days: int) -> list[dict]:
-    """Return one report dict per hooks/enforce-*.py file, per the module's
-    Status enum. `days` is the fire-count window in days, measured back
-    from "now" (UTC) at call time."""
-    enforcer_facts = _load_enforcer_facts(repo_root)
+def build_report(repo_root: Path, days: int) -> dict:
+    """Return {"meta": {...}, "hooks": [...]} per the module's Status enum.
+    `days` is the fire-count window in days (requested_window_days),
+    measured back from "now" (UTC) at call time - it governs
+    fire_count_window only. Confidence tiering belongs to the caller
+    (content/commands/ds-prune-harness.md Signal 8) and must key on
+    meta.log_coverage_days, a measured quantity, never on
+    requested_window_days."""
+    enforcer_facts = _load_enforcer_facts()
     facts = enforcer_facts.derive_enforcer_facts(repo_root)
 
     fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
     log_present = fires_path.exists()
-    records = _load_jsonl(fires_path) if log_present else []
+    records, log_total_lines, log_malformed_lines = (
+        _load_jsonl(fires_path) if log_present else ([], 0, 0)
+    )
+    log_parsed_lines = len(records)
+    # A present file where nothing parsed (empty, or wholly garbage) is
+    # indistinguishable from "no usable data" - the PR #723
+    # accumulate-then-return-zero class this tool is explicitly built to
+    # avoid. Force every hook to UNMEASURED in that case, not just the
+    # ones with zero records.
+    log_effectively_empty = log_present and log_parsed_lines == 0
 
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)
@@ -151,6 +243,7 @@ def build_report(repo_root: Path, days: int) -> list[dict]:
     # joins against the derived hook set - keying on the raw log value
     # verbatim would silently join nothing for any real hook.
     by_hook_all: dict[str, list[datetime | None]] = {}
+    all_parsed_timestamps: list[datetime] = []
     for rec in records:
         hook = rec.get("hook")
         if not hook:
@@ -158,7 +251,20 @@ def build_report(repo_root: Path, days: int) -> list[dict]:
         bare = str(hook)
         if bare.endswith(".py"):
             bare = bare[: -len(".py")]
-        by_hook_all.setdefault(bare, []).append(_parse_ts(rec.get("ts")))
+        ts = _parse_ts(rec.get("ts"))
+        by_hook_all.setdefault(bare, []).append(ts)
+        if ts is not None:
+            all_parsed_timestamps.append(ts)
+
+    # log_coverage_days is a property of the LOG ITSELF (how far back real
+    # data goes), never the requested --days window. None when no
+    # timestamp anywhere in the log parsed (absent log, wholly malformed
+    # log, or a log whose records all lack a usable `ts`).
+    log_coverage_days = (
+        round((now - min(all_parsed_timestamps)).total_seconds() / 86400, 1)
+        if all_parsed_timestamps
+        else None
+    )
 
     rows: list[dict] = []
     for hook_name in sorted(facts["hooks"]):
@@ -169,11 +275,12 @@ def build_report(repo_root: Path, days: int) -> list[dict]:
         timestamps = by_hook_all.get(bare_hook_name, [])
         parsed = [t for t in timestamps if t is not None]
         fire_count_all_time = len(timestamps)
+        fire_count_unparsed_ts = len(timestamps) - len(parsed)
         fire_count_window = sum(1 for t in parsed if t >= window_start)
         earliest_ts = min(parsed).isoformat().replace("+00:00", "Z") if parsed else None
         latest_ts = max(parsed).isoformat().replace("+00:00", "Z") if parsed else None
 
-        if not log_present:
+        if not log_present or log_effectively_empty:
             status = "UNMEASURED"
         elif fire_count_window == 0:
             if posture == "EVERY_VERDICT":
@@ -196,23 +303,50 @@ def build_report(repo_root: Path, days: int) -> list[dict]:
                 "posture": posture,
                 "fire_count_window": fire_count_window,
                 "fire_count_all_time": fire_count_all_time,
-                "log_present": log_present,
-                "window_days": days,
+                "fire_count_unparsed_ts": fire_count_unparsed_ts,
                 "status": status,
                 "earliest_ts": earliest_ts,
                 "latest_ts": latest_ts,
             }
         )
-    return rows
+
+    meta = {
+        "repo": str(repo_root),
+        "requested_window_days": days,
+        "log_present": log_present,
+        "log_total_lines": log_total_lines,
+        "log_parsed_lines": log_parsed_lines,
+        "log_malformed_lines": log_malformed_lines,
+        "log_effectively_empty": log_effectively_empty,
+        "log_coverage_days": log_coverage_days,
+        "legend": _LEGEND,
+    }
+    return {"meta": meta, "hooks": rows}
 
 
-def _print_table(rows: list[dict]) -> None:
+def _print_table(report: dict) -> None:
+    meta = report["meta"]
+    rows = report["hooks"]
+    print("Legend:")
+    for status, text in _LEGEND.items():
+        print(f"  {status}: {text}")
+    print()
+    print(
+        f"log_present={meta['log_present']} "
+        f"log_total_lines={meta['log_total_lines']} "
+        f"log_parsed_lines={meta['log_parsed_lines']} "
+        f"log_malformed_lines={meta['log_malformed_lines']} "
+        f"log_effectively_empty={meta['log_effectively_empty']} "
+        f"log_coverage_days={meta['log_coverage_days']} "
+        f"requested_window_days={meta['requested_window_days']}"
+    )
+    print()
     if not rows:
         print("ds-hook-fire-report: no hooks/enforce-*.py files found")
         return
     header = (
         f"{'hook':<38} {'posture':<14} {'status':<22} "
-        f"{'window':>8} {'all-time':>9} {'log':>5}"
+        f"{'window':>8} {'all-time':>9} {'unparsed-ts':>11}"
     )
     print(header)
     print("-" * len(header))
@@ -220,7 +354,7 @@ def _print_table(rows: list[dict]) -> None:
         print(
             f"{row['hook']:<38} {row['posture']:<14} {row['status']:<22} "
             f"{row['fire_count_window']:>8} {row['fire_count_all_time']:>9} "
-            f"{('yes' if row['log_present'] else 'no'):>5}"
+            f"{row['fire_count_unparsed_ts']:>11}"
         )
 
 
@@ -243,12 +377,13 @@ def main(argv: list[str] | None = None) -> int:
         "--days",
         type=int,
         default=14,
-        help="fire-count window in days (default: 14)",
+        help="fire-count window in days (default: 14) - governs "
+        "fire_count_window only, not confidence (see meta.log_coverage_days)",
     )
     parser.add_argument(
         "--json",
         action="store_true",
-        help="emit a JSON array instead of a table",
+        help="emit a JSON object ({meta, hooks}) instead of a table",
     )
     args = parser.parse_args(argv)
 
@@ -261,12 +396,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    rows = build_report(repo_root, args.days)
+    report = build_report(repo_root, args.days)
 
     if args.json:
-        print(json.dumps(rows, indent=2, sort_keys=True))
+        print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        _print_table(rows)
+        _print_table(report)
     return 0
 
 

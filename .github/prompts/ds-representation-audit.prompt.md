@@ -21,6 +21,14 @@ The audit analyst Worker is instructed not to write to `content/` and to restric
 
 Run the Step 0 preflight from `/ds-update-agentic-engineering` verbatim (fetch origin, check clean tree, check divergence, refuse dirty tree). Git state decisions require main-agent judgment; do not delegate this step.
 
+## Step 0.5 - Resolve the ledger path and read carry-over
+
+The conductor performs this step directly (no Worker) - it is a handful of reads, not analysis.
+
+**Resolve the ledger path.** Same resolution logic as `/ds-prune-harness` Step 0.5: prefer a tracked `.agentic/pruning-ledger.md` when the consuming repo tracks `.agentic/`, else `docs/pruning-ledger.md`, determined mechanically via `git check-ignore -q .agentic/pruning-ledger.md` (exit 1 means trackable, exit 0 means ignored, exit 128 is a git failure and neither). Do not re-derive this logic independently - read it from that command's Step 0.5 and apply it verbatim.
+
+**Read carry-over candidates.** Read the resolved ledger file. Any entry with `Status: RAISED` whose `Source` field names `ds-representation-audit` (not `ds-prune-harness`) AND whose `File(s)` field overlaps this run's audit scope (`content/rules/`, `content/references/`) is a carried-over candidate: pass its ledger ID, file(s), and rationale to the analyst Worker in the spawn prompt as "already-known - do not re-raise as a new candidate, note as carried-over in the Signal summary instead." The `Source` filter is mandatory: a `ds-prune-harness` entry names a deletion candidate, not a rewrite candidate, and re-raising it here would be a category error. Every `ds-representation-audit`-sourced `RAISED` entry left un-actioned resurfaces this way at the top of every subsequent `/ds-representation-audit` run.
+
 ## Step 1 - Spawn the audit analyst
 
 Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
@@ -203,7 +211,7 @@ If you want to avoid publishing a given proposal, move or delete the file from `
 
 ## Relationship to /ds-prune-harness
 
-`/ds-prune-harness` subtracts expired rules. `/ds-representation-audit` rewrites dense prose into cleaner natural language. Both write to `docs/planning/`. Both route actual changes through `/ds-update-agentic-engineering` one candidate at a time. Both also record standing entries in the shared pruning ledger (see `/ds-prune-harness` Step 0.5 for path resolution) once the user decides on each candidate - `/ds-prune-harness` alone reads the ledger's carry-over `RAISED` entries at the start of a run; this command only writes to it.
+`/ds-prune-harness` subtracts expired rules. `/ds-representation-audit` rewrites dense prose into cleaner natural language. Both write to `docs/planning/`. Both route actual changes through `/ds-update-agentic-engineering` one candidate at a time. Both also record standing entries in the shared pruning ledger (see `/ds-prune-harness` Step 0.5 for path resolution) once the user decides on each candidate, and both read the ledger's carry-over `RAISED` entries at the start of a run - each command's Step 0.5 scopes its read to entries whose `Source` field names that same command, so a pruning entry never resurfaces inside a representation-audit run or vice versa.
 
 A rule that qualifies for both pruning and representation rewriting is first a deletion candidate - run `/ds-prune-harness` first, since there is no point rewriting a rule you are about to delete. The representation audit simply will not include rules that have already been deleted.
 

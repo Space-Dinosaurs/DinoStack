@@ -8,7 +8,7 @@ This ledger is fed by exactly two commands: **`/ds-prune-harness`** and **`/ds-r
 
 ## Path resolution
 
-This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic/pruning-ledger.md` when the consuming repo tracks `.agentic/`, else `docs/pruning-ledger.md`. Determined mechanically via `git check-ignore -q <path>` (non-zero exit means tracked-capable), never assumed. In this repo, `.agentic/` is categorically gitignored (see `AGENTS.md`'s "no enforcement hook may gate on inferred session capability" decision block and the `.agentic/*` umbrella in `.gitignore`), so the resolver lands on `docs/pruning-ledger.md` - this file is the expected outcome here, not a special case.
+This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic/pruning-ledger.md` when the consuming repo tracks `.agentic/`, else `docs/pruning-ledger.md`. Determined mechanically via `git check-ignore -q <path>` (exit 1 means tracked-capable, exit 0 means ignored, exit 128 is a git failure and neither - see `/ds-prune-harness` Step 0.5 for the full three-way handling), never assumed. In this repo, `.agentic/` is categorically gitignored (see `AGENTS.md`'s "DinoStack does not commit its own `.agentic/` runtime files" decision block - DinoStack is the methodology's source, not a consumer of it, so its own `.agentic/` scratch stays untracked - and the `.agentic/*` umbrella in `.gitignore`), so the resolver lands on `docs/pruning-ledger.md` - this file is the expected outcome here, not a special case.
 
 ## Lifecycle
 
