@@ -22,8 +22,10 @@ Public API: pytest test functions only. `_ast_derived_helper_call_set`,
          `test_manifest_public_api_matches_ast_derived_call_set` below,
          which walks every `test_*` function's AST call sites against this
          module's own `_`-prefixed defs and asserts bidirectional set
-         equality against this sentence's own backtick-quoted names - a
-         hand-edit that omits or phantom-adds a name reddens that test
+         equality against the enumerated, comma/and-joined run of backtick-
+         quoted names immediately above (not the surrounding rationale
+         prose in this field) - a hand-edit that omits or phantom-adds a
+         name reddens that test
          (DS-177 Fix 5, re-pinned rework4 after a helper name was added to
          a test without a matching manifest update and went undetected by
          hand-reconciliation alone).
@@ -1209,6 +1211,43 @@ def test_manifest_public_api_matches_ast_derived_call_set() -> None:
         "AST-derived set of `_`-prefixed helpers called directly from "
         f"test_* functions - missing from manifest: {sorted(missing_from_manifest)}; "
         f"phantom in manifest (no test calls this name): {sorted(phantom_in_manifest)}"
+    )
+
+
+def test_manifest_public_api_parses_enumerated_list_not_whole_field(monkeypatch) -> None:
+    """DS-177 rework6 Minor 1 pin. `_manifest_public_api_names` used to
+    slice the WHOLE `Public API:` field with a bare `` `(_name)` `` findall
+    - a name mentioned only in the field's rationale prose (outside the
+    enumerated list) counted as declared even if it had been removed from
+    the actual list. Rework5 fixed this by anchoring `_PUBLIC_API_LIST_RE`
+    on the contiguous, comma/and-joined backtick-name run immediately
+    preceding "are internal helpers". This test pins that fix permanently:
+    it builds an in-memory fixture docstring where `_phantom_name` appears
+    ONLY in the rationale prose (never in the enumerated list) and asserts
+    `_manifest_public_api_names` does not return it. The fixture is
+    installed via monkeypatch onto this module's `__doc__` for the
+    duration of the test only - the real docstring stays the thing
+    `test_manifest_public_api_matches_ast_derived_call_set` above pins, per
+    this test's own scope. Confirmed RED against a field-wide
+    `` `(_name)` `` findall (reverted `_manifest_public_api_names`), GREEN
+    against the list-scoped regex."""
+    fixture_doc = (
+        "Purpose: fixture only, not the real module docstring.\n"
+        "Public API: `_real_helper` are internal helpers (as discussed for "
+        "`_phantom_name` above, which is mentioned only in this field's "
+        "rationale prose, not in the enumerated list).\n"
+        "Upstream deps: none.\n"
+    )
+    monkeypatch.setattr(sys.modules[__name__], "__doc__", fixture_doc)
+    manifest = _manifest_public_api_names()
+    assert manifest == frozenset({"_real_helper"}), (
+        f"expected only the enumerated-list name in the fixture, got {sorted(manifest)}"
+    )
+    assert "_phantom_name" not in manifest, (
+        "a name mentioned only in the field's rationale prose (not the "
+        "enumerated list) must not count as declared - this is the exact "
+        "blind spot rework5's Minor 1 fix closed, and a regression back to "
+        "a field-wide findall would silently restore it"
     )
 
 
