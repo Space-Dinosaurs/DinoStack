@@ -20,14 +20,15 @@
 #              into SKILL.md). Would otherwise be invisible - a pointer-only
 #              skill still builds, still passes adapter-sync, and only fails
 #              at runtime when an agent needs content that never loaded.
-#            - CEILING: a safety boundary, not tidiness. Claude Code was
-#              empirically confirmed to inject a 127,107-byte SKILL.md body
-#              verbatim with no truncation, but that is ONE size point, not
-#              a swept boundary - nobody has confirmed where truncation
-#              starts. CEILING keeps the payload inside the verified-safe
-#              range. Do not treat a future CEILING bump as routine
-#              housekeeping: raising it without a new swept data point
-#              re-opens the exact risk this gate exists to close.
+#            - CEILING: intended as a safety boundary, not a tidiness
+#              budget, but its own arithmetic does not currently anchor it
+#              to the one injection-verified data point it claims to
+#              protect (DS-45 finding - see the CEILING constant's own
+#              comment below for the full provenance and the gap it
+#              documents). Do not treat a future CEILING bump as routine
+#              housekeeping regardless: raising it without a new swept
+#              injection measurement re-opens the exact risk this gate
+#              exists to close.
 #
 # Public API: bash scripts/check-skill-embed-budget.sh
 #             Exits 0 when the embed-completeness check passes AND
@@ -91,16 +92,45 @@ SKILL_FILE="$REPO_DIR/.claude/skills/dinostack/SKILL.md"
 # pointer-only skill would ever measure.
 FLOOR=100000
 
-# Ceiling: 126,509 B measured for .claude/skills/dinostack/SKILL.md
-# on this branch 2026-08-07 (DS-143), + roughly 10% headroom, rounded down.
-# This is a SAFETY BOUNDARY, not a tidiness budget: Claude Code was
-# empirically confirmed to inject a 127,107-byte SKILL.md body verbatim with
-# no truncation, but that is ONE data point, not a swept boundary - nobody
-# has confirmed where truncation actually begins. CEILING keeps the payload
-# inside the verified-safe range around that single confirmed point. Do not
-# raise this value as routine housekeeping when content grows - only raise
-# it alongside a new swept confirmation that a larger body still loads
-# untruncated, and say so explicitly in the PR that raises it.
+# Ceiling: 139,160 B (DS-45 correction to this comment - the value itself
+# is unchanged). What this constant actually is: 126,509 B, a local build
+# measurement of .claude/skills/dinostack/SKILL.md taken on the DS-143
+# branch on 2026-08-07 (commit baf0b011bd61f055e6ec685663a1f6e24b8834ce),
+# times 1.1 for headroom. 126,509 x 1.1 = 139,159.9, which was written up
+# as "rounded down" to 139,160 in the original comment - that description
+# was itself wrong; 139,160 is the nearest-integer rounding, not a
+# round-down, and the true round-down would be 139,159. Immaterial by one
+# byte, but stated accurately here since the previous text asserted the
+# wrong operation.
+#
+# What this constant is NOT: it is not derived from, or swept relative to,
+# the separate 127,107-byte figure this file's own header and failure
+# messages cite as the harness's empirically-confirmed verbatim-injection
+# point. That figure's provenance was never traced - `git log --all -S
+# "127107"` and `-S "127,107"` return only the commits that introduced the
+# prose asserting it (baf0b011, part of DS-143/PR #599), never a
+# measurement record naming which build, which session, or which harness
+# version produced it. So CEILING is 1.1x an unrelated build-size snapshot
+# that happened to land about 12,000 B above the injection claim - not 1.1x
+# (or any swept multiple of) the injection-verified figure itself.
+#
+# Consequence, verified 2026-08-18: the live payload on main already
+# measures 138,990 B - inside CEILING by only 170 B, but roughly 11,900 B
+# past the last-cited injection-confirmed point (127,107 B), with no swept
+# measurement anywhere in that gap. CEILING currently functions as a size
+# ratchet with slack, not as evidence the current payload has been
+# confirmed safe to inject. This does not mean the payload is unsafe - it
+# means nobody has checked, and this gate's own documentation used to imply
+# otherwise.
+#
+# This does not weaken the existing guidance - it strengthens the case for
+# it. Do not raise CEILING as routine housekeeping when content grows: only
+# raise it alongside a new swept confirmation that a larger body still
+# loads untruncated in the live harness, and say so explicitly in the PR
+# that raises it. A reusable procedure for producing that swept
+# confirmation is documented at
+# docs/skill-embed-injection-sweep.md (DS-45) - use it rather
+# than reconstructing an ad hoc measurement.
 CEILING=139160
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted the
@@ -240,12 +270,14 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   echo "  $SKILL_FILE measured $skill_bytes B," >&2
   echo "  above the $CEILING B ceiling ($overage B over)." >&2
   echo "" >&2
-  echo "  CEILING is a safety boundary, not a tidiness budget: Claude Code" >&2
-  echo "  was empirically confirmed to inject a 127,107-byte SKILL.md body" >&2
-  echo "  verbatim with no truncation, but that is ONE data point, not a" >&2
-  echo "  swept boundary. Do not raise CEILING as routine housekeeping -" >&2
-  echo "  only raise it alongside a new swept confirmation that the larger" >&2
-  echo "  body still loads untruncated in the live harness, and say so" >&2
+  echo "  CEILING is intended as a safety boundary, not a tidiness budget," >&2
+  echo "  but it is NOT derived from the one injection-verified figure this" >&2
+  echo "  file cites (127,107 B) - see the CEILING constant's own comment" >&2
+  echo "  above for the full DS-45 provenance correction. Do not raise" >&2
+  echo "  CEILING as routine housekeeping - only raise it alongside a new" >&2
+  echo "  swept confirmation that the larger body still loads untruncated" >&2
+  echo "  in the live harness (procedure:" >&2
+  echo "  docs/skill-embed-injection-sweep.md), and say so" >&2
   echo "  explicitly in the PR that raises it. Otherwise, trim content." >&2
   exit 1
 fi
