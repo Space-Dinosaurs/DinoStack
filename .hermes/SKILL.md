@@ -5937,7 +5937,8 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 4.5 - Global-context input set (required in every spawn brief)
   Section 5 - Re-route limits and convergence failure
   Section 6 - Findings classification (Critical/Major/Minor definitions)
-  Section 7 - Neutrality requirement (independent of completeness)
+  Section 7 - The Adversarial Brief Requirement (includes the Neutrality
+              requirement subsection, independent of completeness)
   Section 8 - Adversarial brief templates (domain-specific)
   Section 9 - Review scope guidance for decomposed tasks
   Section 11 - Sign-off format and validation rules
@@ -5953,7 +5954,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/commands/ds-implement-ticket.md (Phase 6 Skeptic loop),
                       METHODOLOGY.md (imports loop semantics and re-route limits),
                       content/agents/architect.md (plan Skeptic references Section 8),
-                      content/references/subagent-protocol.md (references Section 7)
+                      content/references/subagent-protocol.md (references Section 7),
+                      content/references/agent-team.md (references Section 7's
+                      Neutrality requirement for the pre-implementation and
+                      post-implementation Skeptic-on-plan spawn templates)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -6613,7 +6617,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
-Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
+Neutrality check: [pass | N steer(s) found (listed above)]
 No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
@@ -7721,8 +7725,8 @@ overflow, and is bounded by construction). It does NOT use Shape-2's
 true-adjacent numeric cap, fixed-length spec, or bounded-by-nature value
 literal forms - none of these apply to a single physical `Label: value`
 line the way they do to a multi-line schema leaf or report placeholder.
-`skeptic.md` is this shape under an additional constraint: its six lines
-are validated verbatim by the conductor
+`skeptic.md` is this shape under an additional constraint: its seven
+lines are validated verbatim by the conductor
 (`content/references/skeptic-protocol.md` Section 11;
 `content/commands/ds-skeptic.md:68`; `content/commands/ds-wrap.md:439,443`)
 - a migration for this file may add a cap declaration in the surrounding
@@ -7870,7 +7874,7 @@ summary:
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description
   length (300 chars) to the Calibration section, without altering,
-  retagging, or restructuring any of its six conductor-validated Sign-off
+  retagging, or restructuring any of its seven conductor-validated Sign-off
   format lines. `goal-condition-evaluator.md` (final unit): its second
   template's Evidence value is now `"evaluator-error: <one-line reason>"`
   - the one-line marker form (`SHAPE2_ONE_LINE_RE`, reused as-is by Shape
@@ -13057,7 +13061,6 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If `docs/overview/vision.md` does not exist, skip this step silently.
 3.7. **Spawn-brief provenance check.** Scan Global-context field 7 (conductor spawn brief, claim-bearing text only) for directive-shaped claims - a value, path, count, or root-cause/rationale assertion - that lack a valid provenance tag per the provenance test in `content/sections/04-risk-classification.md`. Any of the 3 tag classes (`[verified: file:line]`, `[per <agent>, unverified]`, `[verified-local: <path> - untracked-by-design|branch-new]`) satisfies the requirement for that claim. A malformed `[verified:]` tag (no evidence the conductor confirmed the cited path against origin/main this session) counts as untagged. A valid field-7 `n/a` (per the canonical reasons in `content/references/skeptic-protocol.md` Section 4.5) silently satisfies this step - no finding - mirroring the Trivial no-Skeptic carve-out. For each untagged directive-shaped claim found, raise a **Major** finding naming the specific claim and stating its provenance is absent.
 3.8. **Diff-scope check.** Applicability gate: skip silently when Global-context field 1 (architect plan) is a valid `n/a - Trivial direct edit`. Otherwise compare the diff against the scope named in the architect plan's implementation steps / acceptance criteria (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a` for a non-Trivial reason. For each hunk in the diff that is not named or clearly implied by that scope AND is not a mechanically necessary side effect (a triggered manifest update, a doc-sync fix, a regression test for a named finding, or a generated adapter artifact): classify behaviorally inert drift (formatting, comment, or dead-code-only changes with no runtime effect) as **Minor**; classify a behavioral change outside the named scope as **Major** by default, escalating to **Critical** when it touches a security-sensitive or production-behavior path per the existing Critical definition. Do not flag a hunk the Worker's summary explicitly and accurately justifies as an in-scope necessity - only an unjustified or inaccurately-justified out-of-scope hunk is a finding.
-
 3.9. **Neutrality check.** Scan Global-context field 7 and the adversarial brief for a conductor-composed hypothesis, suspicion, or attention-steer, per the test defined in "Reading your spawn prompt" item 4 above. For each instance found: disregard it entirely when forming your own independent judgment, and raise a **Minor** finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. Emit the result of this check via the fixed `Neutrality check:` sign-off line defined below - do not fold it into free-form prose.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 4.5. **Cross-file reference-consistency check.** When the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> - <!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared --> - do not conclude the change is complete because the calling code compiles or the colocated test passes. Actively search the full repository (not just the files in the diff) for the OLD identifier: shipped config/fixture files (YAML/TOML/JSON/env), IaC/deploy manifests (Helm values, Terraform, Docker Compose), and documentation that names the identifier. A remaining reference to the old name in a file the diff did not touch is a **Critical** finding when it causes a runtime failure reachable from a normal code path (e.g. a KeyError/undefined lookup at startup or on the hot path), and a **Major** finding when it causes silent drift without an immediate crash (stale docs, a config override that no longer applies). Do not rely on the Worker's own output to enumerate which other files reference the identifier - the Worker's self-report is not evidence of completeness; verify independently. This does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> - those are style, not a consistency risk.
@@ -13102,7 +13105,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
-Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
+Neutrality check: [pass | N steer(s) found (listed above)]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -13145,7 +13148,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
 - **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
-- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
+- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the seven conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 
 ## Rules
 

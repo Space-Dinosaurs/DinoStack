@@ -8,7 +8,8 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 4.5 - Global-context input set (required in every spawn brief)
   Section 5 - Re-route limits and convergence failure
   Section 6 - Findings classification (Critical/Major/Minor definitions)
-  Section 7 - Neutrality requirement (independent of completeness)
+  Section 7 - The Adversarial Brief Requirement (includes the Neutrality
+              requirement subsection, independent of completeness)
   Section 8 - Adversarial brief templates (domain-specific)
   Section 9 - Review scope guidance for decomposed tasks
   Section 11 - Sign-off format and validation rules
@@ -24,7 +25,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/commands/ds-implement-ticket.md (Phase 6 Skeptic loop),
                       METHODOLOGY.md (imports loop semantics and re-route limits),
                       content/agents/architect.md (plan Skeptic references Section 8),
-                      content/references/subagent-protocol.md (references Section 7)
+                      content/references/subagent-protocol.md (references Section 7),
+                      content/references/agent-team.md (references Section 7's
+                      Neutrality requirement for the pre-implementation and
+                      post-implementation Skeptic-on-plan spawn templates)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -684,7 +688,7 @@ If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
-Neutrality check: [pass | N steer(s) found (listed above) | n/a - field 7 is a valid n/a and the adversarial brief carries no conductor-composed content]
+Neutrality check: [pass | N steer(s) found (listed above)]
 No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]

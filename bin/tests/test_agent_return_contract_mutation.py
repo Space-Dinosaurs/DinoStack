@@ -160,7 +160,7 @@ def _shape2_unit3_array_of_object_schema_shape_mutation():
     return run
 
 
-# --- Shape 3 (skeptic special case): retag/mask one of the six
+# --- Shape 3 (skeptic special case): retag/mask one of the seven
 # conductor-validated line prefixes, against the REAL skeptic.md corpus
 # file. skeptic.md was migrated to fully compliant by Unit 1 of the DS
 # return-contract migration (2026-08-11) - its baseline is now the empty
@@ -169,7 +169,7 @@ def _shape2_unit3_array_of_object_schema_shape_mutation():
 # SPECIFIC expected violation appearing in the set difference against the
 # baseline, never mere non-emptiness. A naive `violations != []` check
 # was measured to report every one of these mutations as "caught"
-# regardless of whether the six-prefix guard actually fired - see the
+# regardless of whether the seven-prefix guard actually fired - see the
 # module docstring. ---
 
 _SKEPTIC_TEXT = (contract.AGENTS_DIR / "skeptic.md").read_text()
