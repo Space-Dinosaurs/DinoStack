@@ -42,6 +42,13 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       OPTIONAL supplementary source - item 4 of its "What the audit
                       reads" list, and item 4 of the "Audit brief (verbatim - the
                       binding contract)" under Step 3);
+                      bin/ds-hook-fire-report (DS-179 - reads
+                      .agentic/.enforcement-fires.jsonl to compute per-hook
+                      fire-count status consumed by the pruning-harness
+                      command's Signal 8; the conductor runs it and passes
+                      the JSON output into the prune analyst's spawn
+                      prompt, since the analyst Worker's tool_scope has no
+                      Bash);
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render

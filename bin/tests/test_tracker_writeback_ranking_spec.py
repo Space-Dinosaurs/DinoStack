@@ -104,8 +104,10 @@ Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -1086,99 +1088,36 @@ def test_toggle_catalog_key_set_matches_both_seed_sources():
 #   {action_only} - consumers minus the every-verdict callers (word form)
 #   {pretooluse}  - total minus the Stop-event hooks (word form)
 # ---------------------------------------------------------------------------
-_FIRE_LOG_DECISIONS = ("deny", "allow", "allow_advisory")
+# DS-179: the derivation logic (_FIRE_LOG_DECISIONS, _callee_name,
+# _fire_log_decisions, and the derive_enforcer_facts() function itself) was
+# extracted VERBATIM into scripts/lib/enforcer_facts.py so bin/ds-hook-fire-report
+# can reuse it without duplicating the AST-walk logic. Imported here via the
+# same importlib.util.spec_from_file_location pattern
+# bin/tests/test_stamp_agent_fragments.py already uses, rather than a normal
+# import, because bin/tests/ is not a package and scripts/lib/ is outside its
+# import path. _assert_derivation_is_not_vacuous and _ENFORCER_SUBCOUNT_SITES
+# stay in this file - they CONSUME the returned dict, they do not define the
+# derivation, and moving them would strand this file's own prose-sync sweep
+# from the fixtures/tests that exercise it below.
+_ENFORCER_FACTS_MODULE_PATH = REPO_ROOT / "scripts" / "lib" / "enforcer_facts.py"
+_enforcer_facts_spec = importlib.util.spec_from_file_location(
+    "enforcer_facts", _ENFORCER_FACTS_MODULE_PATH
+)
+_enforcer_facts_mod = importlib.util.module_from_spec(_enforcer_facts_spec)
+sys.modules["enforcer_facts"] = _enforcer_facts_mod
+_enforcer_facts_spec.loader.exec_module(_enforcer_facts_mod)
 
-
-def _callee_name(func) -> str:
-    """Resolve a call's callee name through an immediately-invoked call.
-
-    `_load_log_fire()(data, name, decision, reason)` is the shape every hook
-    uses - the callee of the OUTER call is itself a Call node, so a plain
-    `func.id` lookup returns nothing and every derivation built on it is
-    silently empty. That exact vacuity bit an earlier draft of this helper.
-    """
-    while isinstance(func, ast.Call):
-        func = func.func
-    return getattr(func, "id", None) or getattr(func, "attr", None) or ""
-
-
-def _fire_log_decisions(src: str) -> set[str]:
-    """Every fire-log `decision` literal a hook can emit, read from its AST.
-
-    Two call shapes exist and both must be resolved or the derivation
-    under-reports (an under-report is the dangerous direction here: it would
-    shrink the every-verdict set and silently inflate the action-only count):
-
-      1. Direct: `_load_log_fire()(data, "enforce-tier", "deny", reason)` -
-         the lib signature, decision at positional index 2.
-      2. Via a local wrapper: `enforce-no-abdication.py` and
-         `enforce-ticket-batching.py` funnel their calls through a private
-         helper that takes `decision` as a parameter and forwards it. The
-         literals live at the WRAPPER's call sites, not at the log_fire call,
-         so the wrapper is resolved to a sink first (fixed point) and its own
-         `decision` parameter index is used.
-    """
-    tree = ast.parse(src)
-    defs = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    # name -> positional index of the `decision` argument.
-    sinks = {"log_fire": 2, "_load_log_fire": 2}
-    changed = True
-    while changed:
-        changed = False
-        for name, fn in defs.items():
-            if name in sinks:
-                continue
-            calls = [c for c in ast.walk(fn) if isinstance(c, ast.Call)]
-            if not any(_callee_name(c) in sinks for c in calls):
-                continue
-            params = [a.arg for a in fn.args.args]
-            if "decision" not in params:
-                continue
-            sinks[name] = params.index("decision")
-            changed = True
-
-    found = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        name = _callee_name(node)
-        if name not in sinks:
-            continue
-        idx = sinks[name]
-        cands = []
-        if len(node.args) > idx and isinstance(node.args[idx], ast.Constant):
-            cands.append(node.args[idx].value)
-        cands += [
-            kw.value.value
-            for kw in node.keywords
-            if kw.arg == "decision" and isinstance(kw.value, ast.Constant)
-        ]
-        found |= {c for c in cands if c in _FIRE_LOG_DECISIONS}
-    return found
+# Re-exported for the below tests that still reference the module-level
+# constant directly (e.g. the decision-enumeration vacuity guard).
+_FIRE_LOG_DECISIONS = _enforcer_facts_mod._FIRE_LOG_DECISIONS
 
 
 def _derive_enforcer_facts() -> dict:
-    """Every enforcer subcount this repo restates in prose, derived off disk.
-
-    Returns integers, not strings, so a caller cannot accidentally compare a
-    word form against a numeral form and pass on a mismatch.
-    """
-    hooks = sorted((REPO_ROOT / "hooks").glob("enforce-*.py"))
-    sources = {h.name: h.read_text(encoding="utf-8") for h in hooks}
-    consumers = {name for name, src in sources.items() if "log_fire" in src}
-    by_decision = {d: set() for d in _FIRE_LOG_DECISIONS}
-    for name, src in sources.items():
-        for decision in _fire_log_decisions(src):
-            by_decision[decision].add(name)
-    every_verdict = by_decision["allow"]
-    return {
-        "hooks": {h.name for h in hooks},
-        "total": len(hooks),
-        "consumers": consumers,
-        "by_decision": by_decision,
-        "every_verdict": every_verdict,
-        "action_only": len(consumers) - len(every_verdict),
-    }
+    """Thin wrapper preserving this file's pre-extraction call signature
+    (no-arg) for every existing call site below - the extracted function
+    takes repo_root explicitly since it no longer has this module's
+    REPO_ROOT constant in scope."""
+    return _enforcer_facts_mod.derive_enforcer_facts(REPO_ROOT)
 
 
 def _assert_derivation_is_not_vacuous(facts: dict) -> None:

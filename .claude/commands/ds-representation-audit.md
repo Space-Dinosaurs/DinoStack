@@ -174,6 +174,14 @@ After the analyst returns, the conductor:
 
 Do not proceed to Step 4 without a clear "approve candidate X" (or equivalent) from the user.
 
+## Step 2.5 - Record ledger entries
+
+This command shares one pruning ledger with `/ds-prune-harness` - see that command's Step 0.5 for the ledger's path-resolution logic (prefer a tracked `.agentic/pruning-ledger.md`, else `docs/pruning-ledger.md`, resolved mechanically via `git check-ignore -q`) and the ledger file's own header for its scope statement.
+
+For every candidate the user decided on in Step 2 (approved-pending-action, explicitly deferred, or rejected), record a ledger entry. This is a shippable tracked-file write, so it must be delegated, not conductor-written directly:
+
+Spawn a worktree-isolated `engineer` (Trivial risk - markdown append, no logic) on a branch named `chore/representation-ledger-YYYY-MM-DD` (substitute today's date), branched from `origin/main`, briefed to append one `## PL-YYYYMMDD-N` entry per decided candidate to the resolved ledger file, using the schema documented in that file's own header - `Source:` reads "ds-representation-audit run YYYY-MM-DD (docs/planning/representation-audit-YYYY-MM-DD.md)" for entries from this command. Commit with DCO sign-off, push, open a PR. Standard 1 code-owner approval, no Skeptic loop at this tier.
+
 ## Step 3 - (deliberately not automated)
 
 There is no Step 3 that runs automatically. The proposal is a human-reviewed artifact. Each approved candidate moves to Step 4 individually.
@@ -183,6 +191,8 @@ There is no Step 3 that runs automatically. The proposal is a human-reviewed art
 **One `/ds-update-agentic-engineering` invocation per approved candidate.** Each rewrite gets its own Worker + Skeptic cycle.
 
 If the user approves N candidates, the conductor runs `/ds-update-agentic-engineering` exactly N times, one per candidate, sequentially. Each call gets its own Worker spawn for the specific rewrite, its own meaning-preservation Skeptic review on the single-file diff, and its own commit. Batching rewrites into a single Worker scope is prohibited - rationale: cross-reference scope-bleed, and each rewrite needs its own independent meaning-preservation review. A Skeptic reviewing five rewrites at once cannot give each the focused attention that a single-candidate diff enables.
+
+**Close the ledger entry in the same PR diff as the rewrite.** Each `/ds-update-agentic-engineering` spawn brief for a candidate that has a ledger entry (Step 2.5 will have recorded one as `RAISED` for every approved candidate) must include that candidate's ledger ID and instruct the engineer to flip the entry to `Status: ACTIONED` with `Disposition: <this PR's URL>` **in the same PR diff as the rewrite itself**, not a separate follow-up commit - the meaning-preservation Skeptic reviewing the rewrite diff necessarily reviews the ledger update in the same pass.
 
 **Meaning-preservation Skeptic brief (pass this verbatim in each `/ds-update-agentic-engineering` call):**
 
@@ -196,7 +206,7 @@ If you want to avoid publishing a given proposal, move or delete the file from `
 
 ## Relationship to /ds-prune-harness
 
-`/ds-prune-harness` subtracts expired rules. `/ds-representation-audit` rewrites dense prose into cleaner natural language. Both write to `docs/planning/`. Both route actual changes through `/ds-update-agentic-engineering` one candidate at a time.
+`/ds-prune-harness` subtracts expired rules. `/ds-representation-audit` rewrites dense prose into cleaner natural language. Both write to `docs/planning/`. Both route actual changes through `/ds-update-agentic-engineering` one candidate at a time. Both also record standing entries in the shared pruning ledger (see `/ds-prune-harness` Step 0.5 for path resolution) once the user decides on each candidate - `/ds-prune-harness` alone reads the ledger's carry-over `RAISED` entries at the start of a run; this command only writes to it.
 
 A rule that qualifies for both pruning and representation rewriting is first a deletion candidate - run `/ds-prune-harness` first, since there is no point rewriting a rule you are about to delete. The representation audit simply will not include rules that have already been deleted.
 

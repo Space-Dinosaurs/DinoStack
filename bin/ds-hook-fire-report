@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""
+Purpose: DS-179 /ds-prune-harness Signal 8 input. Joins each hook's fire
+         posture (ACTION-ONLY vs EVERY-VERDICT - derived off
+         hooks/enforce-*.py source via scripts/lib/enforcer_facts.py)
+         against `.agentic/.enforcement-fires.jsonl` fire counts over a
+         window, and classifies each hook into one of four `status`
+         values that distinguish "zero fires because nothing happened
+         recently" from "zero fires because we never measured" and from
+         "zero fires because this posture logs every reached verdict, so
+         zero really does mean never invoked". This distinction is the
+         whole point of the tool: a bare fire count alone cannot tell a
+         prune-harness analyst whether a hook is a dead rule or an
+         unmeasured one, and conflating the two would turn an
+         instrumentation gap into a false deletion candidate.
+
+Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
+            Default output: a fixed-width table to stdout, one row per
+            hooks/enforce-*.py file. --json emits the same rows as a JSON
+            array (the shape /ds-prune-harness Signal 8 passes verbatim
+            into its analyst spawn prompt - the analyst Worker has no
+            Bash in its tool_scope, so the CONDUCTOR runs this command,
+            not the Worker). --days sets the fire-count window (default
+            14). --repo defaults to cwd, same convention as ds-evaluate.
+            Exit 0 always (a missing/absent fires log is a per-hook
+            UNMEASURED status, not a CLI failure) unless --repo does not
+            look like a DinoStack checkout (no hooks/ dir), which exits 1.
+
+Status enum (binding contract, see content/commands/ds-prune-harness.md
+    Signal 8):
+  - UNMEASURED           - the fires log is absent entirely. Never
+                            conflated with a zero count.
+  - ZERO_INVOCATIONS      - posture EVERY_VERDICT and fire_count_window==0.
+                            This posture logs every reached verdict
+                            (including plain "allow"), so zero genuinely
+                            means "never invoked" in the window.
+  - ZERO_ACTION_IN_WINDOW - posture ACTION_ONLY and fire_count_window==0.
+                            Means zero denies/advisories, NOT proof of
+                            zero invocations - a silent allow is never
+                            logged under this posture.
+  - ACTIVE                - fire_count_window > 0.
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
+               pathlib). Loads scripts/lib/enforcer_facts.py via
+               importlib.util.spec_from_file_location using
+               Path(__file__).resolve().parent (symlink-safe-loader
+               convention - a bare `.parent` breaks when this file is
+               invoked through the bin/agentic-hook-fire-report PATH
+               symlink, since __file__ would then resolve relative to
+               the symlink's own directory, not this file's real
+               location). Reads <repo>/.agentic/.enforcement-fires.jsonl.
+
+Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
+                       conductor runs `ds-hook-fire-report --json` at
+                       Step 0/1 and passes the output into the analyst
+                       spawn prompt verbatim - the analyst itself never
+                       shells out to this tool).
+
+Failure modes: never raises on a missing or malformed fires log - an
+               absent file yields UNMEASURED for every hook; a
+               malformed/unparseable line is skipped (same tolerant
+               parse as ds-evaluate's _load_jsonl). A hook name in the
+               log that does not correspond to any hooks/enforce-*.py
+               file on disk is silently excluded from `by_hook` in the
+               enforcer_facts derivation (that hook has been deleted or
+               renamed) - the report never fabricates a row for a
+               nonexistent hook.
+
+Performance: one AST parse per hooks/enforce-*.py file (via
+             enforcer_facts) plus one linear pass over the fires log -
+             sub-second for realistic log sizes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+_BIN_DIR = Path(__file__).resolve().parent
+_REPO_ROOT_DEFAULT = _BIN_DIR.parent
+
+
+def _load_enforcer_facts(repo_root: Path):
+    module_path = repo_root / "scripts" / "lib" / "enforcer_facts.py"
+    spec = importlib.util.spec_from_file_location("enforcer_facts", module_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _parse_ts(value) -> datetime | None:
+    """Parse an ISO8601 UTC timestamp, tolerating optional .mmm precision."""
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    """Parse a JSONL file into dicts, skipping blank/malformed lines."""
+    records: list[dict] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return records
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict):
+            records.append(rec)
+    return records
+
+
+def build_report(repo_root: Path, days: int) -> list[dict]:
+    """Return one report dict per hooks/enforce-*.py file, per the module's
+    Status enum. `days` is the fire-count window in days, measured back
+    from "now" (UTC) at call time."""
+    enforcer_facts = _load_enforcer_facts(repo_root)
+    facts = enforcer_facts.derive_enforcer_facts(repo_root)
+
+    fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
+    log_present = fires_path.exists()
+    records = _load_jsonl(fires_path) if log_present else []
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days)
+
+    # Fire-log rows key `hook` on the bare name passed to log_fire() at the
+    # call site (e.g. "enforce-tier"), which omits the ".py" suffix that
+    # facts["hooks"] carries (file basenames from a Path.glob). Key
+    # by_hook_all on the SAME bare-name form so a real fires log actually
+    # joins against the derived hook set - keying on the raw log value
+    # verbatim would silently join nothing for any real hook.
+    by_hook_all: dict[str, list[datetime | None]] = {}
+    for rec in records:
+        hook = rec.get("hook")
+        if not hook:
+            continue
+        bare = str(hook)
+        if bare.endswith(".py"):
+            bare = bare[: -len(".py")]
+        by_hook_all.setdefault(bare, []).append(_parse_ts(rec.get("ts")))
+
+    rows: list[dict] = []
+    for hook_name in sorted(facts["hooks"]):
+        posture = "EVERY_VERDICT" if hook_name in facts["every_verdict"] else (
+            "ACTION_ONLY" if hook_name in facts["consumers"] else "UNKNOWN"
+        )
+        bare_hook_name = hook_name[: -len(".py")] if hook_name.endswith(".py") else hook_name
+        timestamps = by_hook_all.get(bare_hook_name, [])
+        parsed = [t for t in timestamps if t is not None]
+        fire_count_all_time = len(timestamps)
+        fire_count_window = sum(1 for t in parsed if t >= window_start)
+        earliest_ts = min(parsed).isoformat().replace("+00:00", "Z") if parsed else None
+        latest_ts = max(parsed).isoformat().replace("+00:00", "Z") if parsed else None
+
+        if not log_present:
+            status = "UNMEASURED"
+        elif fire_count_window == 0:
+            if posture == "EVERY_VERDICT":
+                status = "ZERO_INVOCATIONS"
+            elif posture == "ACTION_ONLY":
+                status = "ZERO_ACTION_IN_WINDOW"
+            else:
+                # A hook that is a log_fire consumer but whose posture could
+                # not be classified as either every-verdict or action-only -
+                # not currently reachable given derive_enforcer_facts'
+                # definitions, but fails safe to UNMEASURED rather than
+                # asserting a status this tool cannot actually justify.
+                status = "UNMEASURED"
+        else:
+            status = "ACTIVE"
+
+        rows.append(
+            {
+                "hook": hook_name,
+                "posture": posture,
+                "fire_count_window": fire_count_window,
+                "fire_count_all_time": fire_count_all_time,
+                "log_present": log_present,
+                "window_days": days,
+                "status": status,
+                "earliest_ts": earliest_ts,
+                "latest_ts": latest_ts,
+            }
+        )
+    return rows
+
+
+def _print_table(rows: list[dict]) -> None:
+    if not rows:
+        print("ds-hook-fire-report: no hooks/enforce-*.py files found")
+        return
+    header = (
+        f"{'hook':<38} {'posture':<14} {'status':<22} "
+        f"{'window':>8} {'all-time':>9} {'log':>5}"
+    )
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        print(
+            f"{row['hook']:<38} {row['posture']:<14} {row['status']:<22} "
+            f"{row['fire_count_window']:>8} {row['fire_count_all_time']:>9} "
+            f"{('yes' if row['log_present'] else 'no'):>5}"
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-hook-fire-report",
+        description=(
+            "Per-hook fire-count status for hooks/enforce-*.py, joining "
+            "posture (ACTION_ONLY vs EVERY_VERDICT) against "
+            ".agentic/.enforcement-fires.jsonl. Input for /ds-prune-harness "
+            "Signal 8."
+        ),
+    )
+    parser.add_argument(
+        "--repo",
+        default=".",
+        help="path to the DinoStack checkout (default: cwd)",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=14,
+        help="fire-count window in days (default: 14)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a JSON array instead of a table",
+    )
+    args = parser.parse_args(argv)
+
+    repo_root = Path(args.repo).expanduser().resolve()
+    if not (repo_root / "hooks").is_dir():
+        print(
+            f"ds-hook-fire-report: error: {repo_root} is not a DinoStack "
+            "checkout (no hooks/ dir)",
+            file=sys.stderr,
+        )
+        return 1
+
+    rows = build_report(repo_root, args.days)
+
+    if args.json:
+        print(json.dumps(rows, indent=2, sort_keys=True))
+    else:
+        _print_table(rows)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
