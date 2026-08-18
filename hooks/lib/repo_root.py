@@ -19,8 +19,8 @@ Downstream consumers (13, re-derived DS-175 - grep for a dynamic loader that
     hooks/enforce-ticket-batching.py, hooks/enforce-background-spawn.py
     (DS-175 - _sentinel_is_live's git-root-anchored OR check, read-only),
     bin/ds-agentic-repair, bin/ds-cost, bin/ds-identity, bin/ds-status,
-    bin/ds-memory (all five via a lazy importlib.util dynamic loader, not a
-    direct import)
+    bin/ds-memory (all 13, hooks-side and bin/-side alike, via a lazy
+    importlib.util dynamic loader, not a direct import)
 
 Failure modes: never raises. Any OSError (EACCES/ENOENT) while probing a
     given level is treated as "not found here, keep walking". If no

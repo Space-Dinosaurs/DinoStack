@@ -44,6 +44,7 @@ DS-175 - sentinel git-root anchoring (_sentinel_is_live OR check):
  33. test_sentinel_is_live_resolver_malformed_dict_returns_false  - resolver returns dict missing "root" -> KeyError caught, no crash.
  34. test_sentinel_is_live_no_sentinel_git_root_subdir_allows     - negative integration: no sentinel anywhere, .git at root, cwd a subdir -> ALLOW.
  35. test_sentinel_is_live_at_root_via_git_ancestor               - sentinel present only at git root, cwd a subdir -> True (the widened OR path).
+ 36. test_sentinel_is_live_ignores_resolved_root_when_no_git_ancestor - ROUND-2 REWORK: pins the found_git_ancestor guard; resolver returns found_git_ancestor False with a live sentinel at the returned root -> must still be False. Reddens if the guard is dropped.
 
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
@@ -548,6 +549,31 @@ def test_sentinel_is_live_at_root_via_git_ancestor():
         assert _sentinel_is_live_at(str(repo_root)) is True
         assert _sentinel_is_live_at(str(subdir)) is False
         assert _sentinel_is_live(str(subdir)) is True
+
+
+def test_sentinel_is_live_ignores_resolved_root_when_no_git_ancestor():
+    """ROUND-2 REWORK: pins the `found_git_ancestor` guard in
+    _sentinel_is_live's diag.get("found_git_ancestor") check.
+
+    Resolver returns found_git_ancestor=False alongside a "root" that
+    differs from cwd, and a sentinel IS live at that returned root. The
+    guard must stop _sentinel_is_live from ever checking that unresolved
+    root - dropping `and diag.get("found_git_ancestor")` from the
+    conditional would make this test redden (return True instead of
+    False), since the `diag.get("root") != cwd` half of the check alone
+    does not gate on resolution having actually found a `.git` ancestor.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root, subdir = _make_git_root_with_subdir(tmpdir)
+        _write_sentinel(repo_root / _SENTINEL_REL, os.getpid())
+
+        no_ancestor_resolver = mock.Mock()
+        no_ancestor_resolver.resolve_agentic_cwd_with_diagnostics.return_value = {
+            "found_git_ancestor": False,
+            "root": str(repo_root),
+        }
+        with mock.patch.object(_mod, "_load_repo_root", return_value=no_ancestor_resolver):
+            assert _sentinel_is_live(str(subdir)) is False
 
 
 # ---------------------------------------------------------------------------
