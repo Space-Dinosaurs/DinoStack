@@ -12,8 +12,11 @@ Purpose: Regression guard for DS-176 (the vacuous-pass check class): every
          weakening edit (e.g. dropping the `exit 1`, or turning the guard
          into a bare log statement) reddens this suite.
 Public API: pytest test functions only. `_normalized_scan`, `_site_label`,
-         `_conforms_to_mandated_form`, and `_discover_live_sites` are
-         internal helpers exercised directly by the mutation tests below.
+         `_conforms_to_mandated_form`, `_discover_live_sites`, and
+         `_is_docstring_hit` are internal helpers exercised directly by the
+         mutation tests below (derived by walking every `test_*` function's
+         AST call sites against this module's own `_`-prefixed defs, not
+         hand-typed - DS-177 Fix 5).
 Upstream deps: `git ls-files` (repo-relative, tracked-only discovery -
          this checkout's `.claude/worktrees/agent-*` count fluctuates
          session-to-session as isolation worktrees are created and reaped
@@ -106,9 +109,14 @@ LIVE_GUARD_SITES = frozenset(
 def _tracked_relative_paths() -> list[pathlib.Path]:
     """Git-tracked paths with a SEARCH_SUFFIXES extension, resolved
     relative to REPO_ROOT. Scoping via `git ls-files` (rather than an
-    unfiltered directory walk) matters because this checkout carries 40+
-    `.claude/worktrees/agent-*` copies of the whole tree, none of which are
-    part of the primary worktree's git index."""
+    unfiltered directory walk) matters because this checkout carries a
+    fluctuating number of `.claude/worktrees/agent-*` copies of the whole
+    tree - created and reaped session-to-session as isolation worktrees
+    spin up and down (measured 35-36 across two checks in one review; see
+    the module docstring's Upstream deps note) - none of which are part of
+    the primary worktree's git index. DS-177 Fix 4: no cardinal is
+    asserted here, since one would go stale independently of this
+    function's own behavior."""
     result = subprocess.run(
         ["git", "-C", str(REPO_ROOT), "ls-files"],
         capture_output=True,
@@ -299,51 +307,83 @@ def _check_form_b(lines: list[str], line_range: tuple[int, int]) -> bool:
     return "sys.exit(1)" in joined_after or "raise SystemExit" in joined_after
 
 
+def _byte_col_to_char_col(line: str, byte_col: int) -> int:
+    """`ast` node `col_offset`/`end_col_offset` values are UTF-8 BYTE
+    offsets into their line (the `ast` module's documented contract),
+    while `_line_start_offsets` and `_normalized_scan_positions` both
+    count CHARACTERS. Comparing the two directly without this conversion
+    shifts the comparison by one position per multi-byte character
+    preceding the offset on that line (DS-177 Fix 2 - measured: 20
+    multi-byte characters earlier on the line made a conforming Form C
+    guard misclassify as NONE). Converts by encoding `line` to UTF-8,
+    slicing the first `byte_col` bytes, decoding back to str, and taking
+    the resulting character length - AST byte offsets always land on a
+    UTF-8 boundary (token boundaries in valid source), so this slice never
+    splits a multi-byte sequence."""
+    return len(line.encode("utf-8")[:byte_col].decode("utf-8"))
+
+
 def _check_form_c(text: str, line_range: tuple[int, int]) -> bool:
     """AST-based, at CHARACTER-OFFSET precision, not proximity regex or
     line-span containment (DS-176 rework-2 Major fix, then re-fixed to
-    column granularity in the same round). Line-range containment on
-    `node.msg` alone is still not sufficient: a one-liner assert's
-    CONDITION and MESSAGE share the same physical line number
-    (`assert "<phrase>" not in out, "unexpected"` - phrase in the
+    column granularity in the same round; DS-177 fixed three further
+    defects in this same comparison - see Fix 1/2/3 notes below). Line-
+    range containment on `node.msg` alone is still not sufficient: a
+    one-liner assert's CONDITION and MESSAGE share the same physical line
+    number (`assert "<phrase>" not in out, "unexpected"` - phrase in the
     condition, "unexpected" the message, both on line N), so line-level
-    comparison cannot tell them apart. This re-locates the phrase hit's
-    exact character-offset span (via `_normalized_scan_positions`, not
-    just its line range) and requires that span to fall inside `node.msg`'s
-    own character-offset span (from `lineno`/`col_offset` to
-    `end_lineno`/`end_col_offset`) - never the whole assert statement, and
-    never `node.test`. Also still catches the earlier same-line
-    `print("...phrase"); assert True` shape: `assert True` has no `msg` at
-    all, so it is skipped outright."""
+    comparison cannot tell them apart. This re-locates every phrase hit
+    whose (start_line, end_line) equals `line_range` (DS-177 Fix 1: ALL
+    such hits, not just the first found - a one-liner where the phrase
+    appears in both the condition AND the message, e.g. `assert "<p>" in
+    out, "bad - <p>"`, has two same-line-range hits, and testing only the
+    leftmost one rejected a genuinely conforming guard) at exact
+    character-offset precision (via `_normalized_scan_positions`, DS-177
+    Fix 2: `node.msg`'s AST col_offset/end_col_offset are UTF-8 BYTE
+    offsets and must be converted to character offsets via
+    `_byte_col_to_char_col` before comparison against the character-offset
+    hit spans, or a multi-byte character earlier on the line shifts every
+    downstream comparison) and requires the hit span to fall FULLY INSIDE
+    `node.msg`'s own character-offset span (DS-177 Fix 3: containment, not
+    overlap - a straddling hit like `assert discovery is broken, not
+    clean` (phrase spanning the test/msg comma boundary) overlaps
+    `node.msg`'s span without being contained in it and must NOT conform)
+    - never the whole assert statement, and never `node.test`. Also still
+    catches the earlier same-line `print("...phrase"); assert True` shape:
+    `assert True` has no `msg` at all, so it is skipped outright."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return False
 
-    hit_start_offset: int | None = None
-    hit_end_offset: int | None = None
+    hit_offsets: list[tuple[int, int]] = []
     for orig_start, orig_end in _normalized_scan_positions(text):
         start_line = text.count("\n", 0, orig_start) + 1
         end_line = text.count("\n", 0, orig_end) + 1
         if (start_line, end_line) == line_range:
-            hit_start_offset, hit_end_offset = orig_start, orig_end
-            break
-    if hit_start_offset is None:
+            hit_offsets.append((orig_start, orig_end))
+    if not hit_offsets:
         return False
 
     line_starts = _line_start_offsets(text)
+    text_lines = text.splitlines()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assert):
             continue
         msg = node.msg
         if msg is None:
             continue
-        msg_start_offset = line_starts[msg.lineno - 1] + msg.col_offset
+        msg_start_line_text = text_lines[msg.lineno - 1]
+        msg_start_char_col = _byte_col_to_char_col(msg_start_line_text, msg.col_offset)
+        msg_start_offset = line_starts[msg.lineno - 1] + msg_start_char_col
         msg_end_lineno = getattr(msg, "end_lineno", msg.lineno)
         msg_end_col = getattr(msg, "end_col_offset", msg.col_offset)
-        msg_end_offset = line_starts[msg_end_lineno - 1] + msg_end_col - 1
-        if msg_start_offset <= hit_end_offset and hit_start_offset <= msg_end_offset:
-            return True
+        msg_end_line_text = text_lines[msg_end_lineno - 1]
+        msg_end_char_col = _byte_col_to_char_col(msg_end_line_text, msg_end_col)
+        msg_end_offset = line_starts[msg_end_lineno - 1] + msg_end_char_col - 1
+        for hit_start_offset, hit_end_offset in hit_offsets:
+            if msg_start_offset <= hit_start_offset and hit_end_offset <= msg_end_offset:
+                return True
     return False
 
 
@@ -585,6 +625,83 @@ def test_form_c_accepts_assert_that_itself_carries_the_phrase() -> None:
     assert matches
     ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
     assert ok and form == "C", f"expected Form C, got ({ok}, {form})"
+
+
+def test_form_c_accepts_phrase_in_both_condition_and_message() -> None:
+    """DS-177 Fix 1 regression test. `_check_form_c` used to re-locate the
+    phrase hit's character-offset span by BREAKing on the first
+    `line_range` match it found. When the phrase appears in BOTH the
+    assert's CONDITION and its MESSAGE on one line
+    (`assert "<phrase>" in out, "bad - <phrase>"`), both occurrences share
+    the same (start_line, end_line), and the leftmost (condition) offset
+    won the break - so a genuinely conforming guard (the message DOES
+    carry the phrase) was rejected. Must conform: at least one of the two
+    same-line-range hits (the message one) falls inside `node.msg`'s
+    span."""
+    fixture = (
+        "def check_output(out):\n"
+        f'    assert "{GUARD_PHRASE}" in out, "bad - {GUARD_PHRASE}"\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert len(matches) == 2, f"expected 2 same-line-range hits, got {matches}"
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert ok and form == "C", (
+        f"phrase present in the message (as well as the condition) should "
+        f"still conform via the message occurrence, got ({ok}, {form})"
+    )
+
+
+def test_form_c_multibyte_characters_before_message_do_not_misalign() -> None:
+    """DS-177 Fix 2 regression test. `ast` node `col_offset`/
+    `end_col_offset` are UTF-8 BYTE offsets, while `_line_start_offsets`
+    and `_normalized_scan_positions` both count CHARACTERS; comparing them
+    directly shifted the comparison by one position per multi-byte
+    character preceding the assert's message on the same line. 20 CJK
+    characters (3 bytes each in UTF-8, so +2 bytes per character over a
+    naive 1-byte-per-char assumption = 40 bytes of drift) in the
+    condition, immediately before a message that IS just the phrase, push
+    the mis-derived message-start offset past the phrase's true end
+    offset - reddening a genuinely conforming guard. (A non-em-dash
+    multi-byte character is used deliberately; this repo bans authored
+    em dashes and the point under test is multi-byte width, not the exact
+    character.)"""
+    multibyte_padding = "日" * 20  # CJK "day/sun" character, 3 UTF-8 bytes
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    assert hook_files == "{multibyte_padding}", "{GUARD_PHRASE}"\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert ok and form == "C", (
+        f"multi-byte padding earlier on the line should not affect Form C "
+        f"classification, got ({ok}, {form})"
+    )
+
+
+def test_form_c_rejects_hit_straddling_condition_message_boundary() -> None:
+    """DS-177 Fix 3 regression test. `_check_form_c` used to test interval
+    OVERLAP between the phrase hit and `node.msg`'s span, not containment,
+    despite its own docstring promising containment ("fall inside"). A
+    phrase hit that STRADDLES the test/msg comma boundary -
+    `assert discovery is broken, not clean` has `node.test` = `discovery
+    is broken` and `node.msg` = `not clean`, and the phrase spans both -
+    overlapped `node.msg`'s span without being contained in it, and the
+    old overlap check wrongly accepted it. Must NOT conform: the assert's
+    message here is `not clean`, which says nothing about discovery being
+    broken."""
+    fixture = (
+        "def check():\n"
+        f"    assert {GUARD_PHRASE}\n"
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"a phrase hit straddling the assert's test/msg boundary should "
+        f"NOT conform (the message alone does not carry the phrase), got "
+        f"({ok}, {form})"
+    )
 
 
 def test_mutation_weakened_to_log_only_reddens() -> None:
