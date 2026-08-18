@@ -11,12 +11,22 @@ Purpose: Regression guard for DS-176 (the vacuous-pass check class): every
          derived classification table, so an accidental deletion or a
          weakening edit (e.g. dropping the `exit 1`, or turning the guard
          into a bare log statement) reddens this suite.
-Public API: pytest test functions only. `_normalized_scan`, `_site_label`,
-         `_conforms_to_mandated_form`, `_discover_live_sites`, and
-         `_is_docstring_hit` are internal helpers exercised directly by the
-         mutation tests below (derived by walking every `test_*` function's
-         AST call sites against this module's own `_`-prefixed defs, not
-         hand-typed - DS-177 Fix 5).
+Public API: pytest test functions only. `_ast_derived_helper_call_set`,
+         `_conforms_to_mandated_form`, `_discover_live_sites`,
+         `_is_docstring_hit`, `_manifest_public_api_names`,
+         `_normalized_scan`, `_site_label`, and `_site_label_python` are
+         internal helpers exercised directly by test functions below (the
+         two helpers backing the pin test itself are self-covering - the
+         same AST walk that pins this field also scans the pin test's own
+         body). This list is no longer hand-reconciled: it is PINNED by
+         `test_manifest_public_api_matches_ast_derived_call_set` below,
+         which walks every `test_*` function's AST call sites against this
+         module's own `_`-prefixed defs and asserts bidirectional set
+         equality against this sentence's own backtick-quoted names - a
+         hand-edit that omits or phantom-adds a name reddens that test
+         (DS-177 Fix 5, re-pinned rework4 after a helper name was added to
+         a test without a matching manifest update and went undetected by
+         hand-reconciliation alone).
 Upstream deps: `git ls-files` (repo-relative, tracked-only discovery -
          this checkout's `.claude/worktrees/agent-*` count fluctuates
          session-to-session as isolation worktrees are created and reaped,
@@ -1091,4 +1101,79 @@ def test_module_docstring_cites_current_reference_count() -> None:
         f"module docstring does not contain {needle!r} - DOCSTRING_REFERENCE_COUNT "
         f"is {DOCSTRING_REFERENCE_COUNT} but the docstring prose was not updated "
         "to match (or the constant was changed without updating the prose)"
+    )
+
+
+_FIELD_HEADER_RE = re.compile(r"^([A-Z][\w \-]*):", re.MULTILINE)
+
+
+def _manifest_public_api_names() -> frozenset[str]:
+    """Parse THIS module's own docstring's `Public API:` field and return
+    every backtick-quoted `_`-prefixed name it lists. Field boundaries are
+    located structurally (the next unindented `Header:` line, matching the
+    module docstring's own field layout - see the raw-line audit in this
+    ticket's rework), not by a hand-typed line range, so a later field
+    reorder or insertion does not silently widen or narrow the slice."""
+    assert __doc__ is not None
+    headers = list(_FIELD_HEADER_RE.finditer(__doc__))
+    start = next(m for m in headers if m.group(1) == "Public API")
+    later = [m for m in headers if m.start() > start.start()]
+    end = later[0].start() if later else len(__doc__)
+    field_text = __doc__[start.start():end]
+    return frozenset(re.findall(r"`(_[A-Za-z0-9_]+)`", field_text))
+
+
+def _ast_derived_helper_call_set() -> frozenset[str]:
+    """Walk THIS module's own source (read from disk, not `__doc__` or an
+    in-memory copy) and collect every `_`-prefixed module-level function
+    that is called DIRECTLY (by bare name, not via an attribute or an
+    indirect reference) from inside a `test_*` function body. This is the
+    exact method the module docstring's `Public API:` field claims to be
+    pinned against."""
+    source = pathlib.Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    helper_defs = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("_")
+    }
+    called: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            for sub in ast.walk(node):
+                if (
+                    isinstance(sub, ast.Call)
+                    and isinstance(sub.func, ast.Name)
+                    and sub.func.id in helper_defs
+                ):
+                    called.add(sub.func.id)
+    return frozenset(called)
+
+
+def test_manifest_public_api_matches_ast_derived_call_set() -> None:
+    """DS-177 rework4 Major regression test. The module docstring's
+    `Public API:` list has now been hand-reconciled twice (DS-177 Fix 5;
+    then again to add `_is_docstring_hit`) and regressed once
+    (`_site_label_python` was added to
+    `test_site_label_python_form_feed_does_not_misalign` in rework3
+    without a matching manifest update, and nothing caught it - AC-5
+    passed at the prior commit and silently failed at this one). A third
+    hand-reconciliation is not a fix, so this test derives BOTH sides from
+    source - the manifest sentence itself (`_manifest_public_api_names`,
+    parsed from `__doc__`, not a duplicate hand-typed constant) and the
+    real AST call graph (`_ast_derived_helper_call_set`) - and asserts
+    BIDIRECTIONAL set equality, not containment: an omission (a helper
+    called by a test but missing from the manifest) and a phantom entry
+    (a manifest name no test actually calls, e.g. pointing at a renamed
+    or deleted helper) are both defects, and containment-only would catch
+    only the first."""
+    manifest = _manifest_public_api_names()
+    derived = _ast_derived_helper_call_set()
+    missing_from_manifest = derived - manifest
+    phantom_in_manifest = manifest - derived
+    assert not missing_from_manifest and not phantom_in_manifest, (
+        "module docstring 'Public API:' list is out of sync with the "
+        "AST-derived set of `_`-prefixed helpers called directly from "
+        f"test_* functions - missing from manifest: {sorted(missing_from_manifest)}; "
+        f"phantom in manifest (no test calls this name): {sorted(phantom_in_manifest)}"
     )
