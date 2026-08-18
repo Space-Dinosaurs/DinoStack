@@ -1106,21 +1106,54 @@ def test_module_docstring_cites_current_reference_count() -> None:
 
 _FIELD_HEADER_RE = re.compile(r"^([A-Z][\w \-]*):", re.MULTILINE)
 
+# Matches ONLY the contiguous, comma/and-joined run of backtick-quoted
+# `_`-prefixed names that sits immediately before the "are internal
+# helpers" clause - i.e. the enumerated list itself, not the surrounding
+# rationale prose in the same field. DS-177 rework5 Minor 1 fix: the prior
+# version slurped the whole `Public API:` field with a bare
+# `` `(_name)` `` findall, so a name mentioned only in passing in the
+# rationale (e.g. "as discussed for `_site_label_python` above") counted
+# as declared even if it had been removed from the actual list - a false
+# negative demonstrated by deleting a name from the list while adding one
+# rationale mention of it in the same field, which left the pin GREEN.
+# Anchoring on "are\b" is what makes this narrower than the field slice:
+# the enumeration is always immediately followed by "are internal
+# helpers" in this module's docstring convention (see the sentence this
+# regex targets), so nothing after that word can be mistaken for a list
+# member no matter how many more `_name` backticks appear later in the
+# same field's rationale.
+_PUBLIC_API_LIST_RE = re.compile(
+    r"((?:(?:and\s+)?`_[A-Za-z0-9_]+`,\s*)*(?:and\s+)?`_[A-Za-z0-9_]+`)\s+are\b"
+)
+
 
 def _manifest_public_api_names() -> frozenset[str]:
     """Parse THIS module's own docstring's `Public API:` field and return
-    every backtick-quoted `_`-prefixed name it lists. Field boundaries are
-    located structurally (the next unindented `Header:` line, matching the
-    module docstring's own field layout - see the raw-line audit in this
-    ticket's rework), not by a hand-typed line range, so a later field
-    reorder or insertion does not silently widen or narrow the slice."""
+    every backtick-quoted `_`-prefixed name in its enumerated LIST -
+    specifically the comma/and-joined run of names that sits directly
+    before "are internal helpers", located by `_PUBLIC_API_LIST_RE` - not
+    every backtick-quoted name anywhere in the field's text. A name
+    mentioned only in the field's rationale prose (outside that list) does
+    NOT count as declared. Field boundaries are located structurally (the
+    next unindented `Header:` line, matching the module docstring's own
+    field layout - see the raw-line audit in this ticket's rework), not by
+    a hand-typed line range, so a later field reorder or insertion does
+    not silently widen or narrow the slice fed to the list regex."""
     assert __doc__ is not None
     headers = list(_FIELD_HEADER_RE.finditer(__doc__))
     start = next(m for m in headers if m.group(1) == "Public API")
     later = [m for m in headers if m.start() > start.start()]
     end = later[0].start() if later else len(__doc__)
     field_text = __doc__[start.start():end]
-    return frozenset(re.findall(r"`(_[A-Za-z0-9_]+)`", field_text))
+    list_match = _PUBLIC_API_LIST_RE.search(field_text)
+    assert list_match is not None, (
+        "could not locate the enumerated name list (the backtick-name run "
+        "immediately preceding 'are internal helpers') inside this "
+        "module's docstring 'Public API:' field - the field's prose no "
+        "longer matches the expected list-then-'are' shape; fix the "
+        "docstring or `_PUBLIC_API_LIST_RE` before trusting this pin"
+    )
+    return frozenset(re.findall(r"`(_[A-Za-z0-9_]+)`", list_match.group(1)))
 
 
 def _ast_derived_helper_call_set() -> frozenset[str]:
@@ -1134,7 +1167,7 @@ def _ast_derived_helper_call_set() -> frozenset[str]:
     tree = ast.parse(source)
     helper_defs = {
         node.name
-        for node in ast.walk(tree)
+        for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name.startswith("_")
     }
     called: set[str] = set()
@@ -1177,3 +1210,23 @@ def test_manifest_public_api_matches_ast_derived_call_set() -> None:
         f"test_* functions - missing from manifest: {sorted(missing_from_manifest)}; "
         f"phantom in manifest (no test calls this name): {sorted(phantom_in_manifest)}"
     )
+
+
+def test_nested_local_helper_does_not_pressure_manifest_pin() -> None:
+    """DS-177 rework5 Minor 2 regression test. Defines and calls a purely
+    local, NESTED `_`-prefixed helper (not module-level) to prove
+    `_ast_derived_helper_call_set`'s `helper_defs` set is built from
+    `tree.body` (module-level defs only), not `ast.walk(tree)` (which
+    would also pick up nested defs). Before this fix, `ast.walk` pulled
+    `_helper` into `helper_defs`, and this test's own call to it made it
+    show up as "missing from manifest" in
+    `test_manifest_public_api_matches_ast_derived_call_set` - pressuring
+    an author to add a non-API local name to the docstring `Public API:`
+    field to silence a false positive, which would have made that field
+    false. Confirmed failing pre-fix by temporarily reverting the
+    `tree.body` change back to `ast.walk(tree)`."""
+
+    def _helper() -> int:
+        return 1
+
+    assert _helper() == 1
