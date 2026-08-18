@@ -38,6 +38,13 @@ DS-70 - background enforcement extended to Agent (asymmetric rule):
  29. test_agent_nonboolean_falsy_allowed                         - Agent + run_in_background:"false" (string) -> ALLOW.
  30. test_agent_false_denied_via_sentinel_when_live               - Agent + false + live sentinel -> DENY via sentinel path, not bg path.
 
+DS-175 - sentinel git-root anchoring (_sentinel_is_live OR check):
+ 31. test_sentinel_is_live_repo_root_load_failure_falls_back_to_raw_cwd - _load_repo_root() returns None -> raw-cwd-only, no crash.
+ 32. test_sentinel_is_live_resolver_raises_returns_false          - resolver raises -> outer except -> False.
+ 33. test_sentinel_is_live_resolver_malformed_dict_returns_false  - resolver returns dict missing "root" -> KeyError caught, no crash.
+ 34. test_sentinel_is_live_no_sentinel_git_root_subdir_allows     - negative integration: no sentinel anywhere, .git at root, cwd a subdir -> ALLOW.
+ 35. test_sentinel_is_live_at_root_via_git_ancestor               - sentinel present only at git root, cwd a subdir -> True (the widened OR path).
+
 Run with: python3 -m pytest bin/tests/test_enforce_background_spawn.py -x
        or: python3 bin/tests/test_enforce_background_spawn.py
 """
@@ -68,6 +75,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _loader.exec_module(_mod)
 
 _sentinel_is_live = _mod._sentinel_is_live
+_sentinel_is_live_at = _mod._sentinel_is_live_at
 _SENTINEL_REL = _mod._SENTINEL_REL
 _SENTINEL_MAX_AGE_S = _mod._SENTINEL_MAX_AGE_S
 
@@ -439,6 +447,107 @@ def test_sentinel_is_live_stale_mtime():
         stale_time = time.time() - (_SENTINEL_MAX_AGE_S + 1)
         os.utime(sentinel, (stale_time, stale_time))
         assert _sentinel_is_live(tmpdir) is False
+
+
+# ---------------------------------------------------------------------------
+# DS-175 - sentinel git-root anchoring: _sentinel_is_live's OR check against
+# the git-root-resolved ancestor of cwd, plus its fail-open paths.
+# ---------------------------------------------------------------------------
+
+def _make_git_root_with_subdir(tmpdir: str) -> tuple[Path, Path]:
+    """Create <tmpdir>/repo/.git (existence-only marker) and
+    <tmpdir>/repo/sub, and return (repo_root, subdir)."""
+    repo_root = Path(tmpdir) / "repo"
+    subdir = repo_root / "sub"
+    subdir.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+    return repo_root, subdir
+
+
+def test_sentinel_is_live_repo_root_load_failure_falls_back_to_raw_cwd():
+    """_load_repo_root() returns None -> raw-cwd-only check, no crash.
+
+    Sentinel is written ONLY at the git root, never at the raw payload cwd
+    (a subdirectory). With the resolver unavailable, _sentinel_is_live must
+    fall back to the raw-cwd-only result (False) rather than crash or somehow
+    still find the root-level sentinel.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root, subdir = _make_git_root_with_subdir(tmpdir)
+        _write_sentinel(repo_root / _SENTINEL_REL, os.getpid())
+        with mock.patch.object(_mod, "_load_repo_root", return_value=None):
+            assert _sentinel_is_live(str(subdir)) is False
+
+
+def test_sentinel_is_live_resolver_raises_returns_false():
+    """Resolver raises -> outer except in _sentinel_is_live -> False, no crash."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root, subdir = _make_git_root_with_subdir(tmpdir)
+        _write_sentinel(repo_root / _SENTINEL_REL, os.getpid())
+
+        raising_resolver = mock.Mock()
+        raising_resolver.resolve_agentic_cwd_with_diagnostics.side_effect = RuntimeError("boom")
+        with mock.patch.object(_mod, "_load_repo_root", return_value=raising_resolver):
+            assert _sentinel_is_live(str(subdir)) is False
+
+
+def test_sentinel_is_live_resolver_malformed_dict_returns_false():
+    """Resolver returns a dict missing "root" -> diag["root"] KeyError caught
+    by the outer except -> False, no crash."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root, subdir = _make_git_root_with_subdir(tmpdir)
+        _write_sentinel(repo_root / _SENTINEL_REL, os.getpid())
+
+        malformed_resolver = mock.Mock()
+        malformed_resolver.resolve_agentic_cwd_with_diagnostics.return_value = {
+            "found_git_ancestor": True,
+            # "root" deliberately absent.
+        }
+        with mock.patch.object(_mod, "_load_repo_root", return_value=malformed_resolver):
+            assert _sentinel_is_live(str(subdir)) is False
+
+
+def test_sentinel_is_live_no_sentinel_git_root_subdir_allows():
+    """Negative integration test: no sentinel anywhere, .git at root, cwd a
+    subdir -> ALLOW end-to-end through the hook subprocess.
+
+    Without this, the widened deny surface (checking the git-root ancestor
+    at all) ships with zero guard against a spurious deny on the ordinary
+    "no team run active" case.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        _, subdir = _make_git_root_with_subdir(tmpdir)
+        payload = {
+            "tool_name": "Task",
+            "cwd": str(subdir),
+            "tool_input": {
+                "description": "Implement the feature",
+                "prompt": "...",
+                "run_in_background": True,
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), (
+            f"No sentinel anywhere, cwd a subdir of a real git root, must "
+            f"ALLOW; got: {parsed}"
+        )
+
+
+def test_sentinel_is_live_at_root_via_git_ancestor():
+    """Sentinel present only at the git root (never at the raw payload cwd,
+    a subdirectory) -> _sentinel_is_live is True via the widened OR path.
+
+    This is the DS-175 fix's positive case: bin/ds-team's writer is
+    --workdir anchored and may write above the raw harness-payload cwd; the
+    reader must still find it.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        repo_root, subdir = _make_git_root_with_subdir(tmpdir)
+        _write_sentinel(repo_root / _SENTINEL_REL, os.getpid())
+        assert _sentinel_is_live_at(str(repo_root)) is True
+        assert _sentinel_is_live_at(str(subdir)) is False
+        assert _sentinel_is_live(str(subdir)) is True
 
 
 # ---------------------------------------------------------------------------

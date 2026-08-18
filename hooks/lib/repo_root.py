@@ -11,11 +11,16 @@ Public API: resolve_agentic_cwd_with_diagnostics(start_dir) -> dict with
 
 Upstream deps: os.path (realpath, exists, join, dirname)
 
-Downstream consumers: hooks/lib/loop_guard.py, hooks/lib/enforcement_log.py,
+Downstream consumers (13, re-derived DS-175 - grep for a dynamic loader that
+    actually spec_from_file_location's/SourceFileLoader's this file, not a
+    prose mention): hooks/lib/loop_guard.py, hooks/lib/enforcement_log.py,
     hooks/enforce-no-abdication.py, hooks/enforce-turn-shape.py,
     hooks/enforce-skeptic-round-cap.py, hooks/enforce-planning-artifact-spawn.py,
-    bin/ds-status, bin/ds-cost, bin/ds-memory (all three via a lazy
-    importlib.util dynamic loader, not a direct import)
+    hooks/enforce-ticket-batching.py, hooks/enforce-background-spawn.py
+    (DS-175 - _sentinel_is_live's git-root-anchored OR check, read-only),
+    bin/ds-agentic-repair, bin/ds-cost, bin/ds-identity, bin/ds-status,
+    bin/ds-memory (all five via a lazy importlib.util dynamic loader, not a
+    direct import)
 
 Failure modes: never raises. Any OSError (EACCES/ENOENT) while probing a
     given level is treated as "not found here, keep walking". If no
