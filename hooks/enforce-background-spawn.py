@@ -107,6 +107,21 @@ Failure modes:
       normal background-spawn enforcement resumes. The sentinel self-expires
       when its conductor PID is dead or its mtime exceeds 2 h; there is no
       manual clear command. Fail-open on sentinel read errors.
+    - DS-175 sentinel git-root anchoring - WIDENED DENY SURFACE, accepted
+      trade-off: _sentinel_is_live() OR's the raw payload cwd against the
+      git-root-resolved ancestor (only when a real `.git` ancestor is found).
+      This widens suppression from "exact cwd match" to "every descendant of
+      the git root", and sentinel suppression is NOT covered by the
+      AE_TEAM_ROUTING_DISABLE escape hatch (that env var only skips the
+      routing branch, never sentinel suppression) - there is still no manual
+      clear command. Accepted because the exposure is bounded on two axes
+      already in place before DS-175: the sentinel self-expires at
+      _SENTINEL_MAX_AGE_S (2 h) regardless of PID, and it requires a live PID
+      (os.kill probe) the whole time, so the worst case is a stale-but-
+      PID-live sentinel suppressing repo-wide spawns for up to 2 h, not
+      indefinitely. Resolver failure (missing/broken hooks/lib/repo_root.py,
+      exception, or malformed diagnostics dict) falls back to the raw-cwd-only
+      check silently - never crashes, never widens further.
     - Agent spawn (no live sentinel, no routing match): allowed unless
       run_in_background is exactly False (see the asymmetric rule above);
       absent or True allows.
@@ -288,24 +303,52 @@ FOREGROUND_EXEMPT = {"wrap-ticket"}
 #
 # DS-175: this path is read off the raw Stop-hook payload cwd with no
 # repo-root anchoring - the same unanchored-.agentic/-access class DS-171 U1
-# fixed for bin/ds-identity's write-hook/resolve-hook. Deliberately deferred
-# out of DS-171 U1's round-4 rework rather than fixed inline, because this
-# check is read-only (it only gates whether a spawn nudge fires, never
-# writes .agentic/ state) - see DS-175 for the follow-up anchoring fix.
+# fixed for bin/ds-identity's write-hook/resolve-hook. Deferred out of
+# DS-171 U1's round-4 rework rather than fixed inline (read-only check, never
+# writes .agentic/ state), then fixed by DS-175: _sentinel_is_live() now
+# checks the raw payload cwd first (this constant, unchanged) and
+# additionally the git-root-resolved ancestor via hooks/lib/repo_root.py, but
+# only when a real `.git` ancestor is found (OR, never a fallback/replace -
+# see _sentinel_is_live below).
 _SENTINEL_REL = ".agentic/teamrun/.active"
 
 # Maximum age (seconds) before a sentinel is treated as stale regardless of PID.
 _SENTINEL_MAX_AGE_S = 2 * 60 * 60  # 2 hours
 
-def _sentinel_is_live(cwd: str) -> bool:
-    """Return True iff the DinoStack team sentinel is present AND live.
+def _load_repo_root():
+    """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors
+    _load_log_fire above and hooks/enforce-skeptic-round-cap.py's
+    _load_repo_root). Returns None on any load failure - callers must fall
+    back to the raw-cwd-only check rather than crash or silently widen the
+    deny surface further.
+
+    Called lazily, from inside _sentinel_is_live, not at module scope - the
+    dynamic import cost is paid only when the raw-cwd check has already
+    missed and a repo-root-anchored check is genuinely needed.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "repo_root.py"
+        spec = _ilu.spec_from_file_location("repo_root", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _sentinel_is_live_at(root: str) -> bool:
+    """Return True iff the DinoStack team sentinel is present AND live at
+    *root*.
 
     Live = file exists AND PID on first line is alive AND mtime <= 2 h old.
     Any I/O or parse error returns False (fail-open - suppression never sticks
     on a broken sentinel file).
     """
-    sentinel = Path(cwd) / _SENTINEL_REL
     try:
+        sentinel = Path(root) / _SENTINEL_REL
         if not sentinel.exists():
             return False
 
@@ -331,6 +374,36 @@ def _sentinel_is_live(cwd: str) -> bool:
     except Exception:
         # Any read/parse/stat error -> treat as absent (fail-open).
         return False
+
+
+def _sentinel_is_live(cwd: str) -> bool:
+    """Return True iff the DinoStack team sentinel is live at the raw
+    payload cwd OR at the git-root-resolved ancestor of cwd.
+
+    DS-175: the raw-cwd check (unchanged from pre-DS-175 behavior) runs
+    FIRST. Only when it misses do we additionally resolve cwd's `.git`
+    ancestor via hooks/lib/repo_root.py and re-check there - and only when a
+    real `.git` ancestor was actually found (found_git_ancestor True). This
+    is an OR that widens suppression, never a replacement that could narrow
+    it: bin/ds-team's sentinel writer is anchored to an explicit --workdir
+    argument (not necessarily the repo root - see module docstring / DS-175
+    ticket), so a naive walk-up-only reader would look PAST a sentinel
+    written inside a worktree and silently stop suppressing. Falls back to
+    the raw-cwd-only result (False here) on any resolver load/read error or
+    when no `.git` ancestor exists - never falls back to a $HOME-scoped or
+    otherwise unresolved root.
+    """
+    if _sentinel_is_live_at(cwd):
+        return True
+    try:
+        repo_root = _load_repo_root()
+        if repo_root is not None:
+            diag = repo_root.resolve_agentic_cwd_with_diagnostics(cwd)
+            if diag.get("found_git_ancestor") and diag.get("root") != cwd:
+                return _sentinel_is_live_at(diag["root"])
+    except Exception:
+        pass
+    return False
 
 def _deny(data: dict, reason: str) -> None:
     # Decision print comes FIRST, unconditionally. Telemetry is loaded and

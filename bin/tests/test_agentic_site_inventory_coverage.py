@@ -225,19 +225,23 @@ EXCLUDED_FILES = {
     #
     # This does NOT cover the separate reader-side bug also found in
     # round-3 review: hooks/enforce-background-spawn.py's own
-    # `_sentinel_is_live(cwd)` (lines 288-300) reads
-    # `Path(cwd) / ".agentic/teamrun/.active"` against the raw, UNANCHORED
-    # harness-payload cwd (`data.get("cwd") or os.getcwd()`) - the exact
-    # writer/reader split this ticket exists to close, and it is invisible
-    # to THIS scanner because the join line (`Path(cwd) / _SENTINEL_REL`)
-    # contains no `.agentic` string literal at all (the literal lives on a
-    # separate line, `_SENTINEL_REL = ".agentic/teamrun/.active"`, which
-    # itself matches no join-primitive shape). Deliberately DEFERRED, not
-    # fixed, in this rework - anchoring hooks/enforce-background-spawn.py's
-    # sentinel read is separable from correcting this exclusion rationale,
-    # and widening the scanner to catch bare-constant-then-later-joined
-    # `.agentic` strings is a separate, riskier regex change. Tracked as an
-    # open gap, not silently dropped.
+    # `_sentinel_is_live(cwd)` read `Path(cwd) / ".agentic/teamrun/.active"`
+    # against the raw, UNANCHORED harness-payload cwd (`data.get("cwd") or
+    # os.getcwd()`) - the exact writer/reader split this ticket exists to
+    # close. DS-175 fixed the anchoring: `_sentinel_is_live` now checks the
+    # raw cwd first (unchanged) and additionally the git-root-resolved
+    # ancestor via hooks/lib/repo_root.py (OR, only when a real `.git`
+    # ancestor is found - never a narrowing fallback, since bin/ds-team's
+    # writer is anchored to an explicit --workdir that need not be the repo
+    # root). That fix does NOT make this site visible to THIS scanner,
+    # though - the join line (`Path(root) / _SENTINEL_REL`, now inside
+    # `_sentinel_is_live_at`) still contains no `.agentic` string literal at
+    # all (the literal lives on a separate line, `_SENTINEL_REL =
+    # ".agentic/teamrun/.active"`, which itself matches no join-primitive
+    # shape) - so this site remains invisible to the scanner, by design and
+    # unchanged by DS-175. Widening the scanner to catch bare-constant-
+    # then-later-joined `.agentic` strings remains a separate, riskier regex
+    # change, not attempted here.
     "bin/ds-team",
     # Round-3 rework (Major 3 audit): bin/ds-evaluate is a slash-command-
     # driven signal collector (`/ds-evaluate`, `content/commands/
