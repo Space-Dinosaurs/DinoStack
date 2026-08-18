@@ -19,16 +19,17 @@ Public API: pytest test functions only. `_normalized_scan`, `_site_label`,
          hand-typed - DS-177 Fix 5).
 Upstream deps: `git ls-files` (repo-relative, tracked-only discovery -
          this checkout's `.claude/worktrees/agent-*` count fluctuates
-         session-to-session as isolation worktrees are created and reaped
-         (measured 35-36 across two checks in one review), each a full
-         copy of every guard site; an unfiltered `rglob()` from the repo
-         root would
+         session-to-session as isolation worktrees are created and reaped,
+         each a full copy of every guard site; an unfiltered `rglob()`
+         from the repo root would
          multiply every LIVE_GUARD_SITES entry by (1 + worktree count) and
          either mask the problem under bare-basename keys or redden this
-         gate locally while CI, a clean checkout, stays green - see
-         `_tracked_relative_paths()` in
-         bin/tests/test_ticket_offer_gate_trigger_wording_spec.py:110-133
-         for the identical precedent this reuses). `LIVE_GUARD_SITES` keys
+         gate locally while CI, a clean checkout, stays green - see the
+         `_tracked_relative_paths()` function in
+         bin/tests/test_ticket_offer_gate_trigger_wording_spec.py (grep
+         for that function name - a raw line-number citation here has
+         already drifted twice) for the identical precedent this reuses).
+         `LIVE_GUARD_SITES` keys
          are `(repo_relative_path, derived_label)` pairs; the label is
          content-derived (AST scope resolution for .py, nearest enclosing
          `jobs:` job name for .yml), never hand-typed, so a 3-guards-to-2
@@ -86,10 +87,11 @@ GUARD_PHRASE = "discovery is broken, not clean"
 
 SEARCH_SUFFIXES = {".py", ".yml", ".yaml"}
 
-# Content-derived, never hand-typed (DS-176 Round-2 Critical fix). The 6
-# pre-existing entries plus this file's own vacuous-pass guard (7th entry,
-# added because this file's own discovery guard carries the same literal
-# phrase and is therefore itself discoverable by the mechanism it tests).
+# Content-derived, never hand-typed (DS-176 Round-2 Critical fix). All but
+# the last entry below pre-date this file; the last entry is this file's
+# own vacuous-pass guard, added because this file's own discovery guard
+# carries the same literal phrase and is therefore itself discoverable by
+# the mechanism it tests.
 LIVE_GUARD_SITES = frozenset(
     {
         (".github/workflows/bin-tests.yml", "hooks-python-tests"),
@@ -112,8 +114,8 @@ def _tracked_relative_paths() -> list[pathlib.Path]:
     unfiltered directory walk) matters because this checkout carries a
     fluctuating number of `.claude/worktrees/agent-*` copies of the whole
     tree - created and reaped session-to-session as isolation worktrees
-    spin up and down (measured 35-36 across two checks in one review; see
-    the module docstring's Upstream deps note) - none of which are part of
+    spin up and down (fluctuating count, see the module docstring's
+    Upstream deps note) - none of which are part of
     the primary worktree's git index. DS-177 Fix 4: no cardinal is
     asserted here, since one would go stale independently of this
     function's own behavior."""
@@ -176,10 +178,20 @@ def _line_start_offsets(text: str) -> list[int]:
     """`starts[i]` is the absolute character offset of the start of
     (1-indexed) line `i + 1`. Used to convert an AST node's
     `lineno`/`col_offset` into an absolute character offset comparable
-    against `_normalized_scan_positions`' output."""
+    against `_normalized_scan_positions`' output. Splits ONLY on `\\n` -
+    NOT `str.splitlines()`'s broader break set (`\\x0b`, `\\x0c`, U+2028,
+    U+2029, U+0085, ...), which CPython's tokenizer (and therefore AST
+    `lineno`) does not treat as a line boundary. A `str.splitlines()` split
+    diverges from AST line numbering the moment one of those characters
+    appears earlier in the file, misaligning every subsequent offset
+    (DS-177 rework Minor 1 fix; `_check_form_c`'s `text_lines` has the
+    matching fix - see `test_form_c_form_feed_does_not_misalign_offsets`)."""
     starts = [0]
-    for line in text.splitlines(keepends=True):
-        starts.append(starts[-1] + len(line))
+    offset = 0
+    for ch in text:
+        offset += 1
+        if ch == "\n":
+            starts.append(offset)
     return starts
 
 
@@ -366,7 +378,12 @@ def _check_form_c(text: str, line_range: tuple[int, int]) -> bool:
         return False
 
     line_starts = _line_start_offsets(text)
-    text_lines = text.splitlines()
+    # Split ONLY on "\n" - see `_line_start_offsets`' docstring (DS-177
+    # rework Minor 1 fix). `str.splitlines()` here would misalign
+    # `text_lines[msg.lineno - 1]` against AST `lineno` the moment a
+    # non-`\n` line-break character (form feed, U+2028, ...) appears
+    # earlier in the file.
+    text_lines = text.split("\n")
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assert):
             continue
@@ -486,15 +503,17 @@ def test_live_guard_sites_bidirectional_set_equality() -> None:
     )
     assert not only_pinned, (
         "LIVE_GUARD_SITES pin(s) not found on disk (phantom entry, deleted "
-        "guard, or - most likely for this file's own 7th entry - this "
-        "test file itself is not yet `git add`ed and so invisible to the "
+        "guard, or - most likely for this file's own vacuous-pass-guard "
+        "entry - this test file itself is not yet `git add`ed and so "
+        "invisible to the "
         f"`git ls-files`-scoped discovery in an uncommitted checkout): {sorted(only_pinned)}"
     )
 
 
 def test_bidirectional_comparison_reddens_on_phantom_pin(monkeypatch) -> None:
     """Minor 3 (DS-176 rework-2): on the real, synced tree there is no
-    phantom pin, so `only_pinned = LIVE_GUARD_SITES - disk_live` at :424
+    phantom pin, so the `only_pinned = LIVE_GUARD_SITES - disk_live` line
+    inside test_live_guard_sites_bidirectional_set_equality above
     and a neutered `only_pinned = frozenset()` both report zero difference
     - nothing in the suite would catch that line being neutered. This
     injects a genuine phantom entry into LIVE_GUARD_SITES via monkeypatch,
@@ -516,6 +535,39 @@ def test_bidirectional_comparison_reddens_on_phantom_pin(monkeypatch) -> None:
             "expected test_live_guard_sites_bidirectional_set_equality to "
             "raise AssertionError on a phantom LIVE_GUARD_SITES entry, but "
             "it passed - the only_pinned comparison is not discriminating"
+        )
+
+
+def test_bidirectional_comparison_reddens_on_unpinned_disk_site(monkeypatch) -> None:
+    """DS-177 rework Minor 2 regression test - mirror direction of
+    test_bidirectional_comparison_reddens_on_phantom_pin above. `only_on_disk
+    = disk_live - LIVE_GUARD_SITES` catches an unpinned real site; a
+    neutered `only_on_disk = frozenset()` would report zero difference no
+    matter what disk contains, and nothing else in the suite would catch
+    it. This injects a genuine extra site into the LIVE result via
+    monkeypatching `_discover_live_sites` (never a hardcoded stub), then
+    calls the real production test function - which executes the actual
+    `disk_live - LIVE_GUARD_SITES` subtraction against that live-computed
+    set - and asserts it raises."""
+    extra_site = ("bin/tests/this-file-does-not-exist.py", "phantom_disk_guard")
+    real_discover_live_sites = _discover_live_sites
+
+    def _discover_with_extra_site(*args, **kwargs):
+        return real_discover_live_sites(*args, **kwargs) | {extra_site}
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_discover_live_sites", _discover_with_extra_site
+    )
+    try:
+        test_live_guard_sites_bidirectional_set_equality()
+    except AssertionError:
+        pass
+    else:
+        pytest.fail(
+            "expected test_live_guard_sites_bidirectional_set_equality to "
+            "raise AssertionError on an unpinned disk-only site, but it "
+            "passed - the only_on_disk comparison is not discriminating "
+            "(e.g. neutered to a hardcoded `frozenset()`)"
         )
 
 
@@ -701,6 +753,73 @@ def test_form_c_rejects_hit_straddling_condition_message_boundary() -> None:
         f"a phrase hit straddling the assert's test/msg boundary should "
         f"NOT conform (the message alone does not carry the phrase), got "
         f"({ok}, {form})"
+    )
+
+
+def test_form_c_form_feed_does_not_misalign_offsets() -> None:
+    """DS-177 rework Minor 1 regression test. `_line_start_offsets` and
+    `_check_form_c`'s `text_lines` used to split on `str.splitlines()`'s
+    broader break set (form feed `\\x0c` among them), which CPython's
+    tokenizer - and therefore AST `lineno` - does NOT treat as a line
+    boundary. A form feed appearing on an earlier physical line inserts an
+    extra phantom "line" into the `splitlines()`-derived list/offset
+    array, so `text_lines[msg.lineno - 1]` (indexed by the true, `\\n`-only
+    AST line number) grabs the WRONG line's content and the resulting
+    character-offset comparison misses - misclassifying a genuinely
+    conforming guard as non-conforming. Fixture: a form feed sits inside a
+    string literal on the line BEFORE the assert, so `str.splitlines()`
+    over-splits by one entry ahead of the assert's own (`\\n`-only) AST
+    line number. Confirmed failing pre-fix against the parent commit's
+    module (returned `(False, 'NONE')`); this fixture must classify Form
+    C."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        '    marker = "a\x0cb"\n'
+        f'    assert hook_files, "{GUARD_PHRASE}"\n'
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert ok and form == "C", (
+        f"a form feed on an earlier line should not misalign line "
+        f"numbering and cause a conforming guard to misclassify, got "
+        f"({ok}, {form})"
+    )
+
+
+def test_form_a_rejects_stdout_only_with_exit() -> None:
+    """DS-177 rework Minor 2 regression test. `_check_form_a`'s `>&2`
+    check can be silently deleted, leaving only the `exit 1` search, and
+    nothing in the suite would catch it. A guard that logs to STDOUT
+    (no `>&2`) and then exits is not the mandated Form A shape - the
+    message must be stderr-directed - and must NOT conform."""
+    fixture = f'echo "ERROR: zero matched - {GUARD_PHRASE}"\nexit 1\n'
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".yml", fixture, matches[0])
+    assert not ok, (
+        f"stdout-only (no >&2) message followed by exit 1 should NOT "
+        f"conform, got ({ok}, {form})"
+    )
+
+
+def test_form_b_rejects_stderr_write_without_exit() -> None:
+    """DS-177 rework Minor 2 regression test. `_check_form_b`'s
+    `sys.exit(1)`/`raise SystemExit` check can be silently neutered to
+    `return True`, and nothing in the suite would catch it. A Form B
+    guard that writes to stderr but never exits is the classic
+    'log but don't fail' vacuous-pass shape and must NOT conform."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    print("ERROR: zero matched - {GUARD_PHRASE}", file=sys.stderr)\n'
+        "    pass\n"
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"stderr write without sys.exit(1)/raise SystemExit should NOT "
+        f"conform, got ({ok}, {form})"
     )
 
 
