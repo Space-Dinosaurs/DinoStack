@@ -40,27 +40,30 @@ Downstream consumers: bin-tests.yml python-bin-tests job
 Failure modes: (a) a live guard site is deleted or weakened to a fourth,
          undetectable idiom (log-only, no `exit 1` / `sys.exit(1)` /
          assert) - caught by `test_each_live_guard_conforms_to_mandated_form`
-         and the two mutation tests; (b) `LIVE_GUARD_SITES` drifts from the
+         and the mutation tests below; (b) `LIVE_GUARD_SITES` drifts from the
          live tree (a site added or removed without updating the pin) -
          caught by the bidirectional set-equality test, in BOTH directions
          (a phantom entry naming something nonexistent is caught by
          `LIVE_GUARD_SITES - disk_live`, not just an omission); (c) phrase
          discovery itself finds nothing (this file's own vacuous-pass
          guard, `test_discovery_finds_phrase_occurrences`).
-False-positive reasoning: two prose references to the guard phrase exist
+False-positive reasoning: prose references to the guard phrase exist
          purely as documentation - bin/tests/test_ticket_offer_gate_trigger_
          wording_spec.py:36 (module docstring, explaining this file's own
          discipline by citation) and :164-165 (a FUNCTION docstring
          explaining a *different*, non-phrase-carrying guard's rationale).
-         Both are classified DOCUMENTATION by AST (first-statement string
-         constant of a Module/FunctionDef), out of scope, not a violation -
-         see `test_docstring_reference_not_flagged_as_violation`.
+         The exact count (currently 2) is asserted with `==`, never
+         hand-typed here, by `test_docstring_reference_not_flagged_as_violation`
+         - re-derive fresh at PR time, never trust a cited cardinal. Both
+         are classified DOCUMENTATION by AST (first-statement string
+         constant of a Module/FunctionDef), out of scope, not a violation.
 AC-5 scope justification (re-derive fresh at PR time, never trust a cited
          cardinal): as of this file's introduction, 29-of-77 files matched
          by the flat (non-recursive) `bin/tests/*.py` glob use a discovery
          pattern (`.glob(`, `.rglob(`, `os.walk(`, or `git ls-files`),
-         against 7 live guards (this file's own guard plus the 6
-         documented above) carrying the mandated-form phrase, across 4
+         against 7 live guards (this file's own vacuous-pass guard - the
+         last entry in `LIVE_GUARD_SITES` below - plus the pre-existing
+         entries above it) carrying the mandated-form phrase, across 4
          files. (The recursive `bin/tests/**/*.py` glob yields 80, not 77
          - a different method with a different denominator; this
          justification cites the flat glob because that is the method
@@ -179,13 +182,25 @@ def _line_start_offsets(text: str) -> list[int]:
     (1-indexed) line `i + 1`. Used to convert an AST node's
     `lineno`/`col_offset` into an absolute character offset comparable
     against `_normalized_scan_positions`' output. Splits ONLY on `\\n` -
-    NOT `str.splitlines()`'s broader break set (`\\x0b`, `\\x0c`, U+2028,
-    U+2029, U+0085, ...), which CPython's tokenizer (and therefore AST
-    `lineno`) does not treat as a line boundary. A `str.splitlines()` split
-    diverges from AST line numbering the moment one of those characters
-    appears earlier in the file, misaligning every subsequent offset
-    (DS-177 rework Minor 1 fix; `_check_form_c`'s `text_lines` has the
-    matching fix - see `test_form_c_form_feed_does_not_misalign_offsets`)."""
+    deliberately NOT `str.splitlines()`'s broader break set (`\\x0b`,
+    `\\x0c`, U+2028, U+2029, U+0085, ...), none of which CPython's
+    tokenizer (and therefore AST `lineno`) treats as a line boundary; a
+    `str.splitlines()` split diverges from AST line numbering the moment
+    one of those characters appears earlier in the file, misaligning every
+    subsequent offset (DS-177 rework Minor 1 fix; `_check_form_c`'s
+    `text_lines` has the matching fix - see
+    `test_form_c_form_feed_does_not_misalign_offsets`). This is NOT a
+    claim that `\\n`-only splitting is exactly equivalent to tokenizer line
+    boundaries in general: a lone `\\r` (old Mac line ending) IS also a
+    tokenizer/AST line boundary that `\\n`-only splitting would miss,
+    causing the same class of misalignment. That residual case is
+    unreachable via this file's real discovery path (never via an
+    in-memory mutation-test fixture, which controls its own bytes)
+    because every real file is read with `pathlib.Path.read_text()`,
+    which applies universal-newline translation - `\\r` and `\\r\\n` are
+    already collapsed to `\\n` before the text ever reaches this function
+    (verified: a CRLF fixture read via `read_text()` contains no `\\r` and
+    classifies (True, 'C'))."""
     starts = [0]
     offset = 0
     for ch in text:
@@ -282,7 +297,12 @@ def _site_label_python(text: str, line_range: tuple[int, int]) -> str | None:
         candidates.sort(key=lambda t: t[0])
         return candidates[0][1]
 
-    lines = text.splitlines()
+    # Split ONLY on "\n" - see `_line_start_offsets`' docstring (DS-177
+    # rework2 Major fix). `line_range` is derived from `_normalized_scan`,
+    # which counts `\n` only; `str.splitlines()` here would misalign
+    # `lines[i]` against that line number the moment a non-`\n` line-break
+    # character (form feed, U+2028, ...) appears earlier in the file.
+    lines = text.split("\n")
     lower_bound = max(-1, hit_line - 16)
     for i in range(hit_line - 1, lower_bound, -1):
         m = _MODULE_GUARD_RE.match(lines[i])
@@ -295,7 +315,12 @@ def _site_label(
     suffix: str, text: str, line_range: tuple[int, int]
 ) -> str | None:
     if suffix in (".yml", ".yaml"):
-        return _site_label_yaml(text.splitlines(), line_range)
+        # Split ONLY on "\n" - see `_line_start_offsets`' docstring
+        # (DS-177 rework2 Major fix). `line_range` is `\n`-counted by
+        # `_normalized_scan`; `str.splitlines()` here would misalign the
+        # indexed line the moment a non-`\n` line-break character appears
+        # earlier in the file.
+        return _site_label_yaml(text.split("\n"), line_range)
     if suffix == ".py":
         return _site_label_python(text, line_range)
     return None
@@ -419,7 +444,15 @@ def _conforms_to_mandated_form(
     whole-statement line-span containment. For .py files, a phrase
     occurring inside a docstring is classified DOCUMENTATION - out of
     scope, not a violation, not a guard."""
-    lines = text.splitlines()
+    # Split ONLY on "\n" - see `_line_start_offsets`' docstring (DS-177
+    # rework2 Major fix). `line_range` is `\n`-counted by
+    # `_normalized_scan`; `str.splitlines()` here would misalign
+    # `lines[i]` against that line number the moment a non-`\n` line-break
+    # character (form feed, U+2028, ...) appears earlier in the file -
+    # this is the exact sibling-site defect `_line_start_offsets` and
+    # `_check_form_c`'s `text_lines` were already fixed for in the DS-177
+    # rework, and that fix's reviewer measured this site as unfixed.
+    lines = text.split("\n")
     if suffix in (".yml", ".yaml"):
         ok = _check_form_a(lines, line_range)
         return (ok, "A" if ok else "NONE")
@@ -787,6 +820,33 @@ def test_form_c_form_feed_does_not_misalign_offsets() -> None:
     )
 
 
+def test_form_a_form_feed_does_not_misalign_offsets() -> None:
+    """DS-177 rework2 Major regression test, mirroring
+    test_form_c_form_feed_does_not_misalign_offsets above. The declined
+    sibling site: `_conforms_to_mandated_form` used to split on
+    `str.splitlines()`'s broader break set (form feed among them) before
+    handing `lines` to `_check_form_a`, so a form feed on an earlier
+    physical line inserted a phantom extra "line" into the list -
+    misaligning the `>&2`/`exit 1` window against the `\\n`-only
+    `line_range` `_normalized_scan` produces, and misclassifying a
+    genuinely conforming Form A guard as non-conforming. Confirmed failing
+    pre-fix against the parent commit's module (returned `(False,
+    'NONE')`); this fixture must classify Form A."""
+    fixture = (
+        'echo "a\x0cb"\n'
+        f'echo "ERROR: zero matched - {GUARD_PHRASE}" >&2\n'
+        "exit 1\n"
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".yml", fixture, matches[0])
+    assert ok and form == "A", (
+        f"a form feed on an earlier line should not misalign line "
+        f"numbering and cause a conforming Form A guard to misclassify, "
+        f"got ({ok}, {form})"
+    )
+
+
 def test_form_a_rejects_stdout_only_with_exit() -> None:
     """DS-177 rework Minor 2 regression test. `_check_form_a`'s `>&2`
     check can be silently deleted, leaving only the `exit 1` search, and
@@ -820,6 +880,31 @@ def test_form_b_rejects_stderr_write_without_exit() -> None:
     assert not ok, (
         f"stderr write without sys.exit(1)/raise SystemExit should NOT "
         f"conform, got ({ok}, {form})"
+    )
+
+
+def test_form_b_rejects_stdout_only_with_exit() -> None:
+    """DS-177 rework2 Minor 1 regression test, mirroring
+    test_form_a_rejects_stdout_only_with_exit above. `_check_form_b`'s
+    stderr-direction check (`"file=sys.stderr" not in joined_nearby and
+    "sys.stderr.write" not in joined_nearby`) can be silently deleted,
+    leaving only the `sys.exit(1)`/`raise SystemExit` search - and, unlike
+    Form A (which already had both halves guarded), nothing in the suite
+    caught it: all pre-existing tests still passed with that check
+    removed. A guard that logs to STDOUT (no stderr direction) and then
+    exits is not the mandated Form B shape - the message must be
+    stderr-directed - and must NOT conform."""
+    fixture = (
+        "def check_files(hook_files):\n"
+        f'    print("ERROR: zero matched - {GUARD_PHRASE}")\n'
+        "    sys.exit(1)\n"
+    )
+    matches = _normalized_scan(fixture)
+    assert matches
+    ok, form = _conforms_to_mandated_form(".py", fixture, matches[0])
+    assert not ok, (
+        f"stdout-only (no stderr direction) message followed by "
+        f"sys.exit(1) should NOT conform, got ({ok}, {form})"
     )
 
 
@@ -886,12 +971,18 @@ def test_mutation_guard_entirely_removed_reddens(tmp_path: pathlib.Path) -> None
 def test_docstring_reference_not_flagged_as_violation() -> None:
     """test_ticket_offer_gate_trigger_wording_spec.py:36 (module docstring)
     and :164-165 (function docstring) both classify as DOCUMENTATION
-    (AST-confirmed), not NON-CONFORMING."""
+    (AST-confirmed), not NON-CONFORMING. DS-177 rework2 Minor 2 fix:
+    exact equality, not a `>= 2` lower bound - a lower bound stays green
+    if a third occurrence appears on disk, silently going stale exactly
+    like the word-form-cardinal class this fix closes in the module
+    docstring above."""
     target = REPO_ROOT / "bin" / "tests" / "test_ticket_offer_gate_trigger_wording_spec.py"
     text = target.read_text(encoding="utf-8")
     matches = _normalized_scan(text)
-    assert len(matches) >= 2, (
-        f"expected at least 2 phrase occurrences in {target}, found {len(matches)}"
+    assert len(matches) == 2, (
+        f"expected exactly 2 phrase occurrences in {target}, found "
+        f"{len(matches)} - re-derive the module docstring's False-positive "
+        "reasoning citation if this count has changed"
     )
     for line_range in matches:
         assert _is_docstring_hit(text, line_range), (
