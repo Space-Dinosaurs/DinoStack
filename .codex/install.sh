@@ -14,7 +14,12 @@
 # Failure modes: staged source build/drift and unsafe user destinations fail
 #                before any user-state mutation; existing safe non-owned targets
 #                are backed up before replacement; optional identity and snapshot
-#                helpers degrade with explicit warnings.
+#                helpers degrade with explicit warnings. DS-183: when the
+#                dinostack skill link does not resolve, ~/.codex/AGENTS.md is
+#                written as a real file with the full methodology body
+#                embedded (degrade path) instead of symlinked to the
+#                .codex/AGENTS.md stub, with an explicit warning - never a
+#                silent content drop.
 # Performance: one isolated source copy/build plus local filesystem installation,
 #              linear in repository and generated adapter size; no network access.
 set -euo pipefail
@@ -661,7 +666,38 @@ for skill_name in "${SKILL_NAMES[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# Symlink ~/.codex/AGENTS.md to .codex/AGENTS.md
+# DS-183 link-health gate for the dinostack skill (mirrors .claude/install.sh's
+# SKILL_LINK_OK, .claude/install.sh:474-537). .codex/AGENTS.md is generated as
+# a stub (runtime binding preamble + activation-preflight pointer + a
+# skill-load-on-trigger instruction) - it no longer embeds the full
+# methodology body. The full body only loads when the dinostack skill link
+# below resolves. When it does not, the trigger path is unreachable, so the
+# fallback further down writes the full body directly into a real
+# ~/.codex/AGENTS.md file instead of symlinking the stub - never silently
+# drop content.
+# ---------------------------------------------------------------------------
+
+DINOSTACK_SKILL_LINK_OK=true
+DINOSTACK_SKILL_LINK_REASON=""
+_ae_dinostack_skill_dst="$SKILLS_DST/dinostack"
+_ae_dinostack_skill_src="$SKILLS_SRC/dinostack"
+if [[ -L "$_ae_dinostack_skill_dst" ]]; then
+  _ae_dinostack_link_target="$(readlink "$_ae_dinostack_skill_dst")"
+  if [[ "$_ae_dinostack_link_target" != "$_ae_dinostack_skill_src" ]]; then
+    DINOSTACK_SKILL_LINK_OK=false
+    DINOSTACK_SKILL_LINK_REASON="skill symlink points elsewhere: $_ae_dinostack_link_target"
+  fi
+else
+  DINOSTACK_SKILL_LINK_OK=false
+  DINOSTACK_SKILL_LINK_REASON="no symlink at $_ae_dinostack_skill_dst"
+fi
+if [[ "$DINOSTACK_SKILL_LINK_OK" == "true" && ! -f "$_ae_dinostack_skill_dst/METHODOLOGY.md" ]]; then
+  DINOSTACK_SKILL_LINK_OK=false
+  DINOSTACK_SKILL_LINK_REASON="skill link resolves but METHODOLOGY.md is missing beneath it"
+fi
+
+# ---------------------------------------------------------------------------
+# Write ~/.codex/AGENTS.md
 # Per Codex docs: global scope loads ~/.codex/AGENTS.md
 # ---------------------------------------------------------------------------
 
@@ -674,7 +710,40 @@ echo "Linking global AGENTS.md..."
 }
 mkdir -p "$CODEX_CONFIG_DIR"
 
-if [[ -L "$AGENTS_DST" ]]; then
+if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
+  echo ""
+  echo "  WARNING: the dinostack skill is not linked ($DINOSTACK_SKILL_LINK_REASON)."
+  echo "  The trigger-loaded methodology body would be unreachable from the stub, so the full"
+  echo "  methodology body is being written directly into $AGENTS_DST instead of symlinking the"
+  echo "  stub. Re-run install.sh after resolving the skill-link issue to switch back to the"
+  echo "  trigger-loaded stub."
+  echo ""
+  if [[ -L "$AGENTS_DST" ]]; then
+    rm "$AGENTS_DST"
+  elif [[ -e "$AGENTS_DST" ]]; then
+    BACKUP="$AGENTS_DST.backup-$(date +%Y%m%d%H%M%S)"
+    echo "  Backing up existing $AGENTS_DST to $BACKUP"
+    mv "$AGENTS_DST" "$BACKUP"
+  fi
+  {
+    cat "$AGENTS_SRC"
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Embedded methodology (degrade path - dinostack skill link unavailable)"
+    echo ""
+    cat "$REPO_DIR/.codex/skills/dinostack/METHODOLOGY.md"
+    echo ""
+    echo "---"
+    echo ""
+    cat "$REPO_DIR/content/rules/code-standards.md"
+    echo ""
+    echo "---"
+    echo ""
+    cat "$REPO_DIR/content/rules/conventions.md"
+  } > "$AGENTS_DST"
+  echo "  + $AGENTS_DST written with the full methodology body embedded (degrade path)"
+elif [[ -L "$AGENTS_DST" ]]; then
   current_target="$(readlink "$AGENTS_DST")"
   if [[ "$current_target" == "$AGENTS_SRC" ]]; then
     echo "  = ~/.codex/AGENTS.md (already linked)"
@@ -988,7 +1057,8 @@ echo ""
 echo "Next steps:"
 echo "  1. Open Codex in a project that uses this methodology."
 echo "  2. The dinostack skill will trigger automatically for software development tasks."
-echo "  3. ~/.codex/AGENTS.md loads the full methodology globally in every Codex session."
+echo "  3. ~/.codex/AGENTS.md binds the runtime and points at the dinostack skill; the full"
+echo "     methodology loads on trigger (step 2), not globally in every Codex session (DS-183)."
 echo "  4. The project's AGENTS.md (if present) loads additional project-specific rules."
 echo "  5. Risk reminder hook fires automatically before each prompt."
 echo "  6. Session context saved to ~/.codex/projects/[hash]/context.md on Stop."
