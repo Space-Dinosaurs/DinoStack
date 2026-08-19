@@ -11,7 +11,7 @@
 #          body - Copilot's native Agent Skills primitive; description-
 #          matched and injected on trigger rather than always-resident),
 #          .github/agents/*.md (18 agent files for Copilot agent picker),
-#          .github/prompts/*.prompt.md (22 slash-prompt files),
+#          .github/prompts/*.prompt.md (one per content/commands/*.md),
 #          .github/instructions/content-engineering.instructions.md,
 #          .github/hooks/* (hook scripts),
 #          .copilot/references/*.md (hardlinks for repo browsing)
@@ -75,10 +75,20 @@ cat <<'STUB' > "$INSTRUCTIONS_MD"
 # Agentic Engineering Protocol
 
 This is a stub. The full agentic engineering methodology (delegation, risk
-classification, adversarial review, quality gates) loads on trigger via the
-`dinostack` Agent Skill at `.github/skills/dinostack/SKILL.md` - Copilot
-description-matches and injects it automatically for software development
-prompts; invoke it explicitly if it does not fire on its own.
+classification, adversarial review, quality gates - including the
+Activation preflight that decides whether the methodology is opt-in for
+this repo) loads on trigger via the `dinostack` Agent Skill at
+`.github/skills/dinostack/SKILL.md`.
+
+Before starting any task, check if the skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `dinostack` |
+
+Copilot description-matches on these signals and injects the skill
+automatically for software development prompts. If any signal matches and
+it has not fired on its own, invoke it explicitly. When in doubt, invoke it.
 
 Use the `.github/agents/` picker to spawn named agents. Use `.github/prompts/`
 for slash-prompt commands.
