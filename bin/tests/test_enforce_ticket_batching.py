@@ -146,9 +146,12 @@ Test groups:
                                                     inspects the command
                                                     string only.
 
-Note: this index enumerates the first 35 tests in file order (through the
-Bash Python-client coverage added alongside the script-file-indirection
-residual); the remaining tests below it are not individually indexed here.
+Note: the numbers above are historical labels assigned when each entry was
+added, not file positions - this file's test order has drifted from the
+index across several PRs. This index is a partial, non-contiguous list;
+not every test in the file is described here. Run `grep '^def test_'
+bin/tests/test_enforce_ticket_batching.py` for the authoritative, current
+list of tests in file order.
 
 Run with: python3 -m pytest bin/tests/test_enforce_ticket_batching.py -x
        or: python3 bin/tests/test_enforce_ticket_batching.py

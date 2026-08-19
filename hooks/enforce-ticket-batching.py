@@ -241,14 +241,13 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          creation script to a scratchpad directory and ran it, creating
          four Jira tickets, with no `.ticket-batch-*.json` counter file
          written that day. An absent counter file alone does not
-         distinguish this false-negative from `main()`'s two other
-         fail-open exits before `_write_state` (`AE_TICKET_BATCH_GUARD_
-         DISABLE`, the `_is_triage_exempt` session marker) or from
-         `_state_path` returning `None` when `cwd` has no resolvable
-         `.git` ancestor - directly relevant here, since the observed
-         scenario ran from a scratchpad directory. The counter-file
-         absence is consistent with this false-negative class but does
-         not, by itself, rule those other paths out. Not attempted: making the hook
+         distinguish this false-negative from any of `main()`'s other
+         fail-open exits before `_write_state` (see `Failure modes:`
+         below for the full list) - directly relevant here, since the
+         observed scenario ran from a scratchpad directory and `cwd` had
+         no resolvable `.git` ancestor. The counter-file absence is
+         consistent with this false-negative class but does not, by
+         itself, rule those other paths out. Not attempted: making the hook
          resolve and read an arbitrary referenced script path is
          unbounded (relative paths, `$VAR` expansion, symlinks,
          interpreters other than python, `sh -c`/`env` wrappers) and would
