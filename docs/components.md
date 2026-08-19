@@ -5,7 +5,7 @@
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (39 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
+**Reference docs** (40 .md docs plus 3 example .yml files; `content/references/` is the authoritative list) - detailed protocol specs loaded on trigger:
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
 - Agent team - roles, composed flows, decision rules, spawn requirements

@@ -1,0 +1,501 @@
+#!/usr/bin/env python3
+"""
+Purpose: DS-179 /ds-prune-harness Signal 8 input. Joins each hook's fire
+         posture (ACTION-ONLY vs EVERY-VERDICT - derived off
+         hooks/enforce-*.py source via scripts/lib/enforcer_facts.py)
+         against `.agentic/.enforcement-fires.jsonl` fire counts over a
+         window, and classifies each hook into one of four `status`
+         values that distinguish "zero fires because nothing happened
+         recently" from "zero fires because we never measured" and from
+         "zero fires because this posture logs every reached verdict, so
+         zero really does mean never invoked". This distinction is the
+         whole point of the tool: a bare fire count alone cannot tell a
+         prune-harness analyst whether a hook is a dead rule or an
+         unmeasured one, and conflating the two would turn an
+         instrumentation gap into a false deletion candidate.
+
+Public API: ds-hook-fire-report [--repo PATH] [--days N] [--json]
+            Default output: a fixed-width table to stdout, one row per
+            hooks/enforce-*.py file, preceded by a legend. --json emits a
+            JSON OBJECT (not a bare array) with two top-level keys: "meta"
+            (log-level facts and the legend) and "hooks" (the array of
+            per-hook rows) - the shape /ds-prune-harness Signal 8 passes
+            verbatim into its analyst spawn prompt (the analyst Worker has
+            no Bash in its tool_scope, so the CONDUCTOR runs this command,
+            not the Worker). --days sets the fire-count window (default
+            14) - this governs `fire_count_window` only, NOT confidence;
+            confidence is keyed on `meta.log_confidence_eligible`
+            (DS-179 round 3), a single derived bool, never on the requested
+            `--days` value (a caller passing `--days 90` against a log that
+            only has 3 days of real history must not be able to claim 90
+            days of coverage) and never on `meta.log_coverage_days` alone
+            (span without density: a log with 2-3 old records can claim
+            months of "coverage" while never having observed a representative
+            sample of the hook's actual firing behavior - see
+            log_confidence_eligible below). --repo defaults to cwd, same
+            convention as ds-evaluate. Exit 0 always (a missing/absent/
+            malformed fires log is a per-hook UNMEASURED status, not a CLI
+            failure) unless --repo does not look like a DinoStack checkout
+            (no hooks/ dir), which exits 1.
+
+            meta.log_confidence_eligible (DS-179 round 3) - a single derived
+            bool combining BOTH failure modes the Skeptic found in
+            log_coverage_days alone: sparse-but-old (a couple of records
+            spanning months, measured: 2 records dated 2025-01-01 ->
+            log_coverage_days=595.0; 3 records spanning 121 days) and
+            majority-corrupted (measured: 99 garbage lines + 1 valid record
+            -> log_effectively_empty=False, log_malformed_lines=99). True
+            only when ALL of: the log is present and not effectively empty,
+            log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE (density -
+            enough real records exist to have plausibly observed a fire, not
+            just a couple of stray old ones), and the malformed-line ratio
+            (log_malformed_lines / log_total_lines) <=
+            MAX_MALFORMED_RATIO_FOR_CONFIDENCE (corruption - a log that is
+            mostly garbage cannot be trusted even where a handful of lines
+            happened to parse). One derived field rather than three raw
+            fields left for the Signal 8 prose to combine correctly itself -
+            see the two module-level constants below for the exact
+            thresholds and their rationale.
+
+Status enum (binding contract, see content/commands/ds-prune-harness.md
+    Signal 8):
+  - UNMEASURED           - either the fires log is absent entirely, OR it
+                            is present but zero lines in it parsed as a
+                            JSON object (`meta.log_parsed_lines == 0` -
+                            covers both a wholly empty file and a wholly
+                            malformed one). Both cases mean "no usable
+                            data", and are never conflated with a real
+                            zero count - a file nothing could be read out
+                            of cannot be evidence of zero invocations.
+  - ZERO_INVOCATIONS      - posture EVERY_VERDICT and fire_count_window==0,
+                            with at least one line in the log parsing
+                            successfully. This posture logs every reached
+                            verdict (including plain "allow"), so zero
+                            genuinely means "never invoked" in the window.
+  - ZERO_ACTION_IN_WINDOW - posture ACTION_ONLY and fire_count_window==0,
+                            with at least one line in the log parsing
+                            successfully. Means zero denies/advisories,
+                            NOT proof of zero invocations - a silent allow
+                            is never logged under this posture.
+  - ACTIVE                - fire_count_window > 0.
+
+  The legend text above (one sentence per status, matching this
+  docstring) is also emitted in BOTH output modes - `meta.legend` in
+  --json, and a printed legend block before the table otherwise - so a
+  JSON consumer never has to fall back to reading this docstring to
+  understand what a zero count does and does not prove.
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
+               pathlib). Loads scripts/lib/enforcer_facts.py via
+               importlib.util.spec_from_file_location, resolved against
+               THIS FILE's own install dir - Path(__file__).resolve().parent
+               (symlink-safe-loader convention - a bare `.parent` breaks
+               when this file is invoked through the
+               bin/agentic-hook-fire-report PATH symlink, since __file__
+               would then resolve relative to the symlink's own directory,
+               not this file's real location) - never against the `--repo`
+               target. `--repo` names which tree to MEASURE (where
+               hooks/enforce-*.py and .agentic/.enforcement-fires.jsonl
+               live); it is independent of where this tool's own code
+               lives, so a `--repo` pointing at a tree lacking
+               scripts/lib/enforcer_facts.py still loads the module
+               correctly from this tool's own checkout. Reads
+               <repo>/.agentic/.enforcement-fires.jsonl.
+
+Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
+                       conductor runs `ds-hook-fire-report --json` at
+                       Step 0/1 and passes the output into the analyst
+                       spawn prompt verbatim - the analyst itself never
+                       shells out to this tool). Signal 8's confidence
+                       tier reads `meta.log_confidence_eligible` (gating
+                       whether MEDIUM is reachable at all) together with
+                       `meta.log_coverage_days` (the >= 30 span check),
+                       never `meta.requested_window_days` or a per-row
+                       `window_days` - see the Public API note above.
+
+Failure modes: never raises on a missing or malformed fires log - an
+               absent file, or one where zero lines parse, yields
+               UNMEASURED for every hook (see Status enum above). A
+               partially-malformed log (some lines parse, some do not)
+               is treated as a real measurement over the lines that DID
+               parse - `meta.log_malformed_lines` reports the skipped
+               count so the caller can see the log was not perfectly
+               clean, but per-hook status logic proceeds normally,
+               because at least one real data point exists. A hook name
+               in the log that does not correspond to any hooks/enforce-
+               *.py file on disk is silently excluded from `by_hook` in
+               the enforcer_facts derivation (that hook has been deleted
+               or renamed) - the report never fabricates a row for a
+               nonexistent hook. A record whose `ts` field is absent or
+               unparseable counts toward `fire_count_all_time` for its
+               hook but never `fire_count_window` (it cannot be tested
+               against the window) and is tracked separately per-hook in
+               `fire_count_unparsed_ts`, so a caller can see why
+               all-time might exceed what the window count alone would
+               suggest. A log that is present, not effectively empty, but
+               either too sparse (below MIN_PARSED_LINES_FOR_CONFIDENCE
+               real records) or too corrupted (malformed-line ratio above
+               MAX_MALFORMED_RATIO_FOR_CONFIDENCE) still reports a real
+               per-hook status (UNMEASURED/ZERO_*/ACTIVE proceed exactly as
+               documented above - status logic is unaffected) but
+               `meta.log_confidence_eligible` is False, so Signal 8 cannot
+               reach MEDIUM confidence off it regardless of
+               `log_coverage_days`.
+
+Performance: one AST parse per hooks/enforce-*.py file (via
+             enforcer_facts) plus one linear pass over the fires log -
+             sub-second for realistic log sizes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+_BIN_DIR = Path(__file__).resolve().parent
+_REPO_ROOT_DEFAULT = _BIN_DIR.parent
+
+# DS-179 round 3: log_coverage_days alone measures SPAN (how far back the
+# oldest parseable timestamp reaches), not DATA ADEQUACY - a log with as
+# few as 2 old records can claim months of "coverage" without ever having
+# observed a representative sample of real firing behavior. Density and
+# corruption are the two independent ways a log can look adequate on span
+# alone while actually being useless; both feed meta.log_confidence_eligible.
+#
+# MIN_PARSED_LINES_FOR_CONFIDENCE = 30: chosen to roughly match the
+# 30-day MEDIUM-confidence coverage threshold Signal 8 already used before
+# this fix (content/commands/ds-prune-harness.md Signal 8) - i.e. a log
+# claiming ~30 days of genuine coverage should contain on the order of one
+# parsed record per day of that span, not a handful of stray old ones. This
+# is a deliberately loose floor (not "one record per hook per day"), meant
+# to catch the Skeptic's measured failure mode (2-3 records) rather than to
+# model realistic fire cadence precisely.
+MIN_PARSED_LINES_FOR_CONFIDENCE = 30
+
+# MAX_MALFORMED_RATIO_FOR_CONFIDENCE = 0.5: a log where the MAJORITY of
+# lines are unparseable garbage cannot be trusted even where a minority of
+# lines happened to parse cleanly - the parseable lines may themselves be
+# an artifact of partial truncation/corruption rather than a genuine
+# sample of real operation. 0.5 is deliberately a simple majority test
+# (not near-zero-tolerance), so a log with a small number of genuinely
+# transient parse errors (e.g. a line written mid-truncation during a
+# concurrent process crash) does not lose confidence eligibility over a
+# single bad line.
+MAX_MALFORMED_RATIO_FOR_CONFIDENCE = 0.5
+
+_LEGEND = {
+    "UNMEASURED": (
+        "No usable data: the fires log is either absent, or present but "
+        "zero lines in it parsed as JSON. Never conflated with a real "
+        "zero count."
+    ),
+    "ZERO_INVOCATIONS": (
+        "Posture EVERY_VERDICT logs every reached verdict (including a "
+        "plain 'allow'), so a zero count in the window genuinely means "
+        "this hook was never invoked in that window."
+    ),
+    "ZERO_ACTION_IN_WINDOW": (
+        "Posture ACTION_ONLY logs only denies/advisories. A zero count "
+        "means zero actions were taken in the window - it is NOT proof "
+        "of zero invocations, since a silent allow is never logged."
+    ),
+    "ACTIVE": "fire_count_window > 0 - the hook fired at least once in the requested window.",
+}
+
+
+def _load_enforcer_facts():
+    """Load enforcer_facts.py from this tool's own resolved install dir
+    (symlink-safe-loader convention), never from the `--repo` target - the
+    two are independent: `--repo` names which tree to MEASURE, this names
+    where the tool's OWN code lives. A `--repo` pointing at a tree that has
+    `hooks/` but lacks `scripts/lib/enforcer_facts.py` (e.g. a partial or
+    non-DinoStack checkout) must still be able to load this module."""
+    module_path = _REPO_ROOT_DEFAULT / "scripts" / "lib" / "enforcer_facts.py"
+    spec = importlib.util.spec_from_file_location("enforcer_facts", module_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _parse_ts(value) -> datetime | None:
+    """Parse an ISO8601 UTC timestamp, tolerating optional .mmm precision."""
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _load_jsonl(path: Path) -> tuple[list[dict], int, int]:
+    """Parse a JSONL file into dicts, skipping blank/malformed lines.
+    Returns (records, total_nonblank_lines, malformed_lines) so the caller
+    can distinguish "present but nothing parsed" from "present and clean"
+    from "present and partially malformed" - a bare `records` list alone
+    cannot make that distinction (an empty list looks identical whether
+    the file had 0 lines or 500 unparseable ones)."""
+    records: list[dict] = []
+    total = 0
+    malformed = 0
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return records, total, malformed
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        total += 1
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            malformed += 1
+            continue
+        if isinstance(rec, dict):
+            records.append(rec)
+        else:
+            malformed += 1
+    return records, total, malformed
+
+
+def build_report(repo_root: Path, days: int) -> dict:
+    """Return {"meta": {...}, "hooks": [...]} per the module's Status enum.
+    `days` is the fire-count window in days (requested_window_days),
+    measured back from "now" (UTC) at call time - it governs
+    fire_count_window only. Confidence tiering belongs to the caller
+    (content/commands/ds-prune-harness.md Signal 8) and must key on
+    meta.log_confidence_eligible (density + corruption) together with
+    meta.log_coverage_days (span), never on requested_window_days alone."""
+    enforcer_facts = _load_enforcer_facts()
+    facts = enforcer_facts.derive_enforcer_facts(repo_root)
+
+    fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
+    log_present = fires_path.exists()
+    records, log_total_lines, log_malformed_lines = (
+        _load_jsonl(fires_path) if log_present else ([], 0, 0)
+    )
+    log_parsed_lines = len(records)
+    # A present file where nothing parsed (empty, or wholly garbage) is
+    # indistinguishable from "no usable data" - the PR #723
+    # accumulate-then-return-zero class this tool is explicitly built to
+    # avoid. Force every hook to UNMEASURED in that case, not just the
+    # ones with zero records.
+    log_effectively_empty = log_present and log_parsed_lines == 0
+
+    # DS-179 round 3: log_confidence_eligible gates whether the log can
+    # support ANY confidence claim (never mind log_coverage_days's span) -
+    # see the two constants' module-level rationale above. malformed_ratio
+    # is computed against log_total_lines (not log_parsed_lines), since the
+    # ratio's purpose is "what fraction of the file was garbage", and
+    # log_total_lines is 0 exactly when log_parsed_lines is also 0 (already
+    # covered by log_effectively_empty), so the else-branch 0.0 default
+    # here is never actually consumed by the eligibility check below.
+    #
+    # DS-179 round 4: the gate compares the UNROUNDED ratio against
+    # MAX_MALFORMED_RATIO_FOR_CONFIDENCE. Rounding before comparison would
+    # let a true ratio in (0.5, 0.5005) round down to 0.5 and pass a gate
+    # documented as `<=` on the actual measured fraction - this tool exists
+    # to not let a measurement claim something it has not measured.
+    # log_malformed_ratio (the emitted/display value) is rounded separately,
+    # after the comparison, and never fed back into it.
+    log_malformed_ratio_raw = (
+        log_malformed_lines / log_total_lines if log_total_lines else 0.0
+    )
+    log_malformed_ratio = round(log_malformed_ratio_raw, 3)
+    log_confidence_eligible = (
+        log_present
+        and not log_effectively_empty
+        and log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE
+        and log_malformed_ratio_raw <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE
+    )
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days)
+
+    # Fire-log rows key `hook` on the bare name passed to log_fire() at the
+    # call site (e.g. "enforce-tier"), which omits the ".py" suffix that
+    # facts["hooks"] carries (file basenames from a Path.glob). Key
+    # by_hook_all on the SAME bare-name form so a real fires log actually
+    # joins against the derived hook set - keying on the raw log value
+    # verbatim would silently join nothing for any real hook.
+    by_hook_all: dict[str, list[datetime | None]] = {}
+    all_parsed_timestamps: list[datetime] = []
+    for rec in records:
+        hook = rec.get("hook")
+        if not hook:
+            continue
+        bare = str(hook)
+        if bare.endswith(".py"):
+            bare = bare[: -len(".py")]
+        ts = _parse_ts(rec.get("ts"))
+        by_hook_all.setdefault(bare, []).append(ts)
+        if ts is not None:
+            all_parsed_timestamps.append(ts)
+
+    # log_coverage_days is a property of the LOG ITSELF (how far back real
+    # data goes), never the requested --days window. None when no
+    # timestamp anywhere in the log parsed (absent log, wholly malformed
+    # log, or a log whose records all lack a usable `ts`).
+    log_coverage_days = (
+        round((now - min(all_parsed_timestamps)).total_seconds() / 86400, 1)
+        if all_parsed_timestamps
+        else None
+    )
+
+    rows: list[dict] = []
+    for hook_name in sorted(facts["hooks"]):
+        posture = "EVERY_VERDICT" if hook_name in facts["every_verdict"] else (
+            "ACTION_ONLY" if hook_name in facts["consumers"] else "UNKNOWN"
+        )
+        bare_hook_name = hook_name[: -len(".py")] if hook_name.endswith(".py") else hook_name
+        timestamps = by_hook_all.get(bare_hook_name, [])
+        parsed = [t for t in timestamps if t is not None]
+        fire_count_all_time = len(timestamps)
+        fire_count_unparsed_ts = len(timestamps) - len(parsed)
+        fire_count_window = sum(1 for t in parsed if t >= window_start)
+        earliest_ts = min(parsed).isoformat().replace("+00:00", "Z") if parsed else None
+        latest_ts = max(parsed).isoformat().replace("+00:00", "Z") if parsed else None
+
+        if not log_present or log_effectively_empty:
+            status = "UNMEASURED"
+        elif fire_count_window == 0:
+            if posture == "EVERY_VERDICT":
+                status = "ZERO_INVOCATIONS"
+            elif posture == "ACTION_ONLY":
+                status = "ZERO_ACTION_IN_WINDOW"
+            else:
+                # A hook that is a log_fire consumer but whose posture could
+                # not be classified as either every-verdict or action-only -
+                # not currently reachable given derive_enforcer_facts'
+                # definitions, but fails safe to UNMEASURED rather than
+                # asserting a status this tool cannot actually justify.
+                status = "UNMEASURED"
+        else:
+            status = "ACTIVE"
+
+        rows.append(
+            {
+                "hook": hook_name,
+                "posture": posture,
+                "fire_count_window": fire_count_window,
+                "fire_count_all_time": fire_count_all_time,
+                "fire_count_unparsed_ts": fire_count_unparsed_ts,
+                "status": status,
+                "earliest_ts": earliest_ts,
+                "latest_ts": latest_ts,
+            }
+        )
+
+    meta = {
+        "repo": str(repo_root),
+        "requested_window_days": days,
+        "log_present": log_present,
+        "log_total_lines": log_total_lines,
+        "log_parsed_lines": log_parsed_lines,
+        "log_malformed_lines": log_malformed_lines,
+        "log_malformed_ratio": log_malformed_ratio,
+        "log_effectively_empty": log_effectively_empty,
+        "log_coverage_days": log_coverage_days,
+        "log_confidence_eligible": log_confidence_eligible,
+        "legend": _LEGEND,
+    }
+    return {"meta": meta, "hooks": rows}
+
+
+def _print_table(report: dict) -> None:
+    meta = report["meta"]
+    rows = report["hooks"]
+    print("Legend:")
+    for status, text in _LEGEND.items():
+        print(f"  {status}: {text}")
+    print()
+    print(
+        f"log_present={meta['log_present']} "
+        f"log_total_lines={meta['log_total_lines']} "
+        f"log_parsed_lines={meta['log_parsed_lines']} "
+        f"log_malformed_lines={meta['log_malformed_lines']} "
+        f"log_malformed_ratio={meta['log_malformed_ratio']} "
+        f"log_effectively_empty={meta['log_effectively_empty']} "
+        f"log_coverage_days={meta['log_coverage_days']} "
+        f"log_confidence_eligible={meta['log_confidence_eligible']} "
+        f"requested_window_days={meta['requested_window_days']}"
+    )
+    print()
+    if not rows:
+        print("ds-hook-fire-report: no hooks/enforce-*.py files found")
+        return
+    header = (
+        f"{'hook':<38} {'posture':<14} {'status':<22} "
+        f"{'window':>8} {'all-time':>9} {'unparsed-ts':>11}"
+    )
+    print(header)
+    print("-" * len(header))
+    for row in rows:
+        print(
+            f"{row['hook']:<38} {row['posture']:<14} {row['status']:<22} "
+            f"{row['fire_count_window']:>8} {row['fire_count_all_time']:>9} "
+            f"{row['fire_count_unparsed_ts']:>11}"
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-hook-fire-report",
+        description=(
+            "Per-hook fire-count status for hooks/enforce-*.py, joining "
+            "posture (ACTION_ONLY vs EVERY_VERDICT) against "
+            ".agentic/.enforcement-fires.jsonl. Input for /ds-prune-harness "
+            "Signal 8."
+        ),
+    )
+    parser.add_argument(
+        "--repo",
+        default=".",
+        help="path to the DinoStack checkout (default: cwd)",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=14,
+        help="fire-count window in days (default: 14) - governs "
+        "fire_count_window only, not confidence (see meta.log_coverage_days)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit a JSON object ({meta, hooks}) instead of a table",
+    )
+    args = parser.parse_args(argv)
+
+    repo_root = Path(args.repo).expanduser().resolve()
+    if not (repo_root / "hooks").is_dir():
+        print(
+            f"ds-hook-fire-report: error: {repo_root} is not a DinoStack "
+            "checkout (no hooks/ dir)",
+            file=sys.stderr,
+        )
+        return 1
+
+    report = build_report(repo_root, args.days)
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        _print_table(report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -276,6 +276,15 @@ EXCLUDED_FILES = {
     # (:111-115 in this file). Not shelled out to by any hooks/*.js or
     # hooks/*.py call site.
     "bin/ds-agentic-repair",
+    # DS-179: bin/ds-hook-fire-report is a slash-command-driven fire-count
+    # reporter (`/ds-prune-harness` Signal 8) invoked by the conductor, never
+    # from a hooks/*.js or hooks/*.py call site. Its sole `.agentic`-reading
+    # site (`.enforcement-fires.jsonl`) derives from `repo_root`, which comes
+    # from an explicit `--repo` argument (default "." - the conductor's own
+    # cwd, not a harness-payload cwd handed across a Bash-tool boundary) -
+    # same explicit-argument exemption rationale as bin/ds-evaluate above,
+    # which reads the identical fires-log file the same way.
+    "bin/ds-hook-fire-report",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.

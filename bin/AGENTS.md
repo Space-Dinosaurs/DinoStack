@@ -27,6 +27,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-emit` | Bash | Append one structured JSON event to `.agentic/events.jsonl` at orchestration boundaries. |
 | `ds-feedback` | Python | Manage the home-dir feedback store (`~/.agentic/feedback.jsonl`) - append/list/mark operator and agent friction items. |
 | `ds-help` | Python | Print the static slash-command reference to stdout. Zero file I/O; never fails. |
+| `ds-hook-fire-report` | Python | Per-hook fire-count status for `hooks/enforce-*.py`, joining posture (ACTION_ONLY vs EVERY_VERDICT, via `scripts/lib/enforcer_facts.py`) against `.agentic/.enforcement-fires.jsonl`. Input for `/ds-prune-harness` Signal 8. |
 | `ds-identity` | Python | Manage per-developer identity files used by the Stop hook for session telemetry attribution. |
 | `ds-learning-shard` | Python | Manage the home-dir per-session learning shard store (`~/.agentic/learnings-shards/<repo-key>/<session-key>.jsonl`) - `append` one in-flight learning (capped at 5 per session, soft-fail), `rollup` the not-yet-folded raw entries idempotently, `list` for diagnostics. Performs no classification. `--repo` accepts any path inside the repo - a linked worktree and its primary checkout resolve to one `<repo-key>`, via `git rev-parse --git-common-dir`. |
 | `ds-memory` | Python | Query `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md`; return compact Markdown summaries. |
