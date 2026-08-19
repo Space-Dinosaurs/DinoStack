@@ -1,0 +1,24 @@
+name: kimi-skill-budget
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-kimi-skill-embed-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # DS-185: the informational burn lines resolve origin/main via
+          # git - a default shallow checkout leaves that ref unreachable
+          # and both lines would render their "burn: SKIPPED (...)"
+          # variant on every CI run.
+          fetch-depth: 0
+      - name: Run Kimi skill embed budget check
+        run: bash scripts/check-kimi-skill-embed-budget.sh
