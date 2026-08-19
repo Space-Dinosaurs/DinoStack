@@ -822,6 +822,66 @@ def test_python_urllib_mention_without_jira_path_never_matches():
         assert not _state_path(tmp, "sess-1").exists()
 
 
+def test_python_urllib_post_to_comment_path_never_matches():
+    """Isolates the Python-client verb signal from the CREATE-path
+    requirement on the comment/sub-resource shape specifically: a
+    urllib.request POST to /rest/api/3/issue/DS-1/comment (an update on
+    an EXISTING issue, not a create) never matches, even though the
+    Python-client signal, the POST signal, and the literal "issue" path
+    segment are all present."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        cmd = (
+            "python3 -c \"import urllib.request; "
+            "urllib.request.Request('https://jira.example.com/rest/api/3/issue/DS-1/comment', "
+            "method='POST')\""
+        )
+        rc, parsed = _run_hook(_bash_payload(tmp, cmd))
+        assert rc == 0
+        assert parsed is None
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_python_urllib_get_to_issue_create_path_never_matches():
+    """Isolates the Python-client verb signal from the POST-method
+    requirement: a urllib.request GET (no method='POST' kwarg, no -X
+    POST/--request POST flag, no bare POST token) against the Jira
+    issue-create path never matches."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        cmd = (
+            "python3 -c \"import urllib.request; "
+            "urllib.request.urlopen('https://jira.example.com/rest/api/3/issue')\""
+        )
+        rc, parsed = _run_hook(_bash_payload(tmp, cmd))
+        assert rc == 0
+        assert parsed is None
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_bash_grep_of_python_urllib_post_literal_never_matches():
+    """Residual false-positive fix, Python-client variant: a grep whose
+    SEARCH PATTERN contains a literal urllib.request POST-to-Jira-
+    issue-create string as DATA (not an actual outbound call) never
+    matches - mirrors test_bash_grep_of_curl_post_literal_never_matches
+    for the Python-client signal added alongside the shell-verb gate.
+    Also covers the narrower shape the ticket brief named directly: a
+    grep pattern that merely contains the word "python3" as literal
+    text is not itself sufficient signal (the Python-client gate keys on
+    urllib.request/requests.*/httpx.*, never on a bare "python3" token,
+    so this also demonstrates that weaker design choice holds)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        cmd = (
+            "grep -rn 'python3 -c urllib.request.Request POST "
+            "/rest/api/3/issue' bin/tests/"
+        )
+        rc, parsed = _run_hook(_bash_payload(tmp, cmd))
+        assert rc == 0
+        assert parsed is None
+        assert not _state_path(tmp, "sess-1").exists()
+
+
 def test_bash_grep_of_curl_post_literal_never_matches():
     """Residual false-positive fix: a grep whose SEARCH PATTERN contains
     a literal curl-POST-to-Jira-issue-create string as DATA (not an
