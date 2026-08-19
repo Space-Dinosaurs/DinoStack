@@ -154,6 +154,29 @@ function assistantRecord(text, overrides = {}) {
   }, overrides);
 }
 
+function userRecord(text, overrides = {}) {
+  return Object.assign({
+    type: 'user',
+    timestamp: new Date().toISOString(),
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text }],
+    },
+  }, overrides);
+}
+
+function initGitRepo(dir) {
+  spawnSync('git', ['init', '-q'], { cwd: dir });
+  spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
+  spawnSync('git', ['config', 'user.name', 'Test'], { cwd: dir });
+}
+
+function gitCommit(dir, filename, contents, message) {
+  fs.writeFileSync(path.join(dir, filename), contents);
+  spawnSync('git', ['add', filename], { cwd: dir });
+  spawnSync('git', ['commit', '-q', '-m', message], { cwd: dir });
+}
+
 function runHook(payload, cwd, configDir) {
   const env = Object.assign({}, process.env, { CLAUDE_CONFIG_DIR: configDir });
   const res = spawnSync('node', [hookPath], {
@@ -487,7 +510,7 @@ console.log('\nTest 10: tuid-index-hit');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nTest 11: tuid-index-miss-no-note');
+console.log('\nTest 11: tuid-index-miss-emits-note (round-2, M3)');
 {
   const cwd = makeTmpDir('ae-calib-test-');
   const configDir = makeTmpDir('ae-calib-config-');
@@ -505,8 +528,15 @@ console.log('\nTest 11: tuid-index-miss-no-note');
   if (complete) {
     assert((complete.data || {}).unit_key === undefined, 'unit_key silently absent on a tuid-index miss');
     assert((complete.data || {}).iteration === undefined, 'iteration silently absent on a tuid-index miss');
-    assert((complete.data || {}).calibration_note === undefined,
-      `NO calibration_note on a tuid-index miss when sign-off parses cleanly (got: ${(complete.data || {}).calibration_note})`);
+    // Round-2 fix (M3): the plan's step 8 mandates a calibration_note
+    // naming the miss on an omitted unit_key/iteration - a round-1
+    // deliberate omission the Skeptic rejected. The note is a SHARED
+    // field across all calibration misses on this completion (here also
+    // including the unresolvable diff_lines, since this fixture's
+    // transcript has no "Diff under review:" line in a user record).
+    const note = (complete.data || {}).calibration_note;
+    assert(typeof note === 'string' && note.indexOf('unit_key/iteration') !== -1,
+      `calibration_note names the tuid-index miss (got: ${JSON.stringify(note)})`);
     assert((complete.data || {}).signed_off === true, 'signed_off still correctly emitted from the transcript');
   }
   cleanup(cwd); cleanup(configDir);
@@ -626,6 +656,322 @@ console.log('\nTest 15: tokens-and-model-note-mutual-exclusion');
     // Never both value and note for the same field.
     assert(!(('tokens' in d) && ('tokens_note' in d)), 'tokens and tokens_note never coexist');
     assert(!(('model' in d) && ('model_note' in d)), 'model and model_note never coexist');
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+// Round-2 (Skeptic findings M1-M5, m1, m2, m3, m5) test cases below.
+// ---------------------------------------------------------------------------
+
+console.log('\nTest 16: M1-agent-source-labels-provenance-not-pairing-tier-sidecar-toolUseId-only');
+{
+  // Sidecar carries a toolUseId (pairs via sidecar) but NO agentType - the
+  // label must fall through to the matched spawn_start, and agent_source
+  // must describe THAT (paired_start), not the pairing tier (sidecar).
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-016';
+  const agentId = 'agentcal016';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    toolUseId: 'toolu_cal_016', description: 'x', spawnDepth: 1,
+    // no agentType field
+  });
+  const startTs = new Date(Date.now() - 3000).toISOString();
+  appendRaw(cwd, hookSpawnStart(sessionId, 'spawn-cal-016', 'engineer', 'toolu_cal_016', startTs));
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert(complete.agent === 'engineer', `agent falls back to the matched start's label (got: ${complete.agent})`);
+    assert((complete.data || {}).agent_source === 'paired_start',
+      `agent_source === "paired_start" - matches where the LABEL came from, not that the sidecar's toolUseId paired it (got: ${(complete.data || {}).agent_source})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 17: M1-agent-source-labels-provenance-not-pairing-tier-agentType-only');
+{
+  // Sidecar carries agentType (labels via sidecar) but NO toolUseId - pairs
+  // via FIFO instead, yet agent_source must still read "sidecar" because
+  // that is where the LABEL came from.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-017';
+  const agentId = 'agentcal017';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'qa-engineer', description: 'x', spawnDepth: 1,
+    // no toolUseId field
+  });
+  const startTs = new Date(Date.now() - 3000).toISOString();
+  appendRaw(cwd, hookSpawnStart(sessionId, 'spawn-cal-017', 'engineer', null, startTs));
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert(complete.agent === 'qa-engineer', `agent === the sidecar's agentType (got: ${complete.agent})`);
+    assert((complete.data || {}).agent_source === 'sidecar',
+      `agent_source === "sidecar" - the label came from the sidecar even though pairing fell through to FIFO (got: ${(complete.data || {}).agent_source})`);
+    assert((complete.data || {}).paired_spawn_id === 'spawn-cal-017', 'still paired via FIFO fallback');
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 18: M2-diff-lines-resolved-from-real-git-diff');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-018';
+  const agentId = 'agentcal018';
+  initGitRepo(cwd);
+  gitCommit(cwd, 'file.txt', 'line1\nline2\nline3\n', 'initial');
+  spawnSync('git', ['branch', 'feature'], { cwd });
+  spawnSync('git', ['checkout', '-q', 'feature'], { cwd });
+  gitCommit(cwd, 'file.txt', 'line1\nline2\nline3\nline4\nline5\n', 'add lines');
+  spawnSync('git', ['checkout', '-q', '-'], { cwd }); // back to the default branch
+  const defaultBranchRes = spawnSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' });
+  const defaultBranch = defaultBranchRes.stdout.trim();
+
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_018', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord(`Review this.\n- **Diff under review:** git diff ${defaultBranch}...feature\n`),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === 2, `diff_lines === 2 real added lines, measured by git diff --shortstat (got: ${JSON.stringify(d.diff_lines)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 19: M2-diff-lines-note-when-range-unresolvable');
+{
+  // A "Diff under review" line with a range that does not resolve in this
+  // (non-git) cwd - must yield a calibration_note clause, never a
+  // fabricated diff_lines value.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-019';
+  const agentId = 'agentcal019';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_019', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord('Review this.\n- **Diff under review:** git diff origin/main...feature/nonexistent\n'),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === undefined, 'diff_lines absent when git diff cannot resolve the range (non-git cwd)');
+    assert(typeof d.calibration_note === 'string' && d.calibration_note.indexOf('diff_lines') !== -1,
+      `calibration_note names the diff_lines miss (got: ${JSON.stringify(d.calibration_note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 20: M2-diff-lines-not-attempted-for-non-skeptic');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-020';
+  const agentId = 'agentcal020';
+  initGitRepo(cwd);
+  gitCommit(cwd, 'file.txt', 'a\n', 'initial');
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'engineer', toolUseId: 'toolu_cal_020', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord('Implement this.\n- **Diff under review:** git diff main...feature\n'),
+    assistantRecord('doing work'),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === undefined, 'diff_lines never attempted for a non-skeptic agent');
+    assert(d.calibration_note === undefined, 'no calibration_note either - not applicable, not a miss');
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 21: m1-agent-note-on-attributionAgent-disagreement');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-021';
+  const agentId = 'agentcal021';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'qa-engineer', toolUseId: 'toolu_cal_021', description: 'x', spawnDepth: 1,
+  });
+  // attributionAgent on the transcript records says "engineer", but the
+  // sidecar's agentType says "qa-engineer" - a real disagreement.
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    assistantRecord('doing work', { attributionAgent: 'engineer' }),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert(complete.agent === 'qa-engineer', 'resolved agent is the sidecar label');
+    const note = (complete.data || {}).agent_note;
+    assert(typeof note === 'string' && note.indexOf('engineer') !== -1 && note.indexOf('qa-engineer') !== -1,
+      `agent_note names both the disagreeing values (got: ${JSON.stringify(note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 22: m1-no-agent-note-when-attribution-agrees');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-022';
+  const agentId = 'agentcal022';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'qa-engineer', toolUseId: 'toolu_cal_022', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    assistantRecord('doing work', { attributionAgent: 'qa-engineer' }),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).agent_note === undefined, 'no agent_note when attributionAgent agrees with the resolved agent');
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 23: m5-signoff-tie-break-uses-last-literal-not-withheld-always-wins');
+{
+  // Both verdict literals appear in the last assistant message (e.g. the
+  // Skeptic quoted skeptic.md's own sign-off-format section, which
+  // contains both templates), with "Sign-off granted." appearing AFTER
+  // "Sign-off withheld." - the real verdict is the LAST one, not
+  // "withheld always wins whenever both are present."
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023';
+  const agentId = 'agentcal023';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023', description: 'x', spawnDepth: 1,
+  });
+  const bothLiteralsText = [
+    'Recall the sign-off format: "Sign-off withheld. The following must be resolved:" or',
+    '"No unresolved Critical or Major findings. Sign-off granted."',
+    '',
+    'Reviewed: hooks/foo.js',
+    'Findings: Critical: 0, Major: 0, Minor: 0',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(bothLiteralsText)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - the LAST literal in the message is "granted" (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 24: m2-iteration-zero-treated-as-miss');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-024';
+  const agentId = 'agentcal024';
+  const toolUseId = 'toolu_cal_024';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId, description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(GRANTED_SIGNOFF)]);
+
+  const agenticDir = path.join(cwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  const unitKey = 'zero-round-unit-abc1234567';
+  // Legacy (bare-string) index shape pointing at a state file whose
+  // round_count is 0 - a legacy/hand-edited artifact, never written by the
+  // round-cap hook itself on an allowed spawn.
+  fs.writeFileSync(path.join(agenticDir, 'skeptic-tuid-index.json'), JSON.stringify({ [toolUseId]: unitKey }));
+  fs.writeFileSync(path.join(agenticDir, `skeptic-round-${unitKey}.json`), JSON.stringify({
+    round_count: 0, decision: null, unresolved_critical: false,
+    last_round_fingerprint: null, last_decision_allow: true, last_decision_reason: '',
+    tool_use_ids: [toolUseId], unit_key: unitKey,
+  }));
+
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.unit_key === undefined, 'unit_key absent when round_count is 0 (never a fabricated iteration)');
+    assert(d.iteration === undefined, 'iteration absent when round_count is 0');
+    assert(typeof d.calibration_note === 'string' && d.calibration_note.indexOf('unit_key/iteration') !== -1,
+      `calibration_note names the miss (got: ${JSON.stringify(d.calibration_note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 25: m3-iteration-uses-pinned-value-not-live-state');
+{
+  // Round-2 index shape: {unit_key, iteration} pinned at spawn time. The
+  // LIVE state file's round_count has since advanced past the pinned
+  // value (a later round completed, or the unit is mid-round) - the
+  // emitted iteration must be the PINNED value, not the live one.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-025';
+  const agentId = 'agentcal025';
+  const toolUseId = 'toolu_cal_025';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId, description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(GRANTED_SIGNOFF)]);
+
+  const agenticDir = path.join(cwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  const unitKey = 'pinned-iter-unit-abc1234567';
+  fs.writeFileSync(path.join(agenticDir, 'skeptic-tuid-index.json'), JSON.stringify({
+    [toolUseId]: { unit_key: unitKey, iteration: 1 },
+  }));
+  // Live state has since advanced to round 3 - must NOT be what's reported
+  // for this (round-1) spawn's completion.
+  fs.writeFileSync(path.join(agenticDir, `skeptic-round-${unitKey}.json`), JSON.stringify({
+    round_count: 3, decision: null, unresolved_critical: false,
+    last_round_fingerprint: null, last_decision_allow: true, last_decision_reason: '',
+    tool_use_ids: [toolUseId], unit_key: unitKey,
+  }));
+
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.unit_key === unitKey, `unit_key === "${unitKey}" (got: ${d.unit_key})`);
+    assert(d.iteration === 1, `iteration === 1 (the PINNED value at spawn time), NOT 3 (the live/advanced round_count) (got: ${d.iteration})`);
   }
   cleanup(cwd); cleanup(configDir);
 }
