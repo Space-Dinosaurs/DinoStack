@@ -92,19 +92,25 @@ SKILL_FILE="$REPO_DIR/.claude/skills/dinostack/SKILL.md"
 # pointer-only skill would ever measure.
 FLOOR=100000
 
-# Ceiling: 139,160 B (DS-45 correction to this comment - the value itself
-# is unchanged). What this constant actually is: 126,509 B, a local build
-# measurement of .claude/skills/agentic-engineering/SKILL.md (the skill
-# directory's pre-rename name; it became dinostack later) taken on the
-# DS-143 branch on 2026-08-07 (commit
-# baf0b011bd61f055e6ec685663a1f6e24b8834ce), times 1.1 for headroom.
-# 126,509 x 1.1 = 139,159.9, which was written up as "rounded down" to
-# 139,160 in the original comment - that description was itself wrong;
-# 139,160 is the nearest-integer rounding, not a round-down, and the true
-# round-down would be 139,159. Immaterial by one byte, but stated
-# accurately here since the previous text asserted the wrong operation.
+# Ceiling: 145,000 B as of 2026-08-19 (raised from 139,160 B - see the
+# "2026-08-19 raise" paragraph at the end of this comment for what that
+# raise does and does not establish). The paragraphs immediately below
+# describe the now-superseded 139,160 B value's own provenance and are
+# kept as the historical arithmetic record; read "CEILING" in them as
+# that prior value, not the current one.
 #
-# What this constant is NOT: it is not derived from, or swept relative to,
+# What 139,160 B actually was: 126,509 B, a local build measurement of
+# .claude/skills/agentic-engineering/SKILL.md (the skill directory's
+# pre-rename name; it became dinostack later) taken on the DS-143 branch
+# on 2026-08-07 (commit baf0b011bd61f055e6ec685663a1f6e24b8834ce), times
+# 1.1 for headroom. 126,509 x 1.1 = 139,159.9, which was written up as
+# "rounded down" to 139,160 in the original comment - that description
+# was itself wrong; 139,160 is the nearest-integer rounding, not a
+# round-down, and the true round-down would be 139,159. Immaterial by one
+# byte, but stated accurately here since the previous text asserted the
+# wrong operation.
+#
+# What that value was NOT: it was not derived from, or swept relative to,
 # the separate 127,107-byte figure - the harness's empirically-confirmed
 # verbatim-injection point. That figure's provenance is not traceable
 # through git history to a
@@ -119,32 +125,39 @@ FLOOR=100000
 # harness was empirically verified to inject the full SKILL.md body
 # verbatim at ~127 KB" - but the arithmetic that actually produced
 # 139,160 traces only to the 126,509 B build-size snapshot, never to
-# 127,107. So CEILING is 1.1x that build-size snapshot (126,509 B, itself
-# only 598 B below the injection-confirmed figure) - not 1.1x, or any
-# swept multiple of, the injection-verified figure itself. CEILING (139,160 B) ends up
-# roughly 12,053 B above the injection-confirmed point (127,107 B), and
-# 9,145 B above the largest recorded intact injection on file (130,015 B
-# - see below).
+# 127,107. So the old CEILING was 1.1x that build-size snapshot (126,509
+# B, itself only 598 B below the injection-confirmed figure) - not 1.1x,
+# or any swept multiple of, the injection-verified figure itself. It
+# ended up roughly 12,053 B above the injection-confirmed point (127,107
+# B), and 9,145 B above the largest recorded intact injection on file
+# (130,015 B - see below).
 #
 # What is actually on record, checked 2026-08-18: the largest recorded
 # intact injection is 130,015 B (DS-146: canaries present at head and
 # tail, no truncation, no performance warning - see
 # .agentic/learnings.md KNW-20260811-004 and
 # docs/skill-embed-injection-sweep.md). The live payload on main now
-# measures 138,990 B. The region above 130,015 B - including the gap
-# up to CEILING - is unmeasured. CEILING currently functions as a size
-# ratchet with slack, not as evidence the current payload has been
-# confirmed safe to inject.
+# measures 138,990 B. The region above 130,015 B is unswept, regardless
+# of where CEILING sits above it.
 #
-# This does not weaken the existing guidance - it strengthens the case for
-# it. Do not raise CEILING as routine housekeeping when content grows: only
-# raise it alongside a new swept confirmation that a larger body still
-# loads untruncated in the live harness, and say so explicitly in the PR
-# that raises it. A reusable procedure for producing that swept
-# confirmation is documented at
-# docs/skill-embed-injection-sweep.md (DS-45) - use it rather
-# than reconstructing an ad hoc measurement.
-CEILING=139160
+# 2026-08-19 raise: CEILING moved from 139,160 B to 145,000 B by explicit
+# operator decision, to unblock work. This was not done on the basis of a
+# new swept injection measurement - none has been run since the 130,015 B
+# figure above - and the raise does not make the gate more verified than
+# it was: the prior value was itself unswept and arbitrary (1.1x a
+# build-size snapshot, never anchored to an injection measurement), so
+# raising it moves an arbitrary number rather than spending verified
+# evidence. The unswept region above the largest confirmed intact
+# injection widens accordingly, from 9,145 B to 14,985 B. Do not raise
+# CEILING as routine housekeeping when content grows: only raise it
+# alongside a new swept confirmation that a larger body still loads
+# untruncated in the live harness, and say so explicitly in the PR that
+# raises it - this raise is the exact event that guidance warns against,
+# taken deliberately and documented as such rather than skipped. A
+# reusable procedure for producing that swept confirmation is documented
+# at docs/skill-embed-injection-sweep.md (DS-45) - use it rather than
+# reconstructing an ad hoc measurement.
+CEILING=145000
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted the
 # same way FLOOR/CEILING/THRESHOLD are elsewhere in this repo (see
@@ -285,9 +298,9 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   echo "" >&2
   echo "  CEILING is intended as a safety boundary, not a tidiness budget," >&2
   echo "  but the largest recorded intact injection on file is 130,015 B" >&2
-  echo "  (DS-146) - CEILING sits 9,145 B above that point, unswept. See" >&2
+  echo "  (DS-146) - CEILING sits 14,985 B above that point, unswept. See" >&2
   echo "  the CEILING constant's own comment above for the full DS-45" >&2
-  echo "  provenance correction. Do not raise" >&2
+  echo "  provenance correction and the 2026-08-19 raise. Do not raise" >&2
   echo "  CEILING as routine housekeeping - only raise it alongside a new" >&2
   echo "  swept confirmation that the larger body still loads untruncated" >&2
   echo "  in the live harness (procedure:" >&2
