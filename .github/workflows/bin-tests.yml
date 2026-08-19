@@ -40,18 +40,25 @@ jobs:
       # bin/tests/ into ONE failing test with a stack trace at the exact call,
       # instead of a killed job with no usable log.
       - name: pip install pytest pytest-timeout pyyaml
-        # Measured: n=78 successful runs, median 3s, p95 8s, max 11s
-        # (2026-08-15..08-19). 2 minutes is generous headroom for a PyPI
-        # network stall.
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing any value here.
         timeout-minutes: 2
         run: pip install pytest pytest-timeout pyyaml
       - name: install zsh (required for the bash/zsh parity matrix in test_phase8_telemetry_shell.py)
-        # Measured: n=76 successful runs, median 12s, p95 46s, max 89s
-        # (2026-08-15..08-19, apt mirror variance). 10 minutes is real
-        # headroom over that ceiling - the sibling bin-sh-tests job's zsh
-        # install (same command, separate runner) hit an actual timeout
-        # failure at ~312s under this step's own prior 5-minute bound on
-        # 2026-08-19, so 5 minutes was not real headroom.
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing any value here. This step's own prior, tighter bound
+        # (5 minutes) was empirically too tight and failed real runs; this
+        # step (and its sibling in bin-sh-tests, same command, separate
+        # runner) has also genuinely run past 20 minutes on an apt mirror
+        # stall and been killed by the job backstop above rather than its
+        # own step bound - a step-level bound turns that into a
+        # diagnosable failure at its own value instead of an
+        # undiagnosable one at the job backstop. That is the bound's
+        # intended job: catching a genuinely hung apt, not a slow one.
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
@@ -156,17 +163,25 @@ jobs:
         with:
           python-version: '3.11'
       - name: pip install pyyaml
-        # Measured: n=78 successful runs, median 2s, p95 4s, max 6s
-        # (2026-08-15..08-19). 2 minutes is generous headroom for a PyPI
-        # network stall.
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing any value here.
         timeout-minutes: 2
         run: pip install pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
-        # Measured: n=77 successful runs, median 13s, p95 86s, max 229s
-        # (2026-08-15..08-19, apt mirror variance). This exact step failed
-        # outright at ~312s on 2026-08-19, killed by its own prior
-        # 5-minute bound - that was not real headroom. 10 minutes gives
-        # margin over the measured 229s successful ceiling.
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing any value here. This step's own prior, tighter bound
+        # (5 minutes) was empirically too tight and failed real runs; this
+        # step (and its sibling in python-bin-tests, same command,
+        # separate runner) has also genuinely run past 20 minutes on an
+        # apt mirror stall and been killed by the job backstop above
+        # rather than its own step bound - a step-level bound turns that
+        # into a diagnosable failure at its own value instead of an
+        # undiagnosable one at the job backstop. That is the bound's
+        # intended job: catching a genuinely hung apt, not a slow one.
         timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: install gitleaks CLI (required by test_gitleaks_allowlist_scope.sh)
@@ -176,9 +191,10 @@ jobs:
         # succeed here. Version and checksum are read from
         # .github/workflows/gitleaks.yml at CI time rather than hardcoded, so
         # bumping that pin cannot silently drift from this install step.
-        # Measured: n=77 successful runs, median 1s, max 1s
-        # (2026-08-15..08-19) - a curl download of a small release asset. 2
-        # minutes is generous headroom for a GitHub Releases network stall.
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing any value here.
         timeout-minutes: 2
         run: |
           set -euo pipefail
@@ -196,11 +212,16 @@ jobs:
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           gitleaks version
       - name: run shell bin tests
-        # This step measured 4m56s against the old 5-minute JOB timeout on a
-        # single PR, and was cancelled outright on main under queue pressure.
-        # 8 minutes is real headroom for the step's own runtime; queue wait no
-        # longer counts against it.
-        timeout-minutes: 8
+        # Bounded so a queue-starved or hung step fails as itself rather
+        # than consuming the job backstop. Re-derive the current
+        # distribution with `bash scripts/ci-step-durations.sh` before
+        # changing this value - a prior bound here (8 minutes) was derived
+        # from a single observation and gave only ~4% margin over the true
+        # measured max once a full run of completed executions (n=150,
+        # including failed/cancelled) was collected. 15 minutes keeps real
+        # margin over that measured max while staying well inside the job
+        # backstop above.
+        timeout-minutes: 15
         run: |
           set -e
           # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
