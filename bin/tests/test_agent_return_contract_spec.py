@@ -353,8 +353,8 @@ CAP_RE = re.compile(
 # independently re-read and confirmed to carry a real structured return
 # under a "### N. Return" sub-step or "## Phase 6: Produce the Drift
 # Report" heading - not "no such section under any name"; skeptic.md's
-# six conductor-validated Sign-off format lines were confirmed verbatim
-# against content/commands/ds-skeptic.md:68 and
+# seven conductor-validated Sign-off format lines were confirmed verbatim
+# against content/commands/ds-skeptic.md:69 and
 # content/commands/ds-wrap.md:439,443.
 # Unit 4 (return-contract migration) moved dependency-auditor.md and
 # perf-analyst.md from Shape 1 to Shape 2: both retired their free-prose
@@ -1098,6 +1098,7 @@ SKEPTIC_REQUIRED_LINE_PREFIXES = (
     "No unresolved Critical or Major findings. Sign-off granted.",
     "Manifest check:",
     "Test-CI-wiring check:",
+    "Neutrality check:",
 )
 SHAPE3_LINE_RE = re.compile(r"^(\S[^:]*):\s*(.*)$")
 # Round-6 Minor fix: a bare closed-enum-shaped status token standing
@@ -1219,7 +1220,7 @@ def check_shape3(text, filename="<fixture>"):
 
 
 def check_shape3_skeptic(text, filename="skeptic.md"):
-    """skeptic.md's narrow special case: the six conductor-validated lines
+    """skeptic.md's narrow special case: the seven conductor-validated lines
     from skeptic-protocol.md Section 11 must be present verbatim (and never
     retagged) WITHIN THE '## Sign-off format' SECTION ITSELF, and a
     cap-keyword sentence referencing 'finding' with a numeric bound must
@@ -1616,7 +1617,7 @@ def test_shape3_goal_condition_evaluator_is_now_compliant():
 def test_shape3_skeptic_is_now_compliant():
     """Unit 1 (DS return-contract migration) added the additive
     finding-description cap sentence to skeptic.md's Calibration section
-    without touching any of its six conductor-validated Sign-off format
+    without touching any of its seven conductor-validated Sign-off format
     lines - skeptic.md is now fully Shape-3 compliant."""
     path = AGENTS_DIR / "skeptic.md"
     violations = check_contract(path.read_text(), "skeptic.md")

@@ -52,6 +52,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": ".agentic/**",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
+      "kind": "operational",
+      "occurrence_hash": "071bc30bbb338bb59106d195739f73d61ae6e4e2acc495f73b01ae1b3d6cc12f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/**"
+    },
+    {
       "expected_target": "content/rules/conventions.md",
       "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
       "kind": "operational",
@@ -242,16 +252,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "17bb7d0d38bf4092fd718453d0b963bde46a13230cb8c0776f89848aeddc3d66",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -280,16 +280,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "1abf139a2fb62f865975cc77eba3837cea3633e8809475907af52ed5f4094338",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/capture-classification.md",
@@ -1612,6 +1602,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "b46f733bf04895adda8d9ca2ab3d9bfe66c5c407e48635832effdebc5b349b04",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "spawn_agent message",
       "generated_token": "tier-intent and role-routing mapping",
       "kind": "operational",
@@ -1700,6 +1700,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/capture-classification.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "bfe1abf8473abd6236d9582363a696355d171125f66e7f76c8e01954078f0718",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".claude/",
@@ -1942,6 +1952,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "da6dca2d0b3c372396c51715660068402795e056a55b07d95abd0b4a64587e24",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "~/.codex/projects/[hash]/context.md",
       "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, the warn-only conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
       "kind": "operational",
@@ -2080,16 +2100,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/task-state-file.md"
-    },
-    {
-      "expected_target": ".agentic/**",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
-      "kind": "operational",
-      "occurrence_hash": "e39cb11c499ab5bcf0eb925c42969cc825756e48c07d7989f6623d7151697935",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/**"
     },
     {
       "expected_target": "spawn_agent",
@@ -19542,16 +19552,6 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "0c57f4c27747c4c7c2c64b753421c4683eb01fd2e9568896dc29e41f752700ed",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -20610,6 +20610,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "$CLAUDE_CODE_SESSION_ID"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "4f0cec8522ea2bad37b88792186f5ba80aff050dc1342d7a191c0d64bc9393bf",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "wrap",
@@ -22912,6 +22922,16 @@
       "source_token": "bin/tests/reach_model.py"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "d63b619bb8b263922833ec6318f8713f783005dcdcb192b9a63a9b75b07c3d25",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": ".agentic/memory.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/memory.md",
       "kind": "operational",
@@ -23150,16 +23170,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/config.json>"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "eb96f1cfb46dfc7401d783bcb978735786ddfe439d7a03a3fad2e62802d65386",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/deploy.md",
