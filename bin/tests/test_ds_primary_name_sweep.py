@@ -111,30 +111,58 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              is ever renamed again - this test does not scan those.
 
          (3) `test_codex_generated_identity_commands_use_ds_identity` -
-             defense-in-depth directly against the two rendered artifacts
-             MAJOR 1 named (`.codex/AGENTS.md` and
-             `.codex/skills/dinostack/METHODOLOGY.md`): asserts
-             the specific renamed operational strings that `literal_rules`
-             tuples 0 and 5 (the identity resolve-hook and confirm/correct
-             block) are supposed to produce are present verbatim, and that
-             their old-name predecessors are absent. This is intentionally
-             narrow and tied to the exact bug instance (not a generic
-             sweep of the rendered tree - see the module docstring
-             discussion of why a generic content-derivation boundary on
-             rendered output is fragile: an unrenamed file under
-             `content/**` could legitimately still say an old tool name
-             verbatim (as of the MINOR 3 fix in the same review round,
-             none currently do - `content/project-scaffolding.yml` was
-             the last one and is now renamed - but the pattern-matching
-             boundary this test avoids still has to hold generally, not
-             just for today's zero-file case; see check (2)'s discussion
-             above) - and a window/diff-based exclusion boundary against
-             that prose produces false
+             defense-in-depth directly against the rendered artifact
+             MAJOR 1 named that still carries this content post-DS-183
+             (`.codex/skills/dinostack/METHODOLOGY.md`): asserts the
+             specific renamed operational string that `literal_rules`
+             tuple 0 (the identity resolve-hook) is supposed to produce is
+             present verbatim, and that its old-name predecessor is
+             absent. This is intentionally narrow and tied to the exact
+             bug instance (not a generic sweep of the rendered tree - see
+             the module docstring discussion of why a generic
+             content-derivation boundary on rendered output is fragile: an
+             unrenamed file under `content/**` could legitimately still
+             say an old tool name verbatim (as of the MINOR 3 fix in the
+             same review round, none currently do - `content/
+             project-scaffolding.yml` was the last one and is now renamed
+             - but the pattern-matching boundary this test avoids still
+             has to hold generally, not just for today's zero-file case;
+             see check (2)'s discussion above) - and a window/diff-based
+             exclusion boundary against that prose produces false
              positives whenever codex-skills.py's own (legitimate)
              path-qualification logic inserts a nearby `$AE_*` token -
              check (2) above is the robust, general mechanism; this check
              (3) is a targeted sensor confirming the actual shipped bytes
              match what (2) implies).
+
+             DS-183 note: `.codex/AGENTS.md` was dropped from this check's
+             scope, and tuple 5 (the identity confirm/correct block) is no
+             longer checked at all. Both `literal_rules` substitutions
+             historically rendered only into `.codex/AGENTS.md` - tuple 0's
+             match text came from the assembled methodology body that
+             AGENTS.md used to embed verbatim, and tuple 5's match text
+             (`  Confirm: ds-identity confirm --scope <scope>\n  Correct:
+             ds-identity init <handle> --force --scope <scope>`) came from
+             `content/rules/conventions.md`, which AGENTS.md also used to
+             embed verbatim (`.codex/skills/dinostack/METHODOLOGY.md` never
+             embedded `content/rules/**` at all - verified via
+             `scripts/codex-skills.py`'s `documents()`, which
+             pattern-matches only `content/SKILL.md`, the assembled
+             METHODOLOGY from `content/sections/**`, and the 3 `WORKFLOWS`
+             command files). DS-183 regenerated `.codex/AGENTS.md` as a
+             minimal trigger-load stub that embeds neither the methodology
+             body nor `content/rules/**`, so neither substitution's match
+             text is fed into `render_runtime_guidance` for AGENTS.md
+             anymore. Tuple 0 still renders correctly into
+             `.codex/skills/dinostack/METHODOLOGY.md` (unaffected by
+             DS-183 - that file is built independently by
+             `scripts/codex-skills.py build()`), so this check still
+             covers it there. Tuple 5's underlying guidance remains fully
+             reachable post-DS-183 via the `rules -> ../../../
+             content/rules` symlink adjacent to METHODOLOGY.md once the
+             skill is loaded - it is simply no longer inline prose in any
+             currently-generated Codex artifact, so there is nothing left
+             for this check to assert against.
 
          The protected skill noun "dinostack", the protected
          config filenames/markers (~/.claude/agentic-engineering.json,
@@ -158,11 +186,14 @@ Public API: python3 -m pytest bin/tests/test_ds_primary_name_sweep.py -q
 
 Upstream deps: Python 3 stdlib only (ast, json, os, pathlib, subprocess).
                Check (2) parses scripts/codex-skills.py source without
-               executing it. Check (3) requires `.codex/AGENTS.md` and
-               `.codex/skills/dinostack/METHODOLOGY.md` to exist
-               (built by `.codex/build.sh`); if absent, that check fails
-               loudly rather than skipping, since a repo that ships
-               `.codex/**` without these files is itself a defect.
+               executing it. Check (3) requires
+               `.codex/skills/dinostack/METHODOLOGY.md` to exist (built by
+               `.codex/build.sh`); if absent, that check fails loudly
+               rather than skipping, since a repo that ships `.codex/**`
+               without this file is itself a defect. `.codex/AGENTS.md`
+               is read only for its own old-name absence check, not for
+               the resolve-hook/confirm-block presence checks (DS-183 -
+               see check (3)'s docstring paragraph above).
                `test_no_sibling_product_brand_name_in_tracked_tree` shells
                out to `git ls-files -z` (the one subprocess call in this
                module) to enumerate the tracked tree; see that function's
@@ -302,29 +333,41 @@ def test_codex_literal_rules_replacements_never_contain_old_names() -> None:
 
 
 def test_codex_generated_identity_commands_use_ds_identity() -> None:
-    for path in (CODEX_AGENTS_MD, CODEX_METHODOLOGY_MD):
-        assert path.is_file(), f"{path} is missing - run `.codex/build.sh` before this test"
-        text = path.read_text(encoding="utf-8")
-
-        # literal_rules[0]: the identity resolve-hook operational command.
-        assert 'ds-identity resolve-hook --cwd "$AE_PROJECT_DIR"' in text, (
-            f"{path}: expected renamed resolve-hook command not found"
-        )
-        assert 'agentic-identity resolve-hook --cwd "$AE_PROJECT_DIR"' not in text, (
-            f"{path}: old-name resolve-hook command leaked into generated output"
-        )
-
-    # literal_rules[5]: the confirm/correct block only renders into
-    # .codex/AGENTS.md in the current build (it is not tracked by the
-    # skill-compatibility.yml inventory at all - its occurring span is
-    # claimed by an earlier pass when assembling METHODOLOGY.md - so this
-    # assertion is scoped to AGENTS.md only, not both files).
-    agents_text = CODEX_AGENTS_MD.read_text(encoding="utf-8")
-    assert "Confirm (global/project): ds-identity confirm --scope" in agents_text, (
-        f"{CODEX_AGENTS_MD}: expected renamed confirm/correct block not found"
+    # DS-183: .codex/AGENTS.md is now a minimal trigger-load stub and no
+    # longer embeds the methodology body or content/rules/**, so it no
+    # longer carries either literal_rules[0]'s or literal_rules[5]'s match
+    # text. literal_rules[0] (the identity resolve-hook) still renders
+    # correctly into .codex/skills/dinostack/METHODOLOGY.md, which is
+    # built independently by scripts/codex-skills.py build() and
+    # unaffected by DS-183 - checked below. literal_rules[5] (the
+    # confirm/correct block) historically rendered ONLY into
+    # .codex/AGENTS.md (its match text came from content/rules/
+    # conventions.md, which METHODOLOGY.md never embedded even
+    # pre-DS-183 - see the module docstring's check (3) paragraph) and has
+    # no currently-generated artifact left to assert it in; its guidance
+    # remains reachable via the rules/ symlink adjacent to METHODOLOGY.md
+    # once the skill loads.
+    assert CODEX_METHODOLOGY_MD.is_file(), (
+        f"{CODEX_METHODOLOGY_MD} is missing - run `.codex/build.sh` before this test"
     )
-    assert "Confirm (global/project): agentic-identity confirm --scope" not in agents_text, (
-        f"{CODEX_AGENTS_MD}: old-name confirm/correct block leaked into generated output"
+    methodology_text = CODEX_METHODOLOGY_MD.read_text(encoding="utf-8")
+
+    # literal_rules[0]: the identity resolve-hook operational command.
+    assert 'ds-identity resolve-hook --cwd "$AE_PROJECT_DIR"' in methodology_text, (
+        f"{CODEX_METHODOLOGY_MD}: expected renamed resolve-hook command not found"
+    )
+    assert 'agentic-identity resolve-hook --cwd "$AE_PROJECT_DIR"' not in methodology_text, (
+        f"{CODEX_METHODOLOGY_MD}: old-name resolve-hook command leaked into generated output"
+    )
+
+    # The stub must never leak the OLD name even though it no longer
+    # carries the renamed operational strings either.
+    assert CODEX_AGENTS_MD.is_file(), (
+        f"{CODEX_AGENTS_MD} is missing - run `.codex/build.sh` before this test"
+    )
+    agents_text = CODEX_AGENTS_MD.read_text(encoding="utf-8")
+    assert "agentic-identity" not in agents_text, (
+        f"{CODEX_AGENTS_MD}: old-name identity command leaked into the generated stub"
     )
 
 

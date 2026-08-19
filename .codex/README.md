@@ -126,7 +126,11 @@ staged.
 
 ## Other Codex adapter artifacts
 
-- `.codex/AGENTS.md` - generated global methodology.
+- `.codex/AGENTS.md` - generated global stub (runtime binding preamble, activation-preflight
+  pointer, and a skill-load-on-trigger instruction). The full methodology body loads on trigger
+  via the `dinostack` skill (`.codex/skills/dinostack/METHODOLOGY.md`), not from this file
+  (DS-183) - `.codex/install.sh` falls back to embedding the full body directly here only when
+  the skill link is unhealthy.
 - `.codex/agents/*.toml` - generated named-agent definitions.
 - `.codex/config/hooks.json` - lifecycle hook configuration.
 - `.codex/hooks/` - Codex hook implementations and the shared-hook symlink.
