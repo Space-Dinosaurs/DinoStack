@@ -207,6 +207,15 @@ SKILL_DST="$HOME/.gemini/skills/dinostack"
 
 SETTINGS="$HOME/.gemini/settings.json"
 
+# Marker written as the first line of a degrade-path-generated GEMINI.md
+# (DS-184 M2/M3 fix). Lets both install.sh and uninstall.sh recognize a
+# real (non-symlink) GEMINI.md at the install destination as our own
+# generated artifact rather than user data - a prior degrade-path write is
+# overwritten in place with no backup, and uninstall.sh removes it outright
+# instead of leaving it behind as an orphan the install-path can restore
+# from later. A genuinely user-authored GEMINI.md never carries this line.
+GEMINI_MD_DEGRADE_MARKER="<!-- dinostack:gemini-degrade-generated -->"
+
 # ---------------------------------------------------------------------------
 # Hook snapshot (DS-54)
 #
@@ -353,11 +362,19 @@ else
   if [[ -L "$GEMINI_MD_DST" ]]; then
     rm "$GEMINI_MD_DST"
   elif [[ -e "$GEMINI_MD_DST" ]]; then
-    BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-    echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
-    mv "$GEMINI_MD_DST" "$BACKUP"
+    if head -1 "$GEMINI_MD_DST" 2>/dev/null | grep -qF "$GEMINI_MD_DEGRADE_MARKER"; then
+      # Our own prior degrade-path artifact, not user data - overwrite in
+      # place rather than accumulating a fresh backup on every install.
+      echo "  Overwriting prior dinostack degrade-path GEMINI.md (no backup - it's our own generated artifact)"
+      rm "$GEMINI_MD_DST"
+    else
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
+      mv "$GEMINI_MD_DST" "$BACKUP"
+    fi
   fi
   {
+    echo "$GEMINI_MD_DEGRADE_MARKER"
     cat "$GEMINI_MD_SRC"
     echo ""
     echo ""
@@ -632,7 +649,11 @@ echo ""
 echo "Install complete."
 echo ""
 echo "What was installed:"
-echo "  ~/.gemini/skills/dinostack/  -> $SKILL_SRC"
+if [[ "$SKILL_LINK_OK" == "true" ]]; then
+  echo "  ~/.gemini/skills/dinostack/  -> $SKILL_SRC"
+else
+  echo "  ~/.gemini/skills/dinostack/  (NOT linked - $SKILL_LINK_REASON)"
+fi
 echo "    Contains: Full agentic engineering methodology (trigger-loaded via"
 echo "    Gemini CLI's activate_skill - DS-184; not loaded unconditionally)"
 echo ""
