@@ -29,6 +29,7 @@ SKILL_NAMES=(dinostack brief wrap implement-ticket)
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$HOME/.codex/AGENTS.md"
+AGENTS_DEGRADED="$REPO_DIR/.codex/AGENTS.degraded.md"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
 NAMED_AGENTS_DST="$HOME/.codex/agents"
@@ -105,7 +106,7 @@ echo "Removing global AGENTS.md..."
 
 if [[ -L "$AGENTS_DST" ]]; then
   current_target="$(readlink "$AGENTS_DST")"
-  if [[ "$current_target" == "$AGENTS_SRC" ]]; then
+  if [[ "$current_target" == "$AGENTS_SRC" || "$current_target" == "$AGENTS_DEGRADED" ]]; then
     rm "$AGENTS_DST"
     echo "  - ~/.codex/AGENTS.md symlink removed"
 
@@ -122,6 +123,28 @@ elif [[ -e "$AGENTS_DST" ]]; then
   echo "  = ~/.codex/AGENTS.md (real file - not removing)"
 else
   echo "  = ~/.codex/AGENTS.md (not found - nothing to do)"
+fi
+
+# ---------------------------------------------------------------------------
+# Remove the degrade-path companion file (DS-183 round 2, M3 fix). This file
+# lives inside the repo checkout, not under $HOME, so it survives outside
+# the $AGENTS_DST symlink-removal block above and was previously never
+# cleaned up - a stale degrade-path install (round 1's design wrote the full
+# body directly into $AGENTS_DST as a real, non-symlink file, which
+# uninstall.sh's "real file - not removing" branch above always skipped)
+# left a ~141 KB file behind forever, both on every re-run (each re-run
+# created a fresh timestamped backup of the previous one, at $AGENTS_DST
+# itself under $HOME - never cleaned either) and on uninstall. Round 2's
+# redesign makes $AGENTS_DST always a symlink, so that backup accumulation
+# no longer happens going forward and the existing restore-latest-backup
+# logic above now applies to it; this block only needs to remove the
+# companion file itself, never a symlink (guarded the same way as every
+# other real-file removal in this script).
+# ---------------------------------------------------------------------------
+
+if [[ -f "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
+  rm "$AGENTS_DEGRADED"
+  echo "  - .codex/AGENTS.degraded.md removed"
 fi
 
 # ---------------------------------------------------------------------------
