@@ -4194,10 +4194,16 @@ def test_mutations_share_parent_lock_under_cross_command_races():
 def test_activation_preflight_uses_one_bounded_identity_resolver():
     """Canonical and generated adapters must not retain the old read invariant."""
     repo = _BIN_PATH.parent.parent
+    # DS-183: .codex/AGENTS.md is a minimal trigger-load stub and no longer
+    # embeds the full "Activation preflight" section (moved to
+    # .codex/skills/dinostack/METHODOLOGY.md, already covered below) -
+    # matching the existing precedent that .claude's own resident file
+    # (~/.claude/CLAUDE.md's managed block, not tracked under this repo's
+    # own path space) is likewise absent from this list, only its skill's
+    # METHODOLOGY.md is checked.
     paths = [
         repo / "content/sections/01-activation-preflight.md",
         repo / ".claude/skills/dinostack/METHODOLOGY.md",
-        repo / ".codex/AGENTS.md",
         repo / ".codex/skills/dinostack/METHODOLOGY.md",
         repo / ".cursor/rules/agent-methodology.mdc",
         repo / ".gemini/GEMINI.md",
