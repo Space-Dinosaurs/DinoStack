@@ -11,8 +11,9 @@
 # Public API: ./bin/tests/test_skill_embed_sweep_harness.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, python3, cmp, mktemp, wc, grep. zsh is required for
-#                the bash/zsh parity assertion when running in CI (the
+# Upstream deps: bash, python3, cmp, mktemp, wc, grep, shasum, cp, ln,
+#                chmod, tail, head, sed, awk, tr. zsh is required for the
+#                bash/zsh parity assertion when running in CI (the
 #                assertion FAILs if zsh is absent under CI=true); locally,
 #                without zsh on PATH it is skipped (not failed).
 #
@@ -489,24 +490,34 @@ fi
 # Restore the pristine fixture for subsequent scenarios.
 cp "$PRISTINE_REAL_SKILL" "$REAL_SKILL"
 
-# --- Scenario 12: restore refuses to report success when the restored
-#     content still carries a sweep canary (DS-45 round-2 Major 2, restore
-#     side) ---
+# --- Scenario 12: restore refuses BEFORE touching the real file when the
+#     backup it is given still carries a sweep canary (DS-45 round-2
+#     Major 2, restore side; ordering fixed round-3 Major 1) ---
 # Mutation that would redden this: delete the CANARY_MARKER grep guard
-# after the cmp check in cmd_restore() - restoring from a backup that was
-# itself padded content would then print "verified byte-identical" and
-# leave padding installed while reporting success.
+# that now runs on `${backup}` BEFORE the `cp` in cmd_restore() (or revert
+# it to its round-2 position, checking `${REAL_SKILL_FILE}` AFTER the
+# `cp`) - restoring from a backup that was itself padded content would
+# then overwrite the real file with padding, either leaving that overwrite
+# in place while reporting success (if the guard is deleted entirely) or
+# reporting failure only after the real file was already destroyed (if
+# the guard is merely reordered back to post-cp).
 # Attempt to restore FROM a padded "backup" (out1 itself carries the
 # canary, playing the role of a backup that was padded to begin with -
 # exactly what Major 2 says a pre-fix `install` could have produced).
+# $REAL_SKILL is the pristine fixture going in (restored after scenario
+# 11 above) - capture its hash before the call so the assertion can prove
+# the real file was never touched, not merely that rc was nonzero.
+pristine_before_hash="$(shasum -a 256 "$REAL_SKILL" | cut -d' ' -f1)"
 padded_restore_out="$(_run_harness restore --backup "$out1" 2>&1)"
 padded_restore_rc=$?
 padded_restore_hash="$(shasum -a 256 "$REAL_SKILL" | cut -d' ' -f1)"
 out1_hash="$(shasum -a 256 "$out1" | cut -d' ' -f1)"
-if [[ $padded_restore_rc -ne 0 && "$padded_restore_out" == *"DS-45 sweep canary"* ]]; then
-  _pass "restore refuses to report success when the restored content still carries a canary"
+if [[ $padded_restore_rc -ne 0 && "$padded_restore_out" == *"DS-45 sweep canary"* \
+      && "$padded_restore_hash" == "$pristine_before_hash" \
+      && "$padded_restore_hash" != "$out1_hash" ]]; then
+  _pass "restore refuses a padded backup before touching the real file (real file untouched)"
 else
-  _fail "restore did NOT refuse a padded backup (rc=$padded_restore_rc, restored==backup: $([ "$padded_restore_hash" == "$out1_hash" ] && echo yes || echo no)): $padded_restore_out"
+  _fail "restore did NOT refuse a padded backup harmlessly (rc=$padded_restore_rc, real file untouched: $([ "$padded_restore_hash" == "$pristine_before_hash" ] && echo yes || echo no), real file became the padded backup: $([ "$padded_restore_hash" == "$out1_hash" ] && echo yes || echo no)): $padded_restore_out"
 fi
 # Restore the pristine fixture for subsequent scenarios.
 cp "$PRISTINE_REAL_SKILL" "$REAL_SKILL"
@@ -530,6 +541,32 @@ if [[ $readonly_install_rc -ne 0 && "$readonly_before" == "$readonly_after" ]]; 
   _pass "install aborts without overwriting when the backup directory is not writable"
 else
   _fail "install did NOT abort on an unwritable backup dir (rc=$readonly_install_rc, real file changed: $([ "$readonly_before" != "$readonly_after" ] && echo yes || echo no)): $readonly_install_out"
+fi
+
+# --- Scenario 13b: candidate refuses a padded resolved --base with a
+#     message naming the padded base as the cause, instead of surfacing a
+#     misleading minimum-viable-size error one step later (DS-45
+#     round-3 Minor 4) ---
+# Mutation that would redden this: delete the CANARY_MARKER grep guard on
+# `${base}` in cmd_candidate() - building a candidate on top of a padded
+# base would then either silently double-pad, or (at an equal
+# --target-bytes to the padded base's own size) fail with "target_bytes
+# is smaller than the minimum viable candidate size", pointing at the
+# wrong cause.
+padded_base="$TMP_ROOT/padded-base-fixture.md"
+cp "$out1" "$padded_base"
+padded_base_size="$(wc -c < "$padded_base" | tr -d ' ')"
+padded_base_candidate_out="$(_run_harness candidate --target-bytes "$padded_base_size" \
+  --out "$TMP_ROOT/never-written-from-padded-base.md" --base "$padded_base" 2>&1)"
+padded_base_candidate_rc=$?
+padded_base_out_exists=0
+[[ -f "$TMP_ROOT/never-written-from-padded-base.md" ]] && padded_base_out_exists=1
+if [[ $padded_base_candidate_rc -ne 0 && "$padded_base_candidate_out" == *"DS-45 sweep canary"* \
+      && "$padded_base_candidate_out" != *"minimum viable candidate size"* \
+      && $padded_base_out_exists -eq 0 ]]; then
+  _pass "candidate refuses a padded --base, naming the padded base as the cause"
+else
+  _fail "candidate did NOT refuse a padded --base correctly (rc=$padded_base_candidate_rc, out written: $([ $padded_base_out_exists -eq 1 ] && echo yes || echo no)): $padded_base_candidate_out"
 fi
 
 # --- Scenario 14: runbook doc-content pins (DS-45 round-2 Major 1,

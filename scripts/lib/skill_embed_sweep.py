@@ -30,7 +30,7 @@ Public API: build_candidate(base_path: str, target_bytes: int,
             in this repo imports this module.
 
 Upstream deps: Python 3 stdlib only (hashlib, os, pathlib, argparse,
-               secrets). No third-party packages, no network.
+               secrets, sys). No third-party packages, no network.
 
 Downstream consumers: scripts/skill-embed-sweep-harness.sh (candidate
                        subcommand); bin/tests/test_skill_embed_sweep_harness.sh.

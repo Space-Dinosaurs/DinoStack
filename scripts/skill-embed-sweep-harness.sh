@@ -27,20 +27,31 @@
 #             under any checkout. `install` and `restore` are the only two
 #             subcommands that ever touch the real file, and `install`
 #             always writes a timestamped backup first and prints the
-#             exact restore command before doing so. `install` also
-#             refuses outright if the real file it is about to back up is
-#             itself already a padded DS-45 candidate (carries the head
-#             canary), and `restore` refuses to report success if the
-#             file it just restored still carries that canary - both
-#             close the same failure from opposite ends: a backup or a
-#             restore point must never itself be padded content.
+#             exact restore command before doing so. `install` refuses
+#             outright, before backing up anything, if the real file it is
+#             about to back up already carries a padded DS-45 canary; if
+#             the resolved --base for `candidate` carries one (Minor 4,
+#             round 3), refusing with a message naming the padded base as
+#             the cause rather than surfacing an unrelated
+#             minimum-viable-size error later; and `restore` refuses
+#             outright, before copying anything, if the --backup it is
+#             about to restore FROM already carries one. All three checks
+#             run BEFORE the write they would otherwise poison - validate
+#             the source before overwriting the destination, never after
+#             (DS-45 round-3 Major 1: `restore`'s canary check used to run
+#             on the already-overwritten real file, after the `cp`, which
+#             let a padded backup destroy the genuine file before the
+#             refusal fired).
 #
 # Upstream deps: python3 (scripts/lib/skill_embed_sweep.py, the byte-exact
 #                candidate builder and the write-guard comparison helper);
-#                cmp (restore verification); the already-built
-#                .claude/skills/dinostack/SKILL.md as the default --base
-#                (this script does not rebuild it - run `bash
-#                .claude/build.sh` first if you want a fresh base).
+#                cmp (backup and restore verification); grep (canary
+#                detection in cmd_install/cmd_restore/cmd_candidate); date
+#                (backup filename timestamps); mkdir (--out and backup-dir
+#                creation); the already-built .claude/skills/dinostack/
+#                SKILL.md as the default --base (this script does not
+#                rebuild it - run `bash .claude/build.sh` first if you
+#                want a fresh base).
 #
 # Downstream consumers: docs/skill-embed-injection-sweep.md (the
 #                        operator-facing runbook); bin/tests/
@@ -48,8 +59,15 @@
 #
 # Failure modes: `candidate` exits 1 if --out resolves to the real
 #                SKILL.md path (this checkout's or any other checkout's),
-#                if --base is missing, or if --target-bytes is smaller
-#                than the minimum viable candidate size (see
+#                if --base is missing, if the resolved --base already
+#                carries a DS-45 sweep canary (a padded build used as a
+#                base pads an already-padded file - refused with a message
+#                naming the padded base, before the target-bytes math ever
+#                runs, so the failure does not surface as a misleading
+#                "target_bytes is smaller than the minimum viable
+#                candidate size" a step later - DS-45 round-3 Minor 4), or
+#                if --target-bytes is smaller than the minimum viable
+#                candidate size for a genuine base (see
 #                skill_embed_sweep.py's ValueError message). `install`
 #                exits 1 if --candidate is missing, if the real SKILL.md
 #                it is about to back up already carries a DS-45 sweep
@@ -60,14 +78,15 @@
 #                backup-fidelity mismatch - the whole point of backing up
 #                first is trustworthy, so an unverified backup must never
 #                be treated as good). `restore` exits 1 if --backup is
-#                missing, if the restored file does not `cmp`
-#                byte-identical to the backup afterward, or if the
-#                restored file still carries a DS-45 sweep canary (the
-#                backup itself was padded content, so cmp-identity to it
-#                proves nothing about genuineness). Idempotent: re-running
-#                `candidate` with the same arguments overwrites --out with
-#                an identical file (a fresh sweep_id each time unless
-#                --sweep-id is pinned).
+#                missing, if the backup already carries a DS-45 sweep
+#                canary - checked BEFORE the real file is touched, so a
+#                padded backup is refused harmlessly rather than
+#                overwriting the genuine file first and reporting failure
+#                only afterward (DS-45 round-3 Major 1) - or if the
+#                restored file does not `cmp` byte-identical to the backup
+#                afterward. Idempotent: re-running `candidate` with the
+#                same arguments overwrites --out with an identical file (a
+#                fresh sweep_id each time unless --sweep-id is pinned).
 #
 # Compatible with both bash and zsh invocation of the containing shell;
 # avoid the variable names `status` and `path` anywhere in this file -
@@ -162,6 +181,26 @@ cmd_candidate() {
   if [ ! -f "${base}" ]; then
     echo "skill-embed-sweep-harness.sh candidate: base file not found: ${base}" >&2
     echo "  Run 'bash .claude/build.sh' first if you want a freshly built base." >&2
+    exit 1
+  fi
+
+  # Refuse a padded base before doing anything else with it: --base
+  # defaults to the real SKILL.md, and building a candidate on top of an
+  # already-padded real file (e.g. a live injection test left installed
+  # without a restore in between) silently pads a padded base. Left
+  # unchecked, this either produces a candidate with two stacked pad
+  # blocks or, at an equal --target-bytes, fails with "target_bytes is
+  # smaller than the minimum viable candidate size" - a message that
+  # points at the wrong cause. Checked, and refused if matched, before any
+  # --out refusal or directory creation, so the real cause is named up
+  # front (DS-45 round-3 Minor 4).
+  if grep -q "${CANARY_MARKER}" "${base}" 2>/dev/null; then
+    echo "skill-embed-sweep-harness.sh candidate: the base file at" >&2
+    echo "  ${base}" >&2
+    echo "  already carries a DS-45 sweep canary - it is a previously" >&2
+    echo "  installed padded candidate, not a genuine build. Restore the" >&2
+    echo "  real file first (see 'restore' below), or pass --base" >&2
+    echo "  explicitly at a genuine, unpadded file." >&2
     exit 1
   fi
 
@@ -283,26 +322,31 @@ cmd_restore() {
     exit 1
   fi
 
+  # Refuse BEFORE touching the real file: check the backup itself for a
+  # DS-45 sweep canary before the `cp`, not the restored result after it.
+  # The round-2 shape of this guard ran the identical grep against
+  # REAL_SKILL_FILE only after the `cp` had already overwritten it, so a
+  # padded backup destroyed the genuine file and only THEN reported
+  # failure - the refusal fired too late to be a refusal (DS-45 round-3
+  # Major 1). A backup that already carries the canary is padded content,
+  # not a genuine restore point, and must never be copied over the real
+  # file at all - the same check-before-write discipline cmd_install
+  # already applies to the file it is about to back up.
+  if grep -q "${CANARY_MARKER}" "${backup}" 2>/dev/null; then
+    echo "skill-embed-sweep-harness.sh restore: the backup at" >&2
+    echo "  ${backup}" >&2
+    echo "  carries a DS-45 sweep canary - it is padded content, not the" >&2
+    echo "  genuine build, and is not a safe restore point. Refusing" >&2
+    echo "  before touching the real file; nothing was overwritten." >&2
+    exit 1
+  fi
+
   cp "${backup}" "${REAL_SKILL_FILE}"
 
   if ! cmp -s "${REAL_SKILL_FILE}" "${backup}"; then
     echo "skill-embed-sweep-harness.sh restore: restored file does NOT" >&2
     echo "  verify byte-identical to the backup. Do not trust the real" >&2
     echo "  file's current state - investigate before re-installing." >&2
-    exit 1
-  fi
-
-  # Byte-identity to the backup only proves the copy succeeded - it says
-  # nothing about whether the backup itself was genuine. If the restored
-  # file still carries the sweep canary, the backup was padded content
-  # (the same failure Major 2 closes from the install side), and
-  # reporting success here would be the same false-positive read from the
-  # other end (DS-45 round-2 Major 2).
-  if grep -q "${CANARY_MARKER}" "${REAL_SKILL_FILE}" 2>/dev/null; then
-    echo "skill-embed-sweep-harness.sh restore: the restored file still" >&2
-    echo "  carries a DS-45 sweep canary - the backup itself was a padded" >&2
-    echo "  candidate, not the genuine build. This backup is not a safe" >&2
-    echo "  restore point; do not trust the real file's current state." >&2
     exit 1
   fi
 

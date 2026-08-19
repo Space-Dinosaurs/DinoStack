@@ -106,29 +106,34 @@ FLOOR=100000
 # What this constant is NOT: it is not derived from, or swept relative to,
 # the separate 127,107-byte figure this file's own header and failure
 # messages cite as the harness's empirically-confirmed verbatim-injection
-# point. That figure's provenance was never traced - `git log --all -S
-# "127107"` and `-S "127,107"` return only the commits that introduced the
-# prose asserting it (baf0b011, part of DS-143/PR #599), never a
-# measurement record naming which build, which session, or which harness
-# version produced it. The two figures were plainly related in the
-# authoring commit's own framing - c1d7c90c's message states CEILING as
-# "~1.1x the measured build at authoring time" in the same paragraph as
-# "the harness was empirically verified to inject the full SKILL.md body
-# verbatim at ~127 KB" - but the arithmetic that actually produced 139,160
-# traces only to the 126,509 B build-size snapshot, never to 127,107. So
-# CEILING is 1.1x that build-size snapshot (126,509 B, itself only 598 B
-# below the injection-confirmed figure) - not 1.1x, or any swept multiple
-# of, the injection-verified figure itself. CEILING (139,160 B) ends up
+# point. That figure's provenance is not traceable through git history -
+# `git log --all -S "127107"` and `-S "127,107"` return only the commits
+# that introduced the prose asserting it (baf0b011, part of DS-143/PR
+# #599), never a measurement commit naming which build, which session, or
+# which harness version produced it; this is a statement about what git
+# history contains, not a claim that no record exists anywhere (a
+# gitignored planning doc is, by construction, outside what any git-log
+# search could ever find either way). The two figures were plainly
+# related in the authoring commit's own framing - c1d7c90c's message
+# states CEILING as "~1.1x the measured build at authoring time" in one
+# paragraph, and separately, in the next paragraph, that "the harness was
+# empirically verified to inject the full SKILL.md body verbatim at
+# ~127 KB" - but the arithmetic that actually produced 139,160 traces
+# only to the 126,509 B build-size snapshot, never to 127,107. So CEILING
+# is 1.1x that build-size snapshot (126,509 B, itself only 598 B below
+# the injection-confirmed figure) - not 1.1x, or any swept multiple of,
+# the injection-verified figure itself. CEILING (139,160 B) ends up
 # roughly 12,053 B above the injection-confirmed point (127,107 B).
 #
-# Consequence, verified 2026-08-18: the live payload on main already
-# measures 138,990 B - inside CEILING by only 170 B, but roughly 11,900 B
-# past the last-cited injection-confirmed point (127,107 B), with no swept
-# measurement anywhere in that gap. CEILING currently functions as a size
+# What is actually on record, checked 2026-08-18: the largest recorded
+# intact injection is 130,015 B (DS-146: canaries present at head and
+# tail, no truncation, no performance warning - see
+# .agentic/learnings.md KNW-20260811-004 and
+# docs/skill-embed-injection-sweep.md). The live payload on main now
+# measures 138,990 B. The region above 130,015 B - including the gap
+# up to CEILING - is unmeasured. CEILING currently functions as a size
 # ratchet with slack, not as evidence the current payload has been
-# confirmed safe to inject. This does not mean the payload is unsafe - it
-# means nobody has checked, and this gate's own documentation used to imply
-# otherwise.
+# confirmed safe to inject.
 #
 # This does not weaken the existing guidance - it strengthens the case for
 # it. Do not raise CEILING as routine housekeeping when content grows: only

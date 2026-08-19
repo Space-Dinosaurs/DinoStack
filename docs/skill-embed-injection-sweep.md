@@ -43,12 +43,14 @@ license to bump `CEILING`.
   source); otherwise it always writes a timestamped backup first, verifies
   that backup byte-identical via `cmp` before proceeding, and prints the
   exact restore command.
-- `scripts/skill-embed-sweep-harness.sh restore` copies a backup back over the
-  real file, verifies the result is byte-identical to the backup via
-  `cmp` - not by re-running the build and trusting it - and refuses to report
-  success if the restored file still carries a DS-45 sweep canary (the
-  backup itself was padded, so byte-identity to it proves nothing about
-  genuineness).
+- `scripts/skill-embed-sweep-harness.sh restore` refuses to run if the
+  `--backup` it is about to restore FROM already carries a DS-45 sweep
+  canary (the backup itself was padded, not genuine) - checked before the
+  real file is touched at all, so a bad backup is refused harmlessly
+  rather than overwriting the real file first (DS-45 round-3 Major 1).
+  Otherwise it copies the backup over the real file and verifies the
+  result is byte-identical to the backup via `cmp` - not by re-running
+  the build and trusting it.
 
 ## Canary scheme (what a reader looks for)
 
@@ -148,10 +150,11 @@ bash scripts/skill-embed-sweep-harness.sh restore \
   --backup <path printed by install in Step 2>
 ```
 
-`restore` itself already verifies the restored file byte-identical against
-the backup via `cmp`, and refuses to report success if the restored content
-still carries a DS-45 sweep canary (which would mean the backup itself was
-padded, not genuine - DS-45 round-2 Major 2).
+`restore` itself already refuses, before touching the real file, if the
+`--backup` it was given carries a DS-45 sweep canary (which would mean the
+backup itself was padded, not genuine - DS-45 round-2 Major 2, DS-45
+round-3 Major 1), and otherwise verifies the restored file byte-identical
+against the backup via `cmp`.
 
 For a second, differently-sourced confirmation, check the restored file
 against git's already-committed copy **before** running anything that
