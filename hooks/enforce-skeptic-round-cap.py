@@ -220,12 +220,10 @@ Known trade-off (Minor 3, DS-180 round-2 rework): `content/references/
             item 1's cost-to-date wording, which IS mirrored into both.
             Deliberate: `content/sections/05-qa-gate.md` is embedded
             verbatim into the generated `.claude/skills/dinostack/SKILL.md`,
-            which sits within a few hundred bytes of
-            `check-skill-embed-budget.sh`'s ceiling (153 B headroom
-            measured at the time item 1's ~110 B addition was made) - items
-            5 and 6 are full paragraphs, not a clause, and do not fit.
-            Read `skeptic-protocol.md` directly for those two items; do not
-            assume kernel parity with this file's docstring.
+            which sits close to `check-skill-embed-budget.sh`'s ceiling -
+            items 5 and 6 are full paragraphs, not a clause, and do not
+            fit. Read `skeptic-protocol.md` directly for those two items;
+            do not assume kernel parity with this file's docstring.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       Agent tools, matching enforce-tier.py's dual-matcher
@@ -271,6 +269,15 @@ Failure modes:
       a stable key, and not a new collision. See
       `_extract_stable_unit_key()`'s docstring for the measured collision
       this closes.
+    - Known residual, not a fail-open case: `_LOOKS_LIKE_FILE_PATH_RE`
+      only rejects an extension-shaped suffix (`\\.[A-Za-z0-9]{1,5}$`), so a
+      first path with no such suffix - a bare filename, a dotfile, or a
+      directory path (e.g. `LICENSE | a.py`, `.gitignore | a.sh`,
+      `content/references/ | a.py`) - still passes the shape gate and
+      becomes a wrong-but-stable key shared with any other unit whose
+      first path is identical. This degrades to the pre-DS-180 behaviour
+      rather than introducing a new collision, and is judged acceptable
+      for the same reason as the SHA-range residual above.
     - Known residual, not a fail-open case: two DIFFERENT units both
       expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
       SHA range with no branch or PR token anywhere in the value - key
