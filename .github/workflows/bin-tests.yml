@@ -37,6 +37,9 @@ jobs:
       # instead of a killed job with no usable log.
       - run: pip install pytest pytest-timeout pyyaml
       - name: install zsh (required for the bash/zsh parity matrix in test_phase8_telemetry_shell.py)
+        # Observed 10s-152s across recent successful runs (apt mirror
+        # variance); 5 minutes is real headroom over that ceiling.
+        timeout-minutes: 5
         run: sudo apt-get update && sudo apt-get install -y zsh
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
         timeout-minutes: 5
@@ -141,6 +144,9 @@ jobs:
           python-version: '3.11'
       - run: pip install pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
+        # Observed 10s-152s across recent successful runs (apt mirror
+        # variance); 5 minutes is real headroom over that ceiling.
+        timeout-minutes: 5
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: install gitleaks CLI (required by test_gitleaks_allowlist_scope.sh)
         # test_gitleaks_allowlist_scope.sh hard-fails under CI if gitleaks is
