@@ -36,9 +36,9 @@ license to bump `CEILING`.
   same on-disk file (case-insensitive-filesystem, symlink, and hardlink
   aware) or matches the `.claude/skills/dinostack/SKILL.md` artifact shape
   under a different checkout.
-- `scripts/skill-embed-sweep-harness.sh install` is the only subcommand that
-  touches the real file, and only when explicitly invoked. It refuses to run
-  if the real file it is about to back up already carries a DS-45 sweep
+- `scripts/skill-embed-sweep-harness.sh install`, only when explicitly
+  invoked, refuses to run if the real file it is about to back up already
+  carries a DS-45 sweep
   canary (a previously-installed padded build, not a trustworthy backup
   source); otherwise it always writes a timestamped backup first, verifies
   that backup byte-identical via `cmp` before proceeding, and prints the

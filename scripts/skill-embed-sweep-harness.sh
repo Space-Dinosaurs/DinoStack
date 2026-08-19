@@ -5,8 +5,8 @@
 #          whether the harness (Claude Code) injects it intact - the swept
 #          measurement scripts/check-skill-embed-budget.sh's CEILING
 #          constant claims to be anchored to, but never was (DS-45). Built
-#          because the only prior injection observation (DS-146) was never
-#          written down as anything reusable - this closes that gap without
+#          because DS-146's prior injection observation was never written
+#          down as anything reusable - this closes that gap without
 #          itself running a sweep (see docs/
 #          skill-embed-injection-sweep.md for the runbook and which steps
 #          need a human-started fresh session).
@@ -25,9 +25,7 @@
 #             skill_embed_sweep.py's paths_refer_to_same_file()), or if it
 #             matches the .claude/skills/dinostack/SKILL.md artifact shape
 #             under any checkout. `install` and `restore` are the only two
-#             subcommands that ever touch the real file, and `install`
-#             always writes a timestamped backup first and prints the
-#             exact restore command before doing so. `install` refuses
+#             subcommands that ever touch the real file. `install` refuses
 #             outright, before backing up anything, if the real file it is
 #             about to back up already carries a padded DS-45 canary; if
 #             the resolved --base for `candidate` carries one (Minor 4,

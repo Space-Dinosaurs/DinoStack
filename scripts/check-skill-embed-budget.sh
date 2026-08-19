@@ -105,9 +105,9 @@ FLOOR=100000
 # accurately here since the previous text asserted the wrong operation.
 #
 # What this constant is NOT: it is not derived from, or swept relative to,
-# the separate 127,107-byte figure this file's own failure message cites
-# as the harness's empirically-confirmed verbatim-injection point. That
-# figure's provenance is not traceable through git history to a
+# the separate 127,107-byte figure - the harness's empirically-confirmed
+# verbatim-injection point. That figure's provenance is not traceable
+# through git history to a
 # measurement commit naming which build, which session, or which harness
 # version produced it (checked via `git log --all -S`) - this is a
 # statement about what git history contains, not a claim that no record

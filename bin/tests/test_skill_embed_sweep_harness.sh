@@ -639,7 +639,9 @@ else
   # anything regenerates it - the old ordering ran build-all.sh first,
   # which made the following git-status check vacuous. Pin: the git
   # status check line must appear, and it must not be preceded by a
-  # 'build-all.sh &&' on the same line.
+  # 'build-all.sh &&' on the same line. Mutation that would redden this:
+  # remove the git status line, or reintroduce 'build-all.sh && git
+  # status --short' on one line ahead of it.
   if grep -q 'git status --short -- .claude/skills/dinostack/SKILL.md' "$RUNBOOK" \
      && ! grep -q 'build-all.sh && git status --short' "$RUNBOOK"; then
     _pass "runbook Step 4 no longer chains build-all.sh before the restore confirmation"
@@ -648,26 +650,41 @@ else
   fi
 
   # Major 3: the CEILING comment must no longer claim the build-size
-  # snapshot is "unrelated" to the injection-confirmed figure, and must
-  # state the correct arithmetic direction (CEILING is ABOVE 127,107 B,
-  # not the snapshot landing above it).
-  if grep -q 'CEILING (139,160 B) ends up' "$CEILING_SCRIPT" \
-     && ! grep -q '1.1x an unrelated build-size snapshot' "$CEILING_SCRIPT"; then
-    _pass "CEILING comment states the corrected arithmetic and drops the false 'unrelated' framing"
+  # snapshot is "unrelated" to the injection-confirmed figure. Round-5
+  # Minor 1: this used to also require the exact phrase 'CEILING
+  # (139,160 B) ends up' to be present - a Skeptic reworded it to
+  # 'CEILING (139,160 B) therefore sits' without changing its meaning and
+  # reddened the pin. A pin should fire when the false 'unrelated' framing
+  # RETURNS, not when a correct sentence is reworded, so this is now
+  # negative-only. Mutation that would redden this: reintroduce the
+  # literal string '1.1x an unrelated build-size snapshot' anywhere in
+  # the CEILING comment.
+  if ! grep -q '1.1x an unrelated build-size snapshot' "$CEILING_SCRIPT"; then
+    _pass "CEILING comment drops the false 'unrelated' framing"
   else
-    _fail "CEILING comment is missing the corrected arithmetic, or still asserts the snapshot is 'unrelated'"
+    _fail "CEILING comment still asserts the build-size snapshot is 'unrelated' to the injection-confirmed figure"
   fi
+  # Mutation that would redden this: reintroduce the identical false
+  # claim into AGENTS.md's copy of the CEILING provenance summary.
   if grep -qF '1.1x an unrelated 2026-08-07 build-size snapshot' "$REPO_DIR/AGENTS.md"; then
     _fail "AGENTS.md:24 still carries the false 'unrelated build-size snapshot' claim"
   else
     _pass "AGENTS.md no longer carries the false 'unrelated build-size snapshot' claim"
   fi
 
-  # Minor 2: the canary scheme's claim must be scoped to the pad/tail
-  # region, not asserted as covering the whole file (a mid-file elision
-  # of base content is undetectable by this scheme).
-  if grep -q 'independently verify that the base methodology content' "$RUNBOOK"; then
-    _pass "runbook's canary-scheme claim is scoped to the pad/tail region, not the whole file"
+  # Minor 2: the canary scheme's disclosure must keep stating that this
+  # scheme does not independently verify base-content completeness (a
+  # mid-file elision of base content is undetectable by it) - checked as
+  # two independent anchors rather than one exact phrase, so a legitimate
+  # rewording of the connecting words between them does not redden this
+  # (round-5 Minor 1: the earlier single-phrase form was exactly the
+  # rewording-fragile shape a Skeptic demonstrated breaking elsewhere in
+  # this scenario). Mutation that would redden this: delete the
+  # disclosure sentence (or replace "does not independently verify" with
+  # an unqualified completeness claim) from the runbook's canary-scheme
+  # section.
+  if grep -q 'does not' "$RUNBOOK" && grep -q 'independently verify' "$RUNBOOK"; then
+    _pass "runbook's canary-scheme claim still discloses the mid-file-elision gap"
   else
     _fail "runbook's canary-scheme claim no longer discloses the mid-file-elision gap"
   fi
@@ -676,6 +693,8 @@ else
   # provenance "was never recorded" - a gitignored planning doc records
   # it, so the correct framing is "not traceable through git history",
   # already stated by the CEILING comment this runbook points at.
+  # Mutation that would redden this: reintroduce "was never recorded"
+  # anywhere in the runbook.
   if grep -q "was never recorded" "$RUNBOOK"; then
     _fail "runbook still claims the 127,107 B figure's provenance 'was never recorded'"
   else
@@ -686,26 +705,39 @@ else
   # is "the only" prior injection observation on record - the 127,107 B
   # figure five lines above is also called an "empirically-confirmed
   # verbatim-injection point", so "the only" contradicts the runbook's
-  # own text.
+  # own text. Round-5 Major 2: the identical set-completeness claim
+  # ("the only prior injection observation") also existed one file over,
+  # in the harness script's own header, unguarded by any pin here - it
+  # was fixed there in the same round this comment was extended. Both
+  # files are now checked so this class cannot resurface unpinned in
+  # either. Mutation that would redden this: reintroduce either phrase
+  # into its respective file.
   if grep -q "The only prior injection observation on record" "$RUNBOOK"; then
     _fail "runbook still claims DS-146 is 'the only' prior injection observation on record"
   else
     _pass "runbook no longer claims DS-146 is 'the only' prior injection observation on record"
   fi
-
-  # Round-4 Minor 1: the CEILING comment's self-reference must not claim
-  # the file's own HEADER cites the 127,107 B figure - this branch
-  # removed that header citation, so only the failure message does.
-  if grep -q "own header and failure" "$CEILING_SCRIPT"; then
-    _fail "CEILING comment still claims this file's own HEADER cites 127,107 B (it does not, on this branch)"
+  if grep -q "the only prior injection observation" "$HARNESS_SCRIPT"; then
+    _fail "harness script header still claims DS-146 is 'the only' prior injection observation on record"
   else
-    _pass "CEILING comment no longer claims this file's own header cites 127,107 B"
+    _pass "harness script header no longer claims DS-146 is 'the only' prior injection observation on record"
   fi
+
+  # Round-4 Minor 1 pin retired (round 5): it guarded the literal phrase
+  # "own header and failure", which never appeared anywhere in either
+  # script on this branch - the phrase this pin was meant to catch a
+  # revert of was "this file's own failure message cites" (no "header"),
+  # so the pin was dead weight that could never redden regardless of what
+  # the CEILING comment said. Fixed in the same round by deleting the
+  # false self-reference itself (round-5 Major 1) rather than restoring
+  # a pin that never covered it. See the Major 1 fix in
+  # scripts/check-skill-embed-budget.sh's CEILING comment.
 
   # Round-4 Minor 2: the ABOVE-CEILING failure message and AGENTS.md must
   # both cite the actually-verified 130,015 B figure and the correct
   # 9,145 B gap to CEILING, not stay silent on it while only citing the
-  # unswept 127,107 B figure.
+  # unswept 127,107 B figure. Mutation that would redden this: delete
+  # either figure from the CEILING script's ABOVE-CEILING message.
   if grep -q '130,015 B' "$CEILING_SCRIPT" && grep -q '9,145 B' "$CEILING_SCRIPT"; then
     _pass "CEILING script's ABOVE-CEILING framing cites the verified 130,015 B figure and 9,145 B gap"
   else
@@ -722,7 +754,9 @@ else
   # directory, not dinostack, and must not claim the two `git log -S`
   # queries "return only" the introducing commit (both queries actually
   # return multiple/different commits - see the comment's own rewritten
-  # text).
+  # text). Mutation that would redden this: replace
+  # 'agentic-engineering/SKILL.md' with 'dinostack/SKILL.md', or
+  # reintroduce 'return only the commits'.
   if grep -q 'agentic-engineering/SKILL.md' "$CEILING_SCRIPT"; then
     _pass "CEILING comment attributes the baf0b011 measurement to the pre-rename skill directory"
   else
@@ -739,7 +773,8 @@ else
   # invoked (cp is the write primitive at three call sites; dirname
   # resolves --out's and the backup dir's parent; cat backs the heredoc
   # usage message) and were missing from both manifests going into this
-  # round.
+  # round. Mutation that would redden this: drop either tool entry from
+  # the harness script's Upstream deps comment block.
   if grep -q 'dirname (resolving --out' "$HARNESS_SCRIPT" && grep -q 'cat (the heredoc' "$HARNESS_SCRIPT"; then
     _pass "harness script's Upstream deps manifest lists cp, dirname, and cat"
   else
@@ -753,6 +788,8 @@ else
   # manifest actually says.
   SELF_SCRIPT="$REPO_DIR/bin/tests/test_skill_embed_sweep_harness.sh"
   self_manifest_block="$(awk '/^# Upstream deps:/{p=1} p{print; if (/^#[[:space:]]*$/) exit}' "$SELF_SCRIPT")"
+  # Mutation that would redden this: drop 'dirname' or 'cat' from this
+  # file's own Upstream deps comment block.
   if [[ "$self_manifest_block" == *"cut, mkdir, ls, rm,"* && "$self_manifest_block" == *"dirname, cat."* ]]; then
     _pass "this test file's own Upstream deps manifest lists cut, mkdir, ls, rm, dirname, and cat"
   else
