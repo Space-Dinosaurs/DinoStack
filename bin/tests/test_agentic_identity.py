@@ -4201,7 +4201,7 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
         repo / ".codex/skills/dinostack/METHODOLOGY.md",
         repo / ".cursor/rules/agent-methodology.mdc",
         repo / ".gemini/GEMINI.md",
-        repo / ".github/copilot-instructions.md",
+        repo / ".github/skills/dinostack/SKILL.md",
         repo / ".hermes/SKILL.md",
         repo / ".kimi/AGENTS.md",
         repo / ".omp/skills/dinostack/METHODOLOGY.md",
