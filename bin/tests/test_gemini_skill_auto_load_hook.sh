@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Purpose: Regression test for Gemini skill auto-load hook wiring (DS-143).
-#          Gemini already always-loads the full methodology via
+# Purpose: Regression test for Gemini skill auto-load hook wiring. Originally
+#          DS-143 (Gemini always-loaded the full methodology via
 #          .gemini/GEMINI.md, so the shared skill-auto-load-check.sh script
-#          gates Gemini out unconditionally - but Gemini has no detectable
-#          script_dir signature of its own (unlike Codex's */.codex/hooks
-#          shape), so .gemini/install.sh must tag the BeforeAgent SKILL_CMD
-#          it writes with AE_ADAPTER=gemini. This asserts both halves: the
-#          real install.sh actually writes that tag into ~/.gemini/settings.json,
-#          and the shared hook script honors it with zero output.
+#          gated Gemini out unconditionally with zero output). As of DS-184,
+#          .gemini/GEMINI.md is a small stub pointing at the trigger-loaded
+#          dinostack skill (.gemini/skills/dinostack/SKILL.md) instead of
+#          carrying the methodology body itself, so Gemini now gets the same
+#          non-empty nudge Claude does - pointed at its own skill path,
+#          rather than Claude's ~/.claude/skills/dinostack/SKILL.md. Gemini
+#          still has no detectable script_dir signature of its own (unlike
+#          Codex's */.codex/hooks shape), so .gemini/install.sh must tag the
+#          BeforeAgent SKILL_CMD it writes with AE_ADAPTER=gemini. This
+#          asserts both halves: the real install.sh actually writes that tag
+#          into ~/.gemini/settings.json, and the shared hook script honors
+#          it with the Gemini-specific nudge text.
 #
 # Public API: ./bin/tests/test_gemini_skill_auto_load_hook.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -104,10 +110,10 @@ else
 fi
 
 out="$(HOME="$HOME_GEMINI" bash -c "$skill_cmd" 2>&1)"
-if [[ -z "$out" ]]; then
-  pass "gemini skill auto-load emits zero output (Gemini already always-loads via .gemini/GEMINI.md)"
+if [[ -n "$out" ]] && [[ "$out" == *"$HOME_GEMINI/.gemini/skills/dinostack/SKILL.md"* ]]; then
+  pass "gemini skill auto-load emits a non-empty nudge pointing at .gemini/skills/dinostack/SKILL.md (DS-184)"
 else
-  fail "expected zero output for gemini, got: $out"
+  fail "expected a nudge naming .gemini/skills/dinostack/SKILL.md for gemini, got: $out"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
