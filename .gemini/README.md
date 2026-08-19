@@ -2,9 +2,11 @@
 
 ## What this provides
 
-- **GEMINI.md** - Always-loaded rules: agent methodology, code standards, conventions (combined from 3 source files)
+- **GEMINI.md** - A small always-loaded stub pointing at the trigger-loaded `dinostack` skill (DS-184). It no longer carries the methodology body itself - see "Trigger-loaded methodology (DS-184)" below.
+- **`dinostack` skill** - `.gemini/skills/dinostack/SKILL.md` - the full methodology body (agent methodology, code standards, conventions), trigger-loaded via Gemini CLI's `activate_skill` instead of loaded unconditionally in every session.
 - **Reference docs** (5) - skeptic protocol, subagent protocol, agent team, design goals, regression test obligation
-- **Global GEMINI.md** - `~/.gemini/GEMINI.md` symlinked to `.gemini/GEMINI.md` for global session loading
+- **Global GEMINI.md** - `~/.gemini/GEMINI.md` symlinked to `.gemini/GEMINI.md` (the stub) for global session loading, when the skill link below resolves; otherwise written directly with the full body appended (see the degrade path below)
+- **Global skill** - `~/.gemini/skills/dinostack/` symlinked to `.gemini/skills/dinostack/` for global session availability
 - **Named agents** - `~/.gemini/agents/` symlinked to `.gemini/agents/` - 13 agent markdown files generated from `content/agents/*.md`
 - **Slash commands** - `~/.gemini/commands/` symlinked to `.gemini/commands/` - TOML command files for `skeptic`, `implement-ticket`, `wrap`, and others
 - **Lifecycle hooks** - `BeforeAgent` (risk reminder) and `SessionEnd` (context save) configured in `~/.gemini/settings.json`
@@ -24,21 +26,22 @@ bash ~/DinoStack/.gemini/install.sh
 
 This:
 1. Runs `.gemini/build.sh` to ensure all artifacts are current
-2. Symlinks `.gemini/GEMINI.md` to `~/.gemini/GEMINI.md` (global instructions, loaded by Gemini CLI in every session)
-3. Symlinks `.gemini/commands/` to `~/.gemini/commands/` (TOML slash-command files)
-4. Symlinks `.gemini/agents/` to `~/.gemini/agents/` (named agent markdown files)
-5. Merges `BeforeAgent` and `SessionEnd` hook entries into `~/.gemini/settings.json`
+2. Symlinks `.gemini/skills/dinostack/` to `~/.gemini/skills/dinostack/` (the trigger-loaded methodology body)
+3. Symlinks `.gemini/GEMINI.md` to `~/.gemini/GEMINI.md` when the skill link above resolved cleanly (a small always-loaded stub pointing at the skill); if it did not, writes `~/.gemini/GEMINI.md` directly with the full methodology body appended instead, so the session does not silently lose access to the methodology (see "Trigger-loaded methodology (DS-184)" below)
+4. Symlinks `.gemini/commands/` to `~/.gemini/commands/` (TOML slash-command files)
+5. Symlinks `.gemini/agents/` to `~/.gemini/agents/` (named agent markdown files)
+6. Merges `BeforeAgent` and `SessionEnd` hook entries into `~/.gemini/settings.json`
 
-If `~/.gemini/GEMINI.md` already exists and is not a symlink, the installer backs it up to `~/.gemini/GEMINI.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists. Same backup behavior applies to `~/.gemini/commands/` and `~/.gemini/agents/`.
+If `~/.gemini/GEMINI.md` already exists and is not a symlink, the installer backs it up to `~/.gemini/GEMINI.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists. Same backup behavior applies to `~/.gemini/commands/` and `~/.gemini/agents/`. The skill symlink at `~/.gemini/skills/dinostack/` is the one exception: a pre-existing real file or directory there is left alone (not auto-backed-up) and the installer falls back to the degrade path above - resolve the conflict manually, then re-run install.sh.
 
 ## Post-install verification
 
 After running the installer, verify the following:
 
-1. **GEMINI.md loaded globally:**
-   Open Gemini CLI in any project and ask:
+1. **`dinostack` skill loads on trigger (DS-184):**
+   Open Gemini CLI in any project, invoke the `dinostack` skill (or start any software development task and let it fire on trigger), then ask:
    > "What risk tiers does the DinoStack protocol define?"
-   The answer should reference Trivial/Low/Elevated/Elevated+Cleanup. If it does not, check that `~/.gemini/GEMINI.md` exists and is a valid symlink.
+   The answer should reference Trivial/Low/Elevated/Elevated+Cleanup. If it does not, check that `~/.gemini/skills/dinostack/` exists and is a valid symlink, and that the session accepted the per-session `activate_skill` consent prompt. Note: this is an operator-verified check, not one this repo's own CI or install script can certify - it depends on the live Gemini CLI harness actually injecting the skill body at invocation time.
 
 2. **Slash commands available:**
    In a Gemini CLI session, run `/commands reload` then type `/ds-skeptic` - it should appear in autocomplete. If not, check that `~/.gemini/commands/` is a symlink to the repo's `.gemini/commands/` directory.
@@ -56,9 +59,26 @@ This removes the three symlinks and surgically removes the `BeforeAgent` and `Se
 
 ## How it works
 
-### Always-loaded rules (GEMINI.md)
+### Trigger-loaded methodology (DS-184)
 
-Gemini CLI reads `GEMINI.md` at the project root and `~/.gemini/GEMINI.md` globally. The `.gemini/GEMINI.md` in this repo contains the full DinoStack methodology (all 3 rules files concatenated). It is generated by `build.sh` from `content/rules/`.
+Gemini CLI supports project-local, trigger-loaded skills (`.gemini/skills/<name>/SKILL.md`), discovered at session start and invoked on demand via the `activate_skill` tool - see `docs/cli/skills.md` on the `google-gemini/gemini-cli` repo. DinoStack ships its methodology as one such skill, `.gemini/skills/dinostack/SKILL.md`, generated by `build.sh` from `content/sections/` (the assembled methodology body) plus `content/rules/code-standards.md` and `content/rules/conventions.md`.
+
+This is the same problem DS-143 solved for Claude Code (moving the methodology body out of the always-imported root file into a trigger-loaded skill), applied to the Gemini adapter. Committing `.gemini/skills/dinostack/SKILL.md` into a repo is sufficient for a consumer project to use it - no global install is required for project-local use.
+
+**GEMINI.md is now a small stub.** `.gemini/GEMINI.md` still loads unconditionally (project-scoped from the project root, or globally from `~/.gemini/GEMINI.md`), but it now only points at the `dinostack` skill rather than carrying the full methodology body. Invoke the skill (`activate_skill`) at the start of any software development work to load the full protocol.
+
+**Skill discovery tiers.** Gemini CLI discovers skills in four tiers, lowest to highest precedence: built-in, extension, user (`~/.gemini/skills/` or the `~/.agents/skills/` alias), workspace (`.gemini/skills/` or the `.agents/skills/` alias, project-local). Workspace outranks user; within a tier, the `.agents/skills/` alias outranks `.gemini/skills/`.
+
+**Per-session consent prompt.** The first time a session invokes `activate_skill` for a non-built-in skill, Gemini CLI shows a confirmation prompt naming the skill, its purpose, and the directory path it gains access to. This is a normal per-session UI interaction in an interactive Gemini CLI session, not an install-time prompt - `install.sh` never touches it.
+
+**Known limitation - headless / non-interactive runs.** Gemini CLI's policy engine denies the `activate_skill` tool by default outside an interactive session: `packages/core/src/policy/policies/write.toml` defines an interactive rule (`activate_skill` -> `ask_user`, priority 10) and a separate non-interactive rule listing `activate_skill` among tools with `decision = "deny"`, priority 10. A plain non-interactive (`gemini -p ...` scripted) run is therefore **denied** the skill, not prompted for it - and since GEMINI.md no longer carries the full body either, a scripted run that neither invokes an override nor has a broken-skill-link degrade file installed gets **no route to the methodology at all**. This is a known, deliberate limitation of DS-184, not an oversight - DinoStack does not silently weaken your security posture to close it. Two documented overrides exist if you want headless access, both opt-in and both yours to enable:
+
+1. `--approval-mode yolo` (or `--yolo`) - allows every tool, not scoped to `activate_skill` alone. `yolo.toml` allows `toolName = "*"` at priority 998.
+2. A targeted allowlist: add `"activate_skill"` to `tools.allowed` in your own `~/.gemini/settings.json` - `docs/reference/configuration.md`: "**`tools.allowed`** (array): Tool names that bypass the confirmation dialog." (The `--allowed-tools` flag form is marked deprecated in favour of the Policy Engine.)
+
+`install.sh` prints this same limitation and both override routes in its install summary. It never writes `activate_skill` into your `settings.tools.allowed` and never defaults you into `--approval-mode yolo` - that is a deliberate choice you make, not one made for you.
+
+**Empirically verifying that the injection arrives intact in a fresh Gemini session is an operator task**, not something this adapter or its install script can self-certify.
 
 ### Named agents
 
@@ -93,7 +113,7 @@ Reference docs are available in `.gemini/references/` as hardlinks to `content/r
 
 ## Build
 
-The build script generates `GEMINI.md`, command TOML files, agent markdown files, and hardlinks reference docs:
+The build script generates the `dinostack` skill (`.gemini/skills/dinostack/SKILL.md`), the `GEMINI.md` stub, command TOML files, agent markdown files, and hardlinks reference docs:
 
 ```bash
 bash ~/DinoStack/.gemini/build.sh

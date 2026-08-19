@@ -4206,7 +4206,7 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
         repo / ".claude/skills/dinostack/METHODOLOGY.md",
         repo / ".codex/skills/dinostack/METHODOLOGY.md",
         repo / ".cursor/rules/agent-methodology.mdc",
-        repo / ".gemini/GEMINI.md",
+        repo / ".gemini/skills/dinostack/SKILL.md",
         repo / ".github/skills/dinostack/SKILL.md",
         repo / ".hermes/SKILL.md",
         # DS-185: Kimi moved to a trigger-loaded skill (mirroring DS-143's

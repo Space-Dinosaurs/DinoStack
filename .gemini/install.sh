@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Module: .gemini/install.sh
 # Role: Install the Gemini CLI adapter into ~/.gemini/
-# Inputs: .gemini/ build artifacts (GEMINI.md, commands/, agents/, hooks/)
-# Outputs: symlinks at ~/.gemini/GEMINI.md, ~/.gemini/commands/, ~/.gemini/agents/;
-#          hooks block merged into ~/.gemini/settings.json, pointed at the
-#          session-stable hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh)
-#          when sync succeeds, else the checkout
+# Inputs: .gemini/ build artifacts (GEMINI.md, skills/dinostack/, commands/,
+#          agents/, hooks/)
+# Outputs: symlinks at ~/.gemini/skills/dinostack/, ~/.gemini/commands/,
+#          ~/.gemini/agents/; ~/.gemini/GEMINI.md is symlinked to the stub
+#          when the skill link resolves (SKILL_LINK_OK), or WRITTEN
+#          (not symlinked) with the full methodology body appended as a
+#          degrade path otherwise (DS-184 - see the Step 3a/3b comments
+#          below for the full contract); hooks block merged into
+#          ~/.gemini/settings.json, pointed at the session-stable hooks
+#          snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
+#          succeeds, else the checkout
 # Side-effects: backs up existing non-symlink targets with .backup-<timestamp> suffix;
 #               creates ~/.gemini/ if absent; syncs the hooks snapshot dir
 # Consumers: user runs manually; re-run after repo move (or to refresh the
@@ -196,6 +202,9 @@ COMMANDS_DST="$HOME/.gemini/commands"
 AGENTS_SRC="$GEMINI_DIR/agents"
 AGENTS_DST="$HOME/.gemini/agents"
 
+SKILL_SRC="$GEMINI_DIR/skills/dinostack"
+SKILL_DST="$HOME/.gemini/skills/dinostack"
+
 SETTINGS="$HOME/.gemini/settings.json"
 
 # ---------------------------------------------------------------------------
@@ -248,34 +257,121 @@ bash "$GEMINI_DIR/build.sh"
 mkdir -p "$HOME/.gemini"
 
 # ---------------------------------------------------------------------------
-# Step 3: Symlink ~/.gemini/GEMINI.md
+# Step 3a: Symlink ~/.gemini/skills/dinostack (DS-184)
+#
+# Mirrors .claude/install.sh's SKILL_LINK_OK gate: a skipped or not-yet-
+# created skill symlink sets SKILL_LINK_OK=false. GEMINI.md linking (next
+# step) branches on this - when the skill link does not resolve, the
+# stub-only GEMINI.md would leave the session with no route to the
+# methodology body at all, so install falls back to writing the full body
+# directly into ~/.gemini/GEMINI.md instead of the stub.
+# ---------------------------------------------------------------------------
+
+echo "Linking skill: dinostack..."
+
+SKILL_LINK_OK=true
+SKILL_LINK_REASON=""
+
+mkdir -p "$(dirname "$SKILL_DST")"
+
+if [[ -L "$SKILL_DST" ]]; then
+  current_target="$(readlink "$SKILL_DST")"
+  if [[ "$current_target" == "$SKILL_SRC" ]]; then
+    echo "  = ~/.gemini/skills/dinostack/ (already linked)"
+  else
+    echo "  ! ~/.gemini/skills/dinostack/ (symlink points elsewhere: $current_target - skipping)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="symlink points outside this checkout: $current_target"
+  fi
+elif [[ -e "$SKILL_DST" ]]; then
+  # Unlike the commands/agents symlinks above and below, a real file or
+  # directory at the skill destination is NOT auto-backed-up and replaced
+  # - it is left alone and SKILL_LINK_OK is set false, matching
+  # .claude/install.sh's own skill-linking behavior (a skill link is a
+  # trigger-load routing decision, not a leaf artifact to unconditionally
+  # overwrite). Operator resolves the conflict manually, same as the
+  # Claude adapter's skill link.
+  echo "  ! ~/.gemini/skills/dinostack/ (real file/directory exists at destination - skipping)"
+  SKILL_LINK_OK=false
+  SKILL_LINK_REASON="real file/directory exists at destination"
+else
+  ln -s "$SKILL_SRC" "$SKILL_DST"
+  echo "  + ~/.gemini/skills/dinostack/ linked to $SKILL_SRC"
+fi
+
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo ""
+  echo "  WARNING: the dinostack skill is not linked ($SKILL_LINK_REASON)."
+  echo "  ~/.gemini/GEMINI.md will carry the full methodology body directly"
+  echo "  as a degrade path, instead of the trigger-loaded skill pointer,"
+  echo "  so the session does not lose access to the methodology entirely."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 3b: Symlink (or, on a broken skill link, write) ~/.gemini/GEMINI.md
+#
+# When SKILL_LINK_OK, ~/.gemini/GEMINI.md is symlinked to the stub built by
+# .gemini/build.sh - the full methodology loads on trigger via the skill
+# instead. When the skill link could not be established, the stub alone
+# would leave no route to the methodology at all, so install writes (not
+# symlinks) a real file combining the stub with the full skill body
+# appended - never silently dropping content (DS-184).
 # ---------------------------------------------------------------------------
 
 echo "Linking global GEMINI.md..."
 
-if [[ -L "$GEMINI_MD_DST" ]]; then
-  current_target="$(readlink "$GEMINI_MD_DST")"
-  if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
-    echo "  = ~/.gemini/GEMINI.md (already linked)"
+if [[ "$SKILL_LINK_OK" == "true" ]]; then
+  if [[ -L "$GEMINI_MD_DST" ]]; then
+    current_target="$(readlink "$GEMINI_MD_DST")"
+    if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
+      echo "  = ~/.gemini/GEMINI.md (already linked)"
+    else
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
+    fi
+  elif [[ -e "$GEMINI_MD_DST" ]]; then
+    BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+    echo ""
+    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
+    echo "  Backing it up to: $BACKUP"
+    echo "  The existing file will be REPLACED with the dinostack symlink."
+    echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
+    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    echo ""
+    mv "$GEMINI_MD_DST" "$BACKUP"
+    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+    echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
   else
-    echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
+    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+    echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
   fi
-elif [[ -e "$GEMINI_MD_DST" ]]; then
-  BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-  echo ""
-  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
-  echo "  Backing it up to: $BACKUP"
-  echo "  The existing file will be REPLACED with the dinostack symlink."
-  echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
-  echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo ""
-  mv "$GEMINI_MD_DST" "$BACKUP"
-  ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-  echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
 else
-  ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-  echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
+  # Degrade path: the skill link is unavailable, so write a real file (not
+  # a symlink) that carries the full methodology body directly, rather than
+  # leaving the session with only the trigger-load pointer and no working
+  # trigger to reach it.
+  if [[ -L "$GEMINI_MD_DST" ]]; then
+    rm "$GEMINI_MD_DST"
+  elif [[ -e "$GEMINI_MD_DST" ]]; then
+    BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+    echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
+    mv "$GEMINI_MD_DST" "$BACKUP"
+  fi
+  {
+    cat "$GEMINI_MD_SRC"
+    echo ""
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Full methodology body (degrade path - skill link unavailable)"
+    echo ""
+    echo "The \`dinostack\` skill could not be linked ($SKILL_LINK_REASON), so the"
+    echo "full methodology body is appended below directly, rather than left"
+    echo "reachable only via a broken trigger-load pointer."
+    echo ""
+    cat "$SKILL_SRC/SKILL.md"
+  } > "$GEMINI_MD_DST"
+  echo "  + ~/.gemini/GEMINI.md written with full methodology body appended (degrade path)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -536,8 +632,18 @@ echo ""
 echo "Install complete."
 echo ""
 echo "What was installed:"
-echo "  ~/.gemini/GEMINI.md  -> $GEMINI_MD_SRC"
-echo "    Contains: Full agentic engineering methodology (loaded globally by Gemini CLI)"
+echo "  ~/.gemini/skills/dinostack/  -> $SKILL_SRC"
+echo "    Contains: Full agentic engineering methodology (trigger-loaded via"
+echo "    Gemini CLI's activate_skill - DS-184; not loaded unconditionally)"
+echo ""
+if [[ "$SKILL_LINK_OK" == "true" ]]; then
+  echo "  ~/.gemini/GEMINI.md  -> $GEMINI_MD_SRC"
+  echo "    Contains: A small always-loaded stub pointing at the dinostack skill"
+else
+  echo "  ~/.gemini/GEMINI.md  (written directly, NOT symlinked - degrade path)"
+  echo "    Contains: The stub PLUS the full methodology body appended, because"
+  echo "    the skill link above could not be established ($SKILL_LINK_REASON)"
+fi
 echo ""
 echo "  ~/.gemini/commands/  -> $COMMANDS_SRC"
 echo "    Contains: TOML slash-command files (ds-skeptic, ds-implement-ticket, ds-wrap, etc.)"
@@ -554,11 +660,27 @@ echo "  Hook commands in ~/.gemini/settings.json embed absolute paths to:"
 echo "    $GEMINI_HOOKS_DIR/"
 echo "  If you move the repo, re-run .gemini/install.sh to update these paths."
 echo ""
+echo "KNOWN LIMITATION - headless / non-interactive Gemini runs (DS-184):"
+echo "  Gemini CLI denies the activate_skill tool by default outside an"
+echo "  interactive session (packages/core/src/policy/policies/write.toml -"
+echo "  non-interactive rule: decision=deny, priority=10). A scripted,"
+echo "  non-interactive run will NOT load the dinostack skill's methodology"
+echo "  body unless you opt in to one of two overrides yourself:"
+echo "    1. --approval-mode yolo (or --yolo) - allows every tool, not"
+echo "       scoped to activate_skill alone."
+echo "    2. settings.tools.allowed: [\"activate_skill\", ...] in your own"
+echo "       ~/.gemini/settings.json - scoped to the tools you list."
+echo "  This installer deliberately does NOT enable either override for"
+echo "  you - see .gemini/README.md for the full explanation."
+echo ""
 echo "Next steps:"
 echo "  1. Open Gemini CLI in a project directory."
-echo "  2. ~/.gemini/GEMINI.md loads the methodology globally in every session."
+echo "  2. Invoke the dinostack skill (activate_skill) to load the full"
+echo "     methodology - you will see a one-time per-session consent"
+echo "     prompt naming the skill and the directory it gains access to."
 echo "  3. Run /commands reload to activate slash commands."
 echo "  4. Spawn named agents via @agent-name (e.g., @engineer, @architect)."
 echo "  5. Risk reminder fires automatically before each prompt (BeforeAgent hook)."
 echo "  6. Session context saved to ~/.gemini/projects/[hash]/context.md on /exit."
-echo "  7. See .gemini/README.md for full documentation."
+echo "  7. See .gemini/README.md for full documentation, including the"
+echo "     headless-run limitation above."
