@@ -23,6 +23,7 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          artifact under review and stays stable across re-review rounds of
          the SAME unit, even though the rest of the prompt (the pasted
          Worker output) changes every round. See `_extract_unit_identity()`.
+         DS-180 added a conductor-supplied stable-key fast path within that same line (`<key> | <diff detail>`, see `_extract_stable_unit_key()` and the DS-180 paragraph below) - the diff-identity normalization described in the rest of this docstring is now the fallback path, exercised only when no such key is present.
          When that line cannot be found, the hook fails open (allows, writes
          no state) rather than falling back to a weaker key that could
          collide across unrelated units - see Failure modes below.
@@ -100,6 +101,31 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          so that case yields no capture at all
          (correctly falls through to fail-open) instead of a collidable
          one-character key.
+
+         **DS-180 fix: explicit stable per-unit key, closing the two failure
+         shapes the heuristics above cannot cover.** `_normalize_diff_identity()`
+         stabilizes a `base..head` range only when one ref is a non-SHA
+         branch/PR token, or, in its documented residual case, by falling back to
+         the base SHA. Neither covers a ROLLING range, where round N's base
+         equals round N-1's head - the literal shape a sequential rework loop
+         produces - because the "base" itself changes every round. Nor does
+         either heuristic apply at all once free-form prose sits in front of the
+         range (`_DIFF_RANGE_RE` is anchored at the start of the value), which
+         falls through to "return raw text unchanged" and makes the conductor's
+         own round-numbering text part of the "stable" key. Measured on PR #760:
+         seven sequential rework rounds on one unit, each citing
+         `<prior-round-head>..<new-head>` with a `"DS-177 rework N - "` prefix,
+         produced seven distinct state files and the cap never engaged - recorded
+         as KNW-20260814-022. Per `content/references/skeptic-protocol.md`
+         Section 4.5 "Stable unit key contract," field 6 now MAY lead with an
+         explicit `<key> | <diff detail>` form; `_extract_stable_unit_key()`
+         below reads `key` directly when present, bypassing the range heuristics
+         entirely. A first version of that function partitioned on the first `|`
+         unconditionally and reintroduced the same instability on a plausible
+         input (a diff command piped through `head`) - `_STABLE_KEY_SHAPE_RE`
+         closes that regression; see the function's own docstring. Absent from
+         the value (no `|`), extraction falls through to the pre-existing
+         `_normalize_diff_identity()` path unchanged.
 
          Decision algorithm (see `_decide()`):
            - round_count is the number of Skeptic rounds already recorded
@@ -207,6 +233,17 @@ Failure modes:
       (e.g. the conductor's own branch) that could collide across
       unrelated units - see the CRITICAL fix note at the top of this
       docstring.
+    - A field-6 value in the `<key> | <diff detail>` form (DS-180) whose
+      `key` portion is empty, whitespace-only, contains `..`, or fails
+      the key-shape check (`_STABLE_KEY_SHAPE_RE`): treated as if no `|`
+      were supplied at all - falls through to `_normalize_diff_identity()`
+      on the value's full raw text, not a distinct fail-open case.
+    - A key-shaped left side that is actually a diff command containing
+      an incidental pipe (e.g. `git diff <sha>..<sha> | head -200`): the
+      shape gate rejects it (whitespace, and a literal `..`, both fail)
+      and it normalizes via the pre-existing SHA-range heuristic exactly
+      as it did before this fix - not a stable key, and not a new
+      fail-open case.
     - Known residual, not a fail-open case: two DIFFERENT units both
       expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
       SHA range with no branch or PR token anywhere in the value - key
@@ -400,6 +437,71 @@ def _normalize_diff_identity(raw: str) -> str:
     return ref1
 
 
+# Gates the text before the first "|" in a stable-key-form "Diff under
+# review" value (DS-180) so a diff command containing an incidental pipe
+# (e.g. a conductor pasting `git diff <sha>..<sha> | head -200`) is never
+# mistaken for a key - see _extract_stable_unit_key()'s docstring for the
+# measured regression this closes. Letters, digits, dot, underscore,
+# hyphen, slash, and "#" only; no whitespace.
+_STABLE_KEY_SHAPE_RE = re.compile(r"^[A-Za-z0-9._/#-]+$")
+
+
+def _extract_stable_unit_key(raw: str) -> str | None:
+    """Extract the operator-supplied stable unit key from a "Diff under
+    review" value in the `<key> | <diff detail>` form mandated by
+    skeptic-protocol.md Section 4.5 "Stable unit key contract" (DS-180).
+
+    Root cause this closes: `_normalize_diff_identity()` above stabilizes
+    a `base..head` range only when one ref is a non-SHA branch/PR token,
+    or, in its documented residual case, by falling back to the base SHA.
+    Neither covers a ROLLING range, where round N's base equals round
+    N-1's head - the literal shape a sequential rework loop produces -
+    because the "base" itself changes every round. Nor does either
+    heuristic apply once free-form prose sits in front of the range
+    (`_DIFF_RANGE_RE` is anchored at the start of the value), which falls
+    through to "return raw text unchanged" and makes the conductor's own
+    round-numbering text part of the "stable" key. Measured on PR #760:
+    seven sequential rework rounds on one unit, each citing
+    `<prior-round-head>..<new-head>` with a narrative prefix, produced
+    seven distinct state files and the cap never engaged (KNW-20260814-022).
+
+    A first version of this function partitioned on the first "|" and
+    returned the left side unconditionally - this REINTRODUCED the exact
+    defect it was meant to close on a plausible input: a conductor
+    pasting `git diff <sha>..<sha> | head -200` (a realistic value if
+    output is piped through a line limiter) returned the whole
+    `git diff <sha>..<sha>` span as the "key", which changes every round
+    exactly like the un-fixed case. `_STABLE_KEY_SHAPE_RE` below closes
+    this: a left side containing whitespace, a `..`/`...` range, or any
+    character outside the key charclass is rejected and falls through to
+    `_normalize_diff_identity()` on the FULL raw text - unchanged from
+    today's behavior for that value (the anchored `_DIFF_RANGE_RE` inside
+    `_normalize_diff_identity()` still matches only the leading ref
+    pattern and ignores trailing pipe garbage, so `git diff <sha>..<sha>
+    | head -200` still normalizes to the base SHA exactly as before this
+    function existed).
+
+    Leading/trailing backticks are stripped before the pipe check (a
+    conductor may render the WHOLE `<key> | <diff>` value as inline code)
+    - this mirrors the backtick tolerance `_normalize_diff_identity()`
+    already has.
+
+    Returns None (never a collidable placeholder) when: no `|` is
+    present; the text before it is empty/whitespace-only; it contains
+    `..`; or it fails the shape check. In every case the caller falls
+    back to `_normalize_diff_identity()` on the whole value - the
+    unchanged pre-DS-180 behavior.
+    """
+    text = raw.strip().strip("`").strip()
+    if "|" not in text:
+        return None
+    left, _, _rest = text.partition("|")
+    left = left.strip()
+    if not left or ".." in left or not _STABLE_KEY_SHAPE_RE.match(left):
+        return None
+    return left
+
+
 def _extract_unit_identity(tinput: dict) -> str | None:
     """Extract a stable per-unit identity string from the Skeptic spawn's
     prompt text.
@@ -407,19 +509,23 @@ def _extract_unit_identity(tinput: dict) -> str | None:
     Uses the "Diff under review:" line that `content/references/
     skeptic-protocol.md` Section 4.5 mandates in every Skeptic spawn's
     `## Global-context inputs` block (item 6) - the field that identifies
-    the actual reviewed artifact (a branch, a PR, a SHA range, or file
-    paths). The extracted value is then run through
-    `_normalize_diff_identity()` (MAJOR 2) before being returned: the raw
-    line text is NOT itself stable across re-review rounds of the SAME
-    unit when it is a literal SHA range (a new head SHA every round mints
-    a new raw string), so identity is derived from a stable token WITHIN
-    the value rather than the value's full text. Falls back to
-    `description` (also often unit-scoped) only when no such line exists
-    in `prompt`. Returns None when neither yields anything, OR when a
-    single field carries two or more "Diff under review" lines with
-    DIFFERING values - an ambiguous prompt is never guessed at by picking
-    the first match; the caller must fail open, never falling back to a
-    weaker key such as the conductor's own branch.
+    the actual reviewed artifact (a branch, a PR, a SHA range, file
+    paths, or, per DS-180, an explicit `<key> | <detail>` pair). DS-180
+    precedence: `_extract_stable_unit_key()` is tried FIRST - a
+    conductor-supplied key is authoritative and never needs range
+    heuristics. Only when it returns None (no `|`, or a left side that
+    fails the shape gate) does extraction fall through to
+    `_normalize_diff_identity()` (MAJOR 2, pre-DS-180): the raw line text
+    is NOT itself stable across re-review rounds of the SAME unit when it
+    is a literal SHA range (a new head SHA every round mints a new raw
+    string), so identity is derived from a stable token WITHIN the value
+    rather than the value's full text. Falls back to `description` (also
+    often unit-scoped) only when no such line exists in `prompt`. Returns
+    None when neither yields anything, OR when a single field carries two
+    or more "Diff under review" lines with DIFFERING values - an
+    ambiguous prompt is never guessed at by picking the first match; the
+    caller must fail open, never falling back to a weaker key such as the
+    conductor's own branch.
     """
     for field in ("prompt", "description"):
         value = tinput.get(field)
@@ -435,7 +541,11 @@ def _extract_unit_identity(tinput: dict) -> str | None:
             continue
         if len(set(raw_values)) > 1:
             return None
-        return _normalize_diff_identity(raw_values[0])
+        value = raw_values[0]
+        stable_key = _extract_stable_unit_key(value)
+        if stable_key:
+            return stable_key
+        return _normalize_diff_identity(value)
     return None
 
 

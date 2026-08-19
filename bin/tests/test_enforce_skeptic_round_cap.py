@@ -102,6 +102,31 @@ Test groups:
                                                          DISTINCT fingerprint per round and round_count advances
                                                          normally - not the round-3 bounded regex's silent
                                                          coalescing of every round onto round 1's cached ALLOW.
+ 26. test_stable_key_survives_rolling_sha_ranges       - DS-180 regression: PR #760's exact failure shape -
+                                                         each rework round's diff line cites a rolling
+                                                         <prior-round-head>..<new-head> range with a narrative
+                                                         prefix. With the conductor supplying the new
+                                                         `<key> | <diff>` form, round count accumulates on ONE
+                                                         counter and round 4 denies.
+ 27. test_stable_key_two_distinct_units_no_collision   - DS-180: two distinct units, even sharing an identical
+                                                         rolling SHA range shape, get INDEPENDENT round budgets.
+ 28. test_stable_key_empty_before_pipe_falls_back      - DS-180: a `| <diff>` value with nothing before the
+                                                         pipe is not a valid key - falls through to
+                                                         `_normalize_diff_identity()` on the full raw value.
+ 29. test_diff_command_with_pipe_normalizes_to_legacy_base - Major 2 (round 3) regression: a value that looks
+                                                         like it has a pipe-prefixed key but is actually a diff
+                                                         command piped through `head` must be REJECTED by the
+                                                         shape gate and normalize to the base SHA exactly as
+                                                         before `_extract_stable_unit_key` existed.
+ 30. test_stable_key_two_units_of_one_ticket_get_independent_budgets - Major 3 (round 2): a multi-unit ticket
+                                                         using per-unit keys (`<TICKET>-u<N>`, never a bare
+                                                         ticket id) gives each unit its own independent round
+                                                         budget.
+ 31. test_stable_key_backticked_whole_value_accepts    - Minor 4 (round 3) / Minor 2 (round 4) regression: a
+                                                         whole-value-backticked field 6 carrying a VALID key,
+                                                         with a ROLLING base..head SHA range that changes every
+                                                         round, must accumulate on one counter and deny at
+                                                         round 4; also asserts the state FILENAME directly.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -1017,6 +1042,168 @@ def test_diff_under_review_edge_cases_failopen():
                 f"{label} must fail open with NO state written at all, but "
                 f".agentic/ was created"
             )
+
+
+def test_stable_key_survives_rolling_sha_ranges():
+    """DS-180 regression: PR #760's exact failure shape - each rework
+    round's diff line cites <prior-round-head>..<new-head> (a rolling
+    range) with a narrative prefix. Pre-DS-180 this produced N distinct
+    state files and the cap never engaged. With the conductor supplying
+    the new `<key> | <diff>` form, round count must accumulate on ONE
+    counter and round 4 must DENY."""
+    key = "DS-177"
+    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40]
+    with tempfile.TemporaryDirectory() as tmp:
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
+        )
+        for i in range(1, 4):
+            base, head = shas[i - 1], shas[i]
+            diff_line = f"- **Diff under review:** {key} | git diff {base}..{head}"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"round {i} unexpectedly denied: {parsed}"
+            assert expected_path.exists()
+            state = json.loads(expected_path.read_text())
+            assert state["round_count"] == i
+
+        diff_line = f"- **Diff under review:** {key} | git diff {shas[3]}..{shas[4]}"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+        )
+        assert _is_denied(parsed), "round 4 of a stable-keyed unit must deny at the cap"
+
+        state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
+
+
+def test_stable_key_two_distinct_units_no_collision():
+    """DS-180: two distinct units, even sharing an identical rolling SHA
+    range shape, must get INDEPENDENT round budgets."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for key in ("DS-180", "DS-181"):
+            for i in range(1, 4):
+                diff_line = f"- **Diff under review:** {key} | git diff {'a'*40}..{'b'*40}"
+                rc, parsed = _run_hook(
+                    _raw_payload(tmp, diff_line, what_to_review=f"{key} worker output round {i}")
+                )
+                assert not _is_denied(parsed), f"{key} round {i} unexpectedly denied: {parsed}"
+                path = (
+                    Path(tmp) / ".agentic"
+                    / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
+                )
+                state = json.loads(path.read_text())
+                assert state["round_count"] == i
+
+        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 2, f"expected 2 independent state files, got {state_files}"
+
+
+def test_stable_key_empty_before_pipe_falls_back():
+    """DS-180: a `| <diff>` value with nothing before the pipe is not a
+    valid key - falls through to `_normalize_diff_identity()` on the
+    full raw value, matching pre-DS-180 behavior for a malformed value."""
+    with tempfile.TemporaryDirectory() as tmp:
+        diff_line = "6. Diff under review:  | git diff origin/main...feature/x"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+        )
+        assert rc == 0
+        assert not _is_denied(parsed)
+        assert (Path(tmp) / ".agentic").exists(), (
+            "an empty key before the pipe must still fall back to the legacy "
+            "raw-text path and write state, not fail open with nothing written"
+        )
+
+
+def test_diff_command_with_pipe_normalizes_to_legacy_base():
+    """Major 2 (round 3) regression: a value that LOOKS like it has a
+    pipe-prefixed key but is actually a diff command piped through `head`
+    (e.g. `git diff <sha>..<sha> | head -200`) must be REJECTED by the
+    shape gate and normalize to the base SHA exactly as it did before
+    _extract_stable_unit_key existed - proving the naive
+    partition-on-first-pipe regression is closed."""
+    base = "1" * 40
+    head = "2" * 40
+    with tempfile.TemporaryDirectory() as tmp:
+        diff_line = f"6. Diff under review: git diff {base}..{head} | head -200"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+        )
+        assert not _is_denied(parsed)
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(base)}.json"
+        )
+        assert expected_path.exists(), (
+            "expected the value to normalize to the base SHA (legacy "
+            "behavior), not to be treated as a stable key"
+        )
+        state = json.loads(expected_path.read_text())
+        assert state["round_count"] == 1
+
+
+def test_stable_key_two_units_of_one_ticket_get_independent_budgets():
+    """Major 3 (round 2): a multi-unit ticket using per-unit keys
+    (`<TICKET>-u<N>`, never a bare ticket id) must give each unit its
+    own independent round budget."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for key in ("DS-180-u1", "DS-180-u2"):
+            for i in range(1, 4):
+                diff_line = f"- **Diff under review:** {key} | git diff {'a'*40}..{'b'*40}"
+                rc, parsed = _run_hook(
+                    _raw_payload(tmp, diff_line, what_to_review=f"{key} worker output round {i}")
+                )
+                assert not _is_denied(parsed), f"{key} round {i} unexpectedly denied: {parsed}"
+                path = (
+                    Path(tmp) / ".agentic"
+                    / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
+                )
+                state = json.loads(path.read_text())
+                assert state["round_count"] == i
+
+        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 2, f"expected 2 independent state files, got {state_files}"
+
+
+def test_stable_key_backticked_whole_value_accepts():
+    """Minor 4 (round 3) / Minor 2 (round 4) regression: a whole-value-
+    backticked field 6 carrying a VALID key, with a ROLLING base..head
+    SHA range that changes every round - a constant backticked value
+    would pass even without backtick-stripping (the pre-fix fallback
+    path also accumulates on a constant raw string), which was the
+    original test's vacuous-satisfiability defect. The rolling range
+    genuinely distinguishes fixed vs unfixed behavior. Also asserts the
+    state FILENAME directly (not just round_count), so a silent
+    fall-through to the legacy path cannot pass by accident."""
+    key = "DS-180"
+    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40]
+    with tempfile.TemporaryDirectory() as tmp:
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
+        )
+        for i in range(1, 4):
+            base, head = shas[i - 1], shas[i]
+            diff_line = f"- **Diff under review:** `{key} | git diff {base}..{head}`"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"round {i} unexpectedly denied: {parsed}"
+            assert expected_path.exists(), (
+                f"round {i}: expected the backtick-stripped stable-key state "
+                f"file, not a legacy-normalized one"
+            )
+            state = json.loads(expected_path.read_text())
+            assert state["round_count"] == i
+
+        diff_line = f"- **Diff under review:** `{key} | git diff {shas[3]}..{shas[4]}`"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+        )
+        assert _is_denied(parsed), "round 4 must deny at the cap"
+
+        state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
 
 
 if __name__ == "__main__":
