@@ -1403,11 +1403,16 @@ def test_tool_use_ids_round_trip_through_load_state():
 # --------------------------------------------------------------------------- #
 def test_tuid_index_round_trip():
     """`.agentic/skeptic-tuid-index.json` maps each spawn's `tool_use_id` to
-    the correct unit_key. Two distinct units get correctly separated
+    the correct unit_key AND the round number that spawn was allowed at
+    (round-2 rework, M3: `{"unit_key": ..., "iteration": ...}`, pinned at
+    spawn time - see `_update_tuid_index()`'s docstring for why the round-1
+    bare-string shape could not answer "what round was THIS spawn" for an
+    out-of-order completion). Two distinct units get correctly separated
     entries in the SAME index file, and a second round on one unit updates
-    (not duplicates) that unit's entries. Executed mutation: removing the
-    `_update_tuid_index(path.parent, tool_use_id, unit_key)` call from
-    `main()` reddens this test - the index file would never be created."""
+    (not duplicates) that unit's entries with a NEW pinned iteration.
+    Executed mutation: removing the `_update_tuid_index(path.parent,
+    tool_use_id, unit_key, new_state["round_count"])` call from `main()`
+    reddens this test - the index file would never be created."""
     with tempfile.TemporaryDirectory() as tmp:
         unit_a = "feature/tuid-index-a"
         unit_b = "feature/tuid-index-b"
@@ -1430,11 +1435,13 @@ def test_tuid_index_round_trip():
         index_path = Path(tmp) / ".agentic" / "skeptic-tuid-index.json"
         assert index_path.is_file(), "expected skeptic-tuid-index.json to be created"
         index = json.loads(index_path.read_text())
-        assert index.get("toolu_a1") == _unit_key(unit_a), index
-        assert index.get("toolu_b1") == _unit_key(unit_b), index
+        assert index.get("toolu_a1") == {"unit_key": _unit_key(unit_a), "iteration": 1}, index
+        assert index.get("toolu_b1") == {"unit_key": _unit_key(unit_b), "iteration": 1}, index
 
         # A second round on unit_a with a NEW tool_use_id adds a new entry
-        # pointing at the SAME unit_key, without disturbing unit_b's entry.
+        # pointing at the SAME unit_key with a PINNED iteration of 2 (not
+        # 1 again - each spawn's own round number, not a copy of the
+        # first), without disturbing unit_b's entry.
         rc, parsed = _run_hook(
             _skeptic_payload(
                 tmp, unit_a, what_to_review="unit-a round 2",
@@ -1443,9 +1450,102 @@ def test_tuid_index_round_trip():
         )
         assert not _is_denied(parsed)
         index_after = json.loads(index_path.read_text())
-        assert index_after.get("toolu_a1") == _unit_key(unit_a), index_after
-        assert index_after.get("toolu_a2") == _unit_key(unit_a), index_after
-        assert index_after.get("toolu_b1") == _unit_key(unit_b), index_after
+        assert index_after.get("toolu_a1") == {"unit_key": _unit_key(unit_a), "iteration": 1}, index_after
+        assert index_after.get("toolu_a2") == {"unit_key": _unit_key(unit_a), "iteration": 2}, index_after
+        assert index_after.get("toolu_b1") == {"unit_key": _unit_key(unit_b), "iteration": 1}, index_after
+
+
+def test_tuid_index_concurrent_writes_not_lost():
+    """M4 regression: `_update_tuid_index()`'s read-merge-write is now
+    guarded by a best-effort `flock` (`_tuid_index_lock()`). Six PARALLEL
+    hook invocations for the SAME unit (mirroring a real
+    `skeptic_strategy: multi-dimensional` fan-out - correctness-Skeptic +
+    security-auditor + perf-analyst, each a genuinely separate SubagentStop
+    with its own `tool_use_id`, all sharing this unit's round-fingerprint
+    coalescing so they all ALLOW as the same round) must produce SIX
+    distinct index entries, not fewer. Executed pre-fix: 6 parallel writers
+    against the unlocked read-merge-write produced 4 entries (2 lost to a
+    write-write race). Executed mutation: reverting `_update_tuid_index()`
+    to call `_write_state`-style unlocked write (skip `_tuid_index_lock()`
+    entirely) reproduces intermittent loss under this same test - the lock
+    is what this test asserts exists and is exercised, not merely declared
+    in a docstring."""
+    import threading
+
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/tuid-index-concurrent"
+        n = 6
+        results: list[tuple[int, dict | None]] = [None] * n  # type: ignore[list-item]
+
+        def _spawn(i: int) -> None:
+            results[i] = _run_hook(
+                _skeptic_payload(
+                    tmp, unit, what_to_review="concurrent round",
+                    extra={"tool_use_id": f"toolu_concurrent_{i}"},
+                )
+            )
+
+        threads = [threading.Thread(target=_spawn, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        for i, result in enumerate(results):
+            assert result is not None, f"writer {i} did not complete"
+            rc, parsed = result
+            assert not _is_denied(parsed), f"writer {i} unexpectedly denied: {parsed}"
+
+        index_path = Path(tmp) / ".agentic" / "skeptic-tuid-index.json"
+        assert index_path.is_file(), "expected skeptic-tuid-index.json to be created"
+        index = json.loads(index_path.read_text())
+        missing = [f"toolu_concurrent_{i}" for i in range(n) if f"toolu_concurrent_{i}" not in index]
+        assert not missing, f"lost {len(missing)}/{n} concurrent writer entries: {missing} (full index: {index})"
+        for i in range(n):
+            assert index[f"toolu_concurrent_{i}"]["unit_key"] == _unit_key(unit)
+
+
+def test_state_file_preserves_unknown_keys_round_trip():
+    """m4 regression: `_load_state`/`_write_state` now preserve a
+    genuinely UNKNOWN top-level key through a load-then-write round trip
+    via the `_extra` passthrough bucket, correcting the round-1 commit
+    message's claim ("no longer silently drop schema fields outside a
+    hardcoded 6-key dict") which was false for any key beyond
+    `tool_use_ids` itself - a differential against `main` showed an
+    `extra_key`/`nested` pair lost on BOTH `main` and the round-1 branch.
+    Executed mutation: removing the `_extra` unpack loop in
+    `_write_state()` (or the `extra = {k: v for k, v in raw.items() if k
+    not in _KNOWN_STATE_KEYS}` line in `_load_state()`) reddens this test -
+    `extra_key`/`nested` would vanish from the state file after one more
+    round."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/unknown-key-preservation"
+        _ensure_git_marker(tmp)
+        state_path = Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key(unit)}.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps({
+            "round_count": 1,
+            "decision": None,
+            "unresolved_critical": False,
+            "last_round_fingerprint": None,
+            "last_decision_allow": True,
+            "last_decision_reason": "",
+            "tool_use_ids": [],
+            "extra_key": "some forensic value a human hand-added",
+            "nested": {"a": 1, "b": [2, 3]},
+        }, indent=2))
+
+        rc, parsed = _run_hook(
+            _skeptic_payload(tmp, unit, what_to_review="round after hand-edit")
+        )
+        assert not _is_denied(parsed)
+
+        state_after = json.loads(state_path.read_text())
+        assert state_after.get("extra_key") == "some forensic value a human hand-added", state_after
+        assert state_after.get("nested") == {"a": 1, "b": [2, 3]}, state_after
+        # The active schema still advanced normally alongside the
+        # preserved unknown keys.
+        assert state_after.get("round_count") == 2, state_after
 
 
 if __name__ == "__main__":

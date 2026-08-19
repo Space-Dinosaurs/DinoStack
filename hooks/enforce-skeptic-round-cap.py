@@ -231,16 +231,24 @@ DS-178 unit A addition: this hook now also reads the PreToolUse payload's
             it into the round-state file's `tool_use_ids` list (via
             `_append_tool_use_id()`), and maintains a SEPARATE, repo-wide,
             FIFO-capped (500 entries) index file at
-            `.agentic/skeptic-tuid-index.json` mapping
-            `{tool_use_id: unit_key}` (via `_update_tuid_index()`). Neither
-            addition can affect the allow/deny decision: both run strictly
-            AFTER `_decide()` has already produced its verdict, and both are
-            individually wrapped fail-open. The index exists solely so
+            `.agentic/skeptic-tuid-index.json` mapping `{tool_use_id:
+            {"unit_key": ..., "iteration": ...}}` (via
+            `_update_tuid_index()`; round-2 fix, M3 - the round-1 shape was
+            the bare string `{tool_use_id: unit_key}`, and a pre-existing
+            entry in that legacy shape is still tolerated on read - see
+            `_valid_index_entry()`). Neither addition can affect the
+            allow/deny decision: both run strictly AFTER `_decide()` has
+            already produced its verdict, and both are individually
+            wrapped fail-open. The index exists so
             `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` can
-            resolve a completed Skeptic spawn's `tool_use_id` to its
-            round-state file in O(1) - a single index lookup plus one state
-            file read - rather than scanning `.agentic/` for every
-            `skeptic-round-*.json` file on every SubagentStop.
+            resolve a completed Skeptic spawn's `tool_use_id` to its unit
+            key AND the round number that spawn was allowed at in O(1) -
+            a single index lookup, with the round-state file itself
+            needed only as a legacy fallback for a pre-round-2 index
+            entry - rather than scanning `.agentic/` for every
+            `skeptic-round-*.json` file on every SubagentStop, and
+            without re-reading the unit's LIVE (possibly since-advanced)
+            round count for a spawn that may have completed out of order.
             `_load_state`/`_write_state` previously rebuilt/persisted a
             hardcoded 6-key dict, silently dropping any key outside that set
             on the very next persist - `tool_use_ids` had to be added to the
@@ -322,11 +330,15 @@ Failure modes:
       before another process's read): fingerprint coalescing handles the
       common case (each companion spawn's hook invocation runs to
       completion - read, decide, write - well within the harness's
-      per-spawn dispatch latency) but this hook has no real file lock - a
-      true simultaneous race can still double-charge a round. This is a
-      known residual risk, not claimed to be closed; it fails toward
-      over-counting (extra rounds charged), never toward under-counting a
-      genuine cap violation, and never toward a deny on malfunction.
+      per-spawn dispatch latency) but the ROUND-STATE file
+      (`skeptic-round-<unit_key>.json`, `_write_state()`) still has no
+      real file lock - a true simultaneous race there can still
+      double-charge a round. This is a known residual risk, not claimed
+      to be closed; it fails toward over-counting (extra rounds charged),
+      never toward under-counting a genuine cap violation, and never
+      toward a deny on malfunction. NOTE this is distinct from the
+      SEPARATE tuid-index file below, which DOES now have a best-effort
+      lock (M4, round-2 fix) around its own read-merge-write.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching every
       other enforce-*.py hook's fire-logging pattern.
@@ -336,7 +348,16 @@ Failure modes:
       `_append_tool_use_id()` and `_update_tuid_index()` are individually
       fail-open no-ops - the round-cap allow/deny decision and the
       round-state write are already committed before either runs and are
-      never rolled back or retried on this failure.
+      never rolled back or retried on this failure. `_update_tuid_index()`'s
+      own read-merge-write is now guarded by a short, best-effort `flock`
+      (M4, round-2 fix - see `_tuid_index_lock()`): bounded at
+      `_TUID_INDEX_LOCK_TIMEOUT_S` (0.2s), degrading to an UNLOCKED
+      read-merge-write (not a skipped write) on timeout or when `fcntl` is
+      unavailable (non-POSIX platforms). This closes the common case
+      (measured pre-fix: 6 parallel writers produced 4 entries, losing 2)
+      but is not a hard guarantee against a genuinely simultaneous race
+      landing inside the same lock-wait window on two different processes
+      that both time out - a residual, not claimed to be fully closed.
 
 Performance: < 5 ms per call (no subprocess; one small JSON read/write
              under `.agentic/`).
@@ -739,17 +760,37 @@ def _state_path(cwd: str, key: str) -> Path | None:
     return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"
 
 
+# Keys `_load_state`/`_write_state` know about and manage directly. Any
+# OTHER top-level key found on disk is preserved verbatim via the `_extra`
+# passthrough bucket below (round-2 fix, m4) - see both functions'
+# docstrings for what this closes.
+_KNOWN_STATE_KEYS = frozenset({
+    "round_count", "decision", "unresolved_critical", "last_round_fingerprint",
+    "last_decision_allow", "last_decision_reason", "tool_use_ids",
+    "unit_key", "last_updated",
+})
+
+
 def _load_state(path: Path) -> dict:
     """Round state for one unit. `tool_use_ids` (DS-178 unit A) is the
     ordered, deduped list of PreToolUse `tool_use_id` values seen for this
     unit's rounds - it exists so `main()` can maintain the
-    `.agentic/skeptic-tuid-index.json` FIFO index (tool_use_id -> unit_key)
-    that `hooks/subagent-stop-spawn-emit.js` reads for O(1) calibration
-    lookup. Before this fix, `_load_state` rebuilt a hardcoded 6-key dict on
-    every read and `_write_state` persisted exactly `dict(state)` - any key
-    outside those 6 (this one included) was silently dropped on the very
-    next persist, which is why this field had to be added HERE, in the
-    schema itself, rather than patched in only at the call site."""
+    `.agentic/skeptic-tuid-index.json` FIFO index that
+    `hooks/subagent-stop-spawn-emit.js` reads for O(1) calibration lookup.
+
+    Round-2 fix (m4): the round-1 commit message claimed `_load_state`/
+    `_write_state` "no longer silently drop schema fields outside a
+    hardcoded 6-key dict" - true only for `tool_use_ids` itself, which WAS
+    added to the schema. A differential against `main` showed a state file
+    carrying a genuinely unknown key (e.g. a hand-added `extra_key`, or a
+    `nested` object) still lost it on the very next round-trip, on BOTH
+    `main` and the round-1 branch - the hardcoded key list just grew from
+    6 to 7. This function now preserves any top-level key NOT in
+    `_KNOWN_STATE_KEYS` verbatim in an `_extra` passthrough bucket, which
+    `_write_state()` merges back into the persisted JSON (not left as a
+    literal `_extra` sub-object) on write - so the round-trip claim is
+    actually true now, for any key, not just the ones this file happens to
+    know about today."""
     default = {
         "round_count": 0,
         "decision": None,
@@ -758,6 +799,7 @@ def _load_state(path: Path) -> dict:
         "last_decision_allow": None,
         "last_decision_reason": "",
         "tool_use_ids": [],
+        "_extra": {},
     }
     try:
         if not path.is_file():
@@ -772,6 +814,7 @@ def _load_state(path: Path) -> dict:
             if isinstance(raw_tool_use_ids, list)
             else []
         )
+        extra = {k: v for k, v in raw.items() if k not in _KNOWN_STATE_KEYS}
         return {
             "round_count": raw.get("round_count", 0) if isinstance(raw.get("round_count"), int) else 0,
             "decision": raw.get("decision") if raw.get("decision") in ("ship", "escalate") else None,
@@ -780,16 +823,31 @@ def _load_state(path: Path) -> dict:
             "last_decision_allow": raw.get("last_decision_allow") if isinstance(raw.get("last_decision_allow"), bool) else None,
             "last_decision_reason": raw.get("last_decision_reason") if isinstance(raw.get("last_decision_reason"), str) else "",
             "tool_use_ids": tool_use_ids,
+            "_extra": extra,
         }
     except Exception:
         return default
 
 
 def _write_state(path: Path, unit_key: str, state: dict) -> None:
-    """Best-effort atomic write - tmp file + os.replace, pid-suffixed."""
+    """Best-effort atomic write - tmp file + os.replace, pid-suffixed.
+
+    Round-2 fix (m4): unpacks the `_extra` passthrough bucket `_load_state`
+    populated (any key that was present on disk but outside this file's
+    own known-key schema) back into the top-level persisted payload,
+    rather than persisting it as a literal `_extra` sub-object or dropping
+    it - a genuinely unknown key now survives a load-then-write round trip
+    unchanged, as long as it does not collide with a key this file
+    actively manages (an active-schema key always wins over a stale
+    passthrough value of the same name)."""
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = dict(state)
+        extra = payload.pop("_extra", None)
+        if isinstance(extra, dict):
+            for k, v in extra.items():
+                if k not in payload:
+                    payload[k] = v
         payload["unit_key"] = unit_key
         payload["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         tmp_path = path.with_suffix(f".tmp.{os.getpid()}")
@@ -821,46 +879,171 @@ def _append_tool_use_id(state: dict, tool_use_id: str | None) -> dict:
 
 _TUID_INDEX_NAME = "skeptic-tuid-index.json"
 _TUID_INDEX_CAP = 500
+# Bounds the best-effort lock wait below (M4) - a short, bounded budget, not
+# a real blocking lock: this hook must never meaningfully delay a Skeptic
+# spawn over index-maintenance contention, which is why the total wait is
+# capped well under this hook's own <5ms performance target's neighborhood
+# (10ms retry interval, up to 20 attempts).
+_TUID_INDEX_LOCK_TIMEOUT_S = 0.2
+_TUID_INDEX_LOCK_RETRY_S = 0.01
 
 
-def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str) -> None:
+def _valid_index_entry(value: object) -> bool:
+    """True for either index-entry shape this file has ever written:
+    a legacy bare `unit_key` string (pre-round-2), or the round-2
+    `{"unit_key": str, "iteration": int}` pinned-iteration shape (M3).
+    Used to sanitize an on-disk index before merging - an entry in neither
+    shape is dropped rather than silently propagated."""
+    if isinstance(value, str) and value:
+        return True
+    if (
+        isinstance(value, dict)
+        and isinstance(value.get("unit_key"), str)
+        and value.get("unit_key")
+        and isinstance(value.get("iteration"), int)
+    ):
+        return True
+    return False
+
+
+def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str, iteration: int) -> None:
     """Best-effort maintenance of `.agentic/skeptic-tuid-index.json`, an
-    O(1)-lookup FIFO index (`{tool_use_id: unit_key}`, capped at
-    `_TUID_INDEX_CAP` entries, oldest evicted first) that
-    `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` reads to find
-    the round-state file for a completed spawn without scanning the
-    `.agentic/` directory. Fully fail-open: any error here must never affect
-    the round-cap allow/deny decision, and this is called strictly AFTER
-    that decision has already been made."""
+    O(1)-lookup FIFO index capped at `_TUID_INDEX_CAP` entries (oldest
+    evicted first) that `hooks/subagent-stop-spawn-emit.js`'s
+    `readRoundState()` reads to find a completed spawn's round-state
+    correlation without scanning the `.agentic/` directory. Fully
+    fail-open: any error here must never affect the round-cap allow/deny
+    decision, and this is called strictly AFTER that decision has already
+    been made.
+
+    Round-2 fixes:
+      - M3: each entry now stores `{"unit_key": unit_key, "iteration":
+        iteration}` - the round number THIS spawn was allowed at, pinned
+        at spawn time - not just the bare `unit_key` string the round-1
+        schema stored. Before this fix, `readRoundState()` had to re-read
+        the unit's LIVE round-state file at SubagentStop time to get
+        `iteration`, which is wrong for any out-of-order completion (a
+        later round can complete before an earlier one, or the state can
+        simply have advanced by the time SubagentStop fires) - it reports
+        the CURRENT round count, not the round this particular spawn was
+        actually allowed at. `readRoundState()` still falls back to the
+        live-read for a pre-existing LEGACY (bare-string) entry, so an
+        old index is not invalidated - it self-heals as spawns complete
+        and write the new shape.
+      - M4: the read-merge-write sequence below is now guarded by a
+        short, best-effort `flock` (POSIX only - see
+        `_tuid_index_lock()`), closing the concurrent-write data loss a
+        parallel multi-dimensional fan-out (several Skeptic-family spawns
+        reviewing the same unit, each with its own SubagentStop) could
+        previously produce: two processes could both read the
+        pre-update index, each add their own entry, and whichever wrote
+        LAST would silently clobber the other's entry entirely (measured:
+        6 parallel writers produced 4 entries and lost 2). The lock is
+        best-effort and bounded (`_TUID_INDEX_LOCK_TIMEOUT_S`) - on lock
+        acquisition failure (timeout, or no `fcntl` on this platform),
+        the read-merge-write still runs UNLOCKED rather than skipping the
+        write outright, which is strictly no worse than the pre-fix
+        behavior and still closes the common case where writers do not
+        arrive in the exact same instant."""
     if not isinstance(tool_use_id, str) or not tool_use_id.strip():
         return
     tid = tool_use_id.strip()
     index_path = agentic_dir / _TUID_INDEX_NAME
     try:
         agentic_dir.mkdir(parents=True, exist_ok=True)
-        index: dict = {}
-        if index_path.is_file():
-            try:
-                raw = json.loads(index_path.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    index = {
-                        k: v for k, v in raw.items()
-                        if isinstance(k, str) and isinstance(v, str)
-                    }
-            except Exception:
-                index = {}
-        # Move-to-end-on-update semantics: re-inserting an existing key
-        # refreshes its FIFO position (dict insertion order in Python 3.7+).
-        index.pop(tid, None)
-        index[tid] = unit_key
-        while len(index) > _TUID_INDEX_CAP:
-            oldest_key = next(iter(index))
-            index.pop(oldest_key, None)
-        tmp_path = index_path.with_suffix(f".tmp.{os.getpid()}")
-        tmp_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp_path, index_path)
+        with _tuid_index_lock(agentic_dir):
+            index: dict = {}
+            if index_path.is_file():
+                try:
+                    raw = json.loads(index_path.read_text(encoding="utf-8"))
+                    if isinstance(raw, dict):
+                        index = {
+                            k: v for k, v in raw.items()
+                            if isinstance(k, str) and _valid_index_entry(v)
+                        }
+                except Exception:
+                    index = {}
+            # Move-to-end-on-update semantics: re-inserting an existing key
+            # refreshes its FIFO position (dict insertion order in Python
+            # 3.7+).
+            index.pop(tid, None)
+            index[tid] = {"unit_key": unit_key, "iteration": iteration}
+            while len(index) > _TUID_INDEX_CAP:
+                oldest_key = next(iter(index))
+                index.pop(oldest_key, None)
+            tmp_path = index_path.with_suffix(f".tmp.{os.getpid()}")
+            tmp_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp_path, index_path)
     except Exception:
         pass
+
+
+class _NullLock:
+    """No-op context manager - used when a real lock cannot be acquired
+    (timeout, or `fcntl` unavailable on this platform). The caller's
+    read-merge-write still runs, unlocked, rather than being skipped."""
+
+    def __enter__(self) -> "_NullLock":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+
+def _tuid_index_lock(agentic_dir: Path):
+    """Best-effort `flock`-based mutual exclusion (M4) around the tuid
+    index's read-merge-write sequence, bounded by
+    `_TUID_INDEX_LOCK_TIMEOUT_S`. Returns a real lock context manager on
+    success, or `_NullLock()` when `fcntl` is unavailable (non-POSIX) or
+    the lock could not be acquired within the timeout - in both cases the
+    caller proceeds unlocked rather than skipping the write. This is
+    intentionally NOT a hard guarantee: see `_update_tuid_index`'s
+    docstring for why a bounded best-effort lock is judged sufficient
+    here (closes the common case; a genuinely simultaneous race is still
+    possible and no worse than the pre-fix behavior)."""
+    try:
+        import fcntl as _fcntl
+    except Exception:
+        return _NullLock()
+
+    lock_path = agentic_dir / (_TUID_INDEX_NAME + ".lock")
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    except Exception:
+        return _NullLock()
+
+    deadline = time.time() + _TUID_INDEX_LOCK_TIMEOUT_S
+    locked = False
+    while time.time() < deadline:
+        try:
+            _fcntl.flock(fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
+            locked = True
+            break
+        except OSError:
+            time.sleep(_TUID_INDEX_LOCK_RETRY_S)
+
+    if not locked:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        return _NullLock()
+
+    class _FlockLock:
+        def __enter__(self) -> "_FlockLock":
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            try:
+                _fcntl.flock(fd, _fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+
+    return _FlockLock()
 
 
 _DENY_NO_DECISION_TEMPLATE = (
@@ -1027,8 +1210,12 @@ def main() -> None:
         _write_state(path, unit_key, new_state)
         # Index maintenance happens strictly AFTER the allow decision and
         # the round-state write, and is fully fail-open - it must never
-        # influence the allow/deny path above.
-        _update_tuid_index(path.parent, tool_use_id, unit_key)
+        # influence the allow/deny path above. `new_state["round_count"]`
+        # is the round number THIS spawn was just allowed at (M3) - pinned
+        # into the index entry now, rather than left for
+        # readRoundState() to re-derive from whatever the unit's round
+        # count happens to be at SubagentStop time.
+        _update_tuid_index(path.parent, tool_use_id, unit_key, new_state["round_count"])
         sys.exit(0)
     except Exception:
         # Any unexpected error anywhere in the decision path fails open -
