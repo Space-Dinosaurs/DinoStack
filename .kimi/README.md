@@ -29,8 +29,14 @@ loading it guarantees the methodology is active.
 
 ## What's adapted
 
-- **AGENTS.md**: Auto-generated from `content/sections/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
-- **Skill**: `dinostack` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to DinoStack roles) and command index.
+- **AGENTS.md**: A lean, always-resident activation stub (DS-185) loaded automatically by Kimi
+  Code CLI via `${KIMI_AGENTS_MD}` on every session - not the full methodology body. It points at
+  the `dinostack` skill and the activation config.
+- **Skill**: `dinostack` SKILL.md embeds the full methodology body (assembled from
+  `content/sections/` plus the two rules files, DS-185 - mirroring the DS-143 change that moved
+  the equivalent always-loaded body out of Claude Code's `~/.claude/CLAUDE.md`) and loads on
+  trigger, not at session start. Includes subagent mapping (coder/explore/plan to DinoStack
+  roles) and command index.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
 - **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:dinostack <command-name>` or by asking the agent to run a specific command.
@@ -44,7 +50,8 @@ bash ~/DinoStack/.kimi/install.sh
 ```
 
 This will:
-1. Build the adapter (generates AGENTS.md and symlinks from `content/`)
+1. Build the adapter (generates the AGENTS.md stub, the skill's `SKILL.md`, and symlinks from
+   `content/`)
 2. Configure activation mode (opt-out or opt-in)
 3. Symlink the skill to `~/.kimi/skills/dinostack/` for global availability
 
@@ -57,7 +64,9 @@ bash .kimi/uninstall.sh
 ## Project-level vs global
 
 **Project-level** (no install required):
-When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` and `.kimi/skills/dinostack/`.
+When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` (the
+activation stub, always loaded) and `.kimi/skills/dinostack/` (the full methodology body,
+trigger-loaded).
 
 **Global** (optional):
 Running `install.sh` symlinks the skill to `~/.kimi/skills/` so the methodology is available in all projects.
@@ -87,7 +96,8 @@ Note: The shared `hooks/stop-context.js` is designed for Claude Code. Kimi users
 bash .kimi/build.sh
 ```
 
-This regenerates AGENTS.md and verifies symlinks. Run this after editing files in `content/`.
+This regenerates the AGENTS.md stub, the skill's `SKILL.md` (embedded methodology body), and
+verifies symlinks. Run this after editing files in `content/`.
 
 ## Limitations
 
