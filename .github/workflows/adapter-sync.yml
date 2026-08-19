@@ -31,7 +31,7 @@ jobs:
       - name: Verify adapter-sync pathspec entries exist
         run: |
           for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
-                   .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks; do
+                   .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; do
             if [[ ! -e "$p" ]]; then
               echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
               exit 1
@@ -39,7 +39,7 @@ jobs:
           done
       - name: Fail on adapter drift
         run: |
-          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks; then
+          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
             echo "::error::Adapter output is out of sync with content/. Run the build scripts locally and commit the regenerated adapter files." >&2
             exit 1
           fi
