@@ -209,10 +209,35 @@ def runtime_bindings(root: Path, invocation: str) -> dict[str, str]:
         fail(f"cannot inspect repository AGENTS.md: {exc}")
     if not stat.S_ISREG(expected_info.st_mode):
         fail(f"repository AGENTS.md is not a regular file: {expected_agents}")
-    if physical_agents != expected_physical:
+
+    # DS-183 (C1 fix, round 2): when the dinostack skill link is unhealthy at
+    # install time, .codex/install.sh's degrade path can no longer point the
+    # installed symlink at the always-present stub (that stub's whole
+    # purpose - loading the methodology body on trigger via the skill - is
+    # unreachable in that state). Instead it writes the full body into a
+    # second, separate regular file inside this same repository,
+    # .codex/AGENTS.degraded.md (never tracked - see .gitignore), and
+    # symlinks the installed AGENTS.md at it. Accept EITHER physical target
+    # here, never a third: the identity check below still requires the
+    # symlink's physical target to be a real regular file living inside
+    # THIS DinoStack repository (the exact CWE-59 guard the single-target
+    # check enforced before), it just now recognizes two known-good repo-
+    # relative targets instead of one. A user with the degrade-path file
+    # installed must get a working runtime, not the "must be an installed
+    # symlink" failure this function raised before this fix (rubric line 4).
+    expected_agents_degraded = root / ".codex/AGENTS.degraded.md"
+    expected_targets = [expected_physical]
+    if expected_agents_degraded.is_file() and not expected_agents_degraded.is_symlink():
+        try:
+            expected_targets.append(expected_agents_degraded.resolve(strict=True))
+        except OSError as exc:
+            fail(f"cannot inspect repository degraded AGENTS.md: {exc}")
+
+    if physical_agents not in expected_targets:
         fail(
             f"configured AGENTS.md resolves to {physical_agents}, "
-            f"not this DinoStack repository at {expected_physical}"
+            f"not this DinoStack repository at {expected_physical} "
+            f"(or its degrade-path companion at {expected_agents_degraded})"
         )
 
     if redirected:

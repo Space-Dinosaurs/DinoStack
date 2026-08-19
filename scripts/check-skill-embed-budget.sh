@@ -235,70 +235,16 @@ fi
 # heading, derived dynamically so a renamed file is covered automatically
 # without maintaining a hardcoded phrase list here. Shared between the two
 # sets (content/sections/[0-9][0-9]-*.md and content/rules/*.md, excluding
-# module-manifest.md) via one function to avoid duplicating this logic
-# twice.
-_check_embedded_set() {
-  local dir="$1" pattern="$2" exclude="$3" expected_count="$4" label="$5" constant_name="$6"
-  local files file_count f heading
-  if [ -n "$exclude" ]; then
-    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" ! -name "$exclude" | LC_ALL=C sort)"
-  else
-    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" | LC_ALL=C sort)"
-  fi
-  if [ -z "$files" ]; then
-    echo "check-skill-embed-budget.sh: no $label files found in $dir" >&2
-    exit 1
-  fi
-  file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
-  if [ "$file_count" -gt "$expected_count" ]; then
-    echo "check-skill-embed-budget.sh: embed incomplete" >&2
-    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
-    echo "  a new $label source file was added - this is likely intentional." >&2
-    echo "  If so, bump $constant_name above in the same commit that adds the" >&2
-    echo "  file. If not, an extra file landed under $dir unexpectedly -" >&2
-    echo "  investigate before bumping the count." >&2
-    exit 1
-  fi
-  if [ "$file_count" -lt "$expected_count" ]; then
-    echo "check-skill-embed-budget.sh: embed incomplete" >&2
-    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
-    echo "  a $label source file went missing from $dir. This is the deleted-" >&2
-    echo "  file case the pinned $constant_name constant exists to catch (see" >&2
-    echo "  its comment above) - restore the missing file. Do NOT lower the" >&2
-    echo "  expected count to make this pass unless the removal was" >&2
-    echo "  deliberate." >&2
-    exit 1
-  fi
-  while IFS= read -r f; do
-    heading="$(grep -m1 '^## ' "$f" || true)"
-    if [ -z "$heading" ]; then
-      echo "check-skill-embed-budget.sh: embed incomplete" >&2
-      echo "  $f has no top-level '## ' heading to check against" >&2
-      echo "  every embedded $label source file needs its own distinct" >&2
-      echo "  top-level '## Heading' line for this check to verify its" >&2
-      echo "  presence in the built SKILL.md - add one (e.g. a '# ' opener" >&2
-      echo "  demoted to '## ', or a missing heading added outright)." >&2
-      exit 1
-    fi
-    if ! grep -qxF "$heading" "$SKILL_FILE"; then
-      echo "check-skill-embed-budget.sh: embed incomplete" >&2
-      echo "  missing $label heading from $(basename "$f"): $heading" >&2
-      echo "  this file is not present in the built SKILL.md - assembly" >&2
-      echo "  silently dropped a whole embedded file, which the FLOOR/CEILING" >&2
-      echo "  byte band alone cannot detect." >&2
-      exit 1
-    fi
-    # Accumulate into the global ALL_HEADINGS list (deliberately not `local`
-    # here) so the caller can assert every checked heading is unique across
-    # BOTH sets after both invocations return - see that check below.
-    ALL_HEADINGS="$ALL_HEADINGS$heading
-"
-  done <<< "$files"
-}
-
+# module-manifest.md) via scripts/lib/budget-gate.sh's
+# budget_check_embedded_set (DS-183 round 2 (M6) extraction - previously a
+# local `_check_embedded_set` function defined here; check-codex-skill-
+# budget.sh's own near-verbatim reimplementation of the section-heading half
+# now calls this same shared function instead). Output wording is
+# UNCHANGED: this file's own "check-skill-embed-budget.sh" caller_label
+# reproduces every message this file already printed before the extraction.
 ALL_HEADINGS=""
-_check_embedded_set "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section' 'EXPECTED_SECTION_COUNT'
-_check_embedded_set "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules' 'EXPECTED_RULES_COUNT'
+budget_check_embedded_set "check-skill-embed-budget.sh" "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section' 'EXPECTED_SECTION_COUNT' "$SKILL_FILE" ALL_HEADINGS 'SKILL.md' 'FLOOR/CEILING'
+budget_check_embedded_set "check-skill-embed-budget.sh" "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules' 'EXPECTED_RULES_COUNT' "$SKILL_FILE" ALL_HEADINGS 'SKILL.md' 'FLOOR/CEILING'
 
 # Duplicate-heading guard: `grep -qxF "$heading" "$SKILL_FILE"` above matches
 # presence ANYWHERE in the built output, not per-file. If two source files
