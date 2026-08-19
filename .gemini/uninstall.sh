@@ -20,10 +20,45 @@ COMMANDS_DST="$HOME/.gemini/commands"
 AGENTS_SRC="$GEMINI_DIR/agents"
 AGENTS_DST="$HOME/.gemini/agents"
 
+SKILL_SRC="$GEMINI_DIR/skills/dinostack"
+SKILL_DST="$HOME/.gemini/skills/dinostack"
+
 SETTINGS="$HOME/.gemini/settings.json"
 
 # ---------------------------------------------------------------------------
+# Remove ~/.gemini/skills/dinostack symlink and restore backup if one exists
+# ---------------------------------------------------------------------------
+
+echo "Removing skill: dinostack..."
+
+if [[ -L "$SKILL_DST" ]]; then
+  current_target="$(readlink "$SKILL_DST")"
+  if [[ "$current_target" == "$SKILL_SRC" ]]; then
+    rm "$SKILL_DST"
+    echo "  - ~/.gemini/skills/dinostack/ symlink removed"
+
+    # Restore the most recent backup if one exists
+    latest_backup="$(ls -td "${SKILL_DST}.backup-"* 2>/dev/null | head -1 || true)"
+    if [[ -n "$latest_backup" ]]; then
+      mv "$latest_backup" "$SKILL_DST"
+      echo "  + Restored backup: $latest_backup -> ~/.gemini/skills/dinostack/"
+    fi
+  else
+    echo "  = ~/.gemini/skills/dinostack/ (points to $current_target - not ours, skipping)"
+  fi
+elif [[ -e "$SKILL_DST" ]]; then
+  echo "  = ~/.gemini/skills/dinostack/ (real directory - not removing)"
+else
+  echo "  = ~/.gemini/skills/dinostack/ (not found - nothing to do)"
+fi
+
+# ---------------------------------------------------------------------------
 # Remove ~/.gemini/GEMINI.md symlink and restore backup if one exists
+#
+# DS-184: a broken skill link at install time may have left a WRITTEN file
+# here instead of a symlink (the degrade path in install.sh Step 3b) - that
+# case is not "ours" by the symlink-target check below and is left alone,
+# same as any other real (non-symlink) file at this destination.
 # ---------------------------------------------------------------------------
 
 echo "Removing global GEMINI.md..."
@@ -230,10 +265,11 @@ echo ""
 echo "Uninstall complete."
 echo ""
 echo "Note: The following files were NOT removed (they are part of the repo, not installed):"
-echo "  .gemini/GEMINI.md      - stays in the repo (generated artifact)"
-echo "  .gemini/agents/        - stays in the repo (generated markdown files)"
-echo "  .gemini/commands/      - stays in the repo (generated TOML files)"
-echo "  .gemini/references/    - stays in the repo (hardlinks)"
-echo "  .gemini/hooks/         - stays in the repo (hook scripts)"
+echo "  .gemini/GEMINI.md          - stays in the repo (generated stub)"
+echo "  .gemini/skills/dinostack/  - stays in the repo (generated skill, DS-184)"
+echo "  .gemini/agents/            - stays in the repo (generated markdown files)"
+echo "  .gemini/commands/          - stays in the repo (generated TOML files)"
+echo "  .gemini/references/        - stays in the repo (hardlinks)"
+echo "  .gemini/hooks/              - stays in the repo (hook scripts)"
 echo ""
 echo "If you want to remove the full repo, delete ~/DinoStack/ manually."
