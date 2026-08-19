@@ -6,14 +6,21 @@
 # Outputs: symlinks at ~/.gemini/skills/dinostack/, ~/.gemini/commands/,
 #          ~/.gemini/agents/; ~/.gemini/GEMINI.md is symlinked to the stub
 #          when the skill link resolves (SKILL_LINK_OK), or WRITTEN
-#          (not symlinked) with the full methodology body appended as a
-#          degrade path otherwise (DS-184 - see the Step 3a/3b comments
-#          below for the full contract); hooks block merged into
-#          ~/.gemini/settings.json, pointed at the session-stable hooks
-#          snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
-#          succeeds, else the checkout
-# Side-effects: backs up existing non-symlink targets with .backup-<timestamp> suffix;
-#               creates ~/.gemini/ if absent; syncs the hooks snapshot dir
+#          (not symlinked, first-line-marked with GEMINI_MD_DEGRADE_MARKER)
+#          with the full methodology body appended as a degrade path
+#          otherwise - unless a FOREIGN symlink already occupies the
+#          destination, in which case it is left untouched and nothing is
+#          written (DS-184 - see the Step 3a/3b comments below for the full
+#          contract); hooks block merged into ~/.gemini/settings.json,
+#          pointed at the session-stable hooks snapshot (DS-54,
+#          scripts/lib/hooks-snapshot.sh) when sync succeeds, else the
+#          checkout
+# Side-effects: backs up existing non-symlink, non-marker-owned targets with
+#               .backup-<timestamp> suffix; DELETES a real file/symlink at
+#               ~/.gemini/GEMINI.md when it carries our own
+#               GEMINI_MD_DEGRADE_MARKER first line (no backup - it is our
+#               own generated artifact, not user data); creates ~/.gemini/
+#               if absent; syncs the hooks snapshot dir
 # Consumers: user runs manually; re-run after repo move (or to refresh the
 #            hooks snapshot) to update absolute hook paths
 set -euo pipefail
@@ -329,50 +336,13 @@ fi
 
 echo "Linking global GEMINI.md..."
 
-if [[ "$SKILL_LINK_OK" == "true" ]]; then
-  if [[ -L "$GEMINI_MD_DST" ]]; then
-    current_target="$(readlink "$GEMINI_MD_DST")"
-    if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
-      echo "  = ~/.gemini/GEMINI.md (already linked)"
-    else
-      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
-    fi
-  elif [[ -e "$GEMINI_MD_DST" ]]; then
-    BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-    echo ""
-    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
-    echo "  Backing it up to: $BACKUP"
-    echo "  The existing file will be REPLACED with the dinostack symlink."
-    echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
-    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo ""
-    mv "$GEMINI_MD_DST" "$BACKUP"
-    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-    echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
-  else
-    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-    echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
-  fi
-else
-  # Degrade path: the skill link is unavailable, so write a real file (not
-  # a symlink) that carries the full methodology body directly, rather than
-  # leaving the session with only the trigger-load pointer and no working
-  # trigger to reach it.
-  if [[ -L "$GEMINI_MD_DST" ]]; then
-    rm "$GEMINI_MD_DST"
-  elif [[ -e "$GEMINI_MD_DST" ]]; then
-    if head -1 "$GEMINI_MD_DST" 2>/dev/null | grep -qF "$GEMINI_MD_DEGRADE_MARKER"; then
-      # Our own prior degrade-path artifact, not user data - overwrite in
-      # place rather than accumulating a fresh backup on every install.
-      echo "  Overwriting prior dinostack degrade-path GEMINI.md (no backup - it's our own generated artifact)"
-      rm "$GEMINI_MD_DST"
-    else
-      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-      echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
-      mv "$GEMINI_MD_DST" "$BACKUP"
-    fi
-  fi
+# Writes the degrade-path body (stub + full skill text, marker-prefixed) to
+# $GEMINI_MD_DST and records that a write actually happened, via the shared
+# GEMINI_MD_DEGRADE_WRITTEN flag the Step 3b summary below consults - kept as
+# one function so the three call sites below (fresh destination, our own
+# marked artifact, a foreign file getting backed up) can never drift from
+# each other (DS-184 M1/M2 fix).
+_write_gemini_md_degrade_body() {
   {
     echo "$GEMINI_MD_DEGRADE_MARKER"
     cat "$GEMINI_MD_SRC"
@@ -389,6 +359,75 @@ else
     cat "$SKILL_SRC/SKILL.md"
   } > "$GEMINI_MD_DST"
   echo "  + ~/.gemini/GEMINI.md written with full methodology body appended (degrade path)"
+  GEMINI_MD_DEGRADE_WRITTEN=true
+}
+
+GEMINI_MD_DEGRADE_WRITTEN=false
+
+if [[ "$SKILL_LINK_OK" == "true" ]]; then
+  if [[ -L "$GEMINI_MD_DST" ]]; then
+    current_target="$(readlink "$GEMINI_MD_DST")"
+    if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
+      echo "  = ~/.gemini/GEMINI.md (already linked)"
+    else
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
+    fi
+  elif [[ -e "$GEMINI_MD_DST" ]]; then
+    first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
+    if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
+      # Our own prior degrade-path artifact, not user data (DS-184 M2 fix) -
+      # replace it with the symlink outright, no backup and no false
+      # "already exists" warning.
+      echo "  Replacing prior dinostack degrade-path GEMINI.md with the symlink (no backup - it's our own generated artifact)"
+      rm "$GEMINI_MD_DST"
+      ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+      echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
+    else
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo ""
+      echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+      echo "  WARNING: ~/.gemini/GEMINI.md already exists and is NOT a symlink."
+      echo "  Backing it up to: $BACKUP"
+      echo "  The existing file will be REPLACED with the dinostack symlink."
+      echo "  To restore: cp \"$BACKUP\" \"$GEMINI_MD_DST\""
+      echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+      echo ""
+      mv "$GEMINI_MD_DST" "$BACKUP"
+      ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+      echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
+    fi
+  else
+    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+    echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
+  fi
+else
+  # Degrade path: the skill link is unavailable, so write a real file (not
+  # a symlink) that carries the full methodology body directly, rather than
+  # leaving the session with only the trigger-load pointer and no working
+  # trigger to reach it. A pre-existing symlink at the destination is always
+  # FOREIGN here (this branch never creates one of its own), so it is
+  # preserved untouched rather than deleted (DS-184 M1 fix) - matching the
+  # healthy branch's own "symlink points elsewhere - skipping" behavior.
+  if [[ -L "$GEMINI_MD_DST" ]]; then
+    current_target="$(readlink "$GEMINI_MD_DST")"
+    echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping degrade-path write; not ours to touch)"
+  elif [[ -e "$GEMINI_MD_DST" ]]; then
+    first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
+    if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
+      # Our own prior degrade-path artifact, not user data - overwrite in
+      # place rather than accumulating a fresh backup on every install.
+      echo "  Overwriting prior dinostack degrade-path GEMINI.md (no backup - it's our own generated artifact)"
+      rm "$GEMINI_MD_DST"
+      _write_gemini_md_degrade_body
+    else
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
+      mv "$GEMINI_MD_DST" "$BACKUP"
+      _write_gemini_md_degrade_body
+    fi
+  else
+    _write_gemini_md_degrade_body
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -660,10 +699,14 @@ echo ""
 if [[ "$SKILL_LINK_OK" == "true" ]]; then
   echo "  ~/.gemini/GEMINI.md  -> $GEMINI_MD_SRC"
   echo "    Contains: A small always-loaded stub pointing at the dinostack skill"
-else
+elif [[ "$GEMINI_MD_DEGRADE_WRITTEN" == "true" ]]; then
   echo "  ~/.gemini/GEMINI.md  (written directly, NOT symlinked - degrade path)"
   echo "    Contains: The stub PLUS the full methodology body appended, because"
   echo "    the skill link above could not be established ($SKILL_LINK_REASON)"
+else
+  echo "  ~/.gemini/GEMINI.md  (NOT written - a foreign symlink already occupies this path)"
+  echo "    The degrade-path methodology body could not be delivered here; resolve"
+  echo "    the conflicting symlink manually, then re-run install.sh"
 fi
 echo ""
 echo "  ~/.gemini/commands/  -> $COMMANDS_SRC"
