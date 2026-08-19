@@ -25,6 +25,12 @@ SKILL_DST="$HOME/.gemini/skills/dinostack"
 
 SETTINGS="$HOME/.gemini/settings.json"
 
+# Marker written as the first line of a degrade-path-generated GEMINI.md by
+# install.sh (DS-184 M2/M3 fix). Distinguishes our own generated artifact
+# from genuine user data at the same destination - see install.sh's own
+# definition of this constant for the full rationale.
+GEMINI_MD_DEGRADE_MARKER="<!-- dinostack:gemini-degrade-generated -->"
+
 # ---------------------------------------------------------------------------
 # Remove ~/.gemini/skills/dinostack symlink and restore backup if one exists
 # ---------------------------------------------------------------------------
@@ -56,9 +62,11 @@ fi
 # Remove ~/.gemini/GEMINI.md symlink and restore backup if one exists
 #
 # DS-184: a broken skill link at install time may have left a WRITTEN file
-# here instead of a symlink (the degrade path in install.sh Step 3b) - that
-# case is not "ours" by the symlink-target check below and is left alone,
-# same as any other real (non-symlink) file at this destination.
+# here instead of a symlink (the degrade path in install.sh Step 3b). That
+# file carries GEMINI_MD_DEGRADE_MARKER on its first line - recognized below
+# as our own generated artifact and removed outright, same as the symlink
+# case. A real (non-symlink) file WITHOUT the marker is genuine user data
+# and is left alone.
 # ---------------------------------------------------------------------------
 
 echo "Removing global GEMINI.md..."
@@ -79,7 +87,12 @@ if [[ -L "$GEMINI_MD_DST" ]]; then
     echo "  = ~/.gemini/GEMINI.md (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$GEMINI_MD_DST" ]]; then
-  echo "  = ~/.gemini/GEMINI.md (real file - not removing)"
+  if head -1 "$GEMINI_MD_DST" 2>/dev/null | grep -qF "$GEMINI_MD_DEGRADE_MARKER"; then
+    rm "$GEMINI_MD_DST"
+    echo "  - ~/.gemini/GEMINI.md (dinostack degrade-path artifact) removed"
+  else
+    echo "  = ~/.gemini/GEMINI.md (real file - not removing)"
+  fi
 else
   echo "  = ~/.gemini/GEMINI.md (not found - nothing to do)"
 fi
