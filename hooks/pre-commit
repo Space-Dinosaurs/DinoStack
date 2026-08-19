@@ -249,6 +249,8 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.gemini/agents/"*.md \
     "$REPO_DIR/.hermes/SKILL.md" \
     "$REPO_DIR/.kimi/AGENTS.md" \
+    "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md" \
+    "$REPO_DIR/.kimi/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.kimi/skills/dinostack/sections" \
     "$REPO_DIR/.omp/skills/dinostack/references" \
     "$REPO_DIR/.omp/skills/dinostack/rules" \

@@ -38,13 +38,19 @@
 #                aborts with NO write at all, leaving the prior config.toml
 #                untouched - it never corrupts, it degrades to "hook not
 #                (re)wired" and prints a warning instead. DS-185: a
-#                KIMI_SKILL_MD_OK link-health check (mirroring
-#                .claude/install.sh's SKILL_LINK_OK) runs right after build.sh
+#                KIMI_SKILL_MD_OK link-health check runs right after build.sh
 #                - if the generated .kimi/skills/dinostack/SKILL.md is
-#                missing or suspiciously small, the full methodology body is
-#                appended onto the AGENTS.md stub as a degrade path (never
-#                silently dropped) and a warning is printed; otherwise
-#                AGENTS.md stays the lean stub build.sh wrote.
+#                missing, suspiciously small, or fails the embed-completeness
+#                check in scripts/check-kimi-skill-embed-budget.sh, the full
+#                methodology body is appended onto the AGENTS.md stub as a
+#                degrade path (never silently dropped) and a warning is
+#                printed; otherwise AGENTS.md stays the lean stub build.sh
+#                wrote. Unlike .claude/install.sh's SKILL_LINK_OK (which
+#                retains three `@`-import pointers on the fallback path and
+#                never inlines the body), this fallback appends the full
+#                body directly onto AGENTS.md - the two mechanisms differ and
+#                neither is a mirror of the other; do not restate a
+#                "mirrors" claim here without re-verifying both scripts.
 #
 # Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
@@ -62,6 +68,11 @@ export REPO_DIR
   echo "  ! scripts/lib/prune-stale-skill-dir.sh not found - stale skill dir prune skipped"
 }
 
+# shellcheck source=scripts/lib/kimi-rules.sh
+[[ -f "$REPO_DIR/scripts/lib/kimi-rules.sh" ]] && . "$REPO_DIR/scripts/lib/kimi-rules.sh" || {
+  echo "  ! scripts/lib/kimi-rules.sh not found - link-health fallback rules embed skipped"
+}
+
 # ---------------------------------------------------------------------------
 # Run build first (generates AGENTS.md and symlinks)
 # ---------------------------------------------------------------------------
@@ -72,27 +83,46 @@ bash "$REPO_DIR/.kimi/build.sh"
 # ---------------------------------------------------------------------------
 # Link-health gate (DS-185)
 #
-# Mirrors .claude/install.sh's SKILL_LINK_OK: build.sh just wrote
-# .kimi/AGENTS.md as a lean activation stub (no embedded methodology body -
-# that now lives in .kimi/skills/dinostack/SKILL.md, trigger-loaded via the
-# skill) and .kimi/skills/dinostack/SKILL.md as the full generated body.
-# Verify the generated SKILL.md actually resolves to real content before
+# build.sh just wrote .kimi/AGENTS.md as a lean activation stub (no
+# embedded methodology body - that now lives in
+# .kimi/skills/dinostack/SKILL.md, trigger-loaded via the skill) and
+# .kimi/skills/dinostack/SKILL.md as the full generated body. Verify the
+# generated SKILL.md actually resolves to real content before
 # trusting the stub's "load the skill on trigger" instruction. If it does
-# not (missing, empty, or suspiciously small - e.g. a broken embed step
-# that regressed to the pre-DS-185 pointer-only body), append the full
-# methodology body directly onto the AGENTS.md stub as a degrade path and
-# print a warning - content must never be silently dropped, matching
-# .claude/install.sh's SKILL_LINK_OK contract.
+# not (missing, empty, suspiciously small, or fails the embed-completeness
+# check - e.g. a broken embed step that regressed to the pre-DS-185
+# pointer-only body, or silently dropped a whole embedded source file),
+# append the full methodology body directly onto the AGENTS.md stub as a
+# degrade path and print a warning - content must never be silently
+# dropped. (m4, DS-185 round 2: this appends ~132 KB into a tracked file
+# rather than writing a separate scratch location. Kept deliberately -
+# .kimi/AGENTS.md is the ONE file Kimi Code CLI is guaranteed to load
+# automatically on every session regardless of skill-loading health, so a
+# degrade path that wrote elsewhere would depend on the very mechanism
+# that just failed. The write only fires when the skill body failed to
+# build in the first place - a rare, already-broken-build path, not a
+# routine one - and both the CI budget gate and this same check on the
+# next `install.sh` run will catch it and prompt a fix, at which point
+# `bash .kimi/build.sh` regenerates AGENTS.md back to its lean stub form.)
 # ---------------------------------------------------------------------------
 
 KIMI_SKILL_MD_OK=true
 KIMI_SKILL_MD_REASON=""
 KIMI_SKILL_MD_TARGET="$REPO_DIR/.kimi/skills/dinostack/SKILL.md"
-# Sanity floor: a pointer-only body (frontmatter + lean content/SKILL.md,
-# no embedded methodology) measures well under 10,000 B; a correctly built
-# body measures well over 100,000 B. 20,000 B sits comfortably between the
-# two and is not intended as a tight tolerance.
-KIMI_SKILL_MD_FLOOR_BYTES=20000
+# Reuse scripts/check-kimi-skill-embed-budget.sh's own SKILL_FLOOR rather
+# than a second, independently-drifting magic number (M1, DS-185 round 2):
+# a body that regressed to pointer-only, or that dropped a whole embedded
+# content/sections/**|content/rules/*.md file mid-band, must fail the same
+# way here as it does in CI. Sourcing the gate script directly (not
+# invoking it as a subprocess) makes SKILL_FLOOR available as a shell
+# variable without re-parsing its stdout.
+KIMI_SKILL_MD_FLOOR_BYTES=100000
+if [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]]; then
+  _kimi_gate_floor="$(sed -n 's/^SKILL_FLOOR=\([0-9]*\).*/\1/p' "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" | head -1)"
+  if [[ -n "$_kimi_gate_floor" ]]; then
+    KIMI_SKILL_MD_FLOOR_BYTES="$_kimi_gate_floor"
+  fi
+fi
 
 if [[ ! -f "$KIMI_SKILL_MD_TARGET" ]]; then
   KIMI_SKILL_MD_OK=false
@@ -105,6 +135,13 @@ else
   if [[ "$_kimi_skill_md_bytes" -lt "$KIMI_SKILL_MD_FLOOR_BYTES" ]]; then
     KIMI_SKILL_MD_OK=false
     KIMI_SKILL_MD_REASON="suspiciously small ($_kimi_skill_md_bytes B < $KIMI_SKILL_MD_FLOOR_BYTES B floor): $KIMI_SKILL_MD_TARGET"
+  elif [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]] \
+    && ! bash "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" >/dev/null 2>&1; then
+    # Byte-band checks alone cannot see a whole embedded source file
+    # silently dropped from assembly (M1) - the gate's embed-completeness
+    # check catches that. Re-run it here rather than reimplementing it.
+    KIMI_SKILL_MD_OK=false
+    KIMI_SKILL_MD_REASON="failed embed-completeness or budget check (run 'bash scripts/check-kimi-skill-embed-budget.sh' for details): $KIMI_SKILL_MD_TARGET"
   fi
 fi
 
@@ -130,14 +167,12 @@ if [[ "$KIMI_SKILL_MD_OK" != "true" ]]; then
       cat "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md"
       echo ""
     fi
-    for _kimi_rule_f in "$REPO_DIR/content/rules/"*.md; do
-      _kimi_rule_name=$(basename "$_kimi_rule_f")
-      [[ "$_kimi_rule_name" == "module-manifest.md" ]] && continue
+    while IFS= read -r _kimi_rule_f; do
       echo "---"
       echo ""
       cat "$_kimi_rule_f"
       echo ""
-    done
+    done < <(kimi_rules_files "$REPO_DIR/content")
   } >> "$AGENTS_DST_FALLBACK"
 fi
 
@@ -727,8 +762,11 @@ echo "Global usage: the skill and all commands are now available in all projects
 echo "via ~/.kimi/skills/."
 echo ""
 echo "NOTE: If you edit files in content/, run 'bash .kimi/build.sh' to regenerate"
-echo "AGENTS.md and per-command skills. The global skill's symlinks will pick up"
-echo "content changes instantly, but SKILL.md changes require re-running install.sh."
+echo "the AGENTS.md stub, the dinostack skill's SKILL.md (embedded methodology body),"
+echo "and per-command skills. The global skill install (~/.kimi/skills/dinostack/SKILL.md)"
+echo "is an absolute symlink into this checkout's .kimi/skills/dinostack/SKILL.md, so a"
+echo "rebuild here propagates instantly - re-running install.sh is only needed if the"
+echo "symlink itself is missing or stale (e.g. after a fresh clone)."
 echo ""
 echo "Invoke commands directly: /skill:<command-name>"
 echo "   Examples: /skill:ds-wrap    /skill:ds-skeptic    /skill:ds-implement-ticket"

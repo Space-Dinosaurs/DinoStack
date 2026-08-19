@@ -205,7 +205,33 @@ fi
 skill_bytes="$(budget_file_bytes "$SKILL_FILE")"
 agents_bytes="$(budget_file_bytes "$AGENTS_FILE")"
 
-skill_burn_line="$(budget_burn_line "$REPO_DIR" "$SKILL_FILE" "$SKILL_CEILING" "$skill_bytes")"
+# SKILL.md's base-at-origin/main representation changes TYPE across DS-185
+# (a 25 B symlink before, a real ~139,000 B generated file after) - a
+# budget_delta between those two is a symlink-target-string-vs-real-content
+# comparison, not a meaningful burn rate, and would render as an alarming
+# "0 d to limit" on the very first CI run after merge (m5, DS-185 round 2).
+# Detect that transition via the base ref's own git object mode (120000 =
+# symlink) and render a distinct SKIPPED line instead of a misleading
+# burn rate; once history moves past the transition commit, later runs use
+# the normal budget_burn_line path with no special-casing needed.
+_kimi_skill_base_was_symlink() {
+  local repo_dir="$1" target_path="$2"
+  local rel_path="$target_path"
+  case "$target_path" in
+    "$repo_dir"/*) rel_path="${target_path#"$repo_dir"/}" ;;
+  esac
+  local base_ref
+  base_ref="$(budget_base_resolve "$repo_dir" 2>/dev/null)" || return 1
+  local mode
+  mode="$(git -C "$repo_dir" ls-tree "$base_ref" -- "$rel_path" 2>/dev/null | awk '{print $1}')"
+  [ "$mode" = "120000" ]
+}
+
+if _kimi_skill_base_was_symlink "$REPO_DIR" "$SKILL_FILE"; then
+  skill_burn_line="burn: SKIPPED (base was a symlink, not a comparable generated body)"
+else
+  skill_burn_line="$(budget_burn_line "$REPO_DIR" "$SKILL_FILE" "$SKILL_CEILING" "$skill_bytes")"
+fi
 agents_burn_line="$(budget_burn_line "$REPO_DIR" "$AGENTS_FILE" "$AGENTS_CEILING" "$agents_bytes")"
 
 if [ "$skill_bytes" -lt "$SKILL_FLOOR" ]; then

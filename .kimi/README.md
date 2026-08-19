@@ -19,7 +19,7 @@ loading it guarantees the methodology is active.
 
 | Concept | Claude Code | Kimi Code CLI |
 |---|---|---|
-| Auto-loaded rules | `~/.claude/rules/*.md` + CLAUDE.md | `.kimi/AGENTS.md` (loaded via `${KIMI_AGENTS_MD}`) |
+| Auto-loaded rules | `~/.claude/rules/*.md` + CLAUDE.md | `.kimi/AGENTS.md` (loaded via `${KIMI_AGENTS_MD}`) - a lean activation stub (DS-185), not the methodology body |
 | Conditional rules | Skill (`SKILL.md`) | Skill (`.kimi/skills/<name>/SKILL.md`) |
 | Agent definitions | `~/.claude/agents/*.md` | Built-in subagent types (`coder`, `explore`, `plan`) with detailed prompts |
 | Slash commands | `~/.claude/commands/*.md` | Skills loaded via `/skill:<name>` (no custom slash commands) |
