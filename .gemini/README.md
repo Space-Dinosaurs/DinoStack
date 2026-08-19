@@ -55,7 +55,7 @@ After running the installer, verify the following:
 ~/DinoStack/.gemini/uninstall.sh
 ```
 
-This removes the three symlinks and surgically removes the `BeforeAgent` and `SessionEnd` hook entries from `~/.gemini/settings.json` without touching any other user settings. Backups are restored if present.
+This removes the four symlinks (`skills/dinostack/`, `GEMINI.md`, `commands/`, `agents/` - see `.gemini/uninstall.sh` for the definitive list) and surgically removes the `BeforeAgent` and `SessionEnd` hook entries from `~/.gemini/settings.json` without touching any other user settings. Backups are restored if present.
 
 ## How it works
 

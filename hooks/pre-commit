@@ -244,6 +244,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.cursor/references/"*.md \
     "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.gemini/GEMINI.md" \
+    "$REPO_DIR/.gemini/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.gemini/references/"*.md \
     "$REPO_DIR/.gemini/commands/"*.toml \
     "$REPO_DIR/.gemini/agents/"*.md \
