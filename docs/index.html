@@ -2663,9 +2663,9 @@
     <table>
       <thead><tr><th>Surface</th><th>Gemini equivalent</th></tr></thead>
       <tbody>
-        <tr><td><strong>Project instructions</strong></td><td><code>GEMINI.md</code> at project root</td></tr>
+        <tr><td><strong>Project instructions</strong></td><td><code>GEMINI.md</code> at project root - a small stub pointing at the <code>dinostack</code> skill (DS-184)</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.gemini/GEMINI.md</code></td></tr>
-        <tr><td><strong>Skill location</strong></td><td>No skill system. Rules are inlined into <code>~/.gemini/GEMINI.md</code></td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>.gemini/skills/dinostack/SKILL.md</code> (project) or <code>~/.gemini/skills/dinostack/SKILL.md</code> (global) - trigger-loaded via <code>activate_skill</code>, denied by default on non-interactive runs</td></tr>
         <tr><td><strong>Slash commands</strong></td><td><code>~/.gemini/commands/*.toml</code> - first-class TOML slash commands; reload with <code>/commands reload</code></td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.gemini/agents/*.md</code> with YAML frontmatter (<code>kind: local</code>) - invoked via <code>@agent-name</code></td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.gemini/settings.json</code> hooks key - <code>BeforeAgent</code> and <code>SessionEnd</code> events</td></tr>
