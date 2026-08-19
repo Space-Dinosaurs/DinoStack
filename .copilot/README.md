@@ -9,7 +9,7 @@ start and before each tool call.
 
 | Aspect | Claude Code (.claude/) | VS Code Copilot (.copilot/) |
 |---|---|---|
-| Methodology file | `CLAUDE.md` auto-loaded globally | `.github/copilot-instructions.md` loaded per workspace |
+| Methodology file | `.claude/skills/dinostack/SKILL.md` trigger-loaded via the `/dinostack` skill | `.github/skills/dinostack/SKILL.md` trigger-loaded via Copilot's Agent Skills primitive; `.github/copilot-instructions.md` is a resident stub pointer only |
 | Agent picker | `Task` tool spawns subagents | Agent files in `.github/agents/` surfaced in chat UI |
 | Commands | `/command` slash-commands | Prompt files in `.github/prompts/` |
 | Hooks config | `settings.json` in `.claude/` | VS Code `chat.hookFilesLocations` setting |
@@ -64,7 +64,8 @@ Replace `/path/to/DinoStack` with the absolute path to this repo. Re-run
 
 | Artifact | Copilot mechanism | Source |
 |---|---|---|
-| `.github/copilot-instructions.md` | Auto-loaded methodology for every chat session | `content/rules/` + `scripts/build-methodology.sh` |
+| `.github/copilot-instructions.md` | Auto-loaded stub for every chat session (pointer to the skill below) | `content/rules/` |
+| `.github/skills/dinostack/SKILL.md` | Trigger-loaded methodology body - Copilot's native Agent Skills primitive, description-matched and injected only when relevant (DS-186) | `content/rules/` + `scripts/build-methodology.sh` |
 | `.github/agents/*.md` | Agent picker in Copilot chat (`@agent-name`) | One per `content/agents/*.md` |
 | `.github/prompts/*.prompt.md` | Slash-prompts in Copilot chat (`/prompt-name`) | One per `content/commands/*.md` |
 | `.github/instructions/content-engineering.instructions.md` | Auto-loaded for `content/**` files | `content/rules/` (concise extract) |
@@ -75,6 +76,19 @@ Replace `/path/to/DinoStack` with the absolute path to this repo. Re-run
 
 All `.github/` files are committed and rebuilt deterministically by `build.sh`.
 Never edit them directly - edit sources under `content/` instead.
+
+## Skill trigger loading and Copilot code review
+
+`.github/skills/dinostack/SKILL.md` is description-matched: Copilot decides
+whether to load it based on the prompt and the skill's `description`
+frontmatter field, and injects the file verbatim into context only when it
+judges the skill relevant - it is not always resident. This applies uniformly
+across Copilot chat, agent mode, the CLI, the app, and Copilot code review;
+code review does not use a narrower, name-based trigger condition. The one
+thing a `code-review`-named skill directory guarantees is pickup by code
+review specifically - it does not change how any other surface decides
+relevance, and this repo does not use that naming convention (the skill is
+named `dinostack` for parity with the other adapters).
 
 ## Agent picker usage
 
