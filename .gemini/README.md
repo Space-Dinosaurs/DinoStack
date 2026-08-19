@@ -32,7 +32,7 @@ This:
 5. Symlinks `.gemini/agents/` to `~/.gemini/agents/` (named agent markdown files)
 6. Merges `BeforeAgent` and `SessionEnd` hook entries into `~/.gemini/settings.json`
 
-If `~/.gemini/GEMINI.md` already exists and is not a symlink, the installer backs it up to `~/.gemini/GEMINI.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists. Same backup behavior applies to `~/.gemini/commands/` and `~/.gemini/agents/`. The skill symlink at `~/.gemini/skills/dinostack/` is the one exception: a pre-existing real file or directory there is left alone (not auto-backed-up) and the installer falls back to the degrade path above - resolve the conflict manually, then re-run install.sh.
+If `~/.gemini/GEMINI.md` already exists and is not a symlink, the installer backs it up to `~/.gemini/GEMINI.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning - **unless** that file is our own prior degrade-path artifact (first line `<!-- dinostack:gemini-degrade-generated -->`), in which case it is replaced outright with no backup, since it is generated content, not user data. If a *foreign symlink* already occupies `~/.gemini/GEMINI.md` on the degrade path (skill link unavailable), it is left untouched and nothing is written - the installer never deletes a symlink it did not create. The uninstaller restores the most recent backup if one exists, and separately deletes a marker-carrying degrade-path GEMINI.md outright (also not user data). Same backup behavior applies to `~/.gemini/commands/` and `~/.gemini/agents/`. The skill symlink at `~/.gemini/skills/dinostack/` is the one exception: a pre-existing real file or directory there is left alone (not auto-backed-up) and the installer falls back to the degrade path above - resolve the conflict manually, then re-run install.sh.
 
 ## Post-install verification
 
@@ -55,7 +55,7 @@ After running the installer, verify the following:
 ~/DinoStack/.gemini/uninstall.sh
 ```
 
-This removes the four symlinks (`skills/dinostack/`, `GEMINI.md`, `commands/`, `agents/` - see `.gemini/uninstall.sh` for the definitive list) and surgically removes the `BeforeAgent` and `SessionEnd` hook entries from `~/.gemini/settings.json` without touching any other user settings. Backups are restored if present.
+This removes the four symlinks (`skills/dinostack/`, `GEMINI.md`, `commands/`, `agents/` - see `.gemini/uninstall.sh` for the definitive list), deletes a real (non-symlink) `~/.gemini/GEMINI.md` if it carries our own degrade-path marker, and surgically removes the `BeforeAgent` and `SessionEnd` hook entries from `~/.gemini/settings.json` without touching any other user settings. Backups are restored if present; a genuinely user-authored `GEMINI.md` (no marker) is left alone.
 
 ## How it works
 

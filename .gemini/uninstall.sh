@@ -3,8 +3,13 @@
 # Role: Remove the Gemini CLI adapter from ~/.gemini/
 # Inputs: currently installed symlinks and settings at ~/.gemini/
 # Outputs: symlinks removed; hooks block removed from ~/.gemini/settings.json;
-#          .backup-<timestamp> files restored if present
-# Side-effects: modifies ~/.gemini/settings.json in-place
+#          .backup-<timestamp> files restored if present; a real (non-symlink)
+#          ~/.gemini/GEMINI.md carrying our own GEMINI_MD_DEGRADE_MARKER
+#          first line is DELETED outright (DS-184 degrade-path artifact, not
+#          user data); a real GEMINI.md without that marker is left alone
+# Side-effects: modifies ~/.gemini/settings.json in-place; DELETES
+#               ~/.gemini/GEMINI.md when it is our own marked degrade-path
+#               artifact (see Outputs above)
 # Consumers: user runs manually to reverse install.sh
 set -euo pipefail
 
@@ -32,7 +37,14 @@ SETTINGS="$HOME/.gemini/settings.json"
 GEMINI_MD_DEGRADE_MARKER="<!-- dinostack:gemini-degrade-generated -->"
 
 # ---------------------------------------------------------------------------
-# Remove ~/.gemini/skills/dinostack symlink and restore backup if one exists
+# Remove ~/.gemini/skills/dinostack symlink
+#
+# No backup-restore step here (unlike the other three symlinks below):
+# install.sh's Step 3a never backs up a pre-existing real file/directory at
+# this destination - it skips linking outright and leaves the conflict for
+# the operator to resolve manually (install.sh:293-301) - so no
+# ${SKILL_DST}.backup-* can ever exist to restore. A restore block here
+# would be dead code (DS-184 m2 fix).
 # ---------------------------------------------------------------------------
 
 echo "Removing skill: dinostack..."
@@ -42,13 +54,6 @@ if [[ -L "$SKILL_DST" ]]; then
   if [[ "$current_target" == "$SKILL_SRC" ]]; then
     rm "$SKILL_DST"
     echo "  - ~/.gemini/skills/dinostack/ symlink removed"
-
-    # Restore the most recent backup if one exists
-    latest_backup="$(ls -td "${SKILL_DST}.backup-"* 2>/dev/null | head -1 || true)"
-    if [[ -n "$latest_backup" ]]; then
-      mv "$latest_backup" "$SKILL_DST"
-      echo "  + Restored backup: $latest_backup -> ~/.gemini/skills/dinostack/"
-    fi
   else
     echo "  = ~/.gemini/skills/dinostack/ (points to $current_target - not ours, skipping)"
   fi
@@ -87,7 +92,8 @@ if [[ -L "$GEMINI_MD_DST" ]]; then
     echo "  = ~/.gemini/GEMINI.md (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$GEMINI_MD_DST" ]]; then
-  if head -1 "$GEMINI_MD_DST" 2>/dev/null | grep -qF "$GEMINI_MD_DEGRADE_MARKER"; then
+  first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
+  if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
     rm "$GEMINI_MD_DST"
     echo "  - ~/.gemini/GEMINI.md (dinostack degrade-path artifact) removed"
   else
@@ -283,6 +289,6 @@ echo "  .gemini/skills/dinostack/  - stays in the repo (generated skill, DS-184)
 echo "  .gemini/agents/            - stays in the repo (generated markdown files)"
 echo "  .gemini/commands/          - stays in the repo (generated TOML files)"
 echo "  .gemini/references/        - stays in the repo (hardlinks)"
-echo "  .gemini/hooks/              - stays in the repo (hook scripts)"
+echo "  .gemini/hooks/             - stays in the repo (hook scripts)"
 echo ""
 echo "If you want to remove the full repo, delete ~/DinoStack/ manually."
