@@ -577,6 +577,43 @@ console.log('\nTest 12b: skeptic-not-signed-off-no-fire');
 }
 
 // ---------------------------------------------------------------------------
+// Test 12c: skeptic-trigger-fires-on-hook-emitted-row (DS-178 M7)
+//
+// Tests 11/11b/12/12b above all use synthetic `data` shapes with no
+// `data.source` field - they exercise the SKEPTIC-BRANCH LOGIC but never
+// prove it against a row shaped like what hooks/subagent-stop-spawn-emit.js
+// (the DS-178 SubagentStop hook) actually emits on disk. Before DS-178, a
+// hook-emitted spawn_complete NEVER carried `findings_count`/`signed_off`
+// at all - this branch was structurally dead for `data.source === "hook"`
+// rows. This test constructs the row in that EXACT emitted shape (matching
+// the field names/nesting subagent-stop-spawn-emit.js's `run()` actually
+// writes: `source: "hook"`, `agent_source`, `findings_count`, `signed_off`)
+// to prove the consumer wiring the module manifest (M5) now correctly
+// claims is live.
+// ---------------------------------------------------------------------------
+console.log('\nTest 12c: skeptic-trigger-fires-on-hook-emitted-row (M7)');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'session-skeptic-012c';
+  const eventsPath = path.join(cwd, '.agentic', 'events.jsonl');
+
+  fs.writeFileSync(eventsPath, makeEvent(sessionId, 'spawn_complete', 'skeptic', {
+    source: 'hook',
+    agent_source: 'sidecar',
+    paired_spawn_id: 'spawn-hook-012c',
+    wall_seconds: 42.5,
+    suspect: false,
+    signed_off: true,
+    findings_count: { critical: 1, major: 0, minor: 2 },
+  }) + '\n', 'utf8');
+
+  const result = detectCaptureGap(cwd, sessionId);
+  assert(result.shouldNudge === true,
+    'shouldNudge true for a hook-emitted (data.source:"hook") skeptic row with a critical finding + signed_off');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
 // Test 13: knw-dated-suppression
 // A today-dated [KNW-YYYYMMDD-XXX] entry with a "Discovered: YYYY-MM-DD" line
 // must suppress the nudge. Test 5 only exercised the [LRN- prefix; the KNW +

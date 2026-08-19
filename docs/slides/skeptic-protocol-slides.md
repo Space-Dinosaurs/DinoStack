@@ -414,7 +414,7 @@ Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the dif
 
 The audit-note Minor is the per-spawn defense against rubber-stamping. The **calibration layer** is the long-horizon backstop - it detects drift in aggregate over time without enlarging the per-spawn review surface.
 
-- **Findings counters in `events.jsonl`** - every Skeptic **conductor-emitted** `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`. (A separate, deterministic hook-emitted `spawn_complete` variant also exists as of DS-160 and does NOT carry these calibration fields.)
+- **Findings counters in `events.jsonl`** - every Skeptic **conductor-emitted** `spawn_complete` carries `findings_count`, `diff_lines`, `signed_off`, and `iteration` inside `data`. Conductor builds the merged JSON inline; subagents do not write to `.agentic/`. (A separate, deterministic hook-emitted `spawn_complete` variant also exists as of DS-160 - as of DS-178 it ALSO best-effort resolves these same calibration fields, plus `agent_source`/`unit_key`/`model`, directly from the completed subagent's own transcript and round-cap state - see the Events Log reference.)
 - **5% sampled meta-Skeptic** - deterministic bucket from `hash(task_id+iteration) % 100 < 5`. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits `meta_review_complete`.
 
 <div class="callout">
