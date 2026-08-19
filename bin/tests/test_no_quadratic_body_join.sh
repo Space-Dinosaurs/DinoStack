@@ -6,10 +6,14 @@
 #          concatenation loop (quadratic in the number of body lines) with a
 #          single `"${body_lines[*]}"` IFS join (linear). This test is
 #          deliberately static rather than timing-based: the `bin-sh-tests`
-#          CI job runs under `timeout-minutes: 5` with only 3-63 seconds of
-#          measured headroom, and `.codex/build.sh` alone takes roughly 31s
-#          to run, so a wall-clock timing assertion here would risk killing
-#          the entire job with no diagnostic on a slow runner.
+#          CI job runs under a 20-minute job-level backstop with its own
+#          test-execution step ("run shell bin tests") separately bounded
+#          (see .github/workflows/bin-tests.yml), and `.codex/build.sh`
+#          alone takes roughly 31s to run - a wall-clock timing assertion
+#          here would still consume step budget with no diagnostic value on
+#          a slow runner. Re-derive the step's current duration
+#          distribution with `bash scripts/ci-step-durations.sh` rather than
+#          trusting a number in this comment.
 #
 # Public API: ./bin/tests/test_no_quadratic_body_join.sh
 #             Exits 0 (PASS) when neither build script contains the
