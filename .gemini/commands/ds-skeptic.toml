@@ -54,7 +54,7 @@ You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/s
 3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
 4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
 5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
-6. Diff under review: [git diff command OR file paths]
+6. Diff under review: [STABLE-UNIT-KEY: per-unit ticket id/branch, identical every round - see §4.5] | [git diff command OR file paths]
 7. Conductor spawn brief (claim-bearing text only): [the conductor-composed sentences that assert a value, path, count, or rationale - excluding pasted execution-contract boilerplate, .agentic/context.md content, and the SESSION_KEY line, OR "n/a - <reason>"]
 
 See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics. A bare `n/a` is invalid - every `n/a` needs `n/a - <reason>`.
