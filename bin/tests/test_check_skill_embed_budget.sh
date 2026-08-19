@@ -11,6 +11,20 @@
 #          (count below EXPECTED_SECTION_COUNT) - the deleted-section
 #          tautology this gate exists to close.
 #
+#          DS-182 added an informational git-based "burn" line to the
+#          OK-path output (no delta axis, deliberately - see the gate
+#          script's own header comment for why a generated artifact gets a
+#          burn line instead of a hard per-PR delta limit). build_fixture()
+#          above has always built a pure-filesystem-copy fixture with NO
+#          `git init` at all - verified by its absence in that function -
+#          so every existing scenario above already exercises the burn
+#          line's SKIPPED/omitted-degrade path without a single line
+#          changed; the new scenarios below add an explicit assertion for
+#          that instead of leaving it implicit, plus a second, git-backed
+#          fixture builder (build_git_fixture) for the scenario that needs
+#          a real base commit to diff against: the burn line rendering
+#          before the final `headroom:` line with the exit code unchanged.
+#
 # Public API: ./bin/tests/test_check_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
@@ -19,11 +33,13 @@
 #                CEILING, EXPECTED_SECTION_COUNT, and EXPECTED_RULES_COUNT
 #                are parsed out of the gate script with grep|cut, so this
 #                suite never hardcodes a copy that can drift from the real
-#                values). zsh is required for the bash/zsh parity assertion
-#                when running in CI (the assertion FAILs if zsh is absent
-#                under CI=true); locally, without zsh on PATH it is skipped
-#                (not failed) so contributors without zsh installed can
-#                still run the rest of the suite.
+#                values). git is required for the DS-182 git-backed
+#                scenario - no soft-skip, since bin-tests.yml always
+#                provides one. zsh is required for the bash/zsh parity
+#                assertion when running in CI (the assertion FAILs if zsh
+#                is absent under CI=true); locally, without zsh on PATH it
+#                is skipped (not failed) so contributors without zsh
+#                installed can still run the rest of the suite.
 #
 # Downstream consumers: developer running locally before commit; CI (the
 #                        bin-sh-tests job in .github/workflows/bin-tests.yml
@@ -34,9 +50,11 @@
 #                shape -> FAIL naming the scenario and what was observed.
 #
 # Test hygiene: never mutates any tracked file in the working tree. All
-#               fixture repos and stub files live under a mktemp -d
-#               directory that is removed on exit via trap. Does not touch
-#               network. Runs correctly from any cwd.
+#               fixture repos and stub files (including the DS-182
+#               git-backed one) live under a mktemp -d directory that is
+#               removed on exit via trap. Does not touch network - the
+#               "origin" remote used by build_git_fixture is a local bare
+#               repo under the same mktemp -d. Runs correctly from any cwd.
 #
 # Fixture design note: the gate script's embed-completeness check (added
 # alongside the FLOOR/CEILING bound check) requires content/sections/
@@ -212,6 +230,25 @@ elif [[ -n "${CI:-}" ]]; then
   _fail "zsh absent on PATH in CI - parity assertion cannot be skipped here"
 else
   echo "SKIP: zsh not found on PATH - skipping zsh parity assertion (bash-only coverage below still applies)"
+fi
+
+# --- Scenario 1b (DS-182): build_fixture() above never runs `git init` -
+#     the burn line therefore degrades to omitted against this same
+#     non-git PARITY_DIR fixture, and $bash_out from Scenario 1 already
+#     captured that run's output - assert its absence explicitly, and that
+#     the output still ends with the `headroom:` line (no partial line
+#     left behind by an aborted burn-line attempt). ---
+if echo "$bash_out" | grep -q "burn ("; then
+  _fail "burn line appeared against a non-git fixture (expected omitted): $bash_out"
+else
+  _pass "burn line is omitted (not a crash, not a partial line) against a non-git fixture"
+fi
+
+parity_last_line="$(echo "$bash_out" | grep -v '^[[:space:]]*$' | tail -1)"
+if [[ "$parity_last_line" == "  headroom:"*"B" ]]; then
+  _pass "non-git fixture's last output line is still the headroom: line"
+else
+  _fail "non-git fixture's last output line is [$parity_last_line], expected a headroom: line"
 fi
 
 # --- Scenario 2: below FLOOR fails as an embed regression ---
@@ -410,6 +447,125 @@ if echo "$duplicate_heading_out" | grep -q "duplicate top-level heading"; then
   _pass "duplicate-heading fixture reports the duplicate-heading guard, not a false pass"
 else
   _fail "duplicate-heading fixture did not report the duplicate-heading guard: $duplicate_heading_out"
+fi
+
+# --- Scenario 9 (DS-182): git-backed burn-line fixture. A real git repo
+#     (not a mock) with one commit on "main" pushed to a local bare
+#     "origin" remote under the same mktemp -d, so budget_base_resolve/
+#     budget_delta (called internally by budget_burn_line) exercise the
+#     actual git plumbing they shell out to. $1 = fixture dir; $2 =
+#     base-commit SKILL.md byte count.
+build_git_fixture() {
+  local dir="$1" base_bytes="$2"
+  build_fixture "$dir" "$base_bytes"
+  git -C "$dir" init -q -b main
+  git -C "$dir" add -A
+  git -C "$dir" -c user.email="test@example.com" -c user.name="test" commit -q -m base
+  git -C "$dir" init -q --bare "$dir.origin.git"
+  git -C "$dir" remote add origin "$dir.origin.git"
+  git -C "$dir" push -q origin main
+}
+
+# Rewrites the fixture's SKILL.md to a new byte count while preserving
+# every section/rule heading the embed-completeness check requires -
+# used to simulate an uncommitted (working-tree-only) size change against
+# the git fixture's committed base.
+_resize_skill_md() {
+  local dir="$1" new_bytes="$2"
+  python3 -c "
+import sys, os
+
+fixture_dir = sys.argv[1]
+new_bytes = int(sys.argv[2])
+section_count = int(sys.argv[3])
+rules_count = int(sys.argv[4])
+
+headings = []
+for i in range(1, section_count + 1):
+    headings.append('## Section %d' % i)
+for i in range(1, rules_count + 1):
+    headings.append('## Rule %d' % i)
+
+header_block = '\n'.join(headings) + '\n'
+header_bytes = len(header_block.encode())
+pad_len = new_bytes - header_bytes
+if pad_len < 0:
+    sys.stderr.write('_resize_skill_md: new_bytes too small to hold headings\n')
+    sys.exit(1)
+
+skill_path = os.path.join(fixture_dir, '.claude', 'skills', 'dinostack', 'SKILL.md')
+with open(skill_path, 'w') as f:
+    f.write(header_block)
+    f.write('x' * pad_len)
+" "$dir" "$new_bytes" "$EXPECTED_SECTION_COUNT" "$EXPECTED_RULES_COUNT"
+}
+
+if command -v git >/dev/null 2>&1; then
+  BURN_DIR="$TMP_ROOT/burn"
+  base_size="$midpoint2"
+  build_git_fixture "$BURN_DIR" "$base_size"
+  current_size=$(( base_size + 777 ))
+  _resize_skill_md "$BURN_DIR" "$current_size"
+
+  burn_out="$(cd "$BURN_DIR" && bash scripts/check-skill-embed-budget.sh 2>&1)"
+  burn_rc=$?
+
+  if [[ $burn_rc -eq 0 ]]; then
+    _pass "burn-line fixture (git-backed) still exits 0 - the burn line never affects the exit code"
+  else
+    _fail "burn-line fixture exited $burn_rc (expected 0): $burn_out"
+  fi
+
+  if echo "$burn_out" | grep -q "burn (vs origin/main): +777 B"; then
+    _pass "burn-line fixture reports the correct +777 B delta vs origin/main"
+  else
+    _fail "burn-line fixture did not report +777 B: $burn_out"
+  fi
+
+  burn_line_pos="$(echo "$burn_out" | grep -n "burn (" | head -1 | cut -d: -f1)"
+  headroom_line_pos="$(echo "$burn_out" | grep -n "headroom:" | head -1 | cut -d: -f1)"
+  if [[ -n "$burn_line_pos" && -n "$headroom_line_pos" && "$burn_line_pos" -lt "$headroom_line_pos" ]]; then
+    _pass "burn line renders before the final headroom: line"
+  else
+    _fail "burn line did not render before headroom: line (burn@[$burn_line_pos], headroom@[$headroom_line_pos]): $burn_out"
+  fi
+
+  burn_last_line="$(echo "$burn_out" | grep -v '^[[:space:]]*$' | tail -1)"
+  if [[ "$burn_last_line" == "  headroom:"*"B" ]]; then
+    _pass "burn-line fixture's lines[-1] is still the headroom: line"
+  else
+    _fail "burn-line fixture's lines[-1] is [$burn_last_line], expected a headroom: line"
+  fi
+elif [[ -n "${CI:-}" ]]; then
+  _fail "git absent on PATH in CI - the DS-182 git-backed burn-line scenario cannot be skipped here"
+else
+  echo "SKIP: git not found on PATH - skipping the DS-182 git-backed burn-line scenario (non-git omitted-degrade coverage above still applies)"
+fi
+
+# --- Scenario 10 (DS-182): the resident-budget.yml check-skill-embed-
+#     budget job's checkout step carries fetch-depth: 0 (needed for the
+#     burn line's origin/main resolution), while the sibling
+#     check-resident-budget job's checkout is deliberately left alone -
+#     that gate gained no git axis. Asserted against the real workflow
+#     file, since checkout depth is a workflow property, not a
+#     gate-script property. ---
+RESIDENT_WORKFLOW_FILE="$REPO_DIR/.github/workflows/resident-budget.yml"
+if [[ ! -f "$RESIDENT_WORKFLOW_FILE" ]]; then
+  _fail "$RESIDENT_WORKFLOW_FILE not found"
+else
+  skill_embed_job_block="$(awk '/^  check-skill-embed-budget:/,0' "$RESIDENT_WORKFLOW_FILE")"
+  if echo "$skill_embed_job_block" | grep -q 'fetch-depth: 0'; then
+    _pass "resident-budget.yml's check-skill-embed-budget job carries fetch-depth: 0"
+  else
+    _fail "resident-budget.yml's check-skill-embed-budget job is missing fetch-depth: 0: $skill_embed_job_block"
+  fi
+
+  resident_job_block="$(awk '/^  check-resident-budget:/,/^  check-skill-embed-budget:/' "$RESIDENT_WORKFLOW_FILE")"
+  if echo "$resident_job_block" | grep -q 'fetch-depth: 0'; then
+    _fail "resident-budget.yml's check-resident-budget job unexpectedly carries fetch-depth: 0 - that job gained no git axis and should be left alone"
+  else
+    _pass "resident-budget.yml's check-resident-budget job correctly has no fetch-depth: 0 (no git axis)"
+  fi
 fi
 
 echo ""

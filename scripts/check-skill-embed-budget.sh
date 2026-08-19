@@ -33,7 +33,19 @@
 # Public API: bash scripts/check-skill-embed-budget.sh
 #             Exits 0 when the embed-completeness check passes AND
 #             FLOOR <= size <= CEILING. Exits 1 otherwise, or when a
-#             required input is missing.
+#             required input is missing. DS-182 added an informational
+#             "burn" line (git-based, vs the resolved base ref) to the
+#             OK-path output - purely descriptive, it never affects the
+#             exit code and degrades to a SKIPPED line (never omitted
+#               silently, never a failure) when git or a base ref is
+#             unavailable. No delta axis here, deliberately: unlike
+#             content/commands/ds-implement-ticket.md (hand-authored - see
+#             scripts/check-command-file-budget.sh), SKILL.md is a
+#             GENERATED artifact whose size on any given branch reflects
+#             upstream churn on `content/**` as much as this PR's own
+#             diff, so a hard per-PR delta limit here would fail PRs for
+#             bytes they did not write - the exact failure mode DS-182
+#             exists to close (KNW-20260818-001).
 #
 # Upstream deps: .claude/skills/dinostack/SKILL.md (built by
 #                .claude/build.sh; this script does not rebuild it - it
@@ -42,12 +54,28 @@
 #                the file as the artifact of record); content/sections/
 #                [0-9][0-9]-*.md and content/rules/*.md (excluding
 #                module-manifest.md) for the embed-completeness check;
-#                scripts/lib/budget-gate.sh (shared repo-dir resolution and
-#                byte measurement - the two-sided floor/ceiling report
-#                below stays here, since it does not fit the OK/OVER-BUDGET
-#                shape budget_report shares with the other two gates).
+#                scripts/lib/budget-gate.sh (shared repo-dir resolution,
+#                byte measurement, the budget_eval/budget_burn_line report
+#                helpers that back the OK-path tail below, and the
+#                budget_base_resolve/budget_delta git helpers
+#                budget_burn_line calls internally - the two-sided
+#                FLOOR/BELOW-FLOOR message and the ABOVE-CEILING failure
+#                message stay hand-rolled in this file, since neither fits
+#                the single-threshold OK/OVER-BUDGET shape budget_eval
+#                provides). The burn line additionally depends on `git`
+#                being on PATH and a resolvable base ref (origin/main or
+#                main); it silently omits itself (never fails) when either
+#                is missing.
 #
-# Downstream consumers: .github/workflows/resident-budget.yml.
+# Downstream consumers: .github/workflows/resident-budget.yml (the
+#                        check-skill-embed-budget job's checkout needs
+#                        `fetch-depth: 0` so the burn line can resolve
+#                        `origin/main` - a default shallow checkout would
+#                        leave that ref unreachable and the line would
+#                        silently degrade to omitted on every CI run; the
+#                        sibling check-resident-budget job's checkout is
+#                        deliberately left alone, since that gate gained no
+#                        git axis).
 #
 # Failure modes: embed incomplete (a source file dropped from assembly, or
 #                a file count mismatch against EXPECTED_SECTION_COUNT/
@@ -59,6 +87,9 @@
 #                100,000 B smaller by accident. Above CEILING -> exit 1,
 #                message reiterates the single-data-point caveat and warns
 #                against a routine bump. Missing input file -> exit 1.
+#                Burn line unresolvable (no git, not a work tree, or no
+#                base ref) -> the OK-path output simply omits that line;
+#                never a failure, never blocks the FLOOR/CEILING result.
 #                Read-only; no side effects on the repo.
 #
 # Detection boundary: the heading-completeness check below proves each
@@ -309,9 +340,27 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   exit 1
 fi
 
-echo "skill embed budget check: OK"
-echo "  SKILL.md: $skill_bytes B"
-echo "  floor:    $FLOOR B"
-echo "  ceiling:  $CEILING B"
-echo "  headroom to ceiling: $(( CEILING - skill_bytes )) B"
-exit 0
+# Informational burn line (git-based, vs the resolved base ref) - never
+# affects the exit code, always renders as a distinct extra-context line
+# (SKIPPED, never silently omitted, when git or a base ref is
+# unavailable). See scripts/lib/budget-gate.sh's budget_burn_line for the
+# full contract, and the header comment above for why this is a burn
+# line rather than a hard per-PR delta limit on this generated artifact.
+burn_line="$(budget_burn_line "$REPO_DIR" "$SKILL_FILE" "$CEILING" "$skill_bytes")"
+
+extra_context=("floor:    $FLOOR B")
+if [ -n "$burn_line" ]; then
+  extra_context+=("$burn_line")
+fi
+
+if budget_eval \
+  "skill embed budget check" \
+  "SKILL.md" \
+  "$skill_bytes" \
+  "$CEILING" \
+  "unreachable: FLOOR/CEILING already checked above" \
+  "${extra_context[@]}"; then
+  exit 0
+else
+  exit 1
+fi

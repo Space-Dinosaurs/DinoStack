@@ -21,5 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # DS-182: the informational burn line resolves origin/main via
+          # git - a default shallow checkout leaves that ref unreachable
+          # and the line would silently be omitted on every CI run.
+          fetch-depth: 0
       - name: Run skill embed budget check
         run: bash scripts/check-skill-embed-budget.sh
