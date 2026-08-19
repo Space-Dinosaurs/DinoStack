@@ -9,12 +9,10 @@ Public API: consumed as-is by adapter build scripts. For Claude, .claude/build.s
             embeds METHODOLOGY.md plus content/rules/{code-standards,conventions}.md
             verbatim to produce the final .claude/skills/dinostack/SKILL.md
             (this file accounts for a fraction of that assembled artifact's size -
-            see check-skill-embed-budget.sh). Other adapters differ: .codex and .kimi
-            embed this file (including this comment) largely unchanged; .cursor and
-            .gemini and .copilot do not consume this file at all (their own
-            build.sh has no SKILL.md/frontmatter concatenation step); the remaining
-            adapters (.opencode, .omp, .pi, .hermes, .openclaw) strip this comment
-            before emitting their own SKILL.md.
+            see check-skill-embed-budget.sh). Other adapters differ in whether and
+            how they consume this file, and that set has changed as adapters were
+            added independently - check each adapter's own build.sh directly rather
+            than trusting an enumeration here, which has gone stale before.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 

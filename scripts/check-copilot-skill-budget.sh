@@ -104,14 +104,14 @@ STUB_FILE="$REPO_DIR/.github/copilot-instructions.md"
 # Floor: catches a regression to a pointer-only skill (the embed step in
 # .copilot/build.sh silently breaking and no longer inlining the
 # methodology body into SKILL.md). 100,000 B is far below any realistic
-# embedded size (live measured 135,523 B) and far above what a
+# embedded size (live measured 135,521 B) and far above what a
 # pointer-only skill would ever measure.
 FLOOR=100000
 
 # Stub ceiling: catches the accidental-re-embed regression on the OTHER
 # file - copilot-instructions.md growing back toward a full methodology
 # body instead of staying a stub pointer. 5,000 B is well above the live
-# stub (671 B as of authoring) but far below anything resembling a
+# stub (669 B as of authoring) but far below anything resembling a
 # partial or full re-embed.
 STUB_CEILING=5000
 
