@@ -1428,6 +1428,14 @@
       </div>
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
+          <h4 style="color: #b06bff;">Adversarial Brief Requirement (Section 7)</h4>
+          <ul>
+            <li>Brief is passed to Worker and Skeptic <strong>verbatim</strong> - never softened, summarized, or editorialized</li>
+            <li>Brief extension is additive only - domain-specific concerns may be added, existing language never removed or softened</li>
+            <li><strong>Neutrality requirement</strong> - the brief and Global-context field 7 carry no conductor-composed hypothesis, suspicion, or attention-steer; completeness and neutrality are independent axes; no carve-out for an "operator-attributed" steer</li>
+          </ul>
+        </div>
+        <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
           <h4 style="color: #b06bff;">Domain Adversarial Briefs (Section 8)</h4>
           <ul>
             <li><strong>Smart contracts:</strong> reentrancy, access control, signature replay, fee bypass</li>
@@ -1503,7 +1511,7 @@
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
-      The brief must be passed verbatim - never softened. Sign-off requires 6 elements: Reviewed, Findings, Active search attestation, Manifest check, Test-CI-wiring check, and explicit sign-off statement.
+      The brief must be passed verbatim - never softened. Sign-off requires 7 elements: Reviewed, Findings, Active search attestation, Manifest check, Test-CI-wiring check, Neutrality check, and explicit sign-off statement.
     </div>
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>Regression Test Obligation:</strong> Every Critical or Major finding that gets fixed without a regression test is a latent regression. The Worker adds a test that would have caught the failure; the Skeptic verifies it exists before sign-off. The test lives in the project's normal test suite, alongside existing tests for the affected module, so the same bug cannot silently reappear in a future change.
@@ -1568,6 +1576,7 @@
             <li>Main agent doing implementation work</li>
             <li>"Looks simple" rationalization</li>
             <li>Softening adversarial briefs</li>
+            <li>Priming adversarial briefs with conductor hypotheses</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">

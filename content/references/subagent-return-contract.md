@@ -208,8 +208,8 @@ overflow, and is bounded by construction). It does NOT use Shape-2's
 true-adjacent numeric cap, fixed-length spec, or bounded-by-nature value
 literal forms - none of these apply to a single physical `Label: value`
 line the way they do to a multi-line schema leaf or report placeholder.
-`skeptic.md` is this shape under an additional constraint: its six lines
-are validated verbatim by the conductor
+`skeptic.md` is this shape under an additional constraint: its seven
+lines are validated verbatim by the conductor
 (`content/references/skeptic-protocol.md` Section 11;
 `content/commands/ds-skeptic.md:68`; `content/commands/ds-wrap.md:439,443`)
 - a migration for this file may add a cap declaration in the surrounding
@@ -357,7 +357,7 @@ summary:
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description
   length (300 chars) to the Calibration section, without altering,
-  retagging, or restructuring any of its six conductor-validated Sign-off
+  retagging, or restructuring any of its seven conductor-validated Sign-off
   format lines. `goal-condition-evaluator.md` (final unit): its second
   template's Evidence value is now `"evaluator-error: <one-line reason>"`
   - the one-line marker form (`SHAPE2_ONE_LINE_RE`, reused as-is by Shape
