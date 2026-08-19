@@ -121,6 +121,34 @@ Test groups:
                                                     exempting record still
                                                     exempts (bad line skipped,
                                                     scan continues).
+ 32. test_python_urllib_post_to_comment_path_never_matches - a
+                                                    urllib.request POST to a
+                                                    non-create Jira path
+                                                    (comment endpoint) never
+                                                    matches.
+ 33. test_python_urllib_get_to_issue_create_path_never_matches - a
+                                                    urllib.request GET (no
+                                                    POST signal) to the
+                                                    issue-create path never
+                                                    matches.
+ 34. test_bash_grep_of_python_urllib_post_literal_never_matches - a grep
+                                                    whose search pattern
+                                                    contains a literal
+                                                    urllib.request POST
+                                                    string as DATA never
+                                                    matches.
+ 35. test_bash_script_file_indirection_never_matches - documented residual:
+                                                    a create routed through a
+                                                    script file written to
+                                                    disk and executed is
+                                                    never counted, since
+                                                    `_bash_is_creation`
+                                                    inspects the command
+                                                    string only.
+
+Note: this index enumerates the first 35 tests in file order (through the
+Bash Python-client coverage added alongside the script-file-indirection
+residual); the remaining tests below it are not individually indexed here.
 
 Run with: python3 -m pytest bin/tests/test_enforce_ticket_batching.py -x
        or: python3 bin/tests/test_enforce_ticket_batching.py
@@ -885,27 +913,45 @@ def test_bash_grep_of_python_urllib_post_literal_never_matches():
 def test_bash_script_file_indirection_never_matches():
     """Documented residual (module docstring "Residual Bash false-
     negative class"): a create routed through a script file WRITTEN to
-    disk and then EXECUTED - `python3 /some/path/script.py`, with no
+    disk and then EXECUTED - `python3 /path/to/script.py`, with no
     inline HTTP-client reference, endpoint path, or POST verb in the
-    command string itself - is never counted as a creation.
+    command string itself - is never counted as a creation, even when
+    the referenced file genuinely contains all three signals.
     `_bash_is_creation` inspects `tool_input.command` only; it never
     resolves or reads the referenced file, so the urllib.request call,
-    the `/rest/api/3/issue` path, and the POST method that would live
-    inside such a script are invisible here. This pins the gap as
-    intentional per the docstring, not an untested oversight - it will
-    redden if a future change starts resolving/reading script files
-    without updating the docs to match.
+    the `/rest/api/3/issue` path, and the POST method living inside the
+    script are invisible here. This pins the gap as intentional per the
+    docstring, not an untested oversight.
 
-    Mutation that would redden this assertion: making
-    `_PYTHON_HTTP_CLIENT_RE` (or an equivalent signal) match on the bare
-    `python3 <path>` invocation shape alone, without requiring an actual
-    HTTP-client reference in the command string - e.g. widening the
-    regex to `python3\\s+\\S+\\.py` would cause this command to
-    misclassify as a creation, since a script-file invocation with no
-    inline signal would then match on the interpreter/path shape alone."""
+    The referenced script is written to disk with a real create call
+    (`urllib.request` POST to `/rest/api/3/issue`) so the assertion has
+    something to be wrong about - a nonexistent script path would make
+    this test pass under a mutated, file-reading hook for the wrong
+    reason (nothing to read), independent of whether the mutation
+    actually restores the signal.
+
+    Mutation that would redden this assertion: making `_bash_is_creation`
+    resolve `command`'s script-file argument and search ITS content for
+    the same signals it already checks in the command string - since the
+    script on disk here genuinely carries the client reference, the
+    endpoint path, and the POST verb, a file-reading hook would
+    reclassify this call as a creation. Confirmed by direct execution:
+    patching the hook to read the referenced file's content into the
+    string handed to `_bash_is_creation` flips this assertion (see
+    the fix history for this test)."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        cmd = "python3 /tmp/scratch/file_tickets.py"
+        script_path = Path(tmp) / "file_tickets.py"
+        script_path.write_text(
+            "import urllib.request\n"
+            "req = urllib.request.Request(\n"
+            "    'https://jira.example.com/rest/api/3/issue',\n"
+            "    data=b'{}',\n"
+            "    method='POST',\n"
+            ")\n"
+            "urllib.request.urlopen(req)\n"
+        )
+        cmd = f"python3 {script_path}"
         rc, parsed = _run_hook(_bash_payload(tmp, cmd))
         assert rc == 0
         assert parsed is None
