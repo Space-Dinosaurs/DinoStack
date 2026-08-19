@@ -15,11 +15,15 @@ permissions:
 # cancelled the same way on main (run 31115638748, sha f81b63c0). The suites
 # themselves finish in well under a minute.
 #
-# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20), and every real work
-# step carries its own `timeout-minutes`, which starts when the step starts and
-# is therefore immune to acquisition delay. Do not "fix" a queue-starvation
-# cancellation by raising the job timeout alone - that trades a fast silent
-# failure for a slow one and leaves the steps unbounded.
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20), and every network
+# install/download step and every test-execution step carries its own
+# `timeout-minutes`, which starts when the step starts and is therefore immune
+# to acquisition delay. Do not "fix" a queue-starvation cancellation by raising
+# the job timeout alone - that trades a fast silent failure for a slow one and
+# leaves the steps unbounded. `actions/checkout` and `actions/setup-python` are
+# deliberately excluded from this policy: they are cache-backed GitHub-hosted
+# actions, not custom network commands, and no stall on either has been
+# observed here.
 jobs:
   python-bin-tests:
     runs-on: ubuntu-latest
@@ -35,11 +39,20 @@ jobs:
       # pytest-timeout converts an unbounded subprocess stall anywhere in
       # bin/tests/ into ONE failing test with a stack trace at the exact call,
       # instead of a killed job with no usable log.
-      - run: pip install pytest pytest-timeout pyyaml
+      - name: pip install pytest pytest-timeout pyyaml
+        # Measured: n=78 successful runs, median 3s, p95 8s, max 11s
+        # (2026-08-15..08-19). 2 minutes is generous headroom for a PyPI
+        # network stall.
+        timeout-minutes: 2
+        run: pip install pytest pytest-timeout pyyaml
       - name: install zsh (required for the bash/zsh parity matrix in test_phase8_telemetry_shell.py)
-        # Observed 10s-152s across recent successful runs (apt mirror
-        # variance); 5 minutes is real headroom over that ceiling.
-        timeout-minutes: 5
+        # Measured: n=76 successful runs, median 12s, p95 46s, max 89s
+        # (2026-08-15..08-19, apt mirror variance). 10 minutes is real
+        # headroom over that ceiling - the sibling bin-sh-tests job's zsh
+        # install (same command, separate runner) hit an actual timeout
+        # failure at ~312s under this step's own prior 5-minute bound on
+        # 2026-08-19, so 5 minutes was not real headroom.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh
       - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
         timeout-minutes: 5
@@ -142,11 +155,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - run: pip install pyyaml
+      - name: pip install pyyaml
+        # Measured: n=78 successful runs, median 2s, p95 4s, max 6s
+        # (2026-08-15..08-19). 2 minutes is generous headroom for a PyPI
+        # network stall.
+        timeout-minutes: 2
+        run: pip install pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
-        # Observed 10s-152s across recent successful runs (apt mirror
-        # variance); 5 minutes is real headroom over that ceiling.
-        timeout-minutes: 5
+        # Measured: n=77 successful runs, median 13s, p95 86s, max 229s
+        # (2026-08-15..08-19, apt mirror variance). This exact step failed
+        # outright at ~312s on 2026-08-19, killed by its own prior
+        # 5-minute bound - that was not real headroom. 10 minutes gives
+        # margin over the measured 229s successful ceiling.
+        timeout-minutes: 10
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: install gitleaks CLI (required by test_gitleaks_allowlist_scope.sh)
         # test_gitleaks_allowlist_scope.sh hard-fails under CI if gitleaks is
@@ -155,6 +176,10 @@ jobs:
         # succeed here. Version and checksum are read from
         # .github/workflows/gitleaks.yml at CI time rather than hardcoded, so
         # bumping that pin cannot silently drift from this install step.
+        # Measured: n=77 successful runs, median 1s, max 1s
+        # (2026-08-15..08-19) - a curl download of a small release asset. 2
+        # minutes is generous headroom for a GitHub Releases network stall.
+        timeout-minutes: 2
         run: |
           set -euo pipefail
           version="$(grep -E '^[[:space:]]*GITLEAKS_VERSION:' .github/workflows/gitleaks.yml | head -1 | sed -E 's/^[^:]*:[[:space:]]*//')"
