@@ -131,13 +131,23 @@ THRESHOLD_BYTES=371000
 #   | while read -r sha; do
 #       parent=$(git rev-parse "$sha^" 2>/dev/null) || continue
 #       before=$(git cat-file -s \
-#         "$parent:content/commands/ds-implement-ticket.md" 2>/dev/null) \
+#         "${parent}:content/commands/ds-implement-ticket.md" 2>/dev/null) \
 #         || continue
 #       after=$(git cat-file -s \
-#         "$sha:content/commands/ds-implement-ticket.md" 2>/dev/null) \
+#         "${sha}:content/commands/ds-implement-ticket.md" 2>/dev/null) \
 #         || continue
 #       echo "$sha $(( after - before ))"
 #     done | sort -k2 -n | tail -1
+#
+# The `${parent}:`/`${sha}:` braces above are load-bearing, not style: an
+# unbraced `$parent:content/...` is parsed as a zsh history-expansion
+# modifier (`:c...`), which silently mangles the ref into a bogus object
+# name and makes every iteration of this loop fail its `|| continue` -
+# the command then prints nothing instead of erroring, under zsh (this
+# repo's default shell) specifically. Verified: unbraced reproducibly
+# yields a `fatal: Not a valid object name` on the mangled ref under zsh;
+# braced reproduces the documented max_observed_delta=29941 under both
+# bash and zsh.
 DELTA_LIMIT_BYTES=32936
 
 TARGET_FILE="$REPO_DIR/content/commands/ds-implement-ticket.md"

@@ -517,6 +517,28 @@ budget_burn_line "'"$ABSENT_AT_BASE_DIR"'" "'"$ABSENT_AT_BASE_DIR"'/new-file.txt
   else
     _fail "budget_burn_line printed [$burn_absent_out] when the path is absent at base, expected [burn: SKIPPED (absent at base origin/main)]"
   fi
+
+  # --- Scenario 16 (DS-182 round-3 Minor): budget_burn_line omits the
+  #     "- N d to limit" clause when <current_bytes> is already at or over
+  #     <limit> (headroom <= 0), rather than letting bash's
+  #     truncate-toward-zero integer division render a small negative
+  #     headroom as a misleading "0 d to limit" (reads as "at the limit
+  #     right now", not "already past it"). Reuses $DELTA_GROW_DIR
+  #     (burn_per_day=30, deterministic per scenario 14's own comment).
+  #     limit=125 against current_bytes=130 -> headroom=-5; pre-fix,
+  #     -5/30 truncates toward zero to 0, printing the misleading
+  #     "0 d to limit". Mutation that would redden this: revert
+  #     `[ "$headroom" -gt 0 ]` back out of the clause guard. ---
+  burn_over_ceiling_out="$(bash -c '
+set -euo pipefail
+source "'"$GATE_LIB"'"
+budget_burn_line "'"$DELTA_GROW_DIR"'" "'"$DELTA_GROW_DIR"'/target.txt" 125 130
+')"
+  if [[ "$burn_over_ceiling_out" == "burn: 30 B/day over 1 d" ]]; then
+    _pass "budget_burn_line omits '- N d to limit' when already over the limit (headroom -5, would pre-fix truncate to '0 d to limit')"
+  else
+    _fail "budget_burn_line printed [$burn_over_ceiling_out] for a headroom of -5, expected the clause omitted: [burn: 30 B/day over 1 d]"
+  fi
 elif [[ -n "${CI:-}" ]]; then
   _fail "git absent on PATH in CI - the DS-182 git-backed scenarios cannot be skipped here"
 else

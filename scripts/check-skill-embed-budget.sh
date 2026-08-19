@@ -34,9 +34,13 @@
 #             Exits 0 when the embed-completeness check passes AND
 #             FLOOR <= size <= CEILING. Exits 1 otherwise, or when a
 #             required input is missing. DS-182 added an informational
-#             "burn" line (git-based, vs the resolved base ref) to EVERY
-#             exit path (OK, BELOW FLOOR, and ABOVE CEILING alike) -
-#             purely descriptive, it never affects the exit code and
+#             "burn" line (git-based, vs the resolved base ref) to the
+#             THREE FLOOR/CEILING exit paths (OK, BELOW FLOOR, and ABOVE
+#             CEILING alike) - it is computed once, after the
+#             embed-completeness check, so the six earlier "embed
+#             incomplete" exit 1 paths do NOT print it (see Failure modes
+#             below for the full list). Purely descriptive, it never
+#             affects the exit code and
 #             renders a "burn: SKIPPED (...)" line (never a blank line,
 #             never a failure) when git or a base ref is unavailable. No
 #             delta axis here, deliberately: unlike

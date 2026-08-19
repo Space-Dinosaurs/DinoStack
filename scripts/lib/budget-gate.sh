@@ -180,7 +180,12 @@
 #                on PATH and, for budget_delta, the caller's `repo_dir`
 #                being inside a git work tree - both degrade to SKIPPED
 #                (never a hard failure) when either is unavailable; see
-#                Failure modes below.
+#                Failure modes below. budget_burn_line additionally
+#                invokes `git log -1 --format=%ct` (for the base ref's
+#                commit date) and the `date` builtin/coreutil (for the
+#                current epoch) - both degrade to the same SKIPPED
+#                treatment as budget_base_resolve/budget_delta rather than
+#                a hard failure.
 #
 # Downstream consumers: scripts/check-resident-budget.sh (unchanged - no
 #                        git axis, still calls budget_report exactly as
@@ -394,12 +399,22 @@ budget_delta() {
 #
 #   <D> is the whole-day span between the resolved base ref's own commit
 #   date (`git log -1 --format=%ct`) and now, floored at 1 so a same-day
-#   base never divides by zero. <B_per_day> is budget_delta's signed byte
+#   base never divides by zero. Because every current caller resolves its
+#   base against `origin/main`/`main` (a fast-moving branch, not a fixed
+#   release window), <D> is nearly always exactly 1 in ordinary same-day
+#   CI use - <B_per_day> then reduces to this branch's own raw delta, not
+#   a rate measured over a meaningful window. Treat "B/day" as a relabeled
+#   delta unless <D> is actually greater than 1 (e.g. a local run against
+#   a base several days stale). <B_per_day> is budget_delta's signed byte
 #   delta of <path> since that base, divided by <D> (integer division,
 #   truncated toward zero). The trailing "- <N> d to limit" clause -
 #   <N> = (<limit> - <current_bytes>) / <B_per_day> - is OMITTED (not
-#   zero-filled) whenever <B_per_day> is <= 0, since a non-positive burn
-#   rate has no meaningful "days to limit".
+#   zero-filled) whenever <B_per_day> is <= 0 (no meaningful "days to
+#   limit" for a non-positive burn rate) OR <current_bytes> is already at
+#   or over <limit> (headroom <= 0): bash's truncate-toward-zero integer
+#   division would otherwise render a small negative headroom as "0 d to
+#   limit", which reads as "at the limit right now" rather than "already
+#   past it".
 #
 #   Deliberately takes no <base_ref> argument - it resolves its own base
 #   via budget_base_resolve, since every current caller wants the default
@@ -440,7 +455,7 @@ budget_burn_line() {
   burn_per_day=$(( delta_bytes / days_span ))
   headroom=$(( limit - current_bytes ))
 
-  if [ "$burn_per_day" -gt 0 ]; then
+  if [ "$burn_per_day" -gt 0 ] && [ "$headroom" -gt 0 ]; then
     local days_to_limit=$(( headroom / burn_per_day ))
     echo "burn: ${burn_per_day} B/day over ${days_span} d - ${days_to_limit} d to limit"
   else

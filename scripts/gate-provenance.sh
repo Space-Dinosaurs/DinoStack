@@ -60,22 +60,50 @@
 #                        existing AUTHORED/DERIVED assignments this
 #                        script's own rule set was built to reproduce).
 #
-# Failure modes: wrong argument count -> usage to stderr, exit 2. D1/D2/D3
-#                are read-only (git log/grep only, no side effects). D4
-#                clones the repo into a `mktemp -d` scratch directory,
-#                executes the extracted generator command(s) there, and
-#                removes the scratch directory on exit via trap - it never
-#                writes to the real working tree or pushes anywhere. If
-#                D4's job/generator extraction fails to resolve a runnable
-#                command, it silently falls through to the AUTHORED
-#                default rather than erroring - a heuristic that cannot
-#                find a generator is evidence of nothing, not evidence of
-#                AUTHORED, but this script biases toward the cheaper
-#                default rather than blocking on an inconclusive case. No
-#                `-v`/narration flag exists yet - if a D4 fall-through is
-#                unexpected, re-run the D1/D2/D3 grep commands from this
-#                file's own rule comments by hand against the target to
-#                see what almost matched.
+# Failure modes: wrong argument count -> usage to stderr, exit 2. An
+#                argument that is empty, absolute (leading `/`), or
+#                contains a `..` path-traversal segment also exits 2 -
+#                this script's whole purpose is telling other tickets how
+#                to classify a path, and a confident AUTHORED/DERIVED
+#                answer on malformed input is worse than a refusal (DS-182
+#                round-3 Major 3). D1/D2/D3 are read-only (git log/grep
+#                only, no side effects). D4 clones the repo into a
+#                `mktemp -d` scratch directory, executes the extracted
+#                generator command(s) there, and removes the scratch
+#                directory on exit via trap - it never writes to the real
+#                working tree or pushes anywhere. If D4's job/generator
+#                extraction fails to resolve a runnable command, it
+#                silently falls through to the AUTHORED default rather
+#                than erroring - a heuristic that cannot find a generator
+#                is evidence of nothing, not evidence of AUTHORED, but this
+#                script biases toward the cheaper default rather than
+#                blocking on an inconclusive case. No `-v`/narration flag
+#                exists yet - if a D4 fall-through is unexpected, re-run
+#                the D1/D2/D3 grep commands from this file's own rule
+#                comments by hand against the target to see what almost
+#                matched.
+#
+# D4 verification (DS-182 round-3 Major 2): the `run:` step extraction
+# awk originally used `\s`, a GNU-awk-only escape that is silent no-op
+# under the one-true-awk this repo's CI and macOS contributors actually
+# run, so D4's clone-and-execute block was reachable but never actually
+# entered - `generator_cmds` was always empty. Fixed to `[[:space:]]` and
+# confirmed against the real, live
+# .github/workflows/codex-skill-sync.yml:36 (the only bare, no-pathspec
+# `git diff --exit-code` in this repo, i.e. the only real trigger for D4)
+# in bin/tests/test_gate_provenance.sh, which extracts and pins the exact
+# 5 real generator commands and reproduces the pre-fix empty-output bug as
+# a negative mutation check. Every path D1/D2/D3 do not resolve now
+# genuinely reaches D4's scratch-clone-and-execute step (measured: 6m42s
+# wall-clock for one such run) - in the current repo this always falls
+# through to AUTHORED regardless, because every real target D4's
+# generator commands touch lives under `.codex/`, which D1's earlier
+# adapter-sync.yml pathspec already classifies as DERIVED before D4 is
+# ever reached; a genuine D4-only DERIVED verdict has not been observed
+# and cannot be produced against this repo's current workflow layout. Full
+# live execution of D4 (the clone-and-build itself, not just the
+# extraction) is opt-in in the test suite (`RUN_SLOW_D4_TEST=1`) rather
+# than run by default, given that measured cost.
 #
 # Compatible with bash (CI always invokes `bash scripts/gate-provenance.sh
 # ...`); a contributor may also run it under zsh, but D4's scratch-clone
@@ -94,6 +122,22 @@ if [ $# -ne 1 ]; then
   echo "usage: bash scripts/gate-provenance.sh <repo-relative-path>" >&2
   exit 2
 fi
+
+if [ -z "$1" ]; then
+  echo "error: <repo-relative-path> must not be empty" >&2
+  exit 2
+fi
+
+case "$1" in
+  /*)
+    echo "error: <repo-relative-path> must be repo-relative, not absolute: $1" >&2
+    exit 2
+    ;;
+  ..|../*|*/../*|*/..)
+    echo "error: <repo-relative-path> must not contain a '..' escape: $1" >&2
+    exit 2
+    ;;
+esac
 
 TARGET="${1#./}"
 TARGET="${TARGET%/}"
@@ -117,12 +161,33 @@ _path_matches() {
 
 cd "$REPO_DIR"
 
+# WORKFLOW_FILES is built via `find`, never a raw "$WORKFLOWS_DIR"/*.yaml
+# glob - zsh (unlike bash) aborts on a glob with zero matches ("no matches
+# found") instead of leaving the pattern unexpanded, and this repo has no
+# .github/workflows/*.yaml files today, only *.yml, so a direct glob here
+# crashes `zsh scripts/gate-provenance.sh <target>` outright even though
+# this script's own compatibility note above promises identical behavior
+# under both shells.
+WORKFLOW_FILES=()
+if [ -d "$WORKFLOWS_DIR" ]; then
+  while IFS= read -r wf; do
+    WORKFLOW_FILES+=("$wf")
+  done < <(find "$WORKFLOWS_DIR" -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
+fi
+
 # --- D1: CI regenerate-then-assert-clean pairs -----------------------------
 d1_result=""
 d1_reason=""
-d1_wholetree=()  # entries "workflow:lineno" for bare (no-pathspec) hits
+# First bare (no-pathspec) "workflow:lineno" hit, D4's only input. A
+# scalar, not an array: zsh arrays are 1-indexed by default (bash's are
+# 0-indexed), so a literal `${arr[0]}` read - needed by D4 below - is
+# invalid under zsh and aborts with "parameter not set". Only the first
+# hit is ever consumed, so tracking it in a scalar sidesteps the
+# indexing-base mismatch entirely rather than requiring KSH_ARRAYS or a
+# portable-extraction workaround.
+d1_first_wholetree=""
 
-if [ -d "$WORKFLOWS_DIR" ]; then
+if [ "${#WORKFLOW_FILES[@]}" -gt 0 ]; then
   while IFS= read -r match; do
     [ -z "$match" ] && continue
     wf="${match%%:*}"
@@ -131,7 +196,14 @@ if [ -d "$WORKFLOWS_DIR" ]; then
     line="${rest#*:}"
     if printf '%s' "$line" | grep -q -- ' -- '; then
       pathspec_raw="$(printf '%s' "$line" | sed -E 's/^.*-- //; s/;.*$//')"
-      for tok in $pathspec_raw; do
+      # Splitting via `for tok in $(printf ...)` rather than a bare
+      # `for tok in $pathspec_raw` is load-bearing, not style: zsh does
+      # NOT word-split an unquoted plain variable expansion by default
+      # (unlike bash), so a bare `$pathspec_raw` here iterates ONCE over
+      # the whole multi-token string under zsh - it DOES word-split
+      # unquoted command-substitution output, which is what this form
+      # relies on to behave identically in both shells.
+      for tok in $(printf '%s' "$pathspec_raw"); do
         if _path_matches "$TARGET" "$tok"; then
           d1_result="DERIVED"
           d1_reason="D1: $wf:$lineno asserts \`git diff --exit-code -- ...\` with a pathspec covering '$tok'"
@@ -140,9 +212,9 @@ if [ -d "$WORKFLOWS_DIR" ]; then
       done
       [ -n "$d1_result" ] && break
     else
-      d1_wholetree+=("$wf:$lineno")
+      [ -z "$d1_first_wholetree" ] && d1_first_wholetree="$wf:$lineno"
     fi
-  done < <(grep -rn "git diff --exit-code" "$WORKFLOWS_DIR"/*.yml "$WORKFLOWS_DIR"/*.yaml 2>/dev/null || true)
+  done < <(grep -rn "git diff --exit-code" "${WORKFLOW_FILES[@]}" 2>/dev/null || true)
 fi
 
 if [ -n "$d1_result" ]; then
@@ -154,8 +226,8 @@ fi
 d2_result=""
 d2_reason=""
 
-if [ -d "$WORKFLOWS_DIR" ]; then
-  for wf in "$WORKFLOWS_DIR"/*.yml "$WORKFLOWS_DIR"/*.yaml; do
+if [ "${#WORKFLOW_FILES[@]}" -gt 0 ]; then
+  for wf in "${WORKFLOW_FILES[@]}"; do
     [ -f "$wf" ] || continue
     grep -q "git commit" "$wf" || continue
     while IFS= read -r match; do
@@ -163,7 +235,9 @@ if [ -d "$WORKFLOWS_DIR" ]; then
       lineno="${match%%:*}"
       line="${match#*:}"
       args="$(printf '%s' "$line" | sed -E 's/^.*git add[[:space:]]+//')"
-      for tok in $args; do
+      # See the D1 pathspec loop above for why this must be a
+      # command-substitution split, not a bare `$args`.
+      for tok in $(printf '%s' "$args"); do
         tok="${tok%\"}"
         tok="${tok#\"}"
         if _path_matches "$TARGET" "$tok"; then
@@ -184,6 +258,44 @@ if [ -n "$d2_result" ]; then
 fi
 
 # --- D3: manifest-declared writes -------------------------------------------
+#
+# Extracts path-shaped tokens ([A-Za-z0-9._/-]+, trailing sentence
+# punctuation stripped) from each matched "writes " line and runs each
+# through the same _path_matches used by D1/D2, rather than an unanchored
+# substring search. An unanchored `grep -qF "$TARGET"` false-positived on
+# TARGET="AGENTS.md" against bin/ds-disable's "writes opt-out marker to
+# <cwd>/AGENTS.md" - that sentence is about a CONSUMER project's AGENTS.md,
+# not this repo's, but "AGENTS.md" is a substring of "<cwd>/AGENTS.md" so
+# the old check matched it anyway.
+#
+# Two further narrowings, both measured false positives from the tokenized
+# approach alone: (1) a candidate token is discarded unless it contains a
+# '/' or a '.' - a bare alnum word like "content" or "bin" is at least as
+# likely to be ordinary English prose (git_fixture.py's "...file with
+# unchanged content..." docstring matched TARGET="content" this way) as a
+# path, and neither D1 nor D2's own token sources (pathspecs, `git add`
+# arguments) ever emit a bare extension-less, slash-less word for a
+# multi-segment target like this. (2) any matched line whose own text
+# contains the D3 search invocation itself (`git grep -n "writes "`) is
+# skipped, wherever it appears - not just in this script's own source, but
+# in ANY file that quotes or mirrors this exact D3 implementation (e.g. a
+# regression test copying it verbatim for verification). Filtering by
+# self-file-path alone is insufficient: this line's own literal text -
+# "writes " next to 'scripts/*'/'bin/*' - self-classifies "bin"/"scripts"
+# as DERIVED off a pathspec argument in EVERY file that contains it, not
+# just this one, so the exclusion has to be on the line's content, not a
+# hardcoded path.
+#
+# Known residual gap: a bare, unqualified filename mentioned in CLI
+# help/docstring prose as the write target (e.g. bin/ds-help's "writes an
+# opt-out marker to AGENTS.md", describing a write to the CALLING
+# project's own AGENTS.md at runtime, not a path inside this repo) still
+# satisfies both narrowings above - it has a '.' and is a real path-aware
+# token match - and D3 has no way to distinguish that from a genuine
+# in-repo manifest declaration using text pattern matching alone. TARGET=
+# "AGENTS.md" specifically still classifies DERIVED via bin/ds-help for
+# this reason; treat any D3 hit against a bare top-level filename as
+# needing a by-hand read of the cited line before trusting it.
 d3_result=""
 d3_reason=""
 
@@ -193,11 +305,23 @@ while IFS= read -r match; do
   rest="${match#*:}"
   lineno="${rest%%:*}"
   line="${rest#*:}"
-  if printf '%s' "$line" | grep -qF "$TARGET"; then
-    d3_result="DERIVED"
-    d3_reason="D3: $file:$lineno declares a write to '$TARGET'"
-    break
-  fi
+  case "$line" in
+    *'git grep -n "writes "'*) continue ;;
+  esac
+  for raw_tok in $(printf '%s' "$line" | grep -oE '[A-Za-z0-9._/-]+'); do
+    tok="${raw_tok%.}"
+    [ -z "$tok" ] && continue
+    case "$tok" in
+      */*|*.*) ;;
+      *) continue ;;
+    esac
+    if _path_matches "$TARGET" "$tok"; then
+      d3_result="DERIVED"
+      d3_reason="D3: $file:$lineno declares a write to '$tok'"
+      break
+    fi
+  done
+  [ -n "$d3_result" ] && break
 done < <(git grep -n "writes " -- 'scripts/*' 'bin/*' '*/build.sh' 2>/dev/null || true)
 
 if [ -n "$d3_result" ]; then
@@ -209,8 +333,8 @@ fi
 d4_result=""
 d4_reason=""
 
-if [ "${#d1_wholetree[@]}" -gt 0 ]; then
-  entry="${d1_wholetree[0]}"
+if [ -n "$d1_first_wholetree" ]; then
+  entry="$d1_first_wholetree"
   wf="${entry%%:*}"
   diff_lineno="${entry#*:}"
 
@@ -227,8 +351,8 @@ if [ "${#d1_wholetree[@]}" -gt 0 ]; then
   generator_cmds=""
   if [ -n "$job_start_line" ]; then
     generator_cmds="$(awk -v start="$job_start_line" -v stop="$diff_lineno" '
-      NR > start && NR < stop && /^\s*run:/ {
-        sub(/^\s*run:[[:space:]]*\|?[[:space:]]*/, "");
+      NR > start && NR < stop && /^[[:space:]]*run:/ {
+        sub(/^[[:space:]]*run:[[:space:]]*\|?[[:space:]]*/, "");
         if (length($0) > 0) print;
       }
     ' "$wf")"
