@@ -4203,7 +4203,11 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
         repo / ".gemini/GEMINI.md",
         repo / ".github/skills/dinostack/SKILL.md",
         repo / ".hermes/SKILL.md",
-        repo / ".kimi/AGENTS.md",
+        # DS-185: Kimi moved to a trigger-loaded skill (mirroring DS-143's
+        # Claude change above) - .kimi/AGENTS.md is now a lean activation
+        # stub with no embedded methodology body; the resident check now
+        # targets the skill's generated METHODOLOGY.md instead.
+        repo / ".kimi/skills/dinostack/METHODOLOGY.md",
         repo / ".omp/skills/dinostack/METHODOLOGY.md",
         repo / ".openclaw/skills/dinostack/METHODOLOGY.md",
         repo / ".opencode/skills/dinostack/METHODOLOGY.md",
