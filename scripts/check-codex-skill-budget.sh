@@ -81,7 +81,14 @@
 # file count matches - it cannot detect a rules file's own content being
 # corrupted, since content/rules/*.md is read through the same symlink
 # content/rules/*.md itself is served from (there is no separate copy to
-# diverge).
+# diverge). It also cannot detect an ABSOLUTIZED symlink (one whose target
+# is an absolute path into a specific machine's checkout instead of the
+# tracked relative `../../../content/rules` form) - `find -L` and `grep`
+# both resolve and read through an absolutized symlink exactly as they do a
+# correctly relative one, so this check's rules-reachable pass gives no
+# signal either way on that class of defect. scripts/check-symlinks-relative.sh
+# (wired separately in .github/workflows/adapter-sync.yml) is the gate that
+# actually catches it - see DS-96/DS-104 in AGENTS.md.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
 # always invokes it as `bash scripts/check-codex-skill-budget.sh`, but a
@@ -148,43 +155,23 @@ fi
 # Section embed-completeness check: each content/sections/[0-9][0-9]-*.md
 # file's own top-level heading must be present somewhere in the built
 # METHODOLOGY.md, and the file count must match EXPECTED_SECTION_COUNT
-# exactly.
+# exactly. DS-183 round 2 (M6 fix): this was previously a 47-line near-
+# verbatim reimplementation of check-skill-embed-budget.sh's own
+# _check_embedded_set - now calls the shared
+# scripts/lib/budget-gate.sh:budget_check_embedded_set instead. Output
+# wording differs from check-skill-embed-budget.sh's own calls (this script
+# was never bound to that script's exact wording the way the M6 finding
+# required for check-skill-embed-budget.sh itself), but the duplicate-
+# heading check below still needs ALL_SECTION_HEADINGS accumulated by the
+# shared function.
+ALL_SECTION_HEADINGS=""
 _check_section_headings() {
-  local dir="$REPO_DIR/content/sections"
-  local files file_count f heading all_headings duplicate_headings
-  files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name '[0-9][0-9]-*.md' | LC_ALL=C sort)"
-  if [ -z "$files" ]; then
-    echo "check-codex-skill-budget.sh: no section files found in $dir" >&2
-    exit 1
-  fi
-  file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
-  if [ "$file_count" -ne "$EXPECTED_SECTION_COUNT" ]; then
-    echo "check-codex-skill-budget.sh: embed incomplete" >&2
-    echo "  section file count mismatch: expected $EXPECTED_SECTION_COUNT, found $file_count" >&2
-    echo "  a content/sections/[0-9][0-9]-*.md file was added or removed - if" >&2
-    echo "  intentional, bump EXPECTED_SECTION_COUNT above in the same commit." >&2
-    echo "  If not, investigate before bumping the count." >&2
-    exit 1
-  fi
-  all_headings=""
-  while IFS= read -r f; do
-    heading="$(grep -m1 '^## ' "$f" || true)"
-    if [ -z "$heading" ]; then
-      echo "check-codex-skill-budget.sh: embed incomplete" >&2
-      echo "  $f has no top-level '## ' heading to check against" >&2
-      exit 1
-    fi
-    if ! grep -qxF "$heading" "$METHODOLOGY_FILE"; then
-      echo "check-codex-skill-budget.sh: embed incomplete" >&2
-      echo "  missing section heading from $(basename "$f"): $heading" >&2
-      echo "  this file is not present in the built METHODOLOGY.md - assembly" >&2
-      echo "  silently dropped a whole section." >&2
-      exit 1
-    fi
-    all_headings="$all_headings$heading
-"
-  done <<< "$files"
-  duplicate_headings="$(printf '%s' "$all_headings" | LC_ALL=C sort | LC_ALL=C uniq -d)"
+  budget_check_embedded_set "check-codex-skill-budget.sh" "$REPO_DIR/content/sections" \
+    '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section' 'EXPECTED_SECTION_COUNT' \
+    "$METHODOLOGY_FILE" ALL_SECTION_HEADINGS 'METHODOLOGY.md' 'METHODOLOGY_FLOOR'
+
+  local duplicate_headings
+  duplicate_headings="$(printf '%s' "$ALL_SECTION_HEADINGS" | LC_ALL=C sort | LC_ALL=C uniq -d)"
   if [ -n "$duplicate_headings" ]; then
     echo "check-codex-skill-budget.sh: embed incomplete" >&2
     echo "  duplicate top-level heading(s) shared across section files - the" >&2
