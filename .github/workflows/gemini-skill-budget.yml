@@ -1,0 +1,29 @@
+name: gemini-skill-budget
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-gemini-skill-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # DS-184: the informational burn line resolves origin/main via
+          # git - a default shallow checkout leaves that ref unreachable
+          # and the line would silently degrade to its SKIPPED variant on
+          # every CI run (same rationale as resident-budget.yml's
+          # check-skill-embed-budget job).
+          fetch-depth: 0
+      - name: Run Gemini skill budget check
+        # Advisory only, matching check-command-file-budget.sh's
+        # precedent - deliberately NOT added to the main ruleset's
+        # required-checks list (a separate operator decision). The job
+        # still goes RED on overage; nothing here swallows the failure.
+        run: bash scripts/check-gemini-skill-budget.sh
