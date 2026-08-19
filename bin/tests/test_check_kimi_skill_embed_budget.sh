@@ -8,9 +8,14 @@
 #          section source file's heading dropped from SKILL.md (embed
 #          incomplete), a section source file outright missing (count
 #          below EXPECTED_SECTION_COUNT), a rules source file outright
-#          added beyond EXPECTED_RULES_COUNT, and the pass path built from
-#          the real repo's live-derived constants (never a hand-typed
-#          copy).
+#          added beyond EXPECTED_RULES_COUNT, two source files sharing the
+#          same top-level heading (duplicate-heading guard), a source file
+#          with no top-level heading at all, SKILL.md missing outright, and
+#          AGENTS.md missing outright (m6, DS-185 round 3: the prior
+#          version of this suite claimed full per-axis coverage while
+#          leaving these four branches unexercised) - plus the pass path
+#          built from the real repo's live-derived constants (never a
+#          hand-typed copy).
 #
 # Public API: ./bin/tests/test_check_kimi_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -270,6 +275,71 @@ run_gate() {
     pass "extra rules source file fails on file count mismatch"
   else
     fail "expected file count mismatch failure, got rc=$rc, output: $out"
+  fi
+}
+
+# --- Scenario 8: duplicate top-level heading across two source files -----
+{
+  root="$(build_fixture dup_heading)"
+  second_section="$(ls "$root"/content/sections/*.md | sed -n '2p')"
+  first_heading="$(grep -m1 '^## ' "$root/content/sections/$(basename "$(ls "$root"/content/sections/*.md | head -1)")")"
+  {
+    echo "$first_heading"
+    echo ""
+    echo "Body text duplicated onto a second file's heading."
+  } > "$second_section"
+  write_skill_md "$root" "$SKILL_FLOOR"
+  write_agents_md "$root" 100
+  out="$(run_gate "$root")"
+  rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "duplicate top-level heading" <<<"$out"; then
+    pass "two source files sharing a heading fail the duplicate-heading guard"
+  else
+    fail "expected duplicate-heading failure, got rc=$rc, output: $out"
+  fi
+}
+
+# --- Scenario 9: source file with no top-level heading at all ------------
+{
+  root="$(build_fixture no_heading)"
+  target_rule="$(ls "$root"/content/rules/rule-*.md | head -1)"
+  echo "Body text with no top-level heading line." > "$target_rule"
+  write_skill_md "$root" "$SKILL_FLOOR"
+  write_agents_md "$root" 100
+  out="$(run_gate "$root")"
+  rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "no top-level '## ' heading to check against" <<<"$out"; then
+    pass "source file with no top-level heading fails the completeness check"
+  else
+    fail "expected no-top-level-heading failure, got rc=$rc, output: $out"
+  fi
+}
+
+# --- Scenario 10: SKILL.md missing outright -------------------------------
+{
+  root="$(build_fixture missing_skill_md)"
+  write_agents_md "$root" 100
+  # Deliberately do not call write_skill_md - the file must not exist.
+  out="$(run_gate "$root")"
+  rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "missing file:.*SKILL.md" <<<"$out"; then
+    pass "missing SKILL.md fails with a missing-file message"
+  else
+    fail "expected missing-SKILL.md failure, got rc=$rc, output: $out"
+  fi
+}
+
+# --- Scenario 11: AGENTS.md missing outright ------------------------------
+{
+  root="$(build_fixture missing_agents_md)"
+  write_skill_md "$root" "$SKILL_FLOOR"
+  # Deliberately do not call write_agents_md - the file must not exist.
+  out="$(run_gate "$root")"
+  rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "missing file:.*AGENTS.md" <<<"$out"; then
+    pass "missing AGENTS.md fails with a missing-file message"
+  else
+    fail "expected missing-AGENTS.md failure, got rc=$rc, output: $out"
   fi
 }
 
