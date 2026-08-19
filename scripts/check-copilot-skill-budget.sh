@@ -110,9 +110,10 @@ FLOOR=100000
 
 # Stub ceiling: catches the accidental-re-embed regression on the OTHER
 # file - copilot-instructions.md growing back toward a full methodology
-# body instead of staying a stub pointer. 5,000 B is well above the live
-# stub (669 B as of authoring) but far below anything resembling a
-# partial or full re-embed.
+# body instead of staying a stub pointer. 5,000 B is well above the stub
+# size (run `wc -c .github/copilot-instructions.md` for the live figure -
+# it has grown before and will grow again) but far below anything
+# resembling a partial or full re-embed.
 STUB_CEILING=5000
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, same

@@ -53,8 +53,9 @@ Public API:
   content/sections dir). argparse exits 2 on a usage error.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, os, pathlib,
-               re, subprocess, sys). Read-only apart from the three budget-gate
-               subprocess runs (themselves read-only). No locking.
+               re, subprocess, sys). Read-only apart from the budget-gate
+               subprocess runs listed in BUDGET_SCRIPTS (themselves
+               read-only). No locking.
 
 Downstream consumers: the /ds-evaluate command file (content/commands/
                       ds-evaluate.md, sibling unit) which passes this rollup
@@ -325,11 +326,12 @@ BUDGET_SCRIPTS: tuple[str, ...] = (
     "check-resident-budget.sh",
     "check-skill-embed-budget.sh",
     "check-command-file-budget.sh",
+    "check-copilot-skill-budget.sh",
 )
 
 
 def _collect_budget_gates(repo: Path) -> dict | None:
-    """Run the three budget-gate scripts and capture exit + tail of stdout.
+    """Run the budget-gate scripts and capture exit + tail of stdout.
 
     A missing or unrunnable script omits that gate (never a crash).
     """
