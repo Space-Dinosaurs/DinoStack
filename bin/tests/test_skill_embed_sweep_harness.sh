@@ -734,19 +734,21 @@ else
   # scripts/check-skill-embed-budget.sh's CEILING comment.
 
   # Round-4 Minor 2: the ABOVE-CEILING failure message and AGENTS.md must
-  # both cite the actually-verified 130,015 B figure and the correct
-  # 9,145 B gap to CEILING, not stay silent on it while only citing the
-  # unswept 127,107 B figure. Mutation that would redden this: delete
-  # either figure from the CEILING script's ABOVE-CEILING message.
-  if grep -q '130,015 B' "$CEILING_SCRIPT" && grep -q '9,145 B' "$CEILING_SCRIPT"; then
-    _pass "CEILING script's ABOVE-CEILING framing cites the verified 130,015 B figure and 9,145 B gap"
+  # both cite the actually-verified 130,015 B figure and the correct gap
+  # to CEILING (14,985 B as of the 2026-08-19 raise to 145,000 B; was
+  # 9,145 B against the prior 139,160 B value), not stay silent on it
+  # while only citing the unswept 127,107 B figure. Mutation that would
+  # redden this: delete either figure from the CEILING script's
+  # ABOVE-CEILING message.
+  if grep -q '130,015 B' "$CEILING_SCRIPT" && grep -q '14,985 B' "$CEILING_SCRIPT"; then
+    _pass "CEILING script's ABOVE-CEILING framing cites the verified 130,015 B figure and 14,985 B gap"
   else
-    _fail "CEILING script's ABOVE-CEILING framing is missing the verified 130,015 B figure or the 9,145 B gap"
+    _fail "CEILING script's ABOVE-CEILING framing is missing the verified 130,015 B figure or the 14,985 B gap"
   fi
-  if grep -qF '130,015 B (DS-146), 9,145 B below CEILING' "$REPO_DIR/AGENTS.md"; then
-    _pass "AGENTS.md cites the verified 130,015 B figure and 9,145 B gap"
+  if grep -qF '130,015 B (DS-146), 14,985 B below CEILING' "$REPO_DIR/AGENTS.md"; then
+    _pass "AGENTS.md cites the verified 130,015 B figure and 14,985 B gap"
   else
-    _fail "AGENTS.md is missing the verified 130,015 B figure or the 9,145 B gap"
+    _fail "AGENTS.md is missing the verified 130,015 B figure or the 14,985 B gap"
   fi
 
   # Round-4 Minor 3: the CEILING comment must attribute the 126,509 B
