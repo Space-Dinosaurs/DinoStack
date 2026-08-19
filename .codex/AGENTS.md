@@ -49,6 +49,22 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 Run the activation preflight once at the first skill invocation (and every `/`-command), before any other operational instruction: identity resolution, opt-in/opt-out check, and profile resolution. Its full procedure is Step 1 of the loaded methodology - invoke the `dinostack` skill below and follow it before proceeding. Do not spawn or use LLM reasoning for this step; it is a direct resolver call.
 
+## Identity confirmation (provisional handle)
+
+When the activation preflight resolves a provisional effective identity, surface this notice at the first user-facing turn - non-blocking:
+
+```
+IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
+Telemetry is buffered (not lost) until confirmed.
+  Confirm (global/project): ds-identity confirm --scope <global|project>
+  Correct (global/project): ds-identity init <handle> --force --scope <global|project>
+  Show (profile): ds-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Confirm (profile): ds-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Correct (profile): ds-identity init <handle> --force --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+```
+
+Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Full contract: `$AE_REPO_DIR/content/commands/ds-identity.md`.
+
 ## Load the methodology on trigger
 
 Before starting any task, check if the `dinostack` skill should be loaded: code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, or project setup. If any signal matches, invoke it (`$dinostack`) before proceeding - it carries the activation preflight, delegation model, risk classification, Skeptic loop, quality gates, agent definitions, and every reference doc. When in doubt, invoke it.
