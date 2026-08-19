@@ -21,7 +21,14 @@
 #
 # Failure modes: none - a glob that matches nothing (missing content/rules/
 #                directory under a broken REPO_DIR) prints nothing, same as
-#                the two loops it replaces did.
+#                the two loops it replaces did. (m4, DS-185 round 3) This
+#                file sets `set -euo pipefail` at file scope, which mutates
+#                the sourcing caller's own shell options as a side effect -
+#                harmless for both current callers (.kimi/build.sh and
+#                .kimi/install.sh already set the same options before
+#                sourcing this file), but disclosed here since it is a real
+#                side effect a future caller without those options set
+#                would inherit unexpectedly.
 set -euo pipefail
 
 kimi_rules_files() {
