@@ -24,6 +24,9 @@ CONTENT="$REPO_DIR/content"
 KIMI_DIR="$REPO_DIR/.kimi"
 SKILL_DST="$KIMI_DIR/skills/dinostack"
 
+# shellcheck source=scripts/lib/kimi-rules.sh
+source "$REPO_DIR/scripts/lib/kimi-rules.sh"
+
 # Portable inode helper (macOS uses -f, Linux uses -c)
 get_inode() {
   if stat -c %i /dev/null >/dev/null 2>&1; then
@@ -130,14 +133,13 @@ fi
   echo ""
   cat "$METHODOLOGY_DST"
   echo ""
-  for f in "$CONTENT/rules/"*.md; do
+  while IFS= read -r f; do
     name=$(basename "$f")
-    [[ "$name" == "module-manifest.md" ]] && continue
     echo "### rules/${name}"
     echo ""
     cat "$f"
     echo ""
-  done
+  done < <(kimi_rules_files "$CONTENT")
   echo ""
   echo "## Note for this Kimi build"
   echo ""
