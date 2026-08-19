@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Purpose: Regression test for Codex skill auto-load hook wiring. Codex already
-#          always-loads the full methodology via .codex/AGENTS.md, so the shared
-#          skill-auto-load-check.sh script gates Codex out unconditionally
-#          (DS-143) - it must emit zero output regardless of skill_auto_load.
-#          Also carries a positive control asserting the opposite for a
-#          non-codex/non-gemini (Claude's real) invocation shape: the nudge
-#          must still reach stdout intact, with exit 0, and nothing on stderr.
+# Purpose: Regression test for Codex skill auto-load hook wiring. Pre-DS-183,
+#          Codex always-loaded the full methodology via .codex/AGENTS.md, so the
+#          shared skill-auto-load-check.sh script gated Codex out unconditionally
+#          (DS-143). DS-183 made .codex/AGENTS.md a minimal trigger-load stub, so
+#          Codex now needs this nudge exactly like Claude Code - this test asserts
+#          Codex gets the nudge, pointed at its own $HOME/.agents/skills/dinostack/
+#          load path (not Claude's $HOME/.claude/skills/ path). Also carries a
+#          positive control asserting the same nudge for a non-codex/non-gemini
+#          (Claude's real) invocation shape: the nudge must still reach stdout
+#          intact, with exit 0, and nothing on stderr, pointed at the Claude path.
 # Public API: bash bin/tests/test_codex_skill_auto_load_hook.sh
 
 set -uo pipefail
@@ -57,17 +60,41 @@ else
   fail "codex hook command does not target hooks.json-adjacent codex hook snapshot: $skill_cmd"
 fi
 
-out="$(HOME="$HOME_CODEX" bash -c "$skill_cmd" 2>&1)"
-if [[ -z "$out" ]]; then
-  pass "codex skill auto-load emits zero output (Codex already always-loads via .codex/AGENTS.md)"
+CODEX_STDERR="$TMP_ROOT/codex-stderr.log"
+out="$(HOME="$HOME_CODEX" bash -c "$skill_cmd" 2>"$CODEX_STDERR")"
+codex_rc=$?
+codex_err="$(cat "$CODEX_STDERR")"
+
+# DS-183: Codex is no longer gated out - .codex/AGENTS.md became a minimal
+# trigger-load stub, so Codex needs the same nudge Claude Code gets.
+if [[ "$out" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "codex skill auto-load emits the skill-load banner on stdout (DS-183 - no longer gated out)"
 else
-  fail "expected zero output for codex, got: $out"
+  fail "expected the skill-load banner on stdout for codex, got stdout: $out"
+fi
+
+if [[ "$out" == *"$HOME_CODEX/.agents/skills/dinostack/SKILL.md"* ]]; then
+  pass "codex skill auto-load output points at Codex's own load path (\$HOME/.agents/skills/)"
+else
+  fail "expected the Codex skill path (\$HOME/.agents/skills/dinostack/SKILL.md) on stdout, got: $out"
 fi
 
 if [[ "$out" != *"$HOME_CODEX/.claude/skills/dinostack/SKILL.md"* ]]; then
   pass "codex skill auto-load output does not point at Claude skill path"
 else
   fail "codex output still points at Claude skill path: $out"
+fi
+
+if [[ -z "$codex_err" ]]; then
+  pass "codex invocation writes nothing to stderr"
+else
+  fail "expected empty stderr for codex, got stderr: $codex_err"
+fi
+
+if [[ "$codex_rc" -eq 0 ]]; then
+  pass "codex invocation exits 0"
+else
+  fail "expected exit code 0 for codex, got: $codex_rc"
 fi
 
 # ---------------------------------------------------------------------------

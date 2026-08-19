@@ -135,34 +135,35 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              (3) is a targeted sensor confirming the actual shipped bytes
              match what (2) implies).
 
-             DS-183 note: `.codex/AGENTS.md` was dropped from this check's
-             scope, and tuple 5 (the identity confirm/correct block) is no
-             longer checked at all. Both `literal_rules` substitutions
-             historically rendered only into `.codex/AGENTS.md` - tuple 0's
-             match text came from the assembled methodology body that
-             AGENTS.md used to embed verbatim, and tuple 5's match text
-             (`  Confirm: ds-identity confirm --scope <scope>\n  Correct:
-             ds-identity init <handle> --force --scope <scope>`) came from
-             `content/rules/conventions.md`, which AGENTS.md also used to
-             embed verbatim (`.codex/skills/dinostack/METHODOLOGY.md` never
-             embedded `content/rules/**` at all - verified via
-             `scripts/codex-skills.py`'s `documents()`, which
-             pattern-matches only `content/SKILL.md`, the assembled
-             METHODOLOGY from `content/sections/**`, and the 3 `WORKFLOWS`
-             command files). DS-183 regenerated `.codex/AGENTS.md` as a
-             minimal trigger-load stub that embeds neither the methodology
-             body nor `content/rules/**`, so neither substitution's match
-             text is fed into `render_runtime_guidance` for AGENTS.md
-             anymore. Tuple 0 still renders correctly into
+             DS-183 note: `.codex/AGENTS.md` was regenerated round 1 as a
+             minimal trigger-load stub that embedded neither the
+             methodology body nor `content/rules/**`, so tuple 5's match
+             text (`  Confirm: ds-identity confirm --scope <scope>\n
+             Correct: ds-identity init <handle> --force --scope <scope>`,
+             sourced from `content/rules/conventions.md`, which the stub no
+             longer embeds verbatim) was fed into `render_runtime_guidance`
+             for nothing - the substitution never fired for AGENTS.md and
+             its guidance was reachable nowhere except the raw, untransformed
+             `rules -> ../../../content/rules` symlink (which carries the
+             generic `<scope>`-form command block, not the Codex
+             `--profile-dir "$AE_CODEX_CONFIG_DIR"` override this
+             substitution exists to produce). DS-183 round 2 restored this by
+             adding a short "Identity confirmation (provisional handle)"
+             block carrying tuple 5's exact match text directly into
+             `.codex/build.sh`'s `AGENTS_RAW` heredoc, so
+             `render_runtime_guidance` transforms it again and the built
+             `.codex/AGENTS.md` stub once more carries the Codex-specific
+             form. `scripts/codex-skills.py` also gained
+             `assert_literal_rules_reachable()` (module-level `LITERAL_RULES`,
+             called from `current_inventory()`, same shape as the existing
+             `assert_paragraph_rules_reachable()`/`PARAGRAPH_RULES` pair) so
+             a future rewording that drops this text again fails the build
+             loudly instead of silently. Tuple 0 still renders correctly into
              `.codex/skills/dinostack/METHODOLOGY.md` (unaffected by
              DS-183 - that file is built independently by
-             `scripts/codex-skills.py build()`), so this check still
-             covers it there. Tuple 5's underlying guidance remains fully
-             reachable post-DS-183 via the `rules -> ../../../
-             content/rules` symlink adjacent to METHODOLOGY.md once the
-             skill is loaded - it is simply no longer inline prose in any
-             currently-generated Codex artifact, so there is nothing left
-             for this check to assert against.
+             `scripts/codex-skills.py build()`), so this check still covers
+             it there; tuple 5 is now checked directly against the rebuilt
+             `.codex/AGENTS.md` stub below.
 
          The protected skill noun "dinostack", the protected
          config filenames/markers (~/.claude/agentic-engineering.json,
@@ -191,9 +192,9 @@ Upstream deps: Python 3 stdlib only (ast, json, os, pathlib, subprocess).
                `.codex/build.sh`); if absent, that check fails loudly
                rather than skipping, since a repo that ships `.codex/**`
                without this file is itself a defect. `.codex/AGENTS.md`
-               is read only for its own old-name absence check, not for
-               the resolve-hook/confirm-block presence checks (DS-183 -
-               see check (3)'s docstring paragraph above).
+               is read for its own old-name absence check AND (DS-183
+               round 2) for the restored identity confirm-block presence
+               check - see check (3)'s docstring paragraph above.
                `test_no_sibling_product_brand_name_in_tracked_tree` shells
                out to `git ls-files -z` (the one subprocess call in this
                module) to enumerate the tracked tree; see that function's
@@ -284,35 +285,42 @@ def test_bin_scripts_do_not_self_identify_with_old_names() -> None:
 
 def _extract_literal_rules_tuples() -> list[tuple]:
     """Statically parse scripts/codex-skills.py and return every tuple in
-    the `literal_rules = [...]` assignment as a list of Python tuples
-    (via ast.literal_eval - no code execution)."""
+    the module-level `LITERAL_RULES = (...)` assignment as a list of Python
+    tuples (via ast.literal_eval - no code execution). DS-183 round 2
+    hoisted this from a local `literal_rules = [...]` list inside
+    inventory_document() to a module-level, type-annotated `LITERAL_RULES:
+    tuple[...] = (...)` tuple (so assert_literal_rules_reachable() can share
+    its identity) - this parses an `ast.AnnAssign` node with a tuple-literal
+    value, not the plain `ast.Assign`/`ast.List` shape the old local
+    variable had."""
     assert CODEX_SKILLS_PY.is_file(), f"{CODEX_SKILLS_PY} is missing"
     src = CODEX_SKILLS_PY.read_text(encoding="utf-8")
     tree = ast.parse(src, filename=str(CODEX_SKILLS_PY))
 
     assign_node = None
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "literal_rules":
-                    assign_node = node
-                    break
-        if assign_node is not None:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) \
+                and node.target.id == "LITERAL_RULES":
+            assign_node = node
             break
 
-    assert assign_node is not None, "could not find `literal_rules = [...]` in scripts/codex-skills.py"
-    assert isinstance(assign_node.value, ast.List), "literal_rules is not a list literal"
+    assert assign_node is not None, "could not find `LITERAL_RULES: ... = (...)` in scripts/codex-skills.py"
+    assert isinstance(assign_node.value, ast.Tuple), "LITERAL_RULES is not a tuple literal"
 
     tuples = []
     for elt in assign_node.value.elts:
-        assert isinstance(elt, ast.Tuple), f"literal_rules entry is not a tuple: {ast.dump(elt)[:120]}"
+        assert isinstance(elt, ast.Tuple), f"LITERAL_RULES entry is not a tuple: {ast.dump(elt)[:120]}"
         tuples.append(tuple(ast.literal_eval(e) for e in elt.elts))
     return tuples
 
 
 def test_codex_literal_rules_replacements_never_contain_old_names() -> None:
     tuples = _extract_literal_rules_tuples()
-    assert len(tuples) >= 14, f"expected at least 14 literal_rules tuples, found {len(tuples)}"
+    # DS-183 round 2 removed 2 of the original 14 tuples (their match text
+    # was found to be genuinely obsolete nowhere in the repo - see the
+    # deletion comments in scripts/codex-skills.py's LITERAL_RULES), leaving
+    # 12.
+    assert len(tuples) >= 12, f"expected at least 12 literal_rules tuples, found {len(tuples)}"
 
     failures = []
     for i, tup in enumerate(tuples):
@@ -333,20 +341,19 @@ def test_codex_literal_rules_replacements_never_contain_old_names() -> None:
 
 
 def test_codex_generated_identity_commands_use_ds_identity() -> None:
-    # DS-183: .codex/AGENTS.md is now a minimal trigger-load stub and no
-    # longer embeds the methodology body or content/rules/**, so it no
-    # longer carries either literal_rules[0]'s or literal_rules[5]'s match
-    # text. literal_rules[0] (the identity resolve-hook) still renders
-    # correctly into .codex/skills/dinostack/METHODOLOGY.md, which is
-    # built independently by scripts/codex-skills.py build() and
-    # unaffected by DS-183 - checked below. literal_rules[5] (the
-    # confirm/correct block) historically rendered ONLY into
-    # .codex/AGENTS.md (its match text came from content/rules/
-    # conventions.md, which METHODOLOGY.md never embedded even
-    # pre-DS-183 - see the module docstring's check (3) paragraph) and has
-    # no currently-generated artifact left to assert it in; its guidance
-    # remains reachable via the rules/ symlink adjacent to METHODOLOGY.md
-    # once the skill loads.
+    # DS-183 round 1: .codex/AGENTS.md became a minimal trigger-load stub
+    # and stopped embedding the methodology body or content/rules/**, so it
+    # stopped carrying literal_rules[5]'s match text (the identity
+    # confirm/correct block, sourced from content/rules/conventions.md).
+    # DS-183 round 2 restored that match text directly into
+    # .codex/build.sh's AGENTS_RAW heredoc (a short "Identity confirmation
+    # (provisional handle)" block), so render_runtime_guidance transforms it
+    # again and the rebuilt stub once more carries the Codex-specific
+    # --profile-dir "$AE_CODEX_CONFIG_DIR" form - asserted directly below.
+    # literal_rules[0] (the identity resolve-hook) renders into
+    # .codex/skills/dinostack/METHODOLOGY.md, built independently by
+    # scripts/codex-skills.py build() and unaffected by DS-183 - checked
+    # first below.
     assert CODEX_METHODOLOGY_MD.is_file(), (
         f"{CODEX_METHODOLOGY_MD} is missing - run `.codex/build.sh` before this test"
     )
@@ -368,6 +375,22 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
     agents_text = CODEX_AGENTS_MD.read_text(encoding="utf-8")
     assert "agentic-identity" not in agents_text, (
         f"{CODEX_AGENTS_MD}: old-name identity command leaked into the generated stub"
+    )
+
+    # literal_rules[5]: the identity confirm/correct block, restored to the
+    # AGENTS_RAW heredoc in .codex/build.sh (DS-183 round 2). The rendered
+    # stub must carry the Codex-specific --profile-dir form, never the
+    # generic <scope>-form the untransformed content/rules/conventions.md
+    # text uses (that generic form is what a reader would see through the
+    # raw rules/ symlink instead, if this substitution silently stopped
+    # firing again).
+    assert 'ds-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"' in agents_text, (
+        f"{CODEX_AGENTS_MD}: expected Codex-specific identity confirm block not found - "
+        "literal_rules[5] did not fire for the generated stub"
+    )
+    assert "Confirm: ds-identity confirm --scope <scope>" not in agents_text, (
+        f"{CODEX_AGENTS_MD}: untransformed generic identity confirm block leaked into "
+        "the generated stub - literal_rules[5] should have replaced it"
     )
 
 
