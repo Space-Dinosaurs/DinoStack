@@ -882,6 +882,36 @@ def test_bash_grep_of_python_urllib_post_literal_never_matches():
         assert not _state_path(tmp, "sess-1").exists()
 
 
+def test_bash_script_file_indirection_never_matches():
+    """Documented residual (module docstring "Residual Bash false-
+    negative class"): a create routed through a script file WRITTEN to
+    disk and then EXECUTED - `python3 /some/path/script.py`, with no
+    inline HTTP-client reference, endpoint path, or POST verb in the
+    command string itself - is never counted as a creation.
+    `_bash_is_creation` inspects `tool_input.command` only; it never
+    resolves or reads the referenced file, so the urllib.request call,
+    the `/rest/api/3/issue` path, and the POST method that would live
+    inside such a script are invisible here. This pins the gap as
+    intentional per the docstring, not an untested oversight - it will
+    redden if a future change starts resolving/reading script files
+    without updating the docs to match.
+
+    Mutation that would redden this assertion: making
+    `_PYTHON_HTTP_CLIENT_RE` (or an equivalent signal) match on the bare
+    `python3 <path>` invocation shape alone, without requiring an actual
+    HTTP-client reference in the command string - e.g. widening the
+    regex to `python3\\s+\\S+\\.py` would cause this command to
+    misclassify as a creation, since a script-file invocation with no
+    inline signal would then match on the interpreter/path shape alone."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        cmd = "python3 /tmp/scratch/file_tickets.py"
+        rc, parsed = _run_hook(_bash_payload(tmp, cmd))
+        assert rc == 0
+        assert parsed is None
+        assert not _state_path(tmp, "sess-1").exists()
+
+
 def test_bash_grep_of_curl_post_literal_never_matches():
     """Residual false-positive fix: a grep whose SEARCH PATTERN contains
     a literal curl-POST-to-Jira-issue-create string as DATA (not an

@@ -225,6 +225,31 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          bounded window (e.g. N turns after the command marker), which is
          not implemented here.
 
+         **Residual Bash false-negative class (verified real, accepted).**
+         `_bash_is_creation` inspects `tool_input.command` only - it never
+         resolves or reads a referenced script file. A create routed
+         through a script WRITTEN to disk and then executed
+         (`python3 /tmp/scratch/file_tickets.py`) carries none of the
+         detection signals in the command string itself (the
+         `urllib.request` reference, the `/rest/api/3/issue` path, the
+         POST verb all live inside the file, not on the command line), so
+         it is invisible to this hook and never advances the counter. This
+         is the uncovered sibling of the documented `python3 - <<EOF`
+         heredoc case above (there, the body IS in the command string and
+         therefore IS visible; here, it never is). Confirmed to have
+         happened in this repo's own session history: an agent wrote a
+         creation script to a scratchpad directory and ran it, creating
+         four Jira tickets, with no `.ticket-batch-*.json` counter file
+         written that day - the guard never matched, so neither the
+         advisory nor the deny fired. Not attempted: making the hook
+         resolve and read an arbitrary referenced script path is
+         unbounded (relative paths, `$VAR` expansion, symlinks,
+         interpreters other than python, `sh -c`/`env` wrappers) and would
+         trade this narrow blind spot for a wide false-positive surface
+         plus a filesystem read on every Bash call - a design decision
+         out of scope for a mechanical enforcement hook. Known, bounded,
+         intentionally-unclosed, same as the false-positive class above.
+
          **Future hazard - non-forgeability depends on which transcript
          this hook reads.** The "a conductor cannot forge this" claim
          above holds only because this hook reads the MAIN-SESSION
@@ -368,6 +393,15 @@ Failure modes:
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern.
+    - A creation routed through a script file WRITTEN to disk and then
+      executed (`python3 /tmp/scratch/file_tickets.py`) is invisible: this
+      hook inspects `tool_input.command` only and never resolves/reads a
+      referenced script file, so none of `urllib.request`, the
+      `/rest/api/3/issue` path, or the POST verb are visible when they
+      live inside the file rather than the command string. Known, bounded,
+      intentionally-unclosed - see module docstring "Residual Bash
+      false-negative class" above; resolving arbitrary script paths is
+      unbounded and out of scope for this hook.
 
 Performance: ~25 ms avg per call, measured directly (20 runs, Python
              interpreter startup only, no state file or transcript I/O
