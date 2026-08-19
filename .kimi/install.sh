@@ -37,7 +37,14 @@
 #                [[hooks]] block, or an unrecognized command-line shape)
 #                aborts with NO write at all, leaving the prior config.toml
 #                untouched - it never corrupts, it degrades to "hook not
-#                (re)wired" and prints a warning instead.
+#                (re)wired" and prints a warning instead. DS-185: a
+#                KIMI_SKILL_MD_OK link-health check (mirroring
+#                .claude/install.sh's SKILL_LINK_OK) runs right after build.sh
+#                - if the generated .kimi/skills/dinostack/SKILL.md is
+#                missing or suspiciously small, the full methodology body is
+#                appended onto the AGENTS.md stub as a degrade path (never
+#                silently dropped) and a warning is printed; otherwise
+#                AGENTS.md stays the lean stub build.sh wrote.
 #
 # Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
@@ -61,6 +68,78 @@ export REPO_DIR
 
 echo "Building Kimi adapter..."
 bash "$REPO_DIR/.kimi/build.sh"
+
+# ---------------------------------------------------------------------------
+# Link-health gate (DS-185)
+#
+# Mirrors .claude/install.sh's SKILL_LINK_OK: build.sh just wrote
+# .kimi/AGENTS.md as a lean activation stub (no embedded methodology body -
+# that now lives in .kimi/skills/dinostack/SKILL.md, trigger-loaded via the
+# skill) and .kimi/skills/dinostack/SKILL.md as the full generated body.
+# Verify the generated SKILL.md actually resolves to real content before
+# trusting the stub's "load the skill on trigger" instruction. If it does
+# not (missing, empty, or suspiciously small - e.g. a broken embed step
+# that regressed to the pre-DS-185 pointer-only body), append the full
+# methodology body directly onto the AGENTS.md stub as a degrade path and
+# print a warning - content must never be silently dropped, matching
+# .claude/install.sh's SKILL_LINK_OK contract.
+# ---------------------------------------------------------------------------
+
+KIMI_SKILL_MD_OK=true
+KIMI_SKILL_MD_REASON=""
+KIMI_SKILL_MD_TARGET="$REPO_DIR/.kimi/skills/dinostack/SKILL.md"
+# Sanity floor: a pointer-only body (frontmatter + lean content/SKILL.md,
+# no embedded methodology) measures well under 10,000 B; a correctly built
+# body measures well over 100,000 B. 20,000 B sits comfortably between the
+# two and is not intended as a tight tolerance.
+KIMI_SKILL_MD_FLOOR_BYTES=20000
+
+if [[ ! -f "$KIMI_SKILL_MD_TARGET" ]]; then
+  KIMI_SKILL_MD_OK=false
+  KIMI_SKILL_MD_REASON="missing: $KIMI_SKILL_MD_TARGET"
+elif [[ ! -s "$KIMI_SKILL_MD_TARGET" ]]; then
+  KIMI_SKILL_MD_OK=false
+  KIMI_SKILL_MD_REASON="empty: $KIMI_SKILL_MD_TARGET"
+else
+  _kimi_skill_md_bytes="$(wc -c < "$KIMI_SKILL_MD_TARGET" | tr -d '[:space:]')"
+  if [[ "$_kimi_skill_md_bytes" -lt "$KIMI_SKILL_MD_FLOOR_BYTES" ]]; then
+    KIMI_SKILL_MD_OK=false
+    KIMI_SKILL_MD_REASON="suspiciously small ($_kimi_skill_md_bytes B < $KIMI_SKILL_MD_FLOOR_BYTES B floor): $KIMI_SKILL_MD_TARGET"
+  fi
+fi
+
+if [[ "$KIMI_SKILL_MD_OK" != "true" ]]; then
+  echo ""
+  echo "  WARNING: the dinostack skill body did not build correctly ($KIMI_SKILL_MD_REASON)."
+  echo "  .kimi/AGENTS.md's 'load the skill on trigger' instruction would point at nothing."
+  echo "  Appending the full methodology body onto AGENTS.md as a fallback so it is never"
+  echo "  silently dropped. Resolve the build failure noted above, then re-run install.sh"
+  echo "  to remove this fallback."
+  AGENTS_DST_FALLBACK="$REPO_DIR/.kimi/AGENTS.md"
+  {
+    echo ""
+    echo "---"
+    echo ""
+    echo "## Fallback: full methodology body"
+    echo ""
+    echo "The dinostack skill body failed the link-health check above ($KIMI_SKILL_MD_REASON),"
+    echo "so the full methodology body is appended here rather than silently dropped. Resolve"
+    echo "the build failure and re-run install.sh to remove this fallback."
+    echo ""
+    if [[ -f "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md" ]]; then
+      cat "$REPO_DIR/.kimi/skills/dinostack/METHODOLOGY.md"
+      echo ""
+    fi
+    for _kimi_rule_f in "$REPO_DIR/content/rules/"*.md; do
+      _kimi_rule_name=$(basename "$_kimi_rule_f")
+      [[ "$_kimi_rule_name" == "module-manifest.md" ]] && continue
+      echo "---"
+      echo ""
+      cat "$_kimi_rule_f"
+      echo ""
+    done
+  } >> "$AGENTS_DST_FALLBACK"
+fi
 
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters)
@@ -296,10 +375,13 @@ link_abs() {
   fi
 }
 
-# SKILL.md: point at the actual content file, not the intermediate repo symlink.
-# Using $REPO_DIR/content/SKILL.md avoids a self-referential link when $SKILL_DST
-# is a stale dir-symlink pointing at $SKILL_SRC.
-link_abs "$REPO_DIR/content/SKILL.md"  "$SKILL_DST/SKILL.md"
+# SKILL.md: point at the generated repo-local skill file (DS-185: a real
+# file built by build.sh embedding the full methodology body, not a
+# symlink to the lean content/SKILL.md pointer). By this point $SKILL_DST
+# is guaranteed to be a real directory (the stale dir-symlink guard above
+# already removed and replaced it), so linking to $SKILL_SRC/SKILL.md here
+# is not self-referential.
+link_abs "$SKILL_SRC/SKILL.md"  "$SKILL_DST/SKILL.md"
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"
