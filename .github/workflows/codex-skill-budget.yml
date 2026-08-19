@@ -1,0 +1,34 @@
+name: codex-skill-budget
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-codex-skill-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The informational burn line resolves origin/main via git - a
+          # default shallow checkout leaves that ref unreachable and the
+          # line would silently degrade to its SKIPPED variant on every
+          # CI run (same reasoning as resident-budget.yml's
+          # check-skill-embed-budget job and command-file-budget.yml).
+          fetch-depth: 0
+      - name: Run Codex skill budget check
+        # This job goes RED on overage or embed incompleteness - it is
+        # advisory only in the sense that it is deliberately NOT added to
+        # the `main` ruleset's required-checks list (matches
+        # check-command-file-budget.sh's precedent), a separate operator
+        # decision - not because the run itself is swallowed. Wired into
+        # its own workflow file, not resident-budget.yml, because a
+        # sibling unit (DS-185) adds its own gate in parallel and a shared
+        # workflow file would conflict.
+        timeout-minutes: 2
+        run: bash scripts/check-codex-skill-budget.sh
