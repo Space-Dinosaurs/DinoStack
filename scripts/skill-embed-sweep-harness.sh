@@ -48,10 +48,29 @@
 #                cmp (backup and restore verification); grep (canary
 #                detection in cmd_install/cmd_restore/cmd_candidate); date
 #                (backup filename timestamps); mkdir (--out and backup-dir
-#                creation); the already-built .claude/skills/dinostack/
-#                SKILL.md as the default --base (this script does not
-#                rebuild it - run `bash .claude/build.sh` first if you
-#                want a fresh base).
+#                creation); cp (backup, install, and restore copies - the
+#                destructive primitive that actually writes the real
+#                SKILL.md); dirname (resolving --out's and the backup
+#                dir's parent for mkdir -p); cat (the heredoc usage
+#                message in _usage()); the already-built .claude/skills/
+#                dinostack/SKILL.md as the default --base (this script
+#                does not rebuild it - run `bash .claude/build.sh` first
+#                if you want a fresh base). This set was derived by
+#                grepping the script for every external-command
+#                invocation and diffing it against the declared list
+#                (DS-45 round-4 Major 3), not by adding a partial list
+#                from a single finding. Of these, only python3 and cmp
+#                have an explicit `_require_*` availability guard (see
+#                below) - grep, mkdir, date, cp, dirname, and cat are all
+#                baseline POSIX/coreutils tools present on any system that
+#                already has bash, so a guard for cp specifically would be
+#                inconsistent with the other five unguarded baseline tools
+#                rather than closing a real gap; python3 and cmp are
+#                guarded because they are the two whose absence is
+#                plausible (python3 on a minimal container image; cmp is
+#                the only verification tool with no bash-builtin
+#                fallback), not because everything else is safe by
+#                default.
 #
 # Downstream consumers: docs/skill-embed-injection-sweep.md (the
 #                        operator-facing runbook); bin/tests/
@@ -77,7 +96,13 @@
 #                just copied FROM (aborts before overwriting on any
 #                backup-fidelity mismatch - the whole point of backing up
 #                first is trustworthy, so an unverified backup must never
-#                be treated as good). `restore` exits 1 if --backup is
+#                be treated as good), or if the installed file does not
+#                `cmp` byte-identical to the candidate it was just copied
+#                FROM (a partial or interrupted `cp` would otherwise leave
+#                a corrupted real file reported as a success - DS-45
+#                round-4 Minor 4; the already-verified backup remains a
+#                trustworthy restore point when this fires). `restore`
+#                exits 1 if --backup is
 #                missing, if the backup already carries a DS-45 sweep
 #                canary - checked BEFORE the real file is touched, so a
 #                padded backup is refused harmlessly rather than
@@ -294,7 +319,21 @@ cmd_install() {
 
   cp "${candidate}" "${REAL_SKILL_FILE}"
 
-  echo "installed: ${candidate} -> ${REAL_SKILL_FILE}"
+  # Verify the install write itself, mirroring cmd_restore's own
+  # cmp-after-copy check below: a partial or truncated `cp` (disk full,
+  # interrupted process, etc.) would otherwise leave a corrupted real
+  # SKILL.md on disk while this subcommand reports success unconditionally
+  # (DS-45 round-4 Minor 4). The backup is already verified genuine above,
+  # so it remains a trustworthy restore point even when this check fires.
+  if ! cmp -s "${candidate}" "${REAL_SKILL_FILE}"; then
+    echo "skill-embed-sweep-harness.sh install: installed file does NOT" >&2
+    echo "  verify byte-identical to the candidate. Do not trust the real" >&2
+    echo "  file's current state - restore it before doing anything else:" >&2
+    echo "  bash scripts/skill-embed-sweep-harness.sh restore --backup ${backup_path}" >&2
+    exit 1
+  fi
+
+  echo "installed: ${candidate} -> ${REAL_SKILL_FILE} (verified byte-identical via cmp)"
   echo "backup:    ${backup_path}"
   echo ""
   echo "To restore the real file:"

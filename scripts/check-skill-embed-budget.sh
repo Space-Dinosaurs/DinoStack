@@ -94,36 +94,37 @@ FLOOR=100000
 
 # Ceiling: 139,160 B (DS-45 correction to this comment - the value itself
 # is unchanged). What this constant actually is: 126,509 B, a local build
-# measurement of .claude/skills/dinostack/SKILL.md taken on the DS-143
-# branch on 2026-08-07 (commit baf0b011bd61f055e6ec685663a1f6e24b8834ce),
-# times 1.1 for headroom. 126,509 x 1.1 = 139,159.9, which was written up
-# as "rounded down" to 139,160 in the original comment - that description
-# was itself wrong; 139,160 is the nearest-integer rounding, not a
-# round-down, and the true round-down would be 139,159. Immaterial by one
-# byte, but stated accurately here since the previous text asserted the
-# wrong operation.
+# measurement of .claude/skills/agentic-engineering/SKILL.md (the skill
+# directory's pre-rename name; it became dinostack later) taken on the
+# DS-143 branch on 2026-08-07 (commit
+# baf0b011bd61f055e6ec685663a1f6e24b8834ce), times 1.1 for headroom.
+# 126,509 x 1.1 = 139,159.9, which was written up as "rounded down" to
+# 139,160 in the original comment - that description was itself wrong;
+# 139,160 is the nearest-integer rounding, not a round-down, and the true
+# round-down would be 139,159. Immaterial by one byte, but stated
+# accurately here since the previous text asserted the wrong operation.
 #
 # What this constant is NOT: it is not derived from, or swept relative to,
-# the separate 127,107-byte figure this file's own header and failure
-# messages cite as the harness's empirically-confirmed verbatim-injection
-# point. That figure's provenance is not traceable through git history -
-# `git log --all -S "127107"` and `-S "127,107"` return only the commits
-# that introduced the prose asserting it (baf0b011, part of DS-143/PR
-# #599), never a measurement commit naming which build, which session, or
-# which harness version produced it; this is a statement about what git
-# history contains, not a claim that no record exists anywhere (a
-# gitignored planning doc is, by construction, outside what any git-log
-# search could ever find either way). The two figures were plainly
-# related in the authoring commit's own framing - c1d7c90c's message
-# states CEILING as "~1.1x the measured build at authoring time" in one
-# paragraph, and separately, in the next paragraph, that "the harness was
-# empirically verified to inject the full SKILL.md body verbatim at
-# ~127 KB" - but the arithmetic that actually produced 139,160 traces
-# only to the 126,509 B build-size snapshot, never to 127,107. So CEILING
-# is 1.1x that build-size snapshot (126,509 B, itself only 598 B below
-# the injection-confirmed figure) - not 1.1x, or any swept multiple of,
-# the injection-verified figure itself. CEILING (139,160 B) ends up
-# roughly 12,053 B above the injection-confirmed point (127,107 B).
+# the separate 127,107-byte figure this file's own failure message cites
+# as the harness's empirically-confirmed verbatim-injection point. That
+# figure's provenance is not traceable through git history to a
+# measurement commit naming which build, which session, or which harness
+# version produced it (checked via `git log --all -S`) - this is a
+# statement about what git history contains, not a claim that no record
+# exists anywhere (a gitignored planning doc is, by construction, outside
+# what any git-log search could ever find either way). The two figures
+# were plainly related in the authoring commit's own framing - c1d7c90c's
+# message states CEILING as "~1.1x the measured build at authoring time"
+# in one paragraph, and separately, in the next paragraph, that "the
+# harness was empirically verified to inject the full SKILL.md body
+# verbatim at ~127 KB" - but the arithmetic that actually produced
+# 139,160 traces only to the 126,509 B build-size snapshot, never to
+# 127,107. So CEILING is 1.1x that build-size snapshot (126,509 B, itself
+# only 598 B below the injection-confirmed figure) - not 1.1x, or any
+# swept multiple of, the injection-verified figure itself. CEILING (139,160 B) ends up
+# roughly 12,053 B above the injection-confirmed point (127,107 B), and
+# 9,145 B above the largest recorded intact injection on file (130,015 B
+# - see below).
 #
 # What is actually on record, checked 2026-08-18: the largest recorded
 # intact injection is 130,015 B (DS-146: canaries present at head and
@@ -283,9 +284,10 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   echo "  above the $CEILING B ceiling ($overage B over)." >&2
   echo "" >&2
   echo "  CEILING is intended as a safety boundary, not a tidiness budget," >&2
-  echo "  but it is NOT derived from the one injection-verified figure this" >&2
-  echo "  file cites (127,107 B) - see the CEILING constant's own comment" >&2
-  echo "  above for the full DS-45 provenance correction. Do not raise" >&2
+  echo "  but the largest recorded intact injection on file is 130,015 B" >&2
+  echo "  (DS-146) - CEILING sits 9,145 B above that point, unswept. See" >&2
+  echo "  the CEILING constant's own comment above for the full DS-45" >&2
+  echo "  provenance correction. Do not raise" >&2
   echo "  CEILING as routine housekeeping - only raise it alongside a new" >&2
   echo "  swept confirmation that the larger body still loads untruncated" >&2
   echo "  in the live harness (procedure:" >&2

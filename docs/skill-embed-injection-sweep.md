@@ -8,12 +8,12 @@ verbatim-injection point (127,107 B). Tracing both figures found that
 `CEILING`'s arithmetic is actually `1.1x` a 2026-08-07 build-size snapshot
 (126,509 B) - a figure the same commit's own rationale placed alongside the
 injection-confirmed figure, but which the arithmetic never derives from -
-not `1.1x` the injection-confirmed figure itself, and the injection-confirmed
-figure's own provenance (which build, which session, which harness version)
-was never recorded. See `scripts/check-skill-embed-budget.sh`'s `CEILING`
-comment for the full correction.
+not `1.1x` the injection-confirmed figure itself. See
+`scripts/check-skill-embed-budget.sh`'s `CEILING` comment for the full
+correction and for what the 127,107 B figure's own provenance is and is
+not traceable through.
 
-The only prior injection observation on record (DS-146: 130,015 B, canaries
+A prior injection observation on record (DS-146: 130,015 B, canaries
 present at head and tail, no truncation, no performance warning) was never
 written down as a repeatable procedure - nobody could reproduce it without
 reconstructing it from prose. This runbook, plus

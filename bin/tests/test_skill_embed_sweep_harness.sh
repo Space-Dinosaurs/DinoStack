@@ -12,10 +12,18 @@
 #             Exits 0 on all pass, 1 on any failure.
 #
 # Upstream deps: bash, python3, cmp, mktemp, wc, grep, shasum, cp, ln,
-#                chmod, tail, head, sed, awk, tr. zsh is required for the
-#                bash/zsh parity assertion when running in CI (the
-#                assertion FAILs if zsh is absent under CI=true); locally,
-#                without zsh on PATH it is skipped (not failed).
+#                chmod, tail, head, sed, awk, tr, cut, mkdir, ls, rm,
+#                dirname, cat. zsh is required for the bash/zsh parity
+#                assertion when running in CI (the assertion FAILs if zsh
+#                is absent under CI=true); locally, without zsh on PATH it
+#                is skipped (not failed). This set was derived by grepping
+#                the file for every real external-command invocation
+#                (excluding comment/string mentions - e.g. "basename" and
+#                "test" appear only in prose here, describing scenario
+#                names, and are never actually invoked as commands) and
+#                diffing it against the declared list (DS-45 round-4 Major
+#                3), not by adding a fixed name list from a single
+#                finding.
 #
 # Downstream consumers: developer running locally before commit; CI (the
 #                        bin-sh-tests job in .github/workflows/bin-tests.yml
@@ -569,7 +577,54 @@ else
   _fail "candidate did NOT refuse a padded --base correctly (rc=$padded_base_candidate_rc, out written: $([ $padded_base_out_exists -eq 1 ] && echo yes || echo no)): $padded_base_candidate_out"
 fi
 
-# --- Scenario 14: runbook doc-content pins (DS-45 round-2 Major 1,
+# --- Scenario 14: install verifies its own write, not just the backup
+#     (DS-45 round-4 Minor 4) ---
+# Mutation that would redden this: delete the cmp-after-install-cp check
+# added to cmd_install() - a partial/corrupted `cp` of the candidate onto
+# the real file would then be reported as a success unconditionally, the
+# same gap cmd_restore() already closed for its own write.
+# A fake `cp` on PATH performs the real copy for every call EXCEPT the
+# install write (candidate -> real file), which it deliberately corrupts
+# by truncating the destination by one byte after copying - simulating a
+# partial write without needing to fake disk-full or process-interruption
+# conditions.
+FAKE_CP_DIR="$TMP_ROOT/fake-cp-bin"
+mkdir -p "$FAKE_CP_DIR"
+REAL_CP_BIN="$(command -v cp)"
+corrupt_candidate_src="$out1"
+corrupt_install_backup_dir="$TMP_ROOT/backups-corrupt-install"
+# Match on the SOURCE argument only ($1): the harness passes the literal
+# --candidate value unresolved for the install write ("$1" == out1's exact
+# string, set at test-script scope with no symlink resolution involved),
+# whereas the destination argument the harness passes is computed via a
+# cd+pwd inside the harness itself and could differ in string form from
+# this test's own $REAL_SKILL on a symlinked tmpdir (e.g. macOS
+# /var -> /private/var) - matching on the destination would be fragile.
+cat > "$FAKE_CP_DIR/cp" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "\$1" == "$corrupt_candidate_src" ]]; then
+  "$REAL_CP_BIN" "\$@"
+  # Truncate the destination by one byte to simulate a partial write.
+  filesize="\$(wc -c < "\$2")"
+  head -c "\$((filesize - 1))" "\$2" > "\$2.tmp" && mv "\$2.tmp" "\$2"
+else
+  "$REAL_CP_BIN" "\$@"
+fi
+EOF
+chmod +x "$FAKE_CP_DIR/cp"
+corrupt_install_out="$(cd "$FIXTURE" && PATH="$FAKE_CP_DIR:$PATH" bash scripts/skill-embed-sweep-harness.sh install --candidate "$out1" --backup-dir "$corrupt_install_backup_dir" 2>&1)"
+corrupt_install_rc=$?
+if [[ $corrupt_install_rc -ne 0 && "$corrupt_install_out" == *"does NOT"*"verify byte-identical"* ]]; then
+  _pass "install detects and reports a partial/corrupted write instead of reporting success"
+else
+  _fail "install did NOT detect a corrupted write (rc=$corrupt_install_rc): $corrupt_install_out"
+fi
+# Restore the pristine fixture for subsequent scenarios (a corrupted real
+# file, or a backup left over from this scenario, must not leak forward).
+cp "$PRISTINE_REAL_SKILL" "$REAL_SKILL"
+
+# --- Scenario 15: runbook doc-content pins (DS-45 round-2 Major 1,
 #     Major 3, Minor 2) - a plain prose file has no executable behavior to
 #     mutation-test, so these pin the corrected wording against a silent
 #     revert to the earlier, defective phrasing ---
@@ -615,6 +670,93 @@ else
     _pass "runbook's canary-scheme claim is scoped to the pad/tail region, not the whole file"
   else
     _fail "runbook's canary-scheme claim no longer discloses the mid-file-elision gap"
+  fi
+
+  # Round-4 Major 1: the runbook must not claim the 127,107 B figure's
+  # provenance "was never recorded" - a gitignored planning doc records
+  # it, so the correct framing is "not traceable through git history",
+  # already stated by the CEILING comment this runbook points at.
+  if grep -q "was never recorded" "$RUNBOOK"; then
+    _fail "runbook still claims the 127,107 B figure's provenance 'was never recorded'"
+  else
+    _pass "runbook no longer claims the 127,107 B figure's provenance 'was never recorded'"
+  fi
+
+  # Round-4 Major 2: the runbook must not claim DS-146's 130,015 B figure
+  # is "the only" prior injection observation on record - the 127,107 B
+  # figure five lines above is also called an "empirically-confirmed
+  # verbatim-injection point", so "the only" contradicts the runbook's
+  # own text.
+  if grep -q "The only prior injection observation on record" "$RUNBOOK"; then
+    _fail "runbook still claims DS-146 is 'the only' prior injection observation on record"
+  else
+    _pass "runbook no longer claims DS-146 is 'the only' prior injection observation on record"
+  fi
+
+  # Round-4 Minor 1: the CEILING comment's self-reference must not claim
+  # the file's own HEADER cites the 127,107 B figure - this branch
+  # removed that header citation, so only the failure message does.
+  if grep -q "own header and failure" "$CEILING_SCRIPT"; then
+    _fail "CEILING comment still claims this file's own HEADER cites 127,107 B (it does not, on this branch)"
+  else
+    _pass "CEILING comment no longer claims this file's own header cites 127,107 B"
+  fi
+
+  # Round-4 Minor 2: the ABOVE-CEILING failure message and AGENTS.md must
+  # both cite the actually-verified 130,015 B figure and the correct
+  # 9,145 B gap to CEILING, not stay silent on it while only citing the
+  # unswept 127,107 B figure.
+  if grep -q '130,015 B' "$CEILING_SCRIPT" && grep -q '9,145 B' "$CEILING_SCRIPT"; then
+    _pass "CEILING script's ABOVE-CEILING framing cites the verified 130,015 B figure and 9,145 B gap"
+  else
+    _fail "CEILING script's ABOVE-CEILING framing is missing the verified 130,015 B figure or the 9,145 B gap"
+  fi
+  if grep -qF '130,015 B (DS-146), 9,145 B below CEILING' "$REPO_DIR/AGENTS.md"; then
+    _pass "AGENTS.md cites the verified 130,015 B figure and 9,145 B gap"
+  else
+    _fail "AGENTS.md is missing the verified 130,015 B figure or the 9,145 B gap"
+  fi
+
+  # Round-4 Minor 3: the CEILING comment must attribute the 126,509 B
+  # baf0b011 measurement to the pre-rename agentic-engineering skill
+  # directory, not dinostack, and must not claim the two `git log -S`
+  # queries "return only" the introducing commit (both queries actually
+  # return multiple/different commits - see the comment's own rewritten
+  # text).
+  if grep -q 'agentic-engineering/SKILL.md' "$CEILING_SCRIPT"; then
+    _pass "CEILING comment attributes the baf0b011 measurement to the pre-rename skill directory"
+  else
+    _fail "CEILING comment is missing the pre-rename agentic-engineering/SKILL.md attribution"
+  fi
+  if grep -q 'return only the commits' "$CEILING_SCRIPT"; then
+    _fail "CEILING comment still claims the git log -S queries 'return only' the introducing commit"
+  else
+    _pass "CEILING comment no longer overclaims what the git log -S queries return"
+  fi
+
+  # Round-4 Major 3: the harness's and this test's own Upstream deps
+  # manifests must list cp, dirname, and cat - all three are genuinely
+  # invoked (cp is the write primitive at three call sites; dirname
+  # resolves --out's and the backup dir's parent; cat backs the heredoc
+  # usage message) and were missing from both manifests going into this
+  # round.
+  if grep -q 'dirname (resolving --out' "$HARNESS_SCRIPT" && grep -q 'cat (the heredoc' "$HARNESS_SCRIPT"; then
+    _pass "harness script's Upstream deps manifest lists cp, dirname, and cat"
+  else
+    _fail "harness script's Upstream deps manifest is missing cp, dirname, or cat"
+  fi
+  # Scoped to the "# Upstream deps:" comment block only (from that header
+  # line to the next blank comment line) - a whole-file grep here would be
+  # vacuously self-satisfying, since this very assertion's own source line
+  # contains the literal strings "cut, mkdir, ls, rm," and "dirname, cat"
+  # as its grep patterns, and would match itself regardless of what the
+  # manifest actually says.
+  SELF_SCRIPT="$REPO_DIR/bin/tests/test_skill_embed_sweep_harness.sh"
+  self_manifest_block="$(awk '/^# Upstream deps:/{p=1} p{print; if (/^#[[:space:]]*$/) exit}' "$SELF_SCRIPT")"
+  if [[ "$self_manifest_block" == *"cut, mkdir, ls, rm,"* && "$self_manifest_block" == *"dirname, cat."* ]]; then
+    _pass "this test file's own Upstream deps manifest lists cut, mkdir, ls, rm, dirname, and cat"
+  else
+    _fail "this test file's own Upstream deps manifest is missing cut, mkdir, ls, rm, dirname, or cat"
   fi
 fi
 
