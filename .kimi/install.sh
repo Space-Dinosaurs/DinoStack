@@ -68,10 +68,23 @@ export REPO_DIR
   echo "  ! scripts/lib/prune-stale-skill-dir.sh not found - stale skill dir prune skipped"
 }
 
+# (m3, DS-185 round 3) .kimi/build.sh sources this same file unguarded
+# under its own `set -e` (it hard-requires kimi_rules_files() to build the
+# skill body) - a soft-skip message here previously implied only the
+# link-health fallback embed below was affected, when in fact the very
+# next step (`bash .kimi/build.sh`) would die anyway, leaving whatever
+# .kimi/AGENTS.md happened to already exist on disk (possibly a stub
+# pointing at a broken/stale skill) with no explanation of why. Fail fast
+# and honestly instead of deferring to build.sh's less legible error.
+if [[ ! -f "$REPO_DIR/scripts/lib/kimi-rules.sh" ]]; then
+  echo "  ! scripts/lib/kimi-rules.sh not found - this file is required by both" >&2
+  echo "    install.sh (link-health fallback rules embed) and build.sh (skill body" >&2
+  echo "    assembly, which build.sh will fail on unconditionally). Aborting before" >&2
+  echo "    running build.sh rather than leaving a stale AGENTS.md with no explanation." >&2
+  exit 1
+fi
 # shellcheck source=scripts/lib/kimi-rules.sh
-[[ -f "$REPO_DIR/scripts/lib/kimi-rules.sh" ]] && . "$REPO_DIR/scripts/lib/kimi-rules.sh" || {
-  echo "  ! scripts/lib/kimi-rules.sh not found - link-health fallback rules embed skipped"
-}
+. "$REPO_DIR/scripts/lib/kimi-rules.sh"
 
 # ---------------------------------------------------------------------------
 # Run build first (generates AGENTS.md and symlinks)
@@ -89,12 +102,19 @@ bash "$REPO_DIR/.kimi/build.sh"
 # .kimi/skills/dinostack/SKILL.md as the full generated body. Verify the
 # generated SKILL.md actually resolves to real content before
 # trusting the stub's "load the skill on trigger" instruction. If it does
-# not (missing, empty, suspiciously small, or fails the embed-completeness
-# check - e.g. a broken embed step that regressed to the pre-DS-185
-# pointer-only body, or silently dropped a whole embedded source file),
-# append the full methodology body directly onto the AGENTS.md stub as a
-# degrade path and print a warning - content must never be silently
-# dropped. (m4, DS-185 round 2: this appends ~132 KB into a tracked file
+# not (missing, empty, below the floor, or fails the gate's
+# embed-completeness check specifically - e.g. a broken embed step that
+# regressed to the pre-DS-185 pointer-only body, or silently dropped a
+# whole embedded source file), append the full methodology body directly
+# onto the AGENTS.md stub as a degrade path and print a warning - content
+# must never be silently dropped. (DS-185 round 3: a ceiling breach
+# (SKILL.md or AGENTS.md) reported by the same gate script does NOT mean
+# the body is broken - it means the body built correctly but grew past an
+# advisory size boundary - so it is surfaced as a warning only, with no
+# fallback appended; round 2's fix treated ANY nonzero exit from the gate
+# alike and so appended the fallback on a ceiling-only breach too, which
+# is exactly the tracked-file-growth regression this check exists to
+# prevent.) (m4, DS-185 round 2: this appends ~132 KB into a tracked file
 # rather than writing a separate scratch location. Kept deliberately -
 # .kimi/AGENTS.md is the ONE file Kimi Code CLI is guaranteed to load
 # automatically on every session regardless of skill-loading health, so a
@@ -113,14 +133,18 @@ KIMI_SKILL_MD_TARGET="$REPO_DIR/.kimi/skills/dinostack/SKILL.md"
 # than a second, independently-drifting magic number (M1, DS-185 round 2):
 # a body that regressed to pointer-only, or that dropped a whole embedded
 # content/sections/**|content/rules/*.md file mid-band, must fail the same
-# way here as it does in CI. Sourcing the gate script directly (not
-# invoking it as a subprocess) makes SKILL_FLOOR available as a shell
-# variable without re-parsing its stdout.
+# way here as it does in CI.
 KIMI_SKILL_MD_FLOOR_BYTES=100000
 if [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]]; then
   _kimi_gate_floor="$(sed -n 's/^SKILL_FLOOR=\([0-9]*\).*/\1/p' "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" | head -1)"
   if [[ -n "$_kimi_gate_floor" ]]; then
     KIMI_SKILL_MD_FLOOR_BYTES="$_kimi_gate_floor"
+  else
+    # (m2, DS-185 round 3) A parse failure silently falling back to this
+    # stale hand-typed duplicate is worse than no fallback at all - say so.
+    echo "  ! could not parse SKILL_FLOOR from scripts/check-kimi-skill-embed-budget.sh" >&2
+    echo "    - falling back to a hardcoded $KIMI_SKILL_MD_FLOOR_BYTES B floor, which may" >&2
+    echo "    be stale relative to the gate script's own constant." >&2
   fi
 fi
 
@@ -135,13 +159,41 @@ else
   if [[ "$_kimi_skill_md_bytes" -lt "$KIMI_SKILL_MD_FLOOR_BYTES" ]]; then
     KIMI_SKILL_MD_OK=false
     KIMI_SKILL_MD_REASON="suspiciously small ($_kimi_skill_md_bytes B < $KIMI_SKILL_MD_FLOOR_BYTES B floor): $KIMI_SKILL_MD_TARGET"
-  elif [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]] \
-    && ! bash "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" >/dev/null 2>&1; then
+  elif [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]]; then
     # Byte-band checks alone cannot see a whole embedded source file
     # silently dropped from assembly (M1) - the gate's embed-completeness
     # check catches that. Re-run it here rather than reimplementing it.
-    KIMI_SKILL_MD_OK=false
-    KIMI_SKILL_MD_REASON="failed embed-completeness or budget check (run 'bash scripts/check-kimi-skill-embed-budget.sh' for details): $KIMI_SKILL_MD_TARGET"
+    # (Major, DS-185 round 3) Round 2 treated ANY nonzero exit from the
+    # gate alike, so a ceiling breach (the body is healthy but grew past
+    # an advisory size boundary) triggered the same fallback as a
+    # genuinely broken body - appending ~132 KB into a tracked file on a
+    # healthy build, which is exactly the regression this check exists to
+    # prevent. Inspect the gate's own diagnostic text to distinguish an
+    # embed-completeness failure (a dropped source file - degrade) from a
+    # ceiling breach (warn only, no fallback). Known residual: an
+    # embed-completeness "file count mismatch" for an EXTRA file (an
+    # EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT pin that simply hasn't
+    # been bumped for a legitimately new, genuinely-embedded source file -
+    # round 3's repro (b)) still degrades under this branch even though
+    # the body is healthy, because the gate cannot distinguish "stale pin"
+    # from "unwanted extra file" and the round-3 review explicitly left
+    # inclusion of the embed-completeness sub-check as an option, not a
+    # requirement to further split. The correct remedy for that case is
+    # bumping the pinned constant, which also clears the CI gate.
+    _kimi_gate_rc=0
+    _kimi_gate_output="$(bash "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" 2>&1)" || _kimi_gate_rc=$?
+    if [[ "$_kimi_gate_rc" -ne 0 ]]; then
+      if grep -q 'embed incomplete' <<< "$_kimi_gate_output"; then
+        KIMI_SKILL_MD_OK=false
+        KIMI_SKILL_MD_REASON="failed embed-completeness check - a source file was dropped, an unaccounted-for file was added, or a heading collision was found (run 'bash scripts/check-kimi-skill-embed-budget.sh' for details): $KIMI_SKILL_MD_TARGET"
+      else
+        echo ""
+        echo "  WARNING: scripts/check-kimi-skill-embed-budget.sh reported a budget-ceiling"
+        echo "  issue (not an embed-completeness or floor failure) - the skill body itself"
+        echo "  is complete and healthy, so no fallback is being appended to AGENTS.md."
+        echo "  Run 'bash scripts/check-kimi-skill-embed-budget.sh' for details."
+      fi
+    fi
   fi
 fi
 
