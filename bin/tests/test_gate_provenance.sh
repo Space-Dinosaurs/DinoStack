@@ -300,22 +300,18 @@ Expected:
 $expected"
   fi
 
-  # Mutation check: the ORIGINAL \s regex (a GNU-awk-only extension) must
-  # produce EMPTY output under the one-true-awk this repo's CI and macOS
-  # contributors run - proving this test would have caught the round-3
-  # Major 2 bug before it shipped, not merely after.
-  local broken_cmds
-  broken_cmds="$(awk -v start="$job_start_line" -v stop="$diff_lineno" '
-    NR > start && NR < stop && /^\s*run:/ {
-      sub(/^\s*run:[[:space:]]*\|?[[:space:]]*/, "");
-      if (length($0) > 0) print;
-    }
-  ' "$wf")"
-  if [[ -z "$broken_cmds" ]]; then
-    _pass "the pre-fix \\s regex reproducibly yields zero commands under this awk (confirms the fix is load-bearing, not cosmetic)"
-  else
-    _fail "the pre-fix \\s regex unexpectedly extracted commands under this awk - the mutation no longer distinguishes fixed from broken: [$broken_cmds]"
-  fi
+  # No mutation check here: an earlier version of this test asserted that
+  # the ORIGINAL \s regex (pre-fix) yields empty output under "this awk" -
+  # but \s is a GNU-awk extension. It IS empty under BSD awk (what macOS
+  # contributors run, and where the round-3 Major 2 bug was discovered),
+  # but non-empty under gawk (what the Ubuntu CI runner installs), so the
+  # assertion was actually pinning "which awk is on PATH", not "is the fix
+  # load-bearing" - it failed on CI the moment it ran there. The positive
+  # assertion above already covers load-bearingness: it fails if the
+  # current [[:space:]] regex regresses on either awk, which is the
+  # property that matters. Do not re-add a mutation check against deleted
+  # code without first confirming the assertion holds under both BSD awk
+  # and gawk.
 }
 _test_d4_extraction
 

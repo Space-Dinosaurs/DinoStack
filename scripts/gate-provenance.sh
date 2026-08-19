@@ -84,16 +84,22 @@
 #                matched.
 #
 # D4 verification (DS-182 round-3 Major 2): the `run:` step extraction
-# awk originally used `\s`, a GNU-awk-only escape that is silent no-op
-# under the one-true-awk this repo's CI and macOS contributors actually
-# run, so D4's clone-and-execute block was reachable but never actually
-# entered - `generator_cmds` was always empty. Fixed to `[[:space:]]` and
+# awk originally used `\s`, a GNU-awk extension that is a silent no-op
+# under BSD awk (the one-true-awk macOS contributors run - this is where
+# the round-3 Major 2 bug was found), so D4's clone-and-execute block was
+# reachable but never actually entered - `generator_cmds` was always
+# empty. `\s` is NOT portable to assume broken everywhere, though: gawk
+# (what this repo's Ubuntu CI runner installs) supports `\s` as its own
+# GNU extension and matches under it, so a mutation check asserting `\s`
+# yields empty output fails on CI even though the fix (`[[:space:]]`,
+# POSIX-portable across both) is correct - do not reintroduce that
+# mutation check; see bin/tests/test_gate_provenance.sh's D4 extraction
+# test for the removed instance and why. Fixed to `[[:space:]]` and
 # confirmed against the real, live
 # .github/workflows/codex-skill-sync.yml:36 (the only bare, no-pathspec
 # `git diff --exit-code` in this repo, i.e. the only real trigger for D4)
 # in bin/tests/test_gate_provenance.sh, which extracts and pins the exact
-# 5 real generator commands and reproduces the pre-fix empty-output bug as
-# a negative mutation check. Every path D1/D2/D3 do not resolve now
+# 5 real generator commands. Every path D1/D2/D3 do not resolve now
 # genuinely reaches D4's scratch-clone-and-execute step (measured: 6m42s
 # wall-clock for one such run) - in the current repo this always falls
 # through to AUTHORED regardless, because every real target D4's
