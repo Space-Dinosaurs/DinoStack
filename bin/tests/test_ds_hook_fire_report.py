@@ -521,9 +521,11 @@ def test_dense_recent_log_is_confidence_eligible(tmp_path):
 # (f.2) DS-179 round 3 Major 2 - a majority-malformed log must not be
 #     treated as a clean measurement even though log_effectively_empty is
 #     False and a real hook status is reported.
-#     Mutation: delete the `log_malformed_ratio <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE`
-#     conjunct from log_confidence_eligible's computation -> the assertion
-#     below flips from False to True.
+#     This fixture (1 parsed line) is already disqualified by the density
+#     conjunct (MIN_PARSED_LINES_FOR_CONFIDENCE) alone, so it does not
+#     isolate the corruption conjunct - see
+#     test_high_malformed_ratio_disqualifies_a_dense_log below for the
+#     mutation that isolates and reddens on the corruption conjunct.
 # ---------------------------------------------------------------------------
 
 
@@ -532,10 +534,11 @@ def test_majority_malformed_log_reported_and_realistic(tmp_path):
     valid record. Pins the exact measured meta values from the round-3
     finding and confirms status logic is unaffected by (low) confidence
     eligibility - the hook still reports a real status derived from the one
-    parsed line. Deliberately does NOT assert log_confidence_eligible here:
-    with only 1 parsed line this fixture is already disqualified by the
-    density conjunct alone and would not isolate the corruption conjunct -
-    see test_high_malformed_ratio_disqualifies_a_dense_log below for that."""
+    parsed line. Also asserts log_confidence_eligible is False here: with
+    only 1 parsed line this fixture is disqualified by the density conjunct
+    alone (not the corruption conjunct under test) - see
+    test_high_malformed_ratio_disqualifies_a_dense_log below for the
+    fixture that isolates the corruption conjunct."""
     repo = _make_repo(tmp_path)
     lines = ["not json at all " + str(i) for i in range(99)]
     lines.append(
@@ -620,6 +623,52 @@ def test_low_malformed_ratio_does_not_disqualify_confidence(tmp_path):
     assert report["meta"]["log_parsed_lines"] == 30
     assert report["meta"]["log_malformed_lines"] == 1
     assert report["meta"]["log_confidence_eligible"] is True
+
+
+# ---------------------------------------------------------------------------
+# (f.3) DS-179 round 4 - the corruption gate must compare the UNROUNDED
+#     malformed ratio against MAX_MALFORMED_RATIO_FOR_CONFIDENCE, not the
+#     rounded (3-decimal) display value. 626 malformed / 1251 total lines
+#     gives a true ratio of 626/1251 ~ 0.5003997, which is > 0.5 (fails the
+#     gate) but rounds to 0.500 at 3 decimals - a display-rounded compare
+#     would incorrectly pass it.
+#     Mutation: restore `round(log_malformed_lines / log_total_lines, 3)`
+#     as the value compared against MAX_MALFORMED_RATIO_FOR_CONFIDENCE
+#     (i.e. compare the rounded ratio instead of the raw one) -> the
+#     assertion below flips from False to True. Executed and confirmed:
+#     reverting the comparison to the rounded value reddens this test,
+#     restoring the unrounded compare turns it green again.
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_ratio_boundary_uses_unrounded_value(tmp_path):
+    """626 malformed lines + 625 valid, dense, recent records = 1251 total.
+    True ratio 626/1251 ~ 0.5003997 exceeds MAX_MALFORMED_RATIO_FOR_CONFIDENCE
+    (0.5) and must disqualify confidence eligibility, even though the ratio
+    displayed at 3-decimal rounding reads 0.5 (the gate boundary itself)."""
+    repo = _make_repo(tmp_path)
+    lines = ["garbage line " + str(i) for i in range(626)]
+    for i in range(625):
+        lines.append(
+            json.dumps(
+                {
+                    "ts": _RECENT_TS,
+                    "hook": "enforce-fake-abdication",
+                    "decision": "allow",
+                    "reason": f"record {i}",
+                }
+            )
+        )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", "\n".join(lines) + "\n")
+    report = _run_json(repo, "--days", "90")
+    assert report["meta"]["log_total_lines"] == 1251
+    assert report["meta"]["log_parsed_lines"] == 625
+    assert report["meta"]["log_malformed_lines"] == 626
+    # Rounded display value sits exactly at the gate boundary.
+    assert report["meta"]["log_malformed_ratio"] == 0.5
+    # But the true (unrounded) ratio exceeds the boundary, so eligibility
+    # must be disqualified.
+    assert report["meta"]["log_confidence_eligible"] is False
 
 
 # ---------------------------------------------------------------------------

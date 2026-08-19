@@ -302,14 +302,23 @@ def build_report(repo_root: Path, days: int) -> dict:
     # log_total_lines is 0 exactly when log_parsed_lines is also 0 (already
     # covered by log_effectively_empty), so the else-branch 0.0 default
     # here is never actually consumed by the eligibility check below.
-    log_malformed_ratio = (
-        round(log_malformed_lines / log_total_lines, 3) if log_total_lines else 0.0
+    #
+    # DS-179 round 4: the gate compares the UNROUNDED ratio against
+    # MAX_MALFORMED_RATIO_FOR_CONFIDENCE. Rounding before comparison would
+    # let a true ratio in (0.5, 0.5005) round down to 0.5 and pass a gate
+    # documented as `<=` on the actual measured fraction - this tool exists
+    # to not let a measurement claim something it has not measured.
+    # log_malformed_ratio (the emitted/display value) is rounded separately,
+    # after the comparison, and never fed back into it.
+    log_malformed_ratio_raw = (
+        log_malformed_lines / log_total_lines if log_total_lines else 0.0
     )
+    log_malformed_ratio = round(log_malformed_ratio_raw, 3)
     log_confidence_eligible = (
         log_present
         and not log_effectively_empty
         and log_parsed_lines >= MIN_PARSED_LINES_FOR_CONFIDENCE
-        and log_malformed_ratio <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE
+        and log_malformed_ratio_raw <= MAX_MALFORMED_RATIO_FOR_CONFIDENCE
     )
 
     now = datetime.now(timezone.utc)
