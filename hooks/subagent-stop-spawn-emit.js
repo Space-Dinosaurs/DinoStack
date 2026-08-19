@@ -35,8 +35,12 @@
  *          payload shape is not documented to carry it), NOR does the
  *          SubagentStop payload reliably carry a usable `tool_use_id` of
  *          its own - measured (DS-178) at null on 612 of 612 real
- *          post-DS-160 `spawn_complete` sidecars in this repo's own
- *          telemetry, which is why every pairing before DS-178 fell
+ *          post-DS-160 hook-emitted `spawn_complete` PAYLOAD ROWS already
+ *          on disk in this repo's own `events.jsonl` (m8 correction:
+ *          these are the events THIS hook itself previously emitted, not
+ *          the `.meta.json` sidecar files - the two are different objects
+ *          entirely; see the sidecar measurement two sentences below for
+ *          the actual sidecar-file figures), which is why every pairing before DS-178 fell
  *          through to same-session FIFO and mis-paired 79.5% of resolvable
  *          completions (58.4% carried the wrong `agent` as a direct
  *          result). DS-178 fixes this by resolving the harness-written
@@ -55,17 +59,29 @@
  *          `session_id` is absent, pairing is skipped entirely (degrades
  *          to unpaired) rather than falling through to an unscoped FIFO
  *          match across sessions. Among same-session candidates, an exact
- *          `data.tool_use_id` match against `sidecarToolUseId` wins first
- *          (recorded as `data.agent_source: "sidecar"`), then FIFO (oldest
- *          unmatched spawn_start for that session wins, recorded as
- *          `data.agent_source: "paired_start"`). "Unmatched" is tracked by
- *          scanning the same window for prior spawn_complete events and
- *          excluding any spawn_id already referenced by
- *          `data.paired_spawn_id`. This is a best-effort heuristic, not a
- *          hard guarantee - see Failure modes. The `agent` field itself
- *          follows a SEPARATE precedence (sidecar `agentType` -> matched
- *          start's `agent` -> `"unknown"`) that does not require a pairing
- *          match at all when the sidecar alone resolves.
+ *          `data.tool_use_id` match against `sidecarToolUseId` wins first,
+ *          then FIFO (oldest unmatched spawn_start for that session wins).
+ *          "Unmatched" is tracked by scanning the same window for prior
+ *          spawn_complete events and excluding any spawn_id already
+ *          referenced by `data.paired_spawn_id`. This is a best-effort
+ *          heuristic, not a hard guarantee - see Failure modes.
+ *
+ *          `data.agent_source` (round-2 fix, DS-178 M1) records the
+ *          PROVENANCE OF THE `agent` LABEL, not which pairing tier matched
+ *          the spawn - these are different questions, verified to diverge
+ *          by execution: a sidecar can carry a `toolUseId` with no
+ *          `agentType` (pairs via sidecar, but the label still falls
+ *          through to the matched start's `agent`), or carry an
+ *          `agentType` with no `toolUseId` (labels via sidecar, but pairs
+ *          via FIFO because there is no sidecar toolUseId to match on). A
+ *          prior version of this field recorded the pairing tier instead
+ *          and was wrong in both of those directions. `agent` and
+ *          `agent_source` are now computed from the exact same precedence
+ *          branch (sidecar `agentType` -> `"sidecar"`; matched start's
+ *          `agent` -> `"paired_start"`; neither -> `"unknown"`), so the two
+ *          fields can never disagree, and `agent_source` does not require
+ *          a pairing match at all when the sidecar alone resolves the
+ *          label.
  *
  *          `data.wall_seconds` is computed as (this event's ts - the matched
  *          spawn_start's ts) when a match is found; when no match is found,
@@ -83,10 +99,18 @@
  *             as a CLI script by the Claude Code SubagentStop hook.
  *
  * Upstream deps: Node built-ins only (fs, path, os via
- *                hooks/lib/config-dir.js). hooks/lib/repo-root.js
+ *                hooks/lib/config-dir.js, child_process for the M2
+ *                diff_lines resolution below). hooks/lib/repo-root.js
  *                (resolveAgenticCwd) anchors the .agentic/ dir below to
  *                the repo root instead of the raw payload cwd. No npm
- *                dependencies. Reads
+ *                dependencies. Round-2 addition (M2): runs one bounded
+ *                `git diff --shortstat <range>` subprocess
+ *                (DIFF_SHORTSTAT_TIMEOUT_MS, 3000ms) per Skeptic
+ *                completion to resolve `data.diff_lines` - the SAME
+ *                bounded-subprocess pattern hooks/lib/capture-gap.js
+ *                already uses for its own `git diff` call, and this file's
+ *                first subprocess dependency. Skipped entirely for any
+ *                non-Skeptic completion. Reads
  *                SubagentStop payload from stdin (fd 0) via the bounded
  *                reader hooks/lib/stdin-guard.js (readStdinGuarded).
  *                Reads [cwd]/.agentic/events.jsonl - bounded on BOTH the
@@ -103,9 +127,13 @@
  *                no comparable size cap - measured sidecars are small,
  *                fixed-shape JSON objects, not append-only logs). DS-178
  *                unit A additionally reads (best-effort, fail-open)
- *                [.agentic root]/.agentic/skeptic-tuid-index.json and, on a
- *                hit, the corresponding
- *                [.agentic root]/.agentic/skeptic-round-<unit_key>.json -
+ *                [repo root]/.agentic/skeptic-tuid-index.json (m8
+ *                correction: the bracketed segment names the REPO root,
+ *                the directory THAT CONTAINS `.agentic/`, not the
+ *                `.agentic/` directory itself - the prior notation
+ *                "[.agentic root]/.agentic/..." double-rooted the path)
+ *                and, on a hit, the corresponding
+ *                [repo root]/.agentic/skeptic-round-<unit_key>.json -
  *                both WRITTEN by hooks/enforce-skeptic-round-cap.py, making
  *                this hook a READ-ONLY consumer of that hook's state, never
  *                a writer of it.
@@ -123,17 +151,28 @@
  *                        guard - see the Purpose section above); this is the
  *                        first source of non-zero wall_seconds AND non-zero
  *                        tokens for hook-only ad-hoc sessions.
- *                        hooks/lib/capture-gap.js detectCaptureGap() already
- *                        recognizes spawn_complete for debugger/investigator
- *                        and Skeptic-with-findings triggers. DS-178 unit B
- *                        (not yet built as of this unit) is expected to add
- *                        a `bin/ds-calibrate`-side consumer of the new
- *                        `agent_source`/`model`/`unit_key`/`iteration`/
- *                        `findings_count`/`signed_off`/
- *                        `findings_parse_ambiguous`/`calibration_note`
- *                        fields this unit emits; no such consumer exists
- *                        yet, so these fields are currently forensic-only
- *                        (present on disk, read by nothing downstream).
+ *                        hooks/lib/capture-gap.js detectCaptureGap() is
+ *                        ALREADY a live consumer of two of this unit's
+ *                        fields TODAY, not merely "expected to be" one -
+ *                        its skeptic-with-findings trigger reads
+ *                        `data.findings_count`/`data.signed_off` directly
+ *                        off a `spawn_complete` event (any source, hook or
+ *                        conductor-emitted) to decide whether a Skeptic
+ *                        completion is learning-worthy (round-1 shipped
+ *                        this field's own module manifest correctly, three
+ *                        lines above this paragraph in that version's
+ *                        text, while this Downstream-consumers section
+ *                        still claimed the opposite - corrected here, M5).
+ *                        Before this unit, that branch was structurally
+ *                        dead for any hook-emitted row (hook payloads never
+ *                        carried calibration data at all); it is live now.
+ *                        `bin/ds-calibrate` (DS-178 unit B, not yet built
+ *                        as of this unit) is expected to add its own
+ *                        density-report consumer of `agent_source`/
+ *                        `model`/`unit_key`/`iteration`/`findings_count`/
+ *                        `signed_off`/`findings_parse_ambiguous`/
+ *                        `diff_lines`/`calibration_note` - that consumer
+ *                        does not exist yet, but `capture-gap.js`'s does.
  *
  * Failure modes: Fully fail-open, mirroring hooks/pre-tool-use-spawn-emit.js.
  *                Entire body wrapped in try/catch; ALWAYS process.exit(0).
@@ -286,9 +325,17 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
 const { resolveClaudeConfigDir } = require('./lib/config-dir.js');
 const { resolveAgenticCwd } = require('./lib/repo-root.js');
+
+// Timeout for the best-effort `git diff --shortstat` subprocess used to
+// resolve `data.diff_lines` (M2) - mirrors the bounded-subprocess pattern
+// hooks/lib/capture-gap.js already uses for its own git diff call. A hang
+// or slow git invocation must never delay emitting the completion signal
+// beyond this window.
+const DIFF_SHORTSTAT_TIMEOUT_MS = 3000;
 
 // Bounds the readdirSync fallback scan when the primary transcript path
 // (constructed from cwd's project hash) does not exist - mirrors
@@ -451,13 +498,22 @@ function readSidecar(configDir, cwd, sessionId, agentId) {
  *   - `attributionAgent`: the first non-blank top-level `attributionAgent`
  *     field seen on ANY record (not assistant-only - measured present on
  *     every record type in a live transcript). This is a CROSS-CHECK input
- *     only, matching the harness-supplied agent identity independently of
- *     the sidecar/pairing-derived `agent` field - it is never itself
- *     emitted into the event (same treatment as `firstTimestamp` below).
+ *     against the sidecar/pairing-derived `agent` field - never emitted
+ *     under its own name, but run() (round-2 fix, m1) DOES emit
+ *     `data.agent_note` when this value disagrees with the resolved
+ *     `agent`, a case previously computed here and then silently
+ *     discarded (dead code - the value was extracted but never read by
+ *     any caller).
  *   - `firstTimestamp`: the first non-blank top-level `timestamp` field
  *     seen on any record - reserved, like `attributionAgent`, as raw
  *     forensic material rather than something this unit acts on; not
  *     emitted into the event.
+ *   - `firstUserText` (round-2 addition, M2): the text of the FIRST
+ *     `type === "user"` record - the subagent's own original spawn prompt,
+ *     which is where the "Diff under review:" line
+ *     `content/references/skeptic-protocol.md` Section 4.5 mandates lives.
+ *     Used by `resolveDiffLines()` below to derive `data.diff_lines` for a
+ *     Skeptic completion; never itself emitted into the event.
  * `model`/`modelNote` follow the exact same mutual-exclusion and
  * never-fabricate discipline as `tokens`/`tokensNote`, using the SAME
  * skip/not-found/unreadable notes (they are read from the same transcript
@@ -467,12 +523,12 @@ function scanTranscript(transcriptPath) {
   const notFound = {
     tokens: null, tokensNote: 'unavailable (transcript not found)',
     model: null, modelNote: 'unavailable (transcript not found)',
-    attributionAgent: null, firstTimestamp: null,
+    attributionAgent: null, firstTimestamp: null, firstUserText: null,
   };
   const tooLarge = {
     tokens: null, tokensNote: 'skipped (transcript too large)',
     model: null, modelNote: 'skipped (transcript too large)',
-    attributionAgent: null, firstTimestamp: null,
+    attributionAgent: null, firstTimestamp: null, firstUserText: null,
   };
 
   let stat;
@@ -509,6 +565,7 @@ function scanTranscript(transcriptPath) {
   let model = null;
   let attributionAgent = null;
   let firstTimestamp = null;
+  let firstUserText = null;
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -521,6 +578,10 @@ function scanTranscript(transcriptPath) {
     }
     if (attributionAgent === null && typeof obj.attributionAgent === 'string' && obj.attributionAgent.trim()) {
       attributionAgent = obj.attributionAgent.trim();
+    }
+    if (firstUserText === null && obj.type === 'user') {
+      const text = extractAssistantText(obj.message);
+      if (text) firstUserText = text;
     }
 
     if (obj.type !== 'assistant') continue;
@@ -558,7 +619,7 @@ function scanTranscript(transcriptPath) {
     ? { model: null, modelNote: 'unavailable (transcript unreadable)' }
     : { model, modelNote: null };
 
-  return { ...tokensResult, ...modelResult, attributionAgent, firstTimestamp };
+  return { ...tokensResult, ...modelResult, attributionAgent, firstTimestamp, firstUserText };
 }
 
 /**
@@ -684,20 +745,111 @@ function parseSkepticSignoff(transcriptPath) {
     return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
   }
 
-  const hasWithheld = lastAssistantText.indexOf(_SIGNOFF_WITHHELD_LITERAL) !== -1;
-  const hasGranted = lastAssistantText.indexOf(_SIGNOFF_GRANTED_LITERAL) !== -1;
+  // Tie-break (round-2 fix, m5): use the LAST occurrence of either verdict
+  // literal, not "withheld always wins whenever both are present." A
+  // Skeptic transcript can legitimately contain both literals in the same
+  // last message - content/agents/skeptic.md's own sign-off-format section
+  // quotes both templates verbatim, and a Skeptic reviewing that file (or
+  // any file that reproduces the format contract) scored signed_off:false
+  // even on a real "granted" verdict under the prior first-match logic.
+  // The verdict is whichever literal actually appears LAST in the text,
+  // matching the same "last one wins" convention already used for the
+  // multi-`Findings:` tie-break above.
+  const lastWithheldIdx = lastAssistantText.lastIndexOf(_SIGNOFF_WITHHELD_LITERAL);
+  const lastGrantedIdx = lastAssistantText.lastIndexOf(_SIGNOFF_GRANTED_LITERAL);
   let signedOff;
-  if (hasWithheld) {
-    signedOff = false;
-  } else if (hasGranted) {
+  if (lastWithheldIdx === -1 && lastGrantedIdx === -1) {
+    return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
+  } else if (lastGrantedIdx > lastWithheldIdx) {
     signedOff = true;
   } else {
-    return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
+    signedOff = false;
   }
 
   const result = { findingsCount, signedOff };
   if (findingsParseAmbiguous) result.findingsParseAmbiguous = true;
   return result;
+}
+
+// Matches a "Diff under review:" line per content/references/skeptic-
+// protocol.md Section 4.5's `## Global-context inputs` block (item 6) -
+// mirrors hooks/enforce-skeptic-round-cap.py's `_DIFF_UNDER_REVIEW_RE`
+// (same bullet/numbering/bold-markup coverage; kept as a SEPARATE regex,
+// not a shared module, since one is Python and one is JS). Used only to
+// resolve `data.diff_lines` (M2) - never for unit-key derivation, which
+// stays exclusively the round-cap hook's responsibility.
+const _DIFF_UNDER_REVIEW_JS_RE = /^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*([^\s*][^\n]*)$/im;
+// Matches a `<ref1>..<ref2>` / `<ref1>...<ref2>` range, with an optional
+// leading "git diff ", anchored at the start of the (already-stripped)
+// value - mirrors the round-cap hook's `_DIFF_RANGE_RE`.
+const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/-]+)/i;
+const _SHORTSTAT_INSERTIONS_RE = /(\d+) insertion/;
+const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;
+
+/**
+ * Resolve `data.diff_lines` (M2) for a Skeptic completion: a best-effort
+ * `git diff --shortstat <range>` against the range named in the "Diff
+ * under review:" line of the subagent's OWN spawn prompt (the first
+ * `type === "user"` transcript record, per `scanTranscript()`'s
+ * `firstUserText`). Genuinely not derivable from the SubagentStop payload
+ * alone - the payload carries no diff-range or line-count field of its
+ * own, only the spawn's completion signal - so this reconstructs the
+ * range from the same field the round-cap hook already depends on for
+ * unit identity, then measures it directly with git rather than trusting
+ * any conductor-reported number.
+ *
+ * Returns `{ diffLines: <int>, diffLinesNote: null }` on a resolved
+ * measurement (including a genuine 0, e.g. an empty diff - a real
+ * measurement, not a fabricated stand-in), or
+ * `{ diffLines: null, diffLinesNote: <string> }` when unresolvable at any
+ * step: no prompt text, no "Diff under review:" line, no recognizable
+ * `ref1..ref2` range in it (e.g. a `<key> | <diff detail>` value whose
+ * detail is free-form prose or a file-path list, not a range), or the
+ * `git diff` subprocess itself fails (non-git cwd, refs no longer
+ * resolvable - e.g. a feature branch already deleted post-merge by the
+ * time SubagentStop fires - non-zero exit, or timeout). Never throws;
+ * mutually exclusive with `diffLines` on every path, matching the
+ * `tokens`/`tokensNote` and `model`/`modelNote` discipline elsewhere in
+ * this file.
+ */
+function resolveDiffLines(cwd, promptText) {
+  const NOTE_NO_PROMPT = 'unavailable (no spawn prompt found in transcript)';
+  const NOTE_NO_RANGE = 'unavailable (no diff range found in spawn prompt)';
+  const NOTE_GIT_FAILED = 'unavailable (git diff resolution failed)';
+
+  if (!promptText) return { diffLines: null, diffLinesNote: NOTE_NO_PROMPT };
+
+  const lineMatch = _DIFF_UNDER_REVIEW_JS_RE.exec(promptText);
+  if (!lineMatch) return { diffLines: null, diffLinesNote: NOTE_NO_RANGE };
+
+  let value = lineMatch[1].trim();
+  // DS-180 `<key> | <diff detail>` form: the range, if present, lives in
+  // the detail half, not the key half.
+  if (value.indexOf('|') !== -1) {
+    value = value.split('|').slice(1).join('|').trim();
+  }
+  value = value.replace(/^`+|`+$/g, '').trim();
+
+  const rangeMatch = _DIFF_RANGE_JS_RE.exec(value);
+  if (!rangeMatch) return { diffLines: null, diffLinesNote: NOTE_NO_RANGE };
+  const rangeArg = `${rangeMatch[1]}${rangeMatch[2]}${rangeMatch[3]}`;
+
+  let output;
+  try {
+    output = execFileSync('git', ['diff', '--shortstat', rangeArg], {
+      cwd, timeout: DIFF_SHORTSTAT_TIMEOUT_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (_) {
+    return { diffLines: null, diffLinesNote: NOTE_GIT_FAILED };
+  }
+
+  const insMatch = _SHORTSTAT_INSERTIONS_RE.exec(output || '');
+  const delMatch = _SHORTSTAT_DELETIONS_RE.exec(output || '');
+  const insertions = insMatch ? Number(insMatch[1]) : 0;
+  const deletions = delMatch ? Number(delMatch[1]) : 0;
+  // An empty `--shortstat` output (no files changed) is a genuine 0, not a
+  // resolution failure - the git command itself succeeded.
+  return { diffLines: insertions + deletions, diffLinesNote: null };
 }
 
 /**
@@ -714,9 +866,29 @@ function parseSkepticSignoff(transcriptPath) {
  * a growth cliff on an unpruned directory and was rejected in favor of
  * this index.
  *
- * Returns { unitKey, iteration } on a full hit (index resolves to a
- * unit_key, and that unit's state file parses with a numeric
- * `round_count`), or null on ANY miss along that chain.
+ * Round-2 fix (M3): each index entry now carries a PINNED `iteration` -
+ * the round number the spawn was actually allowed at, recorded by the
+ * round-cap hook AT SPAWN TIME (`{"unit_key": ..., "iteration": ...}`) -
+ * rather than this function re-reading the unit's LIVE round-state file
+ * for `round_count` at SubagentStop time. The live-read was wrong for any
+ * out-of-order completion: the unit's round count can have advanced (or,
+ * with fingerprint coalescing, can still be mid-round) by the time a
+ * particular spawn's SubagentStop fires, so the reported `iteration`
+ * silently described the WRONG round - confidently, with no note. A
+ * pre-round-2 index entry is still a bare `unit_key` STRING (legacy
+ * shape) - this function tolerates that shape and falls back to the old
+ * live-read behavior for it only, so an existing index is not
+ * invalidated; it self-heals to the pinned shape as spawns complete and
+ * write fresh entries.
+ *
+ * Returns { unitKey, iteration } on a full hit (a pinned-shape index
+ * entry with a positive integer `iteration`, or - legacy fallback only -
+ * an index entry resolving to a unit whose state file parses with a
+ * positive numeric `round_count`), or null on ANY miss along that chain.
+ * `iteration <= 0` is always treated as a miss (m2): the round-cap hook
+ * never persists `round_count: 0` on an allowed spawn, so a 0 can only
+ * come from a legacy/hand-edited state file and reporting it verbatim
+ * would be a zero that looks like a real measurement.
  */
 function readRoundState(agenticDir, toolUseId) {
   if (!toolUseId) return null;
@@ -730,9 +902,26 @@ function readRoundState(agenticDir, toolUseId) {
   }
   if (!index || typeof index !== 'object') return null;
 
-  const unitKey = index[toolUseId];
-  if (typeof unitKey !== 'string' || !unitKey) return null;
+  const entry = index[toolUseId];
+  let unitKey = null;
+  let pinnedIteration = null;
+  if (typeof entry === 'string' && entry) {
+    // Legacy (pre-round-2) shape: bare unit_key string, no pinned
+    // iteration - falls through to the live-read below.
+    unitKey = entry;
+  } else if (entry && typeof entry === 'object' && typeof entry.unit_key === 'string' && entry.unit_key) {
+    unitKey = entry.unit_key;
+    pinnedIteration = typeof entry.iteration === 'number' ? entry.iteration : null;
+  }
+  if (!unitKey) return null;
 
+  if (pinnedIteration !== null && pinnedIteration > 0) {
+    return { unitKey, iteration: pinnedIteration };
+  }
+
+  // Legacy fallback: no pinned iteration available (a pre-round-2 index
+  // entry, or a pinned-but-non-positive value) - re-read the unit's
+  // current state file, same behavior as before this fix.
   const statePath = path.join(agenticDir, `skeptic-round-${unitKey}.json`);
   let state;
   try {
@@ -742,10 +931,10 @@ function readRoundState(agenticDir, toolUseId) {
   }
   if (!state || typeof state !== 'object') return null;
 
-  const iteration = typeof state.round_count === 'number' ? state.round_count : null;
-  if (iteration === null) return null;
+  const rawIteration = typeof state.round_count === 'number' ? state.round_count : null;
+  if (rawIteration === null || rawIteration <= 0) return null;
 
-  return { unitKey, iteration };
+  return { unitKey, iteration: rawIteration };
 }
 
 const MAX_SCAN_LINES = 5000;
@@ -954,27 +1143,30 @@ async function run() {
     const events = readRecentEvents(eventsPath);
     const match = findMatch(events, sessionId, matchToolUseId);
 
-    // agent_source records WHICH precedence tier produced the pairing, for
-    // downstream forensics/calibration - not itself used to gate any other
-    // field.
-    let agentSource;
-    if (!match) {
-      agentSource = 'unknown';
-    } else if (sidecarToolUseId && match.toolUseId === sidecarToolUseId) {
-      agentSource = 'sidecar';
-    } else {
-      agentSource = 'paired_start';
-    }
-
     // agent precedence (DS-178): sidecar agentType -> matched start's agent
     // -> "unknown". Deliberately NOT a new `agent_type` sibling field (see
     // this hook's module manifest) - this populates the EXISTING `agent`
-    // field with the corrected value.
+    // field with the corrected value. agent_source (round-2 fix, M1)
+    // records the provenance of THIS LABEL specifically - which of the two
+    // precedence tiers actually supplied `agentName` - not which tier
+    // resolved the pairing match. Those are two different questions: a
+    // sidecar can carry a `toolUseId` with no `agentType` (pairs via
+    // sidecar, but the label falls through to the matched start), or carry
+    // an `agentType` with no `toolUseId` (labels via sidecar, but pairs via
+    // FIFO) - a tier-of-pairing definition reports the wrong provenance in
+    // both cases, verified by execution pre-fix. `agentSource` is computed
+    // from the exact same branches that set `agentName`, so the two can
+    // never disagree.
     let agentName = 'unknown';
+    let agentSource;
     if (sidecar && sidecar.agentType) {
       agentName = sidecar.agentType;
+      agentSource = 'sidecar';
     } else if (match && match.agent) {
       agentName = match.agent;
+      agentSource = 'paired_start';
+    } else {
+      agentSource = 'unknown';
     }
 
     const nowIso = new Date().toISOString();
@@ -1009,6 +1201,8 @@ async function run() {
     let model = null;
     let modelNote = null;
     let transcriptPath = null;
+    let firstUserText = null;
+    let attributionAgent = null;
     try {
       const resolvedConfigDir = configDir || resolveClaudeConfigDir();
       transcriptPath = resolveTranscriptPath(resolvedConfigDir, cwd, sessionId, agentId);
@@ -1016,6 +1210,8 @@ async function run() {
         const scanResult = scanTranscript(transcriptPath);
         tokens = scanResult.tokens;
         tokensNote = scanResult.tokensNote;
+        firstUserText = scanResult.firstUserText;
+        attributionAgent = scanResult.attributionAgent;
         // model precedence (DS-178): sidecar model -> transcript
         // message.model -> absent + model_note. The sidecar carries
         // `model` on only ~6-8% of real sidecars, so the transcript is the
@@ -1045,28 +1241,35 @@ async function run() {
       }
     }
 
-    // Calibration fields (DS-178 unit A): only meaningful for a Skeptic
-    // spawn - readRoundState()/parseSkepticSignoff() are both specifically
-    // about the Skeptic round-cap and sign-off format. Never attempted for
-    // any other agent (not a "miss" in that case - simply not applicable).
-    // `calibration_note` is mutually exclusive with `findings_count`/
-    // `signed_off` ONLY (same discipline as tokens/tokens_note) - it
-    // reflects a parseSkepticSignoff() miss exclusively. `unit_key`/
-    // `iteration` are a SEPARATE, independent pair of best-effort
-    // correlation fields (readRoundState()'s own contract returns null
-    // with no accompanying note); on a tuid-index miss they are simply
-    // omitted, the same treatment `paired_spawn_id`/`wall_seconds` already
-    // get on an unmatched spawn - omission there is not itself evidence of
-    // a fabrication risk that needs a note.
+    // Calibration fields (DS-178 unit A/round-2): only meaningful for a
+    // Skeptic spawn - readRoundState()/parseSkepticSignoff()/
+    // resolveDiffLines() are all specifically about the Skeptic round-cap,
+    // sign-off format, and reviewed-diff size. Never attempted for any
+    // other agent (not a "miss" in that case - simply not applicable).
+    //
+    // Round-2 fix (M3): a `readRoundState()` tuid-index miss now ALSO
+    // contributes to `calibration_note`, naming the miss - the plan's own
+    // step 8 mandates "emit neither [unit_key/iteration] plus a
+    // calibration_note naming the miss," which the round-1 cut disclosed
+    // skipping on the (rejected) grounds that it matched
+    // `paired_spawn_id`'s silent-omission treatment. `calibration_note` is
+    // a single SHARED field across all three calibration misses (tuid
+    // index, sign-off parse, diff-range resolution) rather than one note
+    // per miss - when more than one miss occurs on the same completion,
+    // each contributes its own labeled clause, joined with "; ", so no
+    // miss is silently dropped by another miss's note overwriting it.
     let calibrationFields = {};
-    let calibrationNote = null;
+    const calibrationNoteParts = [];
     if (agentName === 'skeptic') {
       try {
         const roundState = readRoundState(agenticDir, matchToolUseId);
         if (roundState) {
           calibrationFields.unit_key = roundState.unitKey;
           calibrationFields.iteration = roundState.iteration;
+        } else {
+          calibrationNoteParts.push('unit_key/iteration: unavailable (tuid-index miss)');
         }
+
         const signoff = transcriptPath
           ? parseSkepticSignoff(transcriptPath)
           : { calibrationNote: 'unavailable (transcript not found)' };
@@ -1075,14 +1278,42 @@ async function run() {
           calibrationFields.signed_off = signoff.signedOff;
           if (signoff.findingsParseAmbiguous) calibrationFields.findings_parse_ambiguous = true;
         } else {
-          calibrationNote = signoff.calibrationNote;
+          calibrationNoteParts.push(`findings_count/signed_off: ${signoff.calibrationNote}`);
+        }
+
+        // diff_lines (M2): resolved from the spawn's own prompt text, only
+        // attempted for a Skeptic spawn (same scope as the other two
+        // calibration fields above).
+        const diffResult = resolveDiffLines(cwd, firstUserText);
+        if (diffResult.diffLines !== null) {
+          calibrationFields.diff_lines = diffResult.diffLines;
+        } else {
+          calibrationNoteParts.push(`diff_lines: ${diffResult.diffLinesNote}`);
         }
       } catch (_) {
         // Calibration resolution must never block emitting the completion
         // signal itself.
         calibrationFields = {};
-        calibrationNote = 'unavailable (calibration resolution error)';
+        calibrationNoteParts.length = 0;
+        calibrationNoteParts.push('unavailable (calibration resolution error)');
       }
+    }
+    const calibrationNote = calibrationNoteParts.length ? calibrationNoteParts.join('; ') : null;
+
+    // agent_note (round-2 fix, m1): plan step 4's cross-check between the
+    // sidecar/pairing-resolved `agent` and the transcript's own
+    // `attributionAgent` field (the harness's own per-record agent
+    // stamp - see scanTranscript()'s doc-comment) was previously computed
+    // and silently discarded (dead code: `attributionAgent` was extracted
+    // but never read anywhere in run()). A disagreement is forensically
+    // useful precisely because it can indicate a pairing/sidecar
+    // resolution bug independent of this hook's own logic. Only emitted
+    // when BOTH sides carry a real value and they differ - never a note on
+    // a merely-absent attributionAgent (that transcript field's own
+    // absence has no bearing on whether the resolved `agent` is correct).
+    let agentNote = null;
+    if (attributionAgent && agentName !== 'unknown' && attributionAgent !== agentName) {
+      agentNote = `attributionAgent ("${attributionAgent}") disagrees with resolved agent ("${agentName}")`;
     }
 
     const event = {
@@ -1097,6 +1328,7 @@ async function run() {
         tool_use_id: matchToolUseId,
         agent_id: agentId,
         agent_source: agentSource,
+        ...(agentNote ? { agent_note: agentNote } : {}),
         paired_spawn_id: pairedSpawnId,
         wall_seconds: wallSeconds,
         suspect: suspect,
