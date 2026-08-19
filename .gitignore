@@ -102,3 +102,9 @@ __pycache__/
 # masking a real future bin/ds-* tool: no shipped tool name ends in that
 # suffix, so this pattern can only ever match the test's own residue.
 bin/ds-*-test-fixture
+
+# DS-183 round 2: install-time-generated degrade-path companion for
+# .codex/AGENTS.md, written only when the dinostack skill link is unhealthy
+# at install time (.codex/install.sh). Never a build artifact of
+# .codex/build.sh - it exists only on a machine that hit the degrade path.
+.codex/AGENTS.degraded.md
