@@ -1005,11 +1005,14 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("must not be a symlink", symlink_rejected.stderr)
 
     def test_generated_base_branch_guidance_matches_dispatcher_grammar(self) -> None:
-        paths = [self.repo / ".codex/AGENTS.md"]
-        paths.extend(
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded skill bodies, so `.codex/AGENTS.md` is
+        # deliberately excluded here - it no longer carries this text. Each
+        # skill's own SKILL.md still must.
+        paths = [
             self.repo / f".codex/skills/{skill}/SKILL.md"
             for skill in sorted(SKILL_NAMES)
-        )
+        ]
         for path in paths:
             with self.subTest(path=path.relative_to(self.repo)):
                 text = path.read_text(encoding="utf-8")
@@ -1041,9 +1044,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 self.assertNotIn("$HOME/.claude", preamble)
 
     def test_generated_stop_lifecycle_matches_actual_codex_hook(self) -> None:
-        agents = (self.repo / ".codex/AGENTS.md").read_text(encoding="utf-8")
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded wrap skill body, so `.codex/AGENTS.md`
+        # is deliberately excluded here - it no longer carries this text.
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
-        for label, text in (("AGENTS", agents), ("wrap", wrap)):
+        for label, text in (("wrap", wrap),):
             with self.subTest(surface=label):
                 self.assertIn("~/.codex/projects/[hash]/context.md", text)
                 self.assertIn("context-writer-migration", text)
@@ -1896,10 +1901,18 @@ class CodexSkillGenerationTests(unittest.TestCase):
         )
 
         installed_agents = (home / ".codex/AGENTS.md").read_text(encoding="utf-8")
+        # DS-183 moved this workflow-token guidance out of the always-loaded
+        # `.codex/AGENTS.md` stub into the trigger-loaded dinostack skill's
+        # METHODOLOGY.md, symlinked (not copied) into ~/.agents/skills/ by
+        # install.sh - so the workflow-token assertions below are retargeted
+        # at that installed symlink target rather than installed AGENTS.md.
+        installed_methodology = (
+            home / ".agents/skills/dinostack/METHODOLOGY.md"
+        ).read_text(encoding="utf-8")
         for token in sorted(native_tokens):
-            self.assertIn(token, installed_agents)
+            self.assertIn(token, installed_methodology)
         for token in sorted(skeptic_tokens):
-            self.assertIn(token, installed_agents)
+            self.assertIn(token, installed_methodology)
         self.assertNotIn("$skeptic", installed_agents)
         self.assertNotRegex(installed_agents, r"(?<![\w./-])/ds-[a-z0-9-]+\b")
 
@@ -2084,8 +2097,12 @@ class CodexSkillGenerationTests(unittest.TestCase):
                     offenders.append(f"{relative}: {pattern.pattern}")
         self.assertEqual([], offenders)
 
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded skill bodies, so `.codex/AGENTS.md` is
+        # deliberately excluded from this positive check (it is still covered
+        # by the false_project_local_claims negative check above via
+        # generated_surfaces).
         for relative in (
-            ".codex/AGENTS.md",
             ".codex/skills/wrap/SKILL.md",
             ".codex/skills/implement-ticket/SKILL.md",
         ):
