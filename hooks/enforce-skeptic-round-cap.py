@@ -212,6 +212,21 @@ Upstream deps: Python 3 stdlib only (hashlib, json, os, re, sys, time,
                `_current_branch()`'s `git rev-parse` call also dropped the
                only subprocess dependency this hook had).
 
+Known trade-off (Minor 3, DS-180 round-2 rework): `content/references/
+            skeptic-protocol.md` §Round budget and value-per-round gate items
+            5 (self-inflicted-round rule) and 6 (continue-vs-reshape signal)
+            have no counterpart in the always-loaded kernel
+            (`content/sections/05-qa-gate.md` §Re-route limits) - unlike
+            item 1's cost-to-date wording, which IS mirrored into both.
+            Deliberate: `content/sections/05-qa-gate.md` is embedded
+            verbatim into the generated `.claude/skills/dinostack/SKILL.md`,
+            which sits within a few hundred bytes of
+            `check-skill-embed-budget.sh`'s ceiling (153 B headroom
+            measured at the time item 1's ~110 B addition was made) - items
+            5 and 6 are full paragraphs, not a clause, and do not fit.
+            Read `skeptic-protocol.md` directly for those two items; do not
+            assume kernel parity with this file's docstring.
+
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       Agent tools, matching enforce-tier.py's dual-matcher
                       wiring). Wired via ~/.claude/settings.json by
@@ -234,16 +249,28 @@ Failure modes:
       unrelated units - see the CRITICAL fix note at the top of this
       docstring.
     - A field-6 value in the `<key> | <diff detail>` form (DS-180) whose
-      `key` portion is empty, whitespace-only, contains `..`, or fails
-      the key-shape check (`_STABLE_KEY_SHAPE_RE`): treated as if no `|`
-      were supplied at all - falls through to `_normalize_diff_identity()`
-      on the value's full raw text, not a distinct fail-open case.
+      `key` portion is empty, whitespace-only, contains `..`, fails the
+      key-shape check (`_STABLE_KEY_SHAPE_RE`), or looks like a file path
+      (`_LOOKS_LIKE_FILE_PATH_RE`, DS-180 round-2 rework): treated as if
+      no `|` were supplied at all - falls through to
+      `_normalize_diff_identity()` on the value's full raw text, not a
+      distinct fail-open case.
     - A key-shaped left side that is actually a diff command containing
       an incidental pipe (e.g. `git diff <sha>..<sha> | head -200`): the
       shape gate rejects it (whitespace, and a literal `..`, both fail)
       and it normalizes via the pre-existing SHA-range heuristic exactly
       as it did before this fix - not a stable key, and not a new
       fail-open case.
+    - A key-shaped left side that is actually the first of two or more
+      pipe-separated file paths (a plausible misreading of the
+      pre-implementation-review field-6 contract, `$UNIT_KEY | <paths>`,
+      when `$UNIT_KEY` is omitted): `_LOOKS_LIKE_FILE_PATH_RE` rejects it
+      (file-extension-shaped suffix) and it falls through to
+      `_normalize_diff_identity()` on the full raw text, which keys off
+      the whole (differing) string rather than the shared first path - not
+      a stable key, and not a new collision. See
+      `_extract_stable_unit_key()`'s docstring for the measured collision
+      this closes.
     - Known residual, not a fail-open case: two DIFFERENT units both
       expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
       SHA range with no branch or PR token anywhere in the value - key
@@ -445,6 +472,15 @@ def _normalize_diff_identity(raw: str) -> str:
 # hyphen, slash, and "#" only; no whitespace.
 _STABLE_KEY_SHAPE_RE = re.compile(r"^[A-Za-z0-9._/#-]+$")
 
+# Rejects a left side that ends in a file-extension-shaped suffix (e.g.
+# ".py", ".md", ".ts") - see _extract_stable_unit_key()'s docstring for the
+# measured collision this closes (DS-180 round-2 rework). A real stable key
+# (ticket id, branch name, `$UNIT_KEY`) never ends this way; a bare file
+# path does, by construction. Known residual: a key literal like "v1.2"
+# would false-positive here (documented, not a case any current field-6
+# template produces).
+_LOOKS_LIKE_FILE_PATH_RE = re.compile(r"\.[A-Za-z0-9]{1,5}$")
+
 
 def _extract_stable_unit_key(raw: str) -> str | None:
     """Extract the operator-supplied stable unit key from a "Diff under
@@ -486,18 +522,49 @@ def _extract_stable_unit_key(raw: str) -> str | None:
     - this mirrors the backtick tolerance `_normalize_diff_identity()`
     already has.
 
+    A second regression (DS-180 round-2 rework, this docstring paragraph):
+    on a pre-implementation review, field 6's contract is `$UNIT_KEY | `
+    followed by the FILE PATHS the plan proposes to modify - if the
+    conductor forgets `$UNIT_KEY` and instead pipe-separates two or more
+    file paths (a plausible misreading of "leads with the key, then the
+    paths"), the FIRST path passes every check above (non-empty, no `..`,
+    matches the key charclass - a path like `hooks/foo.py` is valid under
+    all of them) and is silently accepted as the key. Two different units
+    each listing a shared first file with a different second file then
+    collide onto the same counter - measured: `"hooks/enforce-skeptic-
+    round-cap.py | bin/tests/test_enforce_skeptic_round_cap.py"` and
+    `"hooks/enforce-skeptic-round-cap.py | content/references/skeptic-
+    protocol.md"` both normalized to key `hooks-enforce-skeptic-round-
+    cap.py` under the pre-fix logic, while the pre-DS-180 fallback path
+    (`_normalize_diff_identity()` on the full raw text) does NOT collide,
+    because the two full strings differ. `_LOOKS_LIKE_FILE_PATH_RE` closes
+    this: a left side ending in a file-extension-shaped suffix (`.py`,
+    `.md`, `.ts`, ...) is rejected and falls through to
+    `_normalize_diff_identity()` on the full raw value - unchanged
+    pre-DS-180 behavior, and NOT a new collision, since the fallback keys
+    off the whole (differing) string rather than a shared prefix. A real
+    stable key (a ticket id, a branch name, `$UNIT_KEY`) is never
+    file-extension-shaped by construction; see the regex's own comment for
+    the one documented residual false-positive.
+
     Returns None (never a collidable placeholder) when: no `|` is
     present; the text before it is empty/whitespace-only; it contains
-    `..`; or it fails the shape check. In every case the caller falls
-    back to `_normalize_diff_identity()` on the whole value - the
-    unchanged pre-DS-180 behavior.
+    `..`; it fails the shape check; or it looks like a file path (ends in
+    a file-extension-shaped suffix). In every case the caller falls back
+    to `_normalize_diff_identity()` on the whole value - the unchanged
+    pre-DS-180 behavior.
     """
     text = raw.strip().strip("`").strip()
     if "|" not in text:
         return None
     left, _, _rest = text.partition("|")
     left = left.strip()
-    if not left or ".." in left or not _STABLE_KEY_SHAPE_RE.match(left):
+    if (
+        not left
+        or ".." in left
+        or not _STABLE_KEY_SHAPE_RE.match(left)
+        or _LOOKS_LIKE_FILE_PATH_RE.search(left)
+    ):
         return None
     return left
 

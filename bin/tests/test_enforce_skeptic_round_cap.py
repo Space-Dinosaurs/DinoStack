@@ -127,6 +127,19 @@ Test groups:
                                                          with a ROLLING base..head SHA range that changes every
                                                          round, must accumulate on one counter and deny at
                                                          round 4; also asserts the state FILENAME directly.
+ 32. test_pipe_separated_file_paths_no_key_no_collision - Major 1 (round 2) regression: field 6's
+                                                         pre-implementation-review shape (`$UNIT_KEY | <paths>`)
+                                                         with `$UNIT_KEY` omitted and TWO pipe-separated file
+                                                         paths supplied instead - a plausible misreading of the
+                                                         contract - must NOT let the shared first path become a
+                                                         collidable stable key for two otherwise-distinct units;
+                                                         each falls back to its own (differing) legacy identity.
+ 33. test_pipe_no_range_caught_only_by_shape_gate       - Major 2 (round 2) regression: a piped diff command with
+                                                         NO `..`/`...` range in the left side (so the `".." in
+                                                         left` guard cannot catch it) is rejected solely by
+                                                         `_STABLE_KEY_SHAPE_RE` (the whitespace in the piped
+                                                         command) - confirms the shape gate is independently
+                                                         load-bearing, not merely redundant with the `..` check.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -1103,17 +1116,42 @@ def test_stable_key_two_distinct_units_no_collision():
 def test_stable_key_empty_before_pipe_falls_back():
     """DS-180: a `| <diff>` value with nothing before the pipe is not a
     valid key - falls through to `_normalize_diff_identity()` on the
-    full raw value, matching pre-DS-180 behavior for a malformed value."""
+    full raw value, matching pre-DS-180 behavior for a malformed value.
+
+    Round-2 rework (Minor 1): the original version of this test asserted
+    only rc==0, not-denied, and that SOME `.agentic/` tree exists - none
+    of which distinguishes the required "falls back to the legacy raw-text
+    identity" behavior from a bug that captures a collidable placeholder
+    key (e.g. a constant "EMPTY-KEY" string) on an empty left side; both
+    shapes satisfy those three assertions and both write *a* state file.
+    Asserting the exact expected state FILENAME (derived from the raw,
+    un-keyed "Diff under review" value, matching every other stable-key
+    test in this file) closes that gap - confirmed failing pre-fix (see
+    the module docstring's regression-test obligation): mutating
+    `_extract_stable_unit_key()` to `return "EMPTY-KEY"` on an empty left
+    side reddens this assertion, because the written filename then derives
+    from the placeholder instead of the raw value."""
     with tempfile.TemporaryDirectory() as tmp:
         diff_line = "6. Diff under review:  | git diff origin/main...feature/x"
+        # The regex captures from the first non-whitespace, non-"*" char -
+        # here that is the "|" itself, so the raw identity text handed to
+        # `_normalize_diff_identity()` (and therefore hashed into the
+        # filename) is this exact string, unchanged (not a diff-range
+        # shape, so strategy 4 - "return raw text unchanged" - applies).
+        raw_identity = "| git diff origin/main...feature/x"
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(raw_identity)}.json"
+        )
         rc, parsed = _run_hook(
             _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
         )
         assert rc == 0
         assert not _is_denied(parsed)
-        assert (Path(tmp) / ".agentic").exists(), (
-            "an empty key before the pipe must still fall back to the legacy "
-            "raw-text path and write state, not fail open with nothing written"
+        assert expected_path.exists(), (
+            "an empty key before the pipe must fall back to the legacy "
+            "raw-text-derived state filename, not a collidable placeholder "
+            f"key - expected {expected_path.name!r}, found "
+            f"{[p.name for p in (Path(tmp) / '.agentic').glob('skeptic-round-*.json')]}"
         )
 
 
@@ -1204,6 +1242,103 @@ def test_stable_key_backticked_whole_value_accepts():
 
         state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
         assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
+
+
+def test_pipe_separated_file_paths_no_key_no_collision():
+    """Major 1 (round 2) regression: field 6's pre-implementation-review
+    contract is `$UNIT_KEY | <file paths>` (content/commands/
+    ds-implement-ticket.md's Architect-plan-review substitution). A
+    conductor who omits `$UNIT_KEY` and instead pipe-separates two file
+    paths (a plausible misreading - "leads with the key, then the paths")
+    must NOT have the shared first path silently accepted as a stable
+    key: two otherwise-distinct units sharing that first path (but
+    differing in their second path) would then collide onto ONE round
+    counter, denying the second unit's first review at a cap it never
+    reached. Executed proof this closes: pre-fix, both values below
+    normalized to the SAME key (`hooks-enforce-skeptic-round-cap.py-<hash
+    of that literal string>`); the pre-DS-180 fallback path
+    (`_normalize_diff_identity()` on the FULL raw text) does not collide,
+    because the two full strings differ - confirmed by this test failing
+    (both units landing on one state file, unit B denied at round 1) when
+    run against the pre-fix `_extract_stable_unit_key()` with
+    `_LOOKS_LIKE_FILE_PATH_RE`'s check removed."""
+    value_a = "hooks/enforce-skeptic-round-cap.py | bin/tests/test_enforce_skeptic_round_cap.py"
+    value_b = "hooks/enforce-skeptic-round-cap.py | content/references/skeptic-protocol.md"
+    with tempfile.TemporaryDirectory() as tmp:
+        path_a = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(value_a)}.json"
+        )
+        path_b = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(value_b)}.json"
+        )
+        assert path_a != path_b, "test setup bug: the two fallback identities must differ"
+
+        # Unit A burns its whole budget.
+        for i in range(1, 4):
+            diff_line = f"- **Diff under review:** {value_a}"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, diff_line, what_to_review=f"unit-a fix {i}")
+            )
+            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
+        diff_line = f"- **Diff under review:** {value_a}"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="unit-a fix 4")
+        )
+        assert _is_denied(parsed), "unit A must be denied its 4th round"
+
+        # Unit B's first round, from the SAME cwd, sharing unit A's first
+        # pipe-segment, must still be allowed - the exact collision this
+        # fix closes.
+        diff_line = f"- **Diff under review:** {value_b}"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="unit-b fix 1")
+        )
+        assert not _is_denied(parsed), (
+            "unit B's first round must not inherit unit A's exhausted "
+            "budget merely because both values share a leading file path"
+        )
+        assert path_a.exists() and path_b.exists()
+        state_a = json.loads(path_a.read_text())
+        state_b = json.loads(path_b.read_text())
+        assert state_a["round_count"] == 3
+        assert state_b["round_count"] == 1
+
+        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert len(state_files) == 2, f"expected 2 independent state files, got {state_files}"
+
+
+def test_pipe_no_range_caught_only_by_shape_gate():
+    """Major 2 (round 2) regression: `_STABLE_KEY_SHAPE_RE` is the SOLE
+    guard for a piped command containing no `..`/`...` range anywhere in
+    the left side - the `".." in left` check cannot fire on this shape.
+    Confirmed load-bearing by direct mutation: widening
+    `_STABLE_KEY_SHAPE_RE` to admit whitespace (`^[A-Za-z0-9._/# -]+$`,
+    the round-1 review's exact executed mutation) reddens this test,
+    because the left side `git diff HEAD` then passes every remaining
+    check and is accepted as the stable key `git-diff-HEAD` instead of
+    falling back to `_normalize_diff_identity()`'s legacy path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        diff_line = "6. Diff under review: git diff HEAD | head -200"
+        # No ".." anywhere in "git diff HEAD | head -200" - only the shape
+        # gate's whitespace rejection can catch this. The fallback
+        # (_normalize_diff_identity on the full raw text) does not match
+        # _DIFF_RANGE_RE (no ".." range at all), so it returns the raw
+        # text unchanged (strategy 4).
+        raw_identity = "git diff HEAD | head -200"
+        expected_path = (
+            Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(raw_identity)}.json"
+        )
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 1")
+        )
+        assert not _is_denied(parsed)
+        assert expected_path.exists(), (
+            "expected the value to fall back to the full-raw-text legacy "
+            f"identity, not be accepted as a stable key - found "
+            f"{[p.name for p in (Path(tmp) / '.agentic').glob('skeptic-round-*.json')]}"
+        )
+        state = json.loads(expected_path.read_text())
+        assert state["round_count"] == 1
 
 
 if __name__ == "__main__":
