@@ -60,7 +60,7 @@ DinoStack/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
   .codex/               Codex CLI adapter (AGENTS.md, four native skills, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
-  .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
+  .gemini/              Gemini CLI adapter (skill, GEMINI.md stub, agents, commands, install/uninstall)
   .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
   .opencode/            OpenCode adapter (skill, agents, commands, install/uninstall)
   .pi/                  Pi coding agent adapter (skill, prompts, install/uninstall)
