@@ -11,19 +11,23 @@
 #          (count below EXPECTED_SECTION_COUNT) - the deleted-section
 #          tautology this gate exists to close.
 #
-#          DS-182 added an informational git-based "burn" line to the
-#          OK-path output (no delta axis, deliberately - see the gate
+#          DS-182 added an informational git-based "burn" line (a B/day
+#          rate, not a raw delta) to EVERY exit path - OK, BELOW FLOOR, and
+#          ABOVE CEILING alike (no delta axis, deliberately - see the gate
 #          script's own header comment for why a generated artifact gets a
 #          burn line instead of a hard per-PR delta limit). build_fixture()
 #          above has always built a pure-filesystem-copy fixture with NO
 #          `git init` at all - verified by its absence in that function -
 #          so every existing scenario above already exercises the burn
-#          line's SKIPPED/omitted-degrade path without a single line
-#          changed; the new scenarios below add an explicit assertion for
-#          that instead of leaving it implicit, plus a second, git-backed
-#          fixture builder (build_git_fixture) for the scenario that needs
-#          a real base commit to diff against: the burn line rendering
-#          before the final `headroom:` line with the exit code unchanged.
+#          line's SKIPPED-degrade path (it never prints a blank line, per
+#          budget_burn_line's contract) without a single line changed; the
+#          new scenarios below add an explicit assertion for that instead
+#          of leaving it implicit, plus a second, git-backed fixture
+#          builder (build_git_fixture) for the scenario that needs a real
+#          base commit to diff against: the burn line rendering before the
+#          final `headroom to ceiling:` line (the restored pre-DS-182
+#          wording bin/ds-evaluate's summary depends on) with the exit
+#          code unchanged.
 #
 # Public API: ./bin/tests/test_check_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -233,22 +237,25 @@ else
 fi
 
 # --- Scenario 1b (DS-182): build_fixture() above never runs `git init` -
-#     the burn line therefore degrades to omitted against this same
-#     non-git PARITY_DIR fixture, and $bash_out from Scenario 1 already
-#     captured that run's output - assert its absence explicitly, and that
-#     the output still ends with the `headroom:` line (no partial line
-#     left behind by an aborted burn-line attempt). ---
-if echo "$bash_out" | grep -q "burn ("; then
-  _fail "burn line appeared against a non-git fixture (expected omitted): $bash_out"
+#     the burn line therefore renders its "SKIPPED (base unresolvable)"
+#     variant against this same non-git PARITY_DIR fixture (never a blank
+#     line, per budget_burn_line's contract), and $bash_out from
+#     Scenario 1 already captured that run's output - assert the SKIPPED
+#     text explicitly, and that the output still ends with the
+#     `headroom to ceiling:` line (the restored pre-DS-182 wording;
+#     bin/ds-evaluate's _collect_budget_gates depends on this exact
+#     lines[-1] text as this gate's summary). ---
+if echo "$bash_out" | grep -q "burn: SKIPPED (base unresolvable)"; then
+  _pass "burn line renders its SKIPPED variant (not a crash, not a blank line) against a non-git fixture"
 else
-  _pass "burn line is omitted (not a crash, not a partial line) against a non-git fixture"
+  _fail "burn line did not render SKIPPED against a non-git fixture: $bash_out"
 fi
 
 parity_last_line="$(echo "$bash_out" | grep -v '^[[:space:]]*$' | tail -1)"
-if [[ "$parity_last_line" == "  headroom:"*"B" ]]; then
-  _pass "non-git fixture's last output line is still the headroom: line"
+if [[ "$parity_last_line" == "  headroom to ceiling:"*"B" ]]; then
+  _pass "non-git fixture's last output line is still the headroom to ceiling: line"
 else
-  _fail "non-git fixture's last output line is [$parity_last_line], expected a headroom: line"
+  _fail "non-git fixture's last output line is [$parity_last_line], expected a headroom to ceiling: line"
 fi
 
 # --- Scenario 2: below FLOOR fails as an embed regression ---
@@ -271,6 +278,16 @@ else
   _fail "below-floor fixture did not print BELOW FLOOR: $floor_out"
 fi
 
+# DS-182 Major 2 regression coverage: the burn line must render on the
+# BELOW FLOOR failure path too, not only the OK path - mutation that
+# would redden this: move the `burn_line="$(budget_burn_line ...)"` call
+# back to after the FLOOR/CEILING checks (its pre-fix position).
+if echo "$floor_out" | grep -q "burn: SKIPPED"; then
+  _pass "below-floor fixture still renders the burn line before exiting"
+else
+  _fail "below-floor fixture did not render the burn line: $floor_out"
+fi
+
 # --- Scenario 3: above CEILING fails with the safety-boundary framing ---
 CEILING_DIR="$TMP_ROOT/ceiling"
 ceiling_fail_size=$(( CEILING + 1 ))
@@ -289,6 +306,14 @@ if echo "$ceiling_out" | grep -q "ABOVE CEILING"; then
   _pass "above-ceiling fixture prints ABOVE CEILING"
 else
   _fail "above-ceiling fixture did not print ABOVE CEILING: $ceiling_out"
+fi
+
+# DS-182 Major 2 regression coverage: the burn line must render on the
+# ABOVE CEILING failure path too, not only the OK path.
+if echo "$ceiling_out" | grep -q "burn: SKIPPED"; then
+  _pass "above-ceiling fixture still renders the burn line before exiting"
+else
+  _fail "above-ceiling fixture did not render the burn line: $ceiling_out"
 fi
 
 expected_overage=1
@@ -516,30 +541,39 @@ if command -v git >/dev/null 2>&1; then
     _fail "burn-line fixture exited $burn_rc (expected 0): $burn_out"
   fi
 
-  if echo "$burn_out" | grep -q "burn (vs origin/main): +777 B"; then
-    _pass "burn-line fixture reports the correct +777 B delta vs origin/main"
+  # base_size's commit was made moments ago by build_git_fixture, so the
+  # whole-day span floors to 1 and burn_per_day == the raw delta (+777 B)
+  # exactly - deterministic, not time-dependent. days_to_limit =
+  # (CEILING - current_size) / 777, same integer-division truncation the
+  # gate script itself performs.
+  expected_headroom_to_ceiling=$(( CEILING - current_size ))
+  expected_days_to_limit=$(( expected_headroom_to_ceiling / 777 ))
+  expected_burn_line="burn: 777 B/day over 1 d - ${expected_days_to_limit} d to limit"
+
+  if echo "$burn_out" | grep -qF "$expected_burn_line"; then
+    _pass "burn-line fixture reports the correct B/day burn rate and days-to-limit"
   else
-    _fail "burn-line fixture did not report +777 B: $burn_out"
+    _fail "burn-line fixture did not report [$expected_burn_line]: $burn_out"
   fi
 
-  burn_line_pos="$(echo "$burn_out" | grep -n "burn (" | head -1 | cut -d: -f1)"
-  headroom_line_pos="$(echo "$burn_out" | grep -n "headroom:" | head -1 | cut -d: -f1)"
+  burn_line_pos="$(echo "$burn_out" | grep -n "^  burn:" | head -1 | cut -d: -f1)"
+  headroom_line_pos="$(echo "$burn_out" | grep -n "headroom to ceiling:" | head -1 | cut -d: -f1)"
   if [[ -n "$burn_line_pos" && -n "$headroom_line_pos" && "$burn_line_pos" -lt "$headroom_line_pos" ]]; then
-    _pass "burn line renders before the final headroom: line"
+    _pass "burn line renders before the final headroom to ceiling: line"
   else
-    _fail "burn line did not render before headroom: line (burn@[$burn_line_pos], headroom@[$headroom_line_pos]): $burn_out"
+    _fail "burn line did not render before headroom to ceiling: line (burn@[$burn_line_pos], headroom@[$headroom_line_pos]): $burn_out"
   fi
 
   burn_last_line="$(echo "$burn_out" | grep -v '^[[:space:]]*$' | tail -1)"
-  if [[ "$burn_last_line" == "  headroom:"*"B" ]]; then
-    _pass "burn-line fixture's lines[-1] is still the headroom: line"
+  if [[ "$burn_last_line" == "  headroom to ceiling:"*"B" ]]; then
+    _pass "burn-line fixture's lines[-1] is still the headroom to ceiling: line (the exact pre-DS-182 wording bin/ds-evaluate's summary depends on)"
   else
-    _fail "burn-line fixture's lines[-1] is [$burn_last_line], expected a headroom: line"
+    _fail "burn-line fixture's lines[-1] is [$burn_last_line], expected a headroom to ceiling: line"
   fi
 elif [[ -n "${CI:-}" ]]; then
   _fail "git absent on PATH in CI - the DS-182 git-backed burn-line scenario cannot be skipped here"
 else
-  echo "SKIP: git not found on PATH - skipping the DS-182 git-backed burn-line scenario (non-git omitted-degrade coverage above still applies)"
+  echo "SKIP: git not found on PATH - skipping the DS-182 git-backed burn-line scenario (non-git SKIPPED-degrade coverage above still applies)"
 fi
 
 # --- Scenario 10 (DS-182): the resident-budget.yml check-skill-embed-
@@ -553,7 +587,15 @@ RESIDENT_WORKFLOW_FILE="$REPO_DIR/.github/workflows/resident-budget.yml"
 if [[ ! -f "$RESIDENT_WORKFLOW_FILE" ]]; then
   _fail "$RESIDENT_WORKFLOW_FILE not found"
 else
-  skill_embed_job_block="$(awk '/^  check-skill-embed-budget:/,0' "$RESIDENT_WORKFLOW_FILE")"
+  # Bounded to the check-skill-embed-budget job's own block: stops at the
+  # next 2-space-indented "key:"-only line (i.e. the next job header), not
+  # read-to-EOF - a job appended after this one in the workflow file would
+  # otherwise silently bleed into the asserted block.
+  skill_embed_job_block="$(awk '
+    /^  check-skill-embed-budget:$/ { found=1; print; next }
+    found && /^  [A-Za-z0-9_-]+:$/ { exit }
+    found { print }
+  ' "$RESIDENT_WORKFLOW_FILE")"
   if echo "$skill_embed_job_block" | grep -q 'fetch-depth: 0'; then
     _pass "resident-budget.yml's check-skill-embed-budget job carries fetch-depth: 0"
   else

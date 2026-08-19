@@ -362,7 +362,7 @@ with open('$OVER_LIMIT_DIR/content/commands/ds-implement-ticket.md', 'a') as f:
   set +e
   over_limit_out="$(cd "$OVER_LIMIT_DIR" && bash scripts/check-command-file-budget.sh 2>&1)"
   over_limit_rc=$?
-  set -e
+  set +e
 
   if [[ $over_limit_rc -ne 0 ]]; then
     _pass "delta over DELTA_LIMIT_BYTES fails"

@@ -27,7 +27,7 @@
 #             command line so the overage surfaces as a GitHub Actions
 #             annotation, not just job-log text), or when the input file
 #             is missing. The delta axis DEGRADES TO SKIPPED (never a
-#             failure by itself) when git is absent, the cwd is not a git
+#             failure by itself) when git is absent, REPO_DIR is not a git
 #             work tree, no base ref resolves, or the file did not exist
 #             at the resolved base ref (a newly-created file has nothing
 #             to diff against) - only THRESHOLD_BYTES can fail in any of
@@ -35,13 +35,18 @@
 #
 # Upstream deps: content/commands/ds-implement-ticket.md;
 #                scripts/lib/budget-gate.sh (shared repo-dir resolution,
-#                byte measurement, OK/OVER-BUDGET report shape, and the
-#                budget_base_resolve/budget_delta git-based delta helpers -
-#                see that file for the two sibling gates it also backs).
-#                The delta axis additionally depends on `git` being on
-#                PATH and a resolvable base ref (origin/main or main); see
-#                Failure modes below for what happens when either is
-#                missing.
+#                byte measurement, the budget_eval OK/OVER-BUDGET report
+#                shape, and the budget_base_resolve/budget_delta git-based
+#                delta helpers - see that file for the two sibling gates
+#                it also backs). Calls budget_eval directly (not the
+#                exit-calling budget_report wrapper), since a delta breach
+#                must still let the THRESHOLD_BYTES report run and print
+#                before this script decides its own combined exit code -
+#                see the delta_over/threshold_ok combination below and
+#                Failure modes. The delta axis additionally depends on
+#                `git` being on PATH and a resolvable base ref
+#                (origin/main or main); see Failure modes below for what
+#                happens when either is missing.
 #
 # Downstream consumers: .github/workflows/command-file-budget.yml (needs
 #                        `fetch-depth: 0` on its checkout step so the delta
@@ -56,19 +61,23 @@
 #                        either axis like any other check; it does not
 #                        swallow its own exit code.
 #
-# Failure modes: over THRESHOLD_BYTES -> exit 1 with byte count,
-#                THRESHOLD_BYTES, and overage printed to stderr plus a
-#                `::error::` annotation line. Over DELTA_LIMIT_BYTES ->
-#                exit 1 with a message naming the delta axis distinctly
-#                from the THRESHOLD_BYTES axis, plus its own `::error::`
-#                annotation - checked and reported BEFORE the
-#                THRESHOLD_BYTES budget_report call, so a delta breach
-#                short-circuits before that call runs. Delta axis
-#                unresolvable (no git, not a work tree, no base ref, or
-#                path absent at base) -> SKIPPED, printed as a distinct
-#                extra-context line on the THRESHOLD_BYTES report, never a
-#                failure by itself. Missing input file -> exit 1.
-#                Read-only; no side effects on the repo.
+# Failure modes: over THRESHOLD_BYTES -> `::error::` annotation with byte
+#                count, THRESHOLD_BYTES, and overage, then the
+#                budget_eval OK/OVER-BUDGET report itself (to stderr on
+#                overage). Over DELTA_LIMIT_BYTES -> a message naming the
+#                delta axis distinctly from THRESHOLD_BYTES, plus its own
+#                `::error::` annotation, recorded via delta_over=1 rather
+#                than exiting immediately - the THRESHOLD_BYTES
+#                budget_eval report always still runs after it, so both
+#                axes' reports are visible when both are over budget in
+#                the same run. The script's own exit code is 1 whenever
+#                EITHER axis failed (delta_over=1 OR the budget_eval call
+#                returned non-zero), 0 only when both passed. Delta axis
+#                unresolvable (no git, REPO_DIR not a work tree, no base
+#                ref, or path absent at base) -> SKIPPED, printed as a
+#                distinct extra-context line on the THRESHOLD_BYTES
+#                report, never a failure by itself. Missing input file ->
+#                exit 1. Read-only; no side effects on the repo.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
 # always invokes it as `bash scripts/check-command-file-budget.sh`, but a
@@ -111,6 +120,24 @@ THRESHOLD_BYTES=371000
 # file already sees. Lower this value in the same commit as any
 # deliberate policy tightening; re-derive rather than hand-adjusting if
 # the growth pattern changes materially.
+#
+# Re-derivation command (run from the repo root; reproduces
+# max_observed_delta=29941 at d644217c5bb6ce8b1c04a9cf06367d8e7dc1bca6 on
+# the history it was derived from - re-run to pick up new commits before
+# raising or lowering this constant):
+#
+#   git log --first-parent --format=%H \
+#     -- content/commands/ds-implement-ticket.md \
+#   | while read -r sha; do
+#       parent=$(git rev-parse "$sha^" 2>/dev/null) || continue
+#       before=$(git cat-file -s \
+#         "$parent:content/commands/ds-implement-ticket.md" 2>/dev/null) \
+#         || continue
+#       after=$(git cat-file -s \
+#         "$sha:content/commands/ds-implement-ticket.md" 2>/dev/null) \
+#         || continue
+#       echo "$sha $(( after - before ))"
+#     done | sort -k2 -n | tail -1
 DELTA_LIMIT_BYTES=32936
 
 TARGET_FILE="$REPO_DIR/content/commands/ds-implement-ticket.md"
@@ -128,12 +155,17 @@ if [ "$file_bytes" -gt "$THRESHOLD_BYTES" ]; then
 fi
 
 # Per-PR delta axis: degrades to SKIPPED (never a failure) when git is
-# absent, the cwd is not a work tree, no base ref resolves, or the file
+# absent, REPO_DIR is not a work tree, no base ref resolves, or the file
 # did not exist at the resolved base ref - see scripts/lib/budget-gate.sh
-# for the full contract of budget_base_resolve/budget_delta.
-base_ref="$(budget_base_resolve)" || base_ref=""
+# for the full contract of budget_base_resolve/budget_delta. A delta
+# breach is recorded (delta_over=1) rather than exiting immediately here,
+# so the THRESHOLD_BYTES report below still runs and prints even when
+# both axes are over budget in the same run - the operator sees both
+# reports, not just whichever axis happened to be checked first.
+base_ref="$(budget_base_resolve "$REPO_DIR")" || base_ref=""
 
 delta_line=""
+delta_over=0
 if [ -n "$base_ref" ]; then
   if delta_bytes="$(budget_delta "$REPO_DIR" "$TARGET_FILE" "$base_ref")"; then
     sign=""
@@ -142,6 +174,7 @@ if [ -n "$base_ref" ]; then
     fi
     delta_line="delta (vs $base_ref): ${sign}${delta_bytes} B (limit $DELTA_LIMIT_BYTES B)"
     if [ "$delta_bytes" -gt "$DELTA_LIMIT_BYTES" ]; then
+      delta_over=1
       echo "::error::content/commands/ds-implement-ticket.md grew by $delta_bytes B vs $base_ref, over the $DELTA_LIMIT_BYTES B per-PR delta limit" >&2
       echo "check-command-file-budget.sh: OVER DELTA LIMIT" >&2
       echo "  delta axis (vs $base_ref): +${delta_bytes} B" >&2
@@ -153,7 +186,6 @@ if [ -n "$base_ref" ]; then
       echo "regardless of which PR contributed it. Trim this PR's addition, or" >&2
       echo "if the growth is deliberate and justified, raise DELTA_LIMIT_BYTES" >&2
       echo "in scripts/check-command-file-budget.sh in the same PR." >&2
-      exit 1
     fi
   else
     delta_line="delta (vs $base_ref): SKIPPED (absent at base)"
@@ -166,10 +198,20 @@ remediation="content/commands/ds-implement-ticket.md grew past its budget.
 Trim content or, if the growth is deliberate and justified, raise
 THRESHOLD_BYTES in scripts/check-command-file-budget.sh in the same PR."
 
-budget_report \
+threshold_ok=1
+if budget_eval \
   "command file budget check" \
   "ds-implement-ticket.md" \
   "$file_bytes" \
   "$THRESHOLD_BYTES" \
   "$remediation" \
-  "$delta_line"
+  "$delta_line"; then
+  threshold_ok=1
+else
+  threshold_ok=0
+fi
+
+if [ "$delta_over" -eq 1 ] || [ "$threshold_ok" -eq 0 ]; then
+  exit 1
+fi
+exit 0

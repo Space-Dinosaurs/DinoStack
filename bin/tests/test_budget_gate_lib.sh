@@ -316,10 +316,10 @@ _build_git_fixture() {
 #     nothing and returns 1. ---
 NONGIT_DIR="$TMP_ROOT/nongit"
 mkdir -p "$NONGIT_DIR"
-nongit_resolve_out="$(cd "$NONGIT_DIR" && bash -c '
+nongit_resolve_out="$(bash -c '
 set -uo pipefail
 source "'"$GATE_LIB"'"
-budget_base_resolve
+budget_base_resolve "'"$NONGIT_DIR"'"
 ' 2>&1)"
 nongit_resolve_rc=$?
 
@@ -342,10 +342,10 @@ if command -v git >/dev/null 2>&1; then
   ORIGIN_FIXTURE_DIR="$TMP_ROOT/origin_fixture"
   _build_git_fixture "$ORIGIN_FIXTURE_DIR" "hello"
 
-  origin_resolve_out="$(cd "$ORIGIN_FIXTURE_DIR" && bash -c '
+  origin_resolve_out="$(bash -c '
 set -uo pipefail
 source "'"$GATE_LIB"'"
-budget_base_resolve
+budget_base_resolve "'"$ORIGIN_FIXTURE_DIR"'"
 ')"
 
   if [[ "$origin_resolve_out" == "origin/main" ]]; then
@@ -357,10 +357,10 @@ budget_base_resolve
   # --- Scenario 10: with the origin remote removed, budget_base_resolve
   #     falls back to the bare local "main" branch. ---
   git -C "$ORIGIN_FIXTURE_DIR" remote remove origin
-  noorigin_resolve_out="$(cd "$ORIGIN_FIXTURE_DIR" && bash -c '
+  noorigin_resolve_out="$(bash -c '
 set -uo pipefail
 source "'"$GATE_LIB"'"
-budget_base_resolve
+budget_base_resolve "'"$ORIGIN_FIXTURE_DIR"'"
 ')"
 
   if [[ "$noorigin_resolve_out" == "main" ]]; then
@@ -440,9 +440,14 @@ budget_delta "'"$ABSENT_AT_BASE_DIR"'" "'"$ABSENT_AT_BASE_DIR"'/new-file.txt" "o
   fi
 
   # --- Scenario 14: budget_burn_line renders exactly one line and ALWAYS
-  #     returns 0 - both when a base resolves (informational delta shown)
-  #     and when it does not (line omitted, still rc=0, never a partial
-  #     line). ---
+  #     returns 0 - both when a base resolves (a "B/day" burn-rate line)
+  #     and when it does not (a distinct "burn: SKIPPED (...)" line,
+  #     never a blank output, still rc=0). $DELTA_GROW_DIR's base commit
+  #     was made moments ago by _build_git_fixture, so the whole-day span
+  #     floors to 1 - burn_per_day == delta_bytes exactly (+30 B), making
+  #     the expected output deterministic rather than time-dependent.
+  #     Mutation that would redden this: swap the headroom/burn_per_day
+  #     division order, or drop the "floor at 1 day" clamp. ---
   burn_resolvable_out="$(bash -c '
 set -euo pipefail
 source "'"$GATE_LIB"'"
@@ -456,10 +461,13 @@ budget_burn_line "'"$DELTA_GROW_DIR"'" "'"$DELTA_GROW_DIR"'/target.txt" 999999 1
     _fail "budget_burn_line returned $burn_resolvable_rc when the base resolves (expected 0)"
   fi
 
-  if echo "$burn_resolvable_out" | grep -q "origin/main"; then
-    _pass "budget_burn_line names the resolved base ref"
+  # headroom = 999999 - 130 = 999869; burn_per_day = 30 (delta / 1-day
+  # floor); days_to_limit = 999869 / 30 = 33328 (integer division).
+  expected_burn_line="burn: 30 B/day over 1 d - 33328 d to limit"
+  if [[ "$burn_resolvable_out" == "$expected_burn_line" ]]; then
+    _pass "budget_burn_line reports the correct B/day burn rate and days-to-limit"
   else
-    _fail "budget_burn_line did not name the resolved base ref: $burn_resolvable_out"
+    _fail "budget_burn_line reported [$burn_resolvable_out], expected [$expected_burn_line]"
   fi
 
   burn_line_count="$(printf '%s\n' "$burn_resolvable_out" | wc -l | tr -d '[:space:]')"
@@ -469,7 +477,7 @@ budget_burn_line "'"$DELTA_GROW_DIR"'" "'"$DELTA_GROW_DIR"'/target.txt" 999999 1
     _fail "budget_burn_line printed $burn_line_count lines when the base resolves (expected 1): $burn_resolvable_out"
   fi
 
-  burn_unresolvable_out="$(cd "$NONGIT_DIR" && bash -c '
+  burn_unresolvable_out="$(bash -c '
 set -euo pipefail
 source "'"$GATE_LIB"'"
 budget_burn_line "'"$NONGIT_DIR"'" "'"$NONGIT_DIR"'/nope.txt" 999999 130
@@ -482,10 +490,32 @@ budget_burn_line "'"$NONGIT_DIR"'" "'"$NONGIT_DIR"'/nope.txt" 999999 130
     _fail "budget_burn_line returned $burn_unresolvable_rc when the base is unresolvable (expected 0)"
   fi
 
-  if [[ -z "$burn_unresolvable_out" ]]; then
-    _pass "budget_burn_line prints nothing (no partial line) when the base is unresolvable"
+  if [[ "$burn_unresolvable_out" == "burn: SKIPPED (base unresolvable)" ]]; then
+    _pass "budget_burn_line renders a distinct SKIPPED line (never blank) when the base is unresolvable"
   else
-    _fail "budget_burn_line printed [$burn_unresolvable_out] when the base is unresolvable (expected nothing)"
+    _fail "budget_burn_line printed [$burn_unresolvable_out] when the base is unresolvable, expected [burn: SKIPPED (base unresolvable)]"
+  fi
+
+  # --- Scenario 15: budget_burn_line renders a distinct SKIPPED line
+  #     (never blank) when the path is absent at the resolved base ref -
+  #     mirrors budget_delta's own absent-at-base contract. ---
+  burn_absent_out="$(bash -c '
+set -euo pipefail
+source "'"$GATE_LIB"'"
+budget_burn_line "'"$ABSENT_AT_BASE_DIR"'" "'"$ABSENT_AT_BASE_DIR"'/new-file.txt" 999999 130
+')"
+  burn_absent_rc=$?
+
+  if [[ $burn_absent_rc -eq 0 ]]; then
+    _pass "budget_burn_line returns 0 when the path is absent at base"
+  else
+    _fail "budget_burn_line returned $burn_absent_rc when the path is absent at base (expected 0)"
+  fi
+
+  if [[ "$burn_absent_out" == "burn: SKIPPED (absent at base origin/main)" ]]; then
+    _pass "budget_burn_line renders a distinct SKIPPED line when the path is absent at base"
+  else
+    _fail "budget_burn_line printed [$burn_absent_out] when the path is absent at base, expected [burn: SKIPPED (absent at base origin/main)]"
   fi
 elif [[ -n "${CI:-}" ]]; then
   _fail "git absent on PATH in CI - the DS-182 git-backed scenarios cannot be skipped here"

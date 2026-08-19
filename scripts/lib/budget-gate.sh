@@ -53,20 +53,32 @@
 #                                                          report is the
 #                                                          script's last
 #                                                          action.
-#             budget_base_resolve [base_branch]        -> prints a
+#             budget_base_resolve <repo_dir> [base_branch]
+#                                                       -> prints a
 #                                                          resolvable git
 #                                                          ref for
 #                                                          <base_branch>
-#                                                          (default "main"):
+#                                                          (default "main"),
+#                                                          resolved against
+#                                                          <repo_dir> (via
+#                                                          `git -C
+#                                                          <repo_dir>`, never
+#                                                          the caller's own
+#                                                          cwd - keeps this
+#                                                          in sync with
+#                                                          budget_delta,
+#                                                          which always
+#                                                          takes an explicit
+#                                                          <repo_dir> too):
 #                                                          tries
 #                                                          "origin/<b>" then
 #                                                          "<b>". Prints
 #                                                          nothing and
 #                                                          RETURNS 1 when
 #                                                          git is absent,
-#                                                          the cwd is not a
-#                                                          git work tree, or
-#                                                          neither ref
+#                                                          <repo_dir> is not
+#                                                          a git work tree,
+#                                                          or neither ref
 #                                                          resolves.
 #                                                          Callers MUST
 #                                                          treat a 1 return
@@ -104,25 +116,64 @@
 #             budget_burn_line <repo_dir> <path> <limit> <current_bytes>
 #                                                       -> prints exactly
 #                                                          one informational
-#                                                          line and ALWAYS
-#                                                          returns 0 - no
-#                                                          threshold check,
-#                                                          no `::warning::`,
-#                                                          no effect on
-#                                                          caller exit
-#                                                          status. Prints
-#                                                          nothing (and
+#                                                          line of the form
+#                                                          "burn: <B_per_day>
+#                                                          B/day over <D> d
+#                                                          - <N> d to limit"
+#                                                          (the trailing
+#                                                          "- <N> d to
+#                                                          limit" clause is
+#                                                          OMITTED, not
+#                                                          zero-filled, when
+#                                                          the computed
+#                                                          burn rate is <= 0
+#                                                          - dividing a
+#                                                          non-positive
+#                                                          headroom-per-day
+#                                                          into a days-to-
+#                                                          limit figure is
+#                                                          meaningless) and
+#                                                          ALWAYS returns 0
+#                                                          - no threshold
+#                                                          check, no
+#                                                          `::warning::`, no
+#                                                          effect on caller
+#                                                          exit status. <D>
+#                                                          is the whole-day
+#                                                          span between the
+#                                                          resolved base
+#                                                          ref's own commit
+#                                                          date and now
+#                                                          (floored at 1 so
+#                                                          a same-day base
+#                                                          never divides by
+#                                                          zero); <B_per_day>
+#                                                          is
+#                                                          budget_delta's
+#                                                          signed byte delta
+#                                                          since that base
+#                                                          divided by <D>;
+#                                                          <N> is
+#                                                          (<limit> -
+#                                                          <current_bytes>)
+#                                                          divided by
+#                                                          <B_per_day>, only
+#                                                          when that is
+#                                                          positive. Prints
+#                                                          a distinct
+#                                                          "burn: SKIPPED
+#                                                          (...)" line (and
 #                                                          still returns 0)
 #                                                          when the base is
-#                                                          unresolvable, so
-#                                                          a caller can
-#                                                          unconditionally
-#                                                          `echo` its
-#                                                          (possibly empty)
-#                                                          output without
-#                                                          checking a
-#                                                          return code
-#                                                          first.
+#                                                          unresolvable, the
+#                                                          path is absent at
+#                                                          base, or the base
+#                                                          ref's commit date
+#                                                          cannot be read -
+#                                                          this function
+#                                                          never prints
+#                                                          nothing and never
+#                                                          fails.
 #
 # Upstream deps: bash/zsh builtins, `wc`. budget_base_resolve/
 #                budget_delta additionally depend on `git` being present
@@ -134,11 +185,17 @@
 # Downstream consumers: scripts/check-resident-budget.sh (unchanged - no
 #                        git axis, still calls budget_report exactly as
 #                        before DS-182); scripts/check-skill-embed-budget.sh
-#                        (converted its OK-path tail to budget_eval and
-#                        added an informational budget_burn_line call - no
+#                        (hand-rolls its own OK-path report rather than
+#                        calling budget_eval/budget_report at all - see
+#                        that script's own header comment for why - and
+#                        calls budget_burn_line for the informational
+#                        burn-rate line printed on every exit path; no
 #                        delta axis); scripts/check-command-file-budget.sh
-#                        (added a budget_delta-based per-PR delta axis,
-#                        passed to budget_report as an extra-context line).
+#                        (added a budget_delta-based per-PR delta axis and
+#                        calls budget_eval directly, not budget_report, so
+#                        a delta breach can still let the THRESHOLD_BYTES
+#                        report run before this script decides its own
+#                        combined exit code).
 #
 # Failure modes: budget_file_bytes exits nonzero (via set -e in the
 #                sourcing script) if the target path does not exist -
@@ -248,13 +305,7 @@ budget_eval() {
 
 # budget_report <same args as budget_eval>
 #   Thin exit-calling wrapper around budget_eval, for callers whose report
-#   is the script's last action. Deliberately `if ... ; then exit 0; else
-#   exit 1; fi` rather than `budget_eval "$@"; exit $?` - every real
-#   caller of this file runs under `set -euo pipefail`, and under that
-#   option a `return 1` from budget_eval would abort the sourcing shell
-#   via errexit before a trailing `exit $?` statement ever ran (a `return`
-#   inside a shell function is itself subject to errexit exactly like any
-#   other command).
+#   is the script's last action.
 budget_report() {
   if budget_eval "$@"; then
     exit 0
@@ -263,30 +314,34 @@ budget_report() {
   fi
 }
 
-# budget_base_resolve [base_branch]
-#   Prints a resolvable base ref for <base_branch> (default "main"): tries
-#   "origin/<base_branch>" first, then bare "<base_branch>". Prints
-#   nothing and returns 1 when git is absent from PATH, the current
-#   working directory is not inside a git work tree, or neither ref
-#   resolves (e.g. a non-git scratch fixture, or a shallow clone missing
-#   the remote-tracking ref). Every git invocation here redirects stderr
-#   to /dev/null so a missing ref never leaks noise. Callers MUST treat a
-#   1 return as SKIPPED and continue on the absolute-size axis alone -
-#   this function never fails a gate by itself, it only reports whether a
-#   git-based axis is even possible right now.
+# budget_base_resolve <repo_dir> [base_branch]
+#   Prints a resolvable base ref for <base_branch> (default "main"),
+#   resolved against <repo_dir> via `git -C <repo_dir>` - never the
+#   caller's own cwd, so this stays in sync with budget_delta, which
+#   always takes an explicit <repo_dir> too: tries "origin/<base_branch>"
+#   first, then bare "<base_branch>". Prints nothing and returns 1 when
+#   git is absent from PATH, <repo_dir> is not inside a git work tree, or
+#   neither ref resolves (e.g. a non-git scratch fixture, or a shallow
+#   clone missing the remote-tracking ref). Every git invocation here
+#   redirects stderr to /dev/null so a missing ref never leaks noise.
+#   Callers MUST treat a 1 return as SKIPPED and continue on the
+#   absolute-size axis alone - this function never fails a gate by
+#   itself, it only reports whether a git-based axis is even possible
+#   right now.
 budget_base_resolve() {
-  local base_branch="${1:-main}"
+  local repo_dir="$1"
+  local base_branch="${2:-main}"
   if ! command -v git >/dev/null 2>&1; then
     return 1
   fi
-  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git -C "$repo_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     return 1
   fi
-  if git rev-parse --verify "origin/$base_branch" >/dev/null 2>&1; then
+  if git -C "$repo_dir" rev-parse --verify "origin/$base_branch" >/dev/null 2>&1; then
     echo "origin/$base_branch"
     return 0
   fi
-  if git rev-parse --verify "$base_branch" >/dev/null 2>&1; then
+  if git -C "$repo_dir" rev-parse --verify "$base_branch" >/dev/null 2>&1; then
     echo "$base_branch"
     return 0
   fi
@@ -328,36 +383,68 @@ budget_delta() {
 }
 
 # budget_burn_line <repo_dir> <path> <limit> <current_bytes>
-#   Prints exactly one informational "burn" line describing how
-#   <current_bytes> relates to <limit> and, when a base is resolvable, how
-#   much of that came from this branch's own history vs the base - purely
-#   informational: no threshold comparison of its own, no `::warning::`
-#   annotation, and it ALWAYS returns 0 regardless of what it finds
-#   (including when it finds nothing to report). Prints nothing (still
-#   returning 0) when budget_base_resolve cannot resolve a base, so a
-#   caller can unconditionally capture and conditionally-echo its output
-#   without a separate return-code check. Deliberately takes no <base_ref>
-#   argument - it resolves its own base via budget_base_resolve, since
-#   every current caller wants the default "main" resolution and a caller
-#   needing a non-default base branch can call budget_base_resolve and
-#   budget_delta directly instead of going through this wrapper.
+#   Prints exactly one informational "burn: <B_per_day> B/day over <D> d -
+#   <N> d to limit" line and ALWAYS returns 0 - no threshold check, no
+#   `::warning::`, no effect on caller exit status. Never prints nothing:
+#   every unavailable-input case (git absent, <repo_dir> not a work tree,
+#   no base ref resolves, <path> absent at the resolved base ref, or the
+#   base ref's own commit date cannot be read) renders a distinct "burn:
+#   SKIPPED (...)" line instead, so a caller can unconditionally echo its
+#   output without a separate presence check.
+#
+#   <D> is the whole-day span between the resolved base ref's own commit
+#   date (`git log -1 --format=%ct`) and now, floored at 1 so a same-day
+#   base never divides by zero. <B_per_day> is budget_delta's signed byte
+#   delta of <path> since that base, divided by <D> (integer division,
+#   truncated toward zero). The trailing "- <N> d to limit" clause -
+#   <N> = (<limit> - <current_bytes>) / <B_per_day> - is OMITTED (not
+#   zero-filled) whenever <B_per_day> is <= 0, since a non-positive burn
+#   rate has no meaningful "days to limit".
+#
+#   Deliberately takes no <base_ref> argument - it resolves its own base
+#   via budget_base_resolve, since every current caller wants the default
+#   "main" resolution and a caller needing a non-default base branch can
+#   call budget_base_resolve and budget_delta directly instead of going
+#   through this wrapper.
 budget_burn_line() {
   local repo_dir="$1"
   local target_path="$2"
   local limit="$3"
   local current_bytes="$4"
   local base_ref
-  base_ref="$(budget_base_resolve)" || return 0
+  if ! base_ref="$(budget_base_resolve "$repo_dir")"; then
+    echo "burn: SKIPPED (base unresolvable)"
+    return 0
+  fi
 
   local delta_bytes
-  if delta_bytes="$(budget_delta "$repo_dir" "$target_path" "$base_ref")"; then
-    local sign=""
-    if [ "$delta_bytes" -ge 0 ]; then
-      sign="+"
-    fi
-    echo "burn (vs $base_ref): ${sign}${delta_bytes} B - $current_bytes B of $limit B limit"
+  if ! delta_bytes="$(budget_delta "$repo_dir" "$target_path" "$base_ref")"; then
+    echo "burn: SKIPPED (absent at base $base_ref)"
+    return 0
+  fi
+
+  local base_epoch
+  if ! base_epoch="$(git -C "$repo_dir" log -1 --format=%ct "$base_ref" 2>/dev/null)" || [ -z "$base_epoch" ]; then
+    echo "burn: SKIPPED (commit date unavailable for $base_ref)"
+    return 0
+  fi
+
+  local now_epoch days_span
+  now_epoch="$(date +%s)"
+  days_span=$(( (now_epoch - base_epoch) / 86400 ))
+  if [ "$days_span" -lt 1 ]; then
+    days_span=1
+  fi
+
+  local burn_per_day headroom
+  burn_per_day=$(( delta_bytes / days_span ))
+  headroom=$(( limit - current_bytes ))
+
+  if [ "$burn_per_day" -gt 0 ]; then
+    local days_to_limit=$(( headroom / burn_per_day ))
+    echo "burn: ${burn_per_day} B/day over ${days_span} d - ${days_to_limit} d to limit"
   else
-    echo "burn (vs $base_ref): SKIPPED (absent at base) - $current_bytes B of $limit B limit"
+    echo "burn: ${burn_per_day} B/day over ${days_span} d"
   fi
   return 0
 }
