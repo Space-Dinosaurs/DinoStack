@@ -28,9 +28,9 @@ Signal sources and what is extracted:
        Any OTHER free-form decision value is counted under neither named
        total but does feed newest_ts/last_10_days, since it is still a fire.
   4. Budget gates                      - runs
-       scripts/check-{resident,skill-embed,command-file}-budget.sh via
-       subprocess from the repo root; captures the exit code and the tail of
-       stdout for each. A missing script omits that gate.
+       scripts/check-{resident,skill-embed,command-file,codex-skill}-budget.sh
+       via subprocess from the repo root; captures the exit code and the tail
+       of stdout for each. A missing script omits that gate.
   5. Resident floor                    - byte sizes of the always-loaded set:
        ~/.claude/CLAUDE.md, <repo>/CLAUDE.md, <repo>/AGENTS.md,
        <repo>/MEMORY.md, <repo>/.agentic/memory/MEMORY.md. Individual missing
@@ -53,7 +53,7 @@ Public API:
   content/sections dir). argparse exits 2 on a usage error.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, os, pathlib,
-               re, subprocess, sys). Read-only apart from the three budget-gate
+               re, subprocess, sys). Read-only apart from the four budget-gate
                subprocess runs (themselves read-only). No locking.
 
 Downstream consumers: the /ds-evaluate command file (content/commands/
@@ -325,11 +325,12 @@ BUDGET_SCRIPTS: tuple[str, ...] = (
     "check-resident-budget.sh",
     "check-skill-embed-budget.sh",
     "check-command-file-budget.sh",
+    "check-codex-skill-budget.sh",
 )
 
 
 def _collect_budget_gates(repo: Path) -> dict | None:
-    """Run the three budget-gate scripts and capture exit + tail of stdout.
+    """Run the four budget-gate scripts and capture exit + tail of stdout.
 
     A missing or unrunnable script omits that gate (never a crash).
     """

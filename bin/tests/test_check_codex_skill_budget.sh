@@ -185,6 +185,22 @@ else
   _fail "OK fixture: expected rc=0 and 'OK' summary, got rc=$RC stdout=$GATE_STDOUT stderr=$GATE_STDERR"
 fi
 
+# --- Scenario: lines[-1] of stdout (the last non-blank line) is the
+#     `headroom to stub ceiling:` line - bin/ds-evaluate's
+#     `_collect_budget_gates` reads exactly this line as the gate's
+#     one-line summary (registered in BUDGET_SCRIPTS), so a reorder or an
+#     appended trailing line here would silently corrupt that rollup's
+#     "check-codex-skill-budget.sh" summary field without failing any
+#     other assertion in this suite. Same pattern as
+#     bin/tests/test_check_command_file_budget.sh:311 and
+#     bin/tests/test_check_skill_embed_budget.sh:246. ---
+ok_last_line="$(echo "$GATE_STDOUT" | grep -v '^[[:space:]]*$' | tail -1)"
+if [[ "$ok_last_line" == "  headroom to stub ceiling:"*"B" ]]; then
+  _pass "OK fixture's lines[-1] is the headroom to stub ceiling: line (bin/ds-evaluate's summary contract)"
+else
+  _fail "OK fixture's lines[-1] is [$ok_last_line], expected a 'headroom to stub ceiling:' line"
+fi
+
 # --- Scenario: missing METHODOLOGY.md --------------------------------------
 FIX="$TMP_ROOT/missing-methodology"
 build_fixture "$FIX" "$MID_METHODOLOGY" "$MID_AGENTS"
