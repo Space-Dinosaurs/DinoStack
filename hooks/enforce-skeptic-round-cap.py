@@ -225,6 +225,28 @@ Known trade-off (Minor 3, DS-180 round-2 rework): `content/references/
             fit. Read `skeptic-protocol.md` directly for those two items;
             do not assume kernel parity with this file's docstring.
 
+DS-178 unit A addition: this hook now also reads the PreToolUse payload's
+            top-level `tool_use_id` (best-effort, same convention
+            hooks/pre-tool-use-spawn-emit.js already established), records
+            it into the round-state file's `tool_use_ids` list (via
+            `_append_tool_use_id()`), and maintains a SEPARATE, repo-wide,
+            FIFO-capped (500 entries) index file at
+            `.agentic/skeptic-tuid-index.json` mapping
+            `{tool_use_id: unit_key}` (via `_update_tuid_index()`). Neither
+            addition can affect the allow/deny decision: both run strictly
+            AFTER `_decide()` has already produced its verdict, and both are
+            individually wrapped fail-open. The index exists solely so
+            `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` can
+            resolve a completed Skeptic spawn's `tool_use_id` to its
+            round-state file in O(1) - a single index lookup plus one state
+            file read - rather than scanning `.agentic/` for every
+            `skeptic-round-*.json` file on every SubagentStop.
+            `_load_state`/`_write_state` previously rebuilt/persisted a
+            hardcoded 6-key dict, silently dropping any key outside that set
+            on the very next persist - `tool_use_ids` had to be added to the
+            SCHEMA itself (both functions), not patched in at a call site,
+            or it would have been dropped identically.
+
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       Agent tools, matching enforce-tier.py's dual-matcher
                       wiring). Wired via ~/.claude/settings.json by
@@ -233,6 +255,9 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       bare `python3 {path}` would exit 2 (BLOCKING on
                       PreToolUse) if this file were ever removed while the
                       registration survives, denying every guarded spawn.
+                      `.agentic/skeptic-tuid-index.json` (DS-178 unit A) is
+                      read by hooks/subagent-stop-spawn-emit.js's
+                      `readRoundState()` for calibration-field lookup.
 
 Failure modes:
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name,
@@ -305,6 +330,13 @@ Failure modes:
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching every
       other enforce-*.py hook's fire-logging pattern.
+    - `tool_use_id` absent from the PreToolUse payload, or the
+      `.agentic/skeptic-tuid-index.json` write failing for any reason
+      (permissions, disk full, corrupt existing index): both
+      `_append_tool_use_id()` and `_update_tuid_index()` are individually
+      fail-open no-ops - the round-cap allow/deny decision and the
+      round-state write are already committed before either runs and are
+      never rolled back or retried on this failure.
 
 Performance: < 5 ms per call (no subprocess; one small JSON read/write
              under `.agentic/`).
@@ -708,6 +740,16 @@ def _state_path(cwd: str, key: str) -> Path | None:
 
 
 def _load_state(path: Path) -> dict:
+    """Round state for one unit. `tool_use_ids` (DS-178 unit A) is the
+    ordered, deduped list of PreToolUse `tool_use_id` values seen for this
+    unit's rounds - it exists so `main()` can maintain the
+    `.agentic/skeptic-tuid-index.json` FIFO index (tool_use_id -> unit_key)
+    that `hooks/subagent-stop-spawn-emit.js` reads for O(1) calibration
+    lookup. Before this fix, `_load_state` rebuilt a hardcoded 6-key dict on
+    every read and `_write_state` persisted exactly `dict(state)` - any key
+    outside those 6 (this one included) was silently dropped on the very
+    next persist, which is why this field had to be added HERE, in the
+    schema itself, rather than patched in only at the call site."""
     default = {
         "round_count": 0,
         "decision": None,
@@ -715,6 +757,7 @@ def _load_state(path: Path) -> dict:
         "last_round_fingerprint": None,
         "last_decision_allow": None,
         "last_decision_reason": "",
+        "tool_use_ids": [],
     }
     try:
         if not path.is_file():
@@ -723,6 +766,12 @@ def _load_state(path: Path) -> dict:
         if not isinstance(raw, dict):
             return default
         fingerprint = raw.get("last_round_fingerprint")
+        raw_tool_use_ids = raw.get("tool_use_ids")
+        tool_use_ids = (
+            [tid for tid in raw_tool_use_ids if isinstance(tid, str)]
+            if isinstance(raw_tool_use_ids, list)
+            else []
+        )
         return {
             "round_count": raw.get("round_count", 0) if isinstance(raw.get("round_count"), int) else 0,
             "decision": raw.get("decision") if raw.get("decision") in ("ship", "escalate") else None,
@@ -730,6 +779,7 @@ def _load_state(path: Path) -> dict:
             "last_round_fingerprint": fingerprint if isinstance(fingerprint, str) else None,
             "last_decision_allow": raw.get("last_decision_allow") if isinstance(raw.get("last_decision_allow"), bool) else None,
             "last_decision_reason": raw.get("last_decision_reason") if isinstance(raw.get("last_decision_reason"), str) else "",
+            "tool_use_ids": tool_use_ids,
         }
     except Exception:
         return default
@@ -748,6 +798,68 @@ def _write_state(path: Path, unit_key: str, state: dict) -> None:
     except Exception:
         # Fail-open: a lost persist means a retried call may see a stale
         # (lower) round_count and be permitted again - never a false deny.
+        pass
+
+
+def _append_tool_use_id(state: dict, tool_use_id: str | None) -> dict:
+    """Return *state* with *tool_use_id* appended to `tool_use_ids` (deduped,
+    order-preserving) when present. Never mutates the input dict. A missing
+    or blank tool_use_id is a no-op - the harness is not guaranteed to
+    thread it through on every PreToolUse call (see the DS-160 best-effort
+    convention hooks/pre-tool-use-spawn-emit.js already documents)."""
+    if not isinstance(tool_use_id, str) or not tool_use_id.strip():
+        return state
+    tid = tool_use_id.strip()
+    existing = state.get("tool_use_ids")
+    ids = list(existing) if isinstance(existing, list) else []
+    if tid not in ids:
+        ids.append(tid)
+    new_state = dict(state)
+    new_state["tool_use_ids"] = ids
+    return new_state
+
+
+_TUID_INDEX_NAME = "skeptic-tuid-index.json"
+_TUID_INDEX_CAP = 500
+
+
+def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str) -> None:
+    """Best-effort maintenance of `.agentic/skeptic-tuid-index.json`, an
+    O(1)-lookup FIFO index (`{tool_use_id: unit_key}`, capped at
+    `_TUID_INDEX_CAP` entries, oldest evicted first) that
+    `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` reads to find
+    the round-state file for a completed spawn without scanning the
+    `.agentic/` directory. Fully fail-open: any error here must never affect
+    the round-cap allow/deny decision, and this is called strictly AFTER
+    that decision has already been made."""
+    if not isinstance(tool_use_id, str) or not tool_use_id.strip():
+        return
+    tid = tool_use_id.strip()
+    index_path = agentic_dir / _TUID_INDEX_NAME
+    try:
+        agentic_dir.mkdir(parents=True, exist_ok=True)
+        index: dict = {}
+        if index_path.is_file():
+            try:
+                raw = json.loads(index_path.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    index = {
+                        k: v for k, v in raw.items()
+                        if isinstance(k, str) and isinstance(v, str)
+                    }
+            except Exception:
+                index = {}
+        # Move-to-end-on-update semantics: re-inserting an existing key
+        # refreshes its FIFO position (dict insertion order in Python 3.7+).
+        index.pop(tid, None)
+        index[tid] = unit_key
+        while len(index) > _TUID_INDEX_CAP:
+            oldest_key = next(iter(index))
+            index.pop(oldest_key, None)
+        tmp_path = index_path.with_suffix(f".tmp.{os.getpid()}")
+        tmp_path.write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp_path, index_path)
+    except Exception:
         pass
 
 
@@ -879,6 +991,18 @@ def main() -> None:
         if not isinstance(cwd, str) or not cwd:
             sys.exit(0)
 
+        # Best-effort: the PreToolUse payload's top-level `tool_use_id`
+        # field (same read the hook did not previously make - see
+        # hooks/pre-tool-use-spawn-emit.js for the established convention).
+        # Absent on some harness versions; never required for the round-cap
+        # decision itself, only for the tuid-index calibration lookup.
+        raw_tool_use_id = data.get("tool_use_id")
+        tool_use_id = (
+            raw_tool_use_id.strip()
+            if isinstance(raw_tool_use_id, str) and raw_tool_use_id.strip()
+            else None
+        )
+
         unit_key = _unit_key(tinput)
         if unit_key is None:
             # Cannot determine which unit is under review - fail open.
@@ -899,7 +1023,12 @@ def main() -> None:
             _deny(data, reason)
             return
 
+        new_state = _append_tool_use_id(new_state, tool_use_id)
         _write_state(path, unit_key, new_state)
+        # Index maintenance happens strictly AFTER the allow decision and
+        # the round-state write, and is fully fail-open - it must never
+        # influence the allow/deny path above.
+        _update_tuid_index(path.parent, tool_use_id, unit_key)
         sys.exit(0)
     except Exception:
         # Any unexpected error anywhere in the decision path fails open -

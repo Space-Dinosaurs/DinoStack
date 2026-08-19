@@ -140,6 +140,17 @@ Test groups:
                                                          `_STABLE_KEY_SHAPE_RE` (the whitespace in the piped
                                                          command) - confirms the shape gate is independently
                                                          load-bearing, not merely redundant with the `..` check.
+ 34. test_tool_use_ids_round_trip_through_load_state    - DS-178 unit A: a `tool_use_id` supplied on the
+                                                         PreToolUse payload survives into the round-state
+                                                         file's `tool_use_ids` list across two rounds (deduped,
+                                                         order-preserving) - proves `_load_state`/`_write_state`
+                                                         no longer silently drop a schema field outside the
+                                                         original hardcoded 6 keys.
+ 35. test_tuid_index_round_trip                         - DS-178 unit A: `.agentic/skeptic-tuid-index.json` maps
+                                                         each spawn's `tool_use_id` to the correct unit_key, is
+                                                         updated (not merely appended) across rounds of the same
+                                                         unit, and correctly separates two distinct units'
+                                                         tool_use_ids in the same index file.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -1339,6 +1350,102 @@ def test_pipe_no_range_caught_only_by_shape_gate():
         )
         state = json.loads(expected_path.read_text())
         assert state["round_count"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# 34. DS-178 unit A: tool_use_ids round-trip through _load_state/_write_state
+# --------------------------------------------------------------------------- #
+def test_tool_use_ids_round_trip_through_load_state():
+    """A `tool_use_id` supplied on the PreToolUse payload is recorded into
+    the round-state file's `tool_use_ids` list and survives a second round
+    (deduped, order-preserving) - proves the schema fix (both `_load_state`
+    and `_write_state` previously handled a hardcoded 6-key dict only) is
+    load-bearing. Executed mutation: reverting `_load_state`'s default dict
+    and its `raw.get(...)` reconstruction to the pre-fix 6-key form (drop
+    the `tool_use_ids` key entirely) reddens this test - the second round's
+    state would carry no `tool_use_ids` key at all, or at best a
+    fresh/truncated one, never the accumulated 2-entry list asserted below."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        rc1, parsed1 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 1",
+                extra={"tool_use_id": "toolu_round1"},
+            )
+        )
+        assert not _is_denied(parsed1)
+        state1 = _read_state(tmp, unit)
+        assert state1["tool_use_ids"] == ["toolu_round1"], state1
+
+        rc2, parsed2 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 2",
+                extra={"tool_use_id": "toolu_round2"},
+            )
+        )
+        assert not _is_denied(parsed2)
+        state2 = _read_state(tmp, unit)
+        assert state2["tool_use_ids"] == ["toolu_round1", "toolu_round2"], state2
+
+        # A repeated tool_use_id (e.g. a retried call) must not duplicate.
+        rc3, parsed3 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 2",
+                extra={"tool_use_id": "toolu_round2"},
+            )
+        )
+        state3 = _read_state(tmp, unit)
+        assert state3["tool_use_ids"] == ["toolu_round1", "toolu_round2"], state3
+
+
+# --------------------------------------------------------------------------- #
+# 35. DS-178 unit A: skeptic-tuid-index.json round trip
+# --------------------------------------------------------------------------- #
+def test_tuid_index_round_trip():
+    """`.agentic/skeptic-tuid-index.json` maps each spawn's `tool_use_id` to
+    the correct unit_key. Two distinct units get correctly separated
+    entries in the SAME index file, and a second round on one unit updates
+    (not duplicates) that unit's entries. Executed mutation: removing the
+    `_update_tuid_index(path.parent, tool_use_id, unit_key)` call from
+    `main()` reddens this test - the index file would never be created."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit_a = "feature/tuid-index-a"
+        unit_b = "feature/tuid-index-b"
+
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_a, what_to_review="unit-a round 1",
+                extra={"tool_use_id": "toolu_a1"},
+            )
+        )
+        assert not _is_denied(parsed)
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_b, what_to_review="unit-b round 1",
+                extra={"tool_use_id": "toolu_b1"},
+            )
+        )
+        assert not _is_denied(parsed)
+
+        index_path = Path(tmp) / ".agentic" / "skeptic-tuid-index.json"
+        assert index_path.is_file(), "expected skeptic-tuid-index.json to be created"
+        index = json.loads(index_path.read_text())
+        assert index.get("toolu_a1") == _unit_key(unit_a), index
+        assert index.get("toolu_b1") == _unit_key(unit_b), index
+
+        # A second round on unit_a with a NEW tool_use_id adds a new entry
+        # pointing at the SAME unit_key, without disturbing unit_b's entry.
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_a, what_to_review="unit-a round 2",
+                extra={"tool_use_id": "toolu_a2"},
+            )
+        )
+        assert not _is_denied(parsed)
+        index_after = json.loads(index_path.read_text())
+        assert index_after.get("toolu_a1") == _unit_key(unit_a), index_after
+        assert index_after.get("toolu_a2") == _unit_key(unit_a), index_after
+        assert index_after.get("toolu_b1") == _unit_key(unit_b), index_after
 
 
 if __name__ == "__main__":

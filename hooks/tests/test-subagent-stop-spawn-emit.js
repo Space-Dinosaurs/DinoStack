@@ -2,6 +2,15 @@
 /**
  * Unit tests: subagent-stop-spawn-emit.js SubagentStop hook (DS-160).
  *
+ * DS-178 unit A note: none of this file's fixtures write a `.meta.json`
+ * sidecar, so every pairing test below (5, 6, 7, 8, 10, 11, 12, 13, 14)
+ * exercises the FIFO FALLBACK path exclusively, not the sidecar-exact-match
+ * path DS-178 added - `data.agent_source` on every completion emitted by
+ * this file is `"paired_start"` or `"unknown"`, never `"sidecar"`. The
+ * sidecar-exact-match path (and the calibration fields it enables) is
+ * covered separately in
+ * hooks/tests/test-subagent-stop-spawn-emit-calibration.js.
+ *
  * Test cases:
  *   1. emits-spawn-complete:        SubagentStop payload -> events.jsonl gets a
  *                                     spawn_complete event with source:"hook"
@@ -215,6 +224,8 @@ console.log('\nTest 5: pairs-with-spawn-start');
     const wall = (complete.data || {}).wall_seconds;
     assert(typeof wall === 'number' && wall > 0, `wall_seconds is a positive number (got: ${wall})`);
     assert(complete.agent === 'engineer', `agent copied from matched spawn_start (got: ${complete.agent})`);
+    assert((complete.data || {}).agent_source === 'paired_start',
+      `agent_source === "paired_start" (no sidecar in this fixture, DS-178) (got: ${(complete.data || {}).agent_source})`);
   }
   cleanup(cwd);
 }
@@ -232,6 +243,8 @@ console.log('\nTest 6: unpaired-still-emits');
   if (complete) {
     assert((complete.data || {}).paired_spawn_id === null, 'paired_spawn_id is null when unmatched');
     assert((complete.data || {}).wall_seconds === null, 'wall_seconds is null when unmatched');
+    assert((complete.data || {}).agent_source === 'unknown',
+      `agent_source === "unknown" when unpaired (got: ${(complete.data || {}).agent_source})`);
   }
   cleanup(cwd);
 }
