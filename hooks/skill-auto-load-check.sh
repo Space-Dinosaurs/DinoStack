@@ -51,15 +51,14 @@ except Exception:
 if [[ "$skill_auto_load" == "true" ]]; then
   if [[ "$adapter" == "gemini" ]]; then
     skill_path="$HOME/.gemini/skills/dinostack/SKILL.md"
-    echo "SKILL CHECK [dinostack]: skill_auto_load=true."
-    echo "Before responding to any software development request, invoke the dinostack skill (activate_skill), or read $skill_path directly if activate_skill is unavailable in this session."
-    echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
+    load_instruction="invoke the dinostack skill (activate_skill), or read $skill_path directly if activate_skill is unavailable in this session"
   else
     skill_path="$HOME/.claude/skills/dinostack/SKILL.md"
-    echo "SKILL CHECK [dinostack]: skill_auto_load=true."
-    echo "Before responding to any software development request, read $skill_path."
-    echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
+    load_instruction="read $skill_path"
   fi
+  echo "SKILL CHECK [dinostack]: skill_auto_load=true."
+  echo "Before responding to any software development request, $load_instruction."
+  echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
 fi
 
 exit 0
