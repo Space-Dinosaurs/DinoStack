@@ -27,7 +27,18 @@
 # Downstream consumers: humans installing the adapter manually;
 #                       scripts/update.js (generic multi-adapter updater,
 #                       launched via ./update.sh) invokes this script for
-#                       each selected adapter after pulling new content.
+#                       each selected adapter after pulling new content;
+#                       bin/tests/test_kimi_install_link_health_classification.sh
+#                       (invokes this script directly, 7 scenarios pinning
+#                       its degrade-vs-warn classification decision) and
+#                       bin/tests/test_check_kimi_skill_embed_budget.sh
+#                       (pins the gate script's own diagnostic strings this
+#                       script's classification depends on) both pin this
+#                       script's exact diagnostic text - "reported an
+#                       advisory", "not on the known-benign allowlist",
+#                       "cannot verify embed completeness" - as a consumed
+#                       contract; a reword of any of those three strings
+#                       fails one or both suites.
 #
 # Failure modes: exits non-zero on build.sh failure (propagated). Partial
 #                install is possible if the script exits mid-run; re-running

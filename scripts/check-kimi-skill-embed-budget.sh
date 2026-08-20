@@ -130,6 +130,27 @@ fi
 # EVERY file in both sets - each file's own first top-level heading,
 # derived dynamically so a renamed file is covered automatically. Same
 # mechanism as check-skill-embed-budget.sh's _check_embedded_set.
+#
+# M1 (DS-185 round 5) fix: an OVER-count (more files found than the pinned
+# expected_count) is NOT the same failure class as an under-count or a
+# missing/absent heading - it means a legitimate new source file landed and
+# the pin simply hasn't been bumped yet, which .kimi/install.sh's link-
+# health classification treats as benign ("is likely intentional."). Prior
+# to this fix, that marker was emitted and the function `exit 1`ed BEFORE
+# the heading-presence loop below ever ran - so install.sh's allowlist arm
+# was trusting a signal that meant "verification aborted early", not "body
+# verified healthy" (a real embed-incomplete body could still exit through
+# this exact same over-count branch on an unrelated dropped file, if the
+# pin coincidentally also read as an over-count elsewhere - the marker
+# carried no completeness guarantee at all). Fixed by deferring the
+# over-count diagnostic: every found file (including the extra ones) still
+# has its heading checked for presence in SKILL_FILE, same as the expected
+# ones, and the "is likely intentional." marker is only ever printed AFTER
+# that full verification - plus the duplicate-heading guard below - has
+# passed. Under-count and missing-heading remain immediate real failures;
+# only the benign over-count case is deferred.
+_OVER_COUNT_NOTES=()
+
 _check_embedded_set() {
   local dir="$1" pattern="$2" exclude="$3" expected_count="$4" label="$5" constant_name="$6"
   local files file_count f heading
@@ -143,15 +164,6 @@ _check_embedded_set() {
     exit 1
   fi
   file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
-  if [ "$file_count" -gt "$expected_count" ]; then
-    echo "check-kimi-skill-embed-budget.sh: embed incomplete" >&2
-    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
-    echo "  a new $label source file was added - this is likely intentional." >&2
-    echo "  If so, bump $constant_name above in the same commit that adds the" >&2
-    echo "  file. If not, an extra file landed under $dir unexpectedly -" >&2
-    echo "  investigate before bumping the count." >&2
-    exit 1
-  fi
   if [ "$file_count" -lt "$expected_count" ]; then
     echo "check-kimi-skill-embed-budget.sh: embed incomplete" >&2
     echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
@@ -182,6 +194,11 @@ _check_embedded_set() {
     ALL_HEADINGS="$ALL_HEADINGS$heading
 "
   done <<< "$files"
+  # Only reached once every found file's heading (expected AND extra) is
+  # confirmed present in SKILL_FILE - see the M1 comment above.
+  if [ "$file_count" -gt "$expected_count" ]; then
+    _OVER_COUNT_NOTES+=("$label file count mismatch: expected $expected_count, found $file_count - every $label file's heading is confirmed present in SKILL_FILE above, so this is a new source file landing, not a dropped one. Bump $constant_name in the same commit that adds the file.")
+  fi
 }
 
 ALL_HEADINGS=""
@@ -199,6 +216,23 @@ if [ -n "$duplicate_headings" ]; then
     [ -n "$dup" ] && echo "    $dup" >&2
   done
   echo "  give the affected file(s) a distinct top-level heading." >&2
+  exit 1
+fi
+
+# Over-count advisory (M1, DS-185 round 5): reached only after every found
+# file's heading (expected AND extra) has been confirmed present in
+# SKILL_FILE by _check_embedded_set above, and the duplicate-heading guard
+# has passed - so this marker means "verified complete, pin needs bumping",
+# never "verification aborted early". Still fails the gate (the pinned
+# constant genuinely needs updating), but with a diagnostic that is
+# distinguishable from a real embed-incomplete failure and that
+# .kimi/install.sh's link-health classification depends on to know the
+# skill body itself did not lose content.
+if [ "${#_OVER_COUNT_NOTES[@]}" -gt 0 ]; then
+  echo "check-kimi-skill-embed-budget.sh: embed count pin needs bumping - this is likely intentional." >&2
+  for _note in "${_OVER_COUNT_NOTES[@]}"; do
+    echo "  $_note" >&2
+  done
   exit 1
 fi
 
