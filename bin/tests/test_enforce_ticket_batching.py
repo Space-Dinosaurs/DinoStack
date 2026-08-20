@@ -230,6 +230,18 @@ def _state_path(cwd: str, session_id: str) -> Path:
     return Path(cwd) / ".agentic" / f".ticket-batch-{safe}.json"
 
 
+def _grant_path(cwd: str, session_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)
+    return Path(cwd) / ".agentic" / f".ticket-batch-grant-{safe}.json"
+
+
+def _write_grant(cwd: str, session_id: str, reason: str) -> Path:
+    path = _grant_path(cwd, session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"reason": reason, "granted_at": "2026-01-01T00:00:00Z"}))
+    return path
+
+
 def _ensure_git_marker(cwd: str) -> None:
     """Best-effort: create a `.git` EXISTENCE marker (file-or-dir, matching
     hooks/lib/repo_root.py's existence-only check - never os.path.isdir())
@@ -1445,6 +1457,148 @@ def test_state_resolution_fails_open_with_no_git_ancestor():
             "state file written at the unresolved cwd - the hook must "
             "skip (fail open) entirely"
         )
+
+
+# --- Operator-granted mid-session exception (bin/ds-ticket-grant) ---
+
+
+def test_grant_allows_third_creation():
+    """A valid grant present at the 3rd creation ALLOWS it (not denied),
+    persists state to count==3, deletes the grant file, and logs
+    "allow_grant" via log_fire - the end-to-end demonstration the ticket
+    asks for."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        grant_path = _write_grant(tmp, "sess-1", "operator said: create it, I need this tracked now")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert not _is_denied(parsed)
+        out = parsed["hookSpecificOutput"]
+        assert out["permissionDecision"] == "allow"
+        assert "operator said: create it" in out["permissionDecisionReason"]
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 3
+        assert not grant_path.exists(), "grant must be consumed (deleted) on use"
+        fires = _fires_path(tmp).read_text().strip().splitlines()
+        assert json.loads(fires[-1])["decision"] == "allow_grant"
+
+
+def test_grant_consumed_does_not_allow_fourth():
+    """The same grant that unblocked the 3rd creation must not also
+    unblock a 4th - it was deleted on first use, so the 4th falls back to
+    the ordinary deny path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator authorized one more")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert not _is_denied(parsed)  # 3rd: granted
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed), "a consumed grant must not allow a 4th creation"
+        assert "4th" in parsed["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_malformed_grant_file_denies_like_no_grant():
+    """A grant file that exists but is not valid JSON must leave 3rd+
+    behavior byte-identical to the absent-grant case: denied, state
+    unchanged."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        grant_path = _grant_path(tmp, "sess-1")
+        grant_path.parent.mkdir(parents=True, exist_ok=True)
+        grant_path.write_text("{not valid json")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 2
+        # A malformed grant is left in place (never "consumed") - the
+        # hook never reached a state where consuming it would apply.
+        assert grant_path.exists()
+
+
+def test_empty_reason_grant_denies_like_no_grant():
+    """A grant file with a present-but-empty `reason` field must deny,
+    same as no grant at all - an unattributable grant is treated as
+    absent."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "   ")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+
+
+def test_absent_grant_file_denies():
+    """No grant file at all (the ordinary, overwhelmingly common case)
+    denies exactly as before this feature existed - no `.ticket-batch-
+    grant-*.json` is ever created as a side effect of denying."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+        assert not _grant_path(tmp, "sess-1").exists()
+
+
+def test_grant_for_different_session_does_not_apply():
+    """A grant written for one session_id must never unblock a different
+    session's 3rd creation - the grant file is session-scoped by
+    filename, same as the counter itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload_a = _jira_payload(tmp, session_id="sess-A")
+        payload_b = _jira_payload(tmp, session_id="sess-B")
+        _run_hook(payload_a)
+        _run_hook(payload_a)
+        _write_grant(tmp, "sess-B", "grant meant for a different session")
+        rc, parsed = _run_hook(payload_a)
+        assert rc == 0
+        assert _is_denied(parsed)
+
+
+def test_grant_path_is_session_scoped():
+    """Unit-level check on `_grant_path` itself: two different session_ids
+    against the same cwd MUST resolve to two different files. The
+    end-to-end `test_grant_for_different_session_does_not_apply` above
+    only proves a grant written under one literal filename is never read
+    under a different literal filename - true of any two distinct paths
+    regardless of whether session_id is actually consulted - so it cannot
+    by itself catch a mutation that makes the grant filename stop
+    depending on session_id (e.g. accidentally keying it off `cwd` alone).
+    This test targets that specific mutation directly."""
+    mod = _load_hook_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        path_a = mod._grant_path(tmp, "sess-A")
+        path_b = mod._grant_path(tmp, "sess-B")
+        assert path_a is not None and path_b is not None
+        assert path_a != path_b
+
+
+def test_unreadable_agentic_dir_exits_cleanly():
+    """The hook must still terminate correctly (exit 0, no traceback) when
+    `.agentic/` exists but is unreadable - covering the grant lookup path
+    added by this feature, not just the pre-existing state-file path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        agentic_dir = Path(tmp) / ".agentic"
+        agentic_dir.mkdir(mode=0o000)
+        try:
+            rc, parsed = _run_hook(_jira_payload(tmp))
+            assert rc == 0
+        finally:
+            agentic_dir.chmod(0o700)
 
 
 if __name__ == "__main__":

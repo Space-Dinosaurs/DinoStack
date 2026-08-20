@@ -121,6 +121,16 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |
 
+Every kill-switch above is read once, at the hook-runner process's own
+launch - none of them can be set mid-session (a conductor `export` in a
+later tool call never reaches that already-running process). For
+`AE_TICKET_BATCH_GUARD_DISABLE`, `bin/ds-ticket-grant` is the mid-session
+alternative: it writes a one-shot, operator-attributable exception the
+hook itself reads and consumes on the next denied creation, rather than
+disabling the guard outright. See `content/references/delegation-detail.md`
+§Follow-up Ticket Creation Discipline, "Operator-granted mid-session
+exception".
+
 Platform variables (not AE-owned): `CLAUDE_CODE_SUBAGENT_MODEL` (highest-
 precedence subagent model override); `GRAPHIFY_OUT` (overrides graph output
 directory; setting it to a non-root path disables the graph risk signal).

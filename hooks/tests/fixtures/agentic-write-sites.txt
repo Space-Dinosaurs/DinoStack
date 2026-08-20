@@ -86,7 +86,7 @@ hooks/conductor-overreach-nudge.js::const configPath = path.join(resolveAgenticC
 hooks/enforce-no-abdication.py::config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
 hooks/enforce-planning-artifact-spawn.py::sentinel_path = os.path.join(sentinel_root, ".agentic", ".last-architect-spawn")
 hooks/enforce-skeptic-round-cap.py::return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"
-hooks/enforce-ticket-batching.py::return Path(diag["root"]) / ".agentic" / f".ticket-batch-{safe_session}.json"
+hooks/enforce-ticket-batching.py::return Path(diag["root"]) / ".agentic"
 hooks/enforce-turn-shape.py::config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
 hooks/lib/capture-gap.js::const cursorPath = path.join(resolveAgenticCwd(cwd), '.agentic', '.capture-gap-last-sweep');
 hooks/lib/capture-gap.js::const eventsPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'events.jsonl');

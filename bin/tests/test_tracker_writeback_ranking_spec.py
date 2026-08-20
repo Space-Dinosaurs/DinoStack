@@ -1442,7 +1442,7 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
 # checked BIDIRECTIONALLY: a hook missing from the prose fails, and a phantom
 # hook named in the prose that emits no such decision also fails.
 _DECISION_GROUP_RE = re.compile(
-    r"`\"(deny|allow_advisory|allow)\"` \((\w+) hooks? - ([^)]*)\)"
+    r"`\"(deny|allow_advisory|allow|allow_grant)\"` \((\w+) hooks? - ([^)]*)\)"
 )
 
 

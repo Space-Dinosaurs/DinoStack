@@ -3417,8 +3417,29 @@ top-level operator-raised asks arriving in the same session (each of
 which legitimately earns its own ticket under item 1's carve-out), not a
 redefinition of the rule. A conductor that creates a 2nd ticket in
 violation of the prose rule is advised, not stopped; only a 3rd is
-mechanically denied. `/ds-feedback-triage` and `/ds-ticket-triage`
-(item 5) are exempted from the counter entirely.
+mechanically denied. `/ds-feedback-triage` (item 5) is exempted from the
+counter entirely for creates issued from inside its own run - measured
+against real transcripts, this exemption is genuinely implemented (see
+the hook's own module docstring "Triage exemption"), not merely prose.
+`/ds-ticket-triage` is NOT a create path at all (see its own file's
+"Composition and non-goals" - it never mutates tracker tickets), so it
+was previously listed here and in the hook's own deny message as an
+escape hatch it cannot be; both are corrected.
+
+**Operator-granted mid-session exception.** Neither escape hatch above
+actually lifts an in-progress deny: `/ds-wrap` ends the session rather
+than continuing it, and `/ds-feedback-triage`'s exemption only ever
+covers creates issued from inside that command's own run, not a call
+denied outside of it. When an operator explicitly asks, right now, to
+create a ticket that would otherwise be denied, run `bin/ds-ticket-grant
+grant --repo <repo> --session-id <id> --reason "<the operator's own
+words>"` (session-id from `$CLAUDE_CODE_SESSION_ID`), then retry the
+create. This writes a one-shot, session-scoped exception under
+`<repo>/.agentic/` that the hook consumes (deletes) on the very next
+denied creation - it does not persist as a standing bypass, and does not
+authorize any further create this session without a fresh grant. See
+`hooks/enforce-ticket-batching.py`'s own module docstring for the full
+mechanism and `bin/ds-ticket-grant`'s for the CLI contract.
 
 1. **Execution-scope carve-out.** A discovery made during an in-progress
    unit (including at wrap/PR-summary time) is not "net-new work" for the
@@ -4095,7 +4116,7 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 
 - `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
 - `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the twelve consumer hooks enumerated below.
-- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (eleven hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-no-abdication.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-ticket-batching.py`, `enforce-tier.py`, `enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`), `"allow_advisory"` (three hooks - `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-turn-shape.py`), and `"allow"` (one hook - `enforce-no-abdication.py`, the only every-verdict caller). `enforce-turn-shape.py` (DS-156; DS-171) and `enforce-ticket-batching.py` are the two hooks that can log EITHER of the first two values: `enforce-turn-shape.py` depending on which of its two remaining checks fired (`_execution_prose_flag`, BLOCKING, logs `"deny"`; `_decision_item_sprawl_flag`, ADVISORY, logs `"allow_advisory"`); `enforce-ticket-batching.py` depending on which same-session tracker-ticket creation count it is on (the 2nd logs `"allow_advisory"`, the 3rd and beyond log `"deny"`). `_answer_relevance_flag` and `_status_only_flag`, which previously also caused `"allow_advisory"` on `enforce-turn-shape.py`, are deleted (DS-171) - the rules they carried moved to the `dinostack` Claude Code output style, not this hook.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (eleven hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-no-abdication.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-skeptic-round-cap.py`, `enforce-ticket-batching.py`, `enforce-tier.py`, `enforce-turn-shape.py`, `enforce-worktree-read.py`, `enforce-worktree-write.py`), `"allow_advisory"` (three hooks - `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-turn-shape.py`), `"allow"` (one hook - `enforce-no-abdication.py`, the only every-verdict caller), and `"allow_grant"` (one hook - `enforce-ticket-batching.py`), logged when an operator-granted `bin/ds-ticket-grant` exception is consumed to let what would otherwise be a 3rd+-creation deny proceed instead - see that hook's own module docstring, "Operator-granted mid-session exception". `enforce-turn-shape.py` (DS-156; DS-171) and `enforce-ticket-batching.py` are the two hooks that can log EITHER of the first two values: `enforce-turn-shape.py` depending on which of its two remaining checks fired (`_execution_prose_flag`, BLOCKING, logs `"deny"`; `_decision_item_sprawl_flag`, ADVISORY, logs `"allow_advisory"`); `enforce-ticket-batching.py` depending on which same-session tracker-ticket creation count it is on (the 2nd logs `"allow_advisory"`, the 3rd and beyond log `"deny"` unless a valid operator grant is present, in which case that one call logs `"allow_grant"` instead). `_answer_relevance_flag` and `_status_only_flag`, which previously also caused `"allow_advisory"` on `enforce-turn-shape.py`, are deleted (DS-171) - the rules they carried moved to the `dinostack` Claude Code output style, not this hook.
 - `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`, or a short equivalent for callers whose verdict has no model-facing text).
 
 **Optional 5th field (`detail`).** A caller may pass an optional keyword-only `detail` dict to `log_fire()`; it is written as a nested `"detail"` object. It is OMITTED ENTIRELY when absent, empty, not a dict, or not JSON-serializable, so the 4 fields above remain the shape every consumer may assume unconditionally, and every action-only caller's row is byte-identical to what it wrote before this field existed. A non-serializable `detail` degrades the line to the canonical 4 fields rather than losing the row.
