@@ -118,6 +118,10 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 <!-- One line per entry, in file order: `- [<ID>] <one-line hook, <=100 chars>`. Bidirectional with the entry headings below - an appended entry without its index line, in the same edit, is a protocol violation the next writer must repair. -->
 
+## Entries
+
+<!-- Append new entries at the bottom. -->
+
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 
 **Discovered:** YYYY-MM-DD (ticket: TICKET_ID)
@@ -128,17 +132,19 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 **Source:** <path:line or PR URL>
 ```
 
+**Absent-index migration (one-time, first writer only).** If `.agentic/learnings.md` exists, has one or more `## [ID]` entries under `## Entries`, and has no `## Index` section, you are the migration owner: read the whole file once (the one sanctioned full-file read - the index-first discipline below does not apply yet), generate one index line per existing entry in file order, insert `## Index` immediately above `## Entries` (adding the `## Entries` heading too if it is itself absent), and derive today's counter from this same full scan. Dedup for this one pass uses the full set of entries you just read (the old whole-file case-insensitive substring procedure), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced. Write the backfilled Index and your own new entry (if any), plus its index line, in the same edit. After migration, the index-first flow below is authoritative for every subsequent run against this file.
+
 **ID format:** `LRN-YYYYMMDD-XXX` where:
 - `YYYYMMDD` is today's date
 - `XXX` is a monotonic counter starting at `001` for each day
 - Read the Index section in full (cheap at any file size) to determine the next counter value. If today's date already has an Index entry, increment from the highest existing counter. If none exist for today, start at `001`.
 
-**Append discipline (index-first dedup):**
+**Append discipline (index-first dedup, after any needed migration):**
 - Read the Index section in full first (if the file exists) - never the whole file.
 - **Dedup:** compare the candidate's finding-title/pattern against the index hooks (semantic match, not literal). On a plausible match, read only that one entry's body (targeted read, not a full-file read) and decide. As a secondary exact guard, also apply case-insensitive substring match on the matched entry's `Pattern` field text. If either confirms a duplicate, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
 - On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit - an entry with no index line is a protocol violation the next writer must repair.
 - Append new entries at the end of the Entries section (before any trailing blank lines).
-- If the file does not exist, create it with the header block above (including the empty Index section) followed by the entries.
+- If the file does not exist, create it with content identical to the canonical template at `content/templates/.agentic/learnings.md` (including the empty Index and Entries sections), then append the entry beneath `## Entries`.
 
 **Cap at 5 entries per run.** If more generalizable findings exist, prioritize by severity (Critical > Major) then by likely recurrence, and drop the rest.
 
@@ -190,8 +196,9 @@ The only file you may write is:
 
 ## Rules
 
-- **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard.
+- **Append-only governs entry bodies, not the Index.** Never delete, never reorder, never edit an existing `## [ID]` entry under `## Entries`. The `## Index` section is a maintained derived index, not an append-only log: inserting a missing index line at its correct file-order position (or performing the one-time absent-index migration in Step 4) is required repair, not a violation of append-only.
+- **Dedup before every append, index-first (after any needed migration).** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard. The one-time migration pass uses full-file dedup instead.
+- **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.

@@ -10835,6 +10835,10 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 <!-- One line per entry, in file order: `- [<ID>] <one-line hook, <=100 chars>`. Bidirectional with the entry headings below - an appended entry without its index line, in the same edit, is a protocol violation the next writer must repair. -->
 
+## Entries
+
+<!-- Append new entries at the bottom. -->
+
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 
 **Discovered:** YYYY-MM-DD (ticket: TICKET_ID)
@@ -10845,17 +10849,19 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 **Source:** <path:line or PR URL>
 ```
 
+**Absent-index migration (one-time, first writer only).** If `.agentic/learnings.md` exists, has one or more `## [ID]` entries under `## Entries`, and has no `## Index` section, you are the migration owner: read the whole file once (the one sanctioned full-file read - the index-first discipline below does not apply yet), generate one index line per existing entry in file order, insert `## Index` immediately above `## Entries` (adding the `## Entries` heading too if it is itself absent), and derive today's counter from this same full scan. Dedup for this one pass uses the full set of entries you just read (the old whole-file case-insensitive substring procedure), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced. Write the backfilled Index and your own new entry (if any), plus its index line, in the same edit. After migration, the index-first flow below is authoritative for every subsequent run against this file.
+
 **ID format:** `LRN-YYYYMMDD-XXX` where:
 - `YYYYMMDD` is today's date
 - `XXX` is a monotonic counter starting at `001` for each day
 - Read the Index section in full (cheap at any file size) to determine the next counter value. If today's date already has an Index entry, increment from the highest existing counter. If none exist for today, start at `001`.
 
-**Append discipline (index-first dedup):**
+**Append discipline (index-first dedup, after any needed migration):**
 - Read the Index section in full first (if the file exists) - never the whole file.
 - **Dedup:** compare the candidate's finding-title/pattern against the index hooks (semantic match, not literal). On a plausible match, read only that one entry's body (targeted read, not a full-file read) and decide. As a secondary exact guard, also apply case-insensitive substring match on the matched entry's `Pattern` field text. If either confirms a duplicate, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
 - On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit - an entry with no index line is a protocol violation the next writer must repair.
 - Append new entries at the end of the Entries section (before any trailing blank lines).
-- If the file does not exist, create it with the header block above (including the empty Index section) followed by the entries.
+- If the file does not exist, create it with content identical to the canonical template at `content/templates/.agentic/learnings.md` (including the empty Index and Entries sections), then append the entry beneath `## Entries`.
 
 **Cap at 5 entries per run.** If more generalizable findings exist, prioritize by severity (Critical > Major) then by likely recurrence, and drop the rest.
 
@@ -10907,8 +10913,9 @@ The only file you may write is:
 
 ## Rules
 
-- **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard.
+- **Append-only governs entry bodies, not the Index.** Never delete, never reorder, never edit an existing `## [ID]` entry under `## Entries`. The `## Index` section is a maintained derived index, not an append-only log: inserting a missing index line at its correct file-order position (or performing the one-time absent-index migration in Step 4) is required repair, not a violation of append-only.
+- **Dedup before every append, index-first (after any needed migration).** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard. The one-time migration pass uses full-file dedup instead.
+- **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.
@@ -11001,6 +11008,19 @@ The conductor sends learning event messages with the following fields:
 5. **`severity`** - `Critical`, `Major`, or `Minor`. **Omitted for KNW-producing event types** (`tool-failure-workaround`, `architectural-decision`, `cross-component-gotcha`, `user-pattern`).
 
 ## Workflow
+
+### 0. Absent-index migration (one-time, first writer only)
+
+Before Step 1, check whether `.agentic/learnings.md` exists, has one or more `## [ID]` entries under `## Entries`, and has **no** `## Index` section. If so, you are the migration owner - the first writer to touch the file after the Index section was introduced:
+
+- Read the **whole file once**. This is the one sanctioned full-file read; the index-first discipline in Step 1 does not apply yet because there is no index to read.
+- In file order, generate one index line per existing entry (`- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating each entry's title).
+- Insert a `## Index` section (containing those backfilled lines) immediately above `## Entries`. If the file also lacks a `## Entries` heading above its first entry, add that heading too.
+- Derive today's LRN/KNW counters from this same full scan (highest existing `XXX` per prefix for today's date, or `001` if none exist for today) - not from an empty index.
+- **Dedup for this one pass uses the full set of entries you just read** (the old whole-file case-insensitive substring procedure on Pattern/Fact), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced.
+- Write the backfilled `## Index` section and your own new entry (if any), plus its index line, in the same edit.
+
+After this one-time migration, the index-first flow in Step 1 below is authoritative for every subsequent writer in every subsequent session. A file that already has a `## Index` section never re-triggers migration, even if it is empty - an empty Index on a file with zero entries is the correct starting state, not a migration trigger.
 
 ### 1. Read the Index section of .agentic/learnings.md
 
@@ -11171,8 +11191,9 @@ The only files you may write are:
 
 ## Rules
 
-- **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact.
+- **Append-only governs entry bodies, not the Index.** Never delete, never reorder, never edit an existing `## [ID]` entry under `## Entries`. The `## Index` section is a maintained derived index, not an append-only log: inserting a missing index line at its correct file-order position (or performing the one-time absent-index migration in Step 0) is required repair, not a violation of append-only.
+- **Dedup before every append, index-first (after any needed migration).** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact. Step 0's one-time migration pass is the sole exception, using full-file dedup instead.
+- **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Independent per-day counters.** LRN and KNW counters are separate; each starts at `001` for the day independently.
 - **Caps are hard.** 5 entries to learnings.md per message, 1 entry to MEMORY.md per event, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
@@ -13310,7 +13331,11 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             Step-4-resolved path actually written).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
-              learnings_extracted; prefix-agnostic match on both prefixes).
+              learnings_extracted; prefix-agnostic match on both prefixes;
+              scoped to the '## Entries' section only - the '## Index'
+              section's one-line hooks match the same ID-shaped regex and
+              sit earlier in the file, so an unscoped scan would double-count
+              or mismatch against index lines).
               No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /ds-implement-ticket Phase 11b (the conductor reads the JSON
@@ -13411,7 +13436,7 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
 - Read `merged_diff` (passed as input).
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
-- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
+- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`, scoping the scan to the `## Entries` section only (the `## Index` section's one-line hooks - `- [<ID>] <hook>` - match the same ID-shaped regex and sit earlier in the file; matching against them instead of the real entry headings would find the wrong text, or nothing, for the same ID). Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `^## \[(LRN|KNW)-\d{8}-\d{3}\]` within `## Entries`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
 ### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
 
@@ -19710,15 +19735,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
 7. **`.agentic/deploy.md`** — if release signals were detected **and the user did not decline release in Step 1** (`no release` / `skip release`) and file does not exist (checked via resolver: `.agentic/deploy.md` OR legacy `.claude/deploy.md`): plan to create it at `.agentic/deploy.md` using the same template as Step 6a. If the user declined release, do not create the file and do not prompt for deploy command or rollback procedure.
 
-8. **`.agentic/learnings.md`** — if the file does not exist: plan to create it at `.agentic/learnings.md` with the following stub:
-
-   ```markdown
-   # Learnings
-
-   > Auto-generated by learning-extractor at Phase 6 clean exit. Each entry is a
-   > durable fix-pattern extracted from a resolved Skeptic finding. Append-only.
-   > Committed — project-level knowledge shared across operators.
-   ```
+8. **`.agentic/learnings.md`** - if the file does not exist: plan to create it at `.agentic/learnings.md` with content identical to the canonical template at `content/templates/.agentic/learnings.md` (header, `## Entry types`, `## Format`, empty `## Index`, and empty `## Entries` sections - no entries).
 
    Always created (unconditional). This file is committed, not gitignored.
 

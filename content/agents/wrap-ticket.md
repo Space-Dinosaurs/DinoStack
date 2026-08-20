@@ -32,7 +32,11 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             Step-4-resolved path actually written).
 
 Upstream deps: .agentic/learnings.md (LRN and KNW entries matched by
-              learnings_extracted; prefix-agnostic match on both prefixes).
+              learnings_extracted; prefix-agnostic match on both prefixes;
+              scoped to the '## Entries' section only - the '## Index'
+              section's one-line hooks match the same ID-shaped regex and
+              sit earlier in the file, so an unscoped scan would double-count
+              or mismatch against index lines).
               No external libraries; only Read/Edit/Write tools.
 
 Downstream consumers: /ds-implement-ticket Phase 11b (the conductor reads the JSON
@@ -133,7 +137,7 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
 - Read `merged_diff` (passed as input).
 - If `architect_plan_path` is a real path, Read it.
 - If `brief_path` is a real path, Read it.
-- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`. Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `\[(LRN|KNW)-\d{8}-\d{3}\]`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
+- If `learnings_extracted` is non-empty, Read `.agentic/learnings.md` and extract the entries whose IDs match `learnings_extracted`, scoping the scan to the `## Entries` section only (the `## Index` section's one-line hooks - `- [<ID>] <hook>` - match the same ID-shaped regex and sit earlier in the file; matching against them instead of the real entry headings would find the wrong text, or nothing, for the same ID). Matching is PREFIX-AGNOSTIC: accept both `LRN-YYYYMMDD-XXX` and `KNW-YYYYMMDD-XXX` entries (regex shape `^## \[(LRN|KNW)-\d{8}-\d{3}\]` within `## Entries`). KNW entries (knowledge/env facts, dead-ends, architectural rationale) are equally valid fact-extraction inputs. These structured learning entries are higher-signal inputs for fact extraction in Step 3.
 
 ### 2.5. Extract skill-candidate clusters (reasoning only - no Bash, no shell-out)
 

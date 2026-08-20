@@ -81,6 +81,19 @@ The conductor sends learning event messages with the following fields:
 
 ## Workflow
 
+### 0. Absent-index migration (one-time, first writer only)
+
+Before Step 1, check whether `.agentic/learnings.md` exists, has one or more `## [ID]` entries under `## Entries`, and has **no** `## Index` section. If so, you are the migration owner - the first writer to touch the file after the Index section was introduced:
+
+- Read the **whole file once**. This is the one sanctioned full-file read; the index-first discipline in Step 1 does not apply yet because there is no index to read.
+- In file order, generate one index line per existing entry (`- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating each entry's title).
+- Insert a `## Index` section (containing those backfilled lines) immediately above `## Entries`. If the file also lacks a `## Entries` heading above its first entry, add that heading too.
+- Derive today's LRN/KNW counters from this same full scan (highest existing `XXX` per prefix for today's date, or `001` if none exist for today) - not from an empty index.
+- **Dedup for this one pass uses the full set of entries you just read** (the old whole-file case-insensitive substring procedure on Pattern/Fact), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced.
+- Write the backfilled `## Index` section and your own new entry (if any), plus its index line, in the same edit.
+
+After this one-time migration, the index-first flow in Step 1 below is authoritative for every subsequent writer in every subsequent session. A file that already has a `## Index` section never re-triggers migration, even if it is empty - an empty Index on a file with zero entries is the correct starting state, not a migration trigger.
+
 ### 1. Read the Index section of .agentic/learnings.md
 
 Read the `## Index` section of the existing `.agentic/learnings.md` (if present) - **not the whole file** - to determine the next ID counters and to prepare dedup candidates. The Index holds one line per entry (`- [<ID>] <one-line hook>`, in file order), so this read stays cheap regardless of how large the Entries section below it has grown.
@@ -250,8 +263,9 @@ The only files you may write are:
 
 ## Rules
 
-- **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact.
+- **Append-only governs entry bodies, not the Index.** Never delete, never reorder, never edit an existing `## [ID]` entry under `## Entries`. The `## Index` section is a maintained derived index, not an append-only log: inserting a missing index line at its correct file-order position (or performing the one-time absent-index migration in Step 0) is required repair, not a violation of append-only.
+- **Dedup before every append, index-first (after any needed migration).** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact. Step 0's one-time migration pass is the sole exception, using full-file dedup instead.
+- **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Independent per-day counters.** LRN and KNW counters are separate; each starts at `001` for the day independently.
 - **Caps are hard.** 5 entries to learnings.md per message, 1 entry to MEMORY.md per event, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
