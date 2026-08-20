@@ -64,7 +64,7 @@ Audit & improve the methodology
   /ds-failure-audit              Mine session telemetry and categorize failure modes per model/harness with quantified frequency.
   /ds-prune-harness               Propose deletions of rules that are not earning their keep.
   /ds-representation-audit        Propose prose rewrites where the methodology is unclear or bloated.
-  /ds-test-suite-comprehension    Produce a test-gap map for a codebase.
+  /ds-test-suite-comprehension    Produce a test-gap map for a codebase. (parked)
   /ds-update-agentic-engineering  Edit, sync, build, and commit changes to the methodology itself.
 
 Usage patterns

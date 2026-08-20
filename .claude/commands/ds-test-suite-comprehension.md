@@ -1,10 +1,12 @@
 ---
-description: "Produce a test-gap map for a codebase."
+description: "Produce a test-gap map for a codebase. (parked)"
 ---
 
 > **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-test-suite-comprehension
+
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by operator decision (zero recorded usage), candidate for future revival or removal.
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
