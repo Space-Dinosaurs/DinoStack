@@ -27,10 +27,10 @@ Signal sources and what is extracted:
        still appears in by_hook, with its deny/allow_advisory counts at 0.
        Any OTHER free-form decision value is counted under neither named
        total but does feed newest_ts/last_10_days, since it is still a fire.
-  4. Budget gates                      - runs
-       scripts/check-{resident,skill-embed,command-file}-budget.sh via
-       subprocess from the repo root; captures the exit code and the tail of
-       stdout for each. A missing script omits that gate.
+  4. Budget gates                      - runs every script named in
+       BUDGET_SCRIPTS below via subprocess from the repo root; captures the
+       exit code and the tail of stdout for each. A missing script omits
+       that gate.
   5. Resident floor                    - byte sizes of the always-loaded set:
        ~/.claude/CLAUDE.md, <repo>/CLAUDE.md, <repo>/AGENTS.md,
        <repo>/MEMORY.md, <repo>/.agentic/memory/MEMORY.md. Individual missing
@@ -327,6 +327,7 @@ BUDGET_SCRIPTS: tuple[str, ...] = (
     "check-skill-embed-budget.sh",
     "check-command-file-budget.sh",
     "check-copilot-skill-budget.sh",
+    "check-kimi-skill-embed-budget.sh",
 )
 
 

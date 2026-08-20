@@ -188,6 +188,17 @@ run_gate() {
   else
     fail "pass path expected exit 0 + OK banner, got rc=$rc, output: $out"
   fi
+
+  # Minor (DS-185 round 5): bin/ds-evaluate's _collect_budget_gates reads
+  # lines[-1] of stdout as this gate's summary - pin it here the same way
+  # test_check_copilot_skill_budget.sh and test_check_skill_embed_budget.sh
+  # already pin their own sibling gate's lines[-1] contract.
+  last_line="$(echo "$out" | grep -v '^[[:space:]]*$' | tail -1)"
+  if [[ "$last_line" == "  headroom to stub ceiling:"*"B" ]]; then
+    pass "pass path's lines[-1] is the headroom to stub ceiling: line (the exact wording bin/ds-evaluate's summary depends on)"
+  else
+    fail "pass path's lines[-1] is [$last_line], expected a headroom to stub ceiling: line"
+  fi
 }
 
 # --- Scenario 2: SKILL.md below FLOOR --------------------------------------
