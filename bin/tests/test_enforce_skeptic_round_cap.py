@@ -1457,24 +1457,33 @@ def test_tuid_index_round_trip():
 
 def test_tuid_index_concurrent_writes_not_lost():
     """M4 regression: `_update_tuid_index()`'s read-merge-write is now
-    guarded by a best-effort `flock` (`_tuid_index_lock()`). Six PARALLEL
+    guarded by a best-effort `flock` (`_tuid_index_lock()`). 40 PARALLEL
     hook invocations for the SAME unit (mirroring a real
     `skeptic_strategy: multi-dimensional` fan-out - correctness-Skeptic +
     security-auditor + perf-analyst, each a genuinely separate SubagentStop
     with its own `tool_use_id`, all sharing this unit's round-fingerprint
-    coalescing so they all ALLOW as the same round) must produce SIX
-    distinct index entries, not fewer. Executed pre-fix: 6 parallel writers
-    against the unlocked read-merge-write produced 4 entries (2 lost to a
-    write-write race). Executed mutation: reverting `_update_tuid_index()`
-    to call `_write_state`-style unlocked write (skip `_tuid_index_lock()`
-    entirely) reproduces intermittent loss under this same test - the lock
-    is what this test asserts exists and is exercised, not merely declared
-    in a docstring."""
+    coalescing so they all ALLOW as the same round) must produce 40
+    distinct index entries, not fewer.
+
+    Round-3 fix (m4): n was previously 6, which made this guard
+    INTERMITTENT rather than deterministic - re-running the pre-fix
+    (unlocked) code at n=6 five times gave 4 failed / 1 passed, a ~20%
+    false-green rate on a real revert. n=40 (matching the reviewer's own
+    out-of-band measurement: pre-fix `lost=6/40`, post-fix `lost=0/40`,
+    three consecutive runs) is at a scale where the write-write race
+    reliably manifests pre-fix and reliably does not post-fix. Executed
+    pre-fix at n=6: 6 parallel writers against the unlocked
+    read-merge-write produced 4 entries (2 lost to a write-write race).
+    Executed mutation: reverting `_update_tuid_index()` to call
+    `_write_state`-style unlocked write (skip `_tuid_index_lock()`
+    entirely) reproduces loss under this same test - the lock is what
+    this test asserts exists and is exercised, not merely declared in a
+    docstring."""
     import threading
 
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/tuid-index-concurrent"
-        n = 6
+        n = 40
         results: list[tuple[int, dict | None]] = [None] * n  # type: ignore[list-item]
 
         def _spawn(i: int) -> None:
@@ -1489,7 +1498,7 @@ def test_tuid_index_concurrent_writes_not_lost():
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=10)
+            t.join(timeout=30)
 
         for i, result in enumerate(results):
             assert result is not None, f"writer {i} did not complete"

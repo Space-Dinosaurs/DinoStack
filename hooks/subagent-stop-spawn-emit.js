@@ -297,8 +297,26 @@
  *              synchronous fs.readFileSync of the resolved transcript,
  *              size-capped at MAX_TRANSCRIPT_BYTES (20 MiB) - a transcript
  *              at or above that size is skipped entirely rather than read.
- *              This stays inside the hook's overall 5s timeout
- *              (.claude/install.sh) alongside the rest of this hook's work.
+ *
+ *              Round-3 fix (M3): two calibration-only contributors, both
+ *              added by DS-178 unit A and both previously undocumented
+ *              here, only run for a Skeptic completion (agentName ===
+ *              "skeptic"), never for any other agent. (1)
+ *              parseSkepticSignoff() performs a SECOND, independent
+ *              statSync + readFileSync + full JSONL parse of the SAME
+ *              transcript scanTranscript() already read above - measured
+ *              48ms on top of scanTranscript's 50ms at a 19 MiB transcript
+ *              on the machine this was built on. (2) resolveDiffLines()
+ *              shells out to `git diff --shortstat` via execFileSync,
+ *              bounded by DIFF_SHORTSTAT_TIMEOUT_MS (3000ms) - 60% of the
+ *              hook's overall 5s timeout budget on its own, the largest
+ *              single contributor in this file. Both degrade to a
+ *              calibration_note clause on failure/timeout rather than
+ *              blocking. Combined with the token-resolution work above,
+ *              this stays inside the hook's overall 5s timeout
+ *              (.claude/install.sh) alongside the rest of this hook's
+ *              work, but the margin is materially thinner for a Skeptic
+ *              completion than for any other agent's.
  *
  *              The events.jsonl scan itself is bounded by
  *              hooks/lib/stdin-guard.js's read path (same as
@@ -833,6 +851,14 @@ function resolveDiffLines(cwd, promptText) {
   const rangeMatch = _DIFF_RANGE_JS_RE.exec(value);
   if (!rangeMatch) return { diffLines: null, diffLinesNote: NOTE_NO_RANGE };
   const rangeArg = `${rangeMatch[1]}${rangeMatch[2]}${rangeMatch[3]}`;
+  // Round-3 fix (m1): a leading `-` makes rangeArg option-shaped to git
+  // (e.g. a prompt-derived "-O/etc/passwd..HEAD" value), which git would
+  // otherwise consume as a flag rather than a ref - reject it before the
+  // subprocess call rather than reporting a fabricated 0. No command
+  // injection risk either way (execFileSync, no shell), but a
+  // fabricated-0 result violates this file's own never-fabricate
+  // discipline.
+  if (rangeArg.startsWith('-')) return { diffLines: null, diffLinesNote: NOTE_NO_RANGE };
 
   let output;
   try {
@@ -874,21 +900,31 @@ function resolveDiffLines(cwd, promptText) {
  * out-of-order completion: the unit's round count can have advanced (or,
  * with fingerprint coalescing, can still be mid-round) by the time a
  * particular spawn's SubagentStop fires, so the reported `iteration`
- * silently described the WRONG round - confidently, with no note. A
- * pre-round-2 index entry is still a bare `unit_key` STRING (legacy
- * shape) - this function tolerates that shape and falls back to the old
- * live-read behavior for it only, so an existing index is not
- * invalidated; it self-heals to the pinned shape as spawns complete and
- * write fresh entries.
+ * silently described the WRONG round - confidently, with no note.
+ *
+ * Round-3 fix (m2): the legacy live-read fallback (for a pre-round-2 bare
+ * `unit_key` STRING index entry, or a pinned-but-non-positive value) is
+ * REMOVED, not merely narrowed. It was untested (relaxing the `> 0` guard
+ * below to a bare not-null check left the calibration suite fully green,
+ * since nothing exercised the pinned path with a non-positive value), and
+ * it is dead in practice - `origin/main` has zero occurrences of
+ * `skeptic-tuid-index` as a bare-string writer, so a bare-string entry can
+ * only exist on a machine that ran the unmerged round-1 commit. Worse, if
+ * it were ever live, it would silently reintroduce the exact round-1
+ * wrong-round defect (a live `round_count` read at completion time can
+ * describe a different round than the one this spawn actually ran at)
+ * with no calibration_note disclosing the fallback occurred. Treating any
+ * entry without a pinned positive integer `iteration` as a miss is
+ * strictly safer and requires no state-file read of its own.
  *
  * Returns { unitKey, iteration } on a full hit (a pinned-shape index
- * entry with a positive integer `iteration`, or - legacy fallback only -
- * an index entry resolving to a unit whose state file parses with a
- * positive numeric `round_count`), or null on ANY miss along that chain.
- * `iteration <= 0` is always treated as a miss (m2): the round-cap hook
- * never persists `round_count: 0` on an allowed spawn, so a 0 can only
- * come from a legacy/hand-edited state file and reporting it verbatim
- * would be a zero that looks like a real measurement.
+ * entry with a positive integer `iteration`), or null on ANY miss: no
+ * index, no entry for this toolUseId, a legacy bare-string entry, or a
+ * pinned `iteration` that is missing, non-numeric, zero, or negative.
+ * `iteration <= 0` is always treated as a miss: the round-cap hook never
+ * persists `round_count: 0` on an allowed spawn, so a non-positive value
+ * can only come from a hand-edited index and reporting it verbatim would
+ * be a zero that looks like a real measurement.
  */
 function readRoundState(agenticDir, toolUseId) {
   if (!toolUseId) return null;
@@ -903,38 +939,15 @@ function readRoundState(agenticDir, toolUseId) {
   if (!index || typeof index !== 'object') return null;
 
   const entry = index[toolUseId];
-  let unitKey = null;
-  let pinnedIteration = null;
-  if (typeof entry === 'string' && entry) {
-    // Legacy (pre-round-2) shape: bare unit_key string, no pinned
-    // iteration - falls through to the live-read below.
-    unitKey = entry;
-  } else if (entry && typeof entry === 'object' && typeof entry.unit_key === 'string' && entry.unit_key) {
-    unitKey = entry.unit_key;
-    pinnedIteration = typeof entry.iteration === 'number' ? entry.iteration : null;
-  }
-  if (!unitKey) return null;
-
-  if (pinnedIteration !== null && pinnedIteration > 0) {
-    return { unitKey, iteration: pinnedIteration };
-  }
-
-  // Legacy fallback: no pinned iteration available (a pre-round-2 index
-  // entry, or a pinned-but-non-positive value) - re-read the unit's
-  // current state file, same behavior as before this fix.
-  const statePath = path.join(agenticDir, `skeptic-round-${unitKey}.json`);
-  let state;
-  try {
-    state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-  } catch (_) {
+  if (!entry || typeof entry !== 'object' || typeof entry.unit_key !== 'string' || !entry.unit_key) {
+    // Covers: no entry, and the legacy bare-string shape (m2: no longer
+    // given a live-read fallback).
     return null;
   }
-  if (!state || typeof state !== 'object') return null;
+  const pinnedIteration = typeof entry.iteration === 'number' ? entry.iteration : null;
+  if (pinnedIteration === null || pinnedIteration <= 0) return null;
 
-  const rawIteration = typeof state.round_count === 'number' ? state.round_count : null;
-  if (rawIteration === null || rawIteration <= 0) return null;
-
-  return { unitKey, iteration: rawIteration };
+  return { unitKey: entry.unit_key, iteration: pinnedIteration };
 }
 
 const MAX_SCAN_LINES = 5000;

@@ -491,6 +491,43 @@ console.log('\nTest 10: tuid-index-hit');
   const agenticDir = path.join(cwd, '.agentic');
   fs.mkdirSync(agenticDir, { recursive: true });
   const unitKey = 'feature-calib-test-abc1234567';
+  // Round-3 fix (m2): pinned shape only - the legacy bare-string entry
+  // plus live-state-file-read fallback is removed (see Test 10b below).
+  fs.writeFileSync(path.join(agenticDir, 'skeptic-tuid-index.json'), JSON.stringify({
+    [toolUseId]: { unit_key: unitKey, iteration: 2 },
+  }));
+
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).unit_key === unitKey, `unit_key === "${unitKey}" (got: ${(complete.data || {}).unit_key})`);
+    assert((complete.data || {}).iteration === 2, `iteration === 2 (got: ${(complete.data || {}).iteration})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 10b: tuid-index-legacy-string-entry-is-a-miss (round-3, m2)');
+{
+  // Round-3 fix (m2): a legacy pre-round-2 bare-string index entry no
+  // longer falls back to a live state-file read - it is now treated as a
+  // miss like any other unresolvable entry, even when a matching
+  // skeptic-round-*.json state file with a valid round_count exists.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-010b';
+  const agentId = 'agentcal010b';
+  const toolUseId = 'toolu_cal_010b';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId, description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(GRANTED_SIGNOFF)]);
+
+  const agenticDir = path.join(cwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  const unitKey = 'feature-calib-test-legacy-abc123';
   fs.writeFileSync(path.join(agenticDir, 'skeptic-tuid-index.json'), JSON.stringify({ [toolUseId]: unitKey }));
   fs.writeFileSync(path.join(agenticDir, `skeptic-round-${unitKey}.json`), JSON.stringify({
     round_count: 2, decision: null, unresolved_critical: false,
@@ -503,8 +540,47 @@ console.log('\nTest 10: tuid-index-hit');
   const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
   assert(!!complete, 'spawn_complete emitted');
   if (complete) {
-    assert((complete.data || {}).unit_key === unitKey, `unit_key === "${unitKey}" (got: ${(complete.data || {}).unit_key})`);
-    assert((complete.data || {}).iteration === 2, `iteration === 2 (got: ${(complete.data || {}).iteration})`);
+    assert((complete.data || {}).unit_key === undefined,
+      `unit_key absent for a legacy bare-string entry, never live-read from state file (got: ${(complete.data || {}).unit_key})`);
+    assert((complete.data || {}).iteration === undefined,
+      `iteration absent for a legacy bare-string entry (got: ${(complete.data || {}).iteration})`);
+    const note = (complete.data || {}).calibration_note;
+    assert(typeof note === 'string' && note.indexOf('unit_key/iteration') !== -1,
+      `calibration_note names the tuid-index miss for a legacy entry (got: ${JSON.stringify(note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 10c: tuid-index-pinned-non-positive-iteration-is-a-miss (round-3, m2)');
+{
+  // Round-3 fix (m2): the `pinnedIteration > 0` guard is now exercised
+  // directly - relaxing it to a bare not-null check must redden this test.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-010c';
+  const agentId = 'agentcal010c';
+  const toolUseId = 'toolu_cal_010c';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId, description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(GRANTED_SIGNOFF)]);
+
+  const agenticDir = path.join(cwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  fs.writeFileSync(path.join(agenticDir, 'skeptic-tuid-index.json'), JSON.stringify({
+    [toolUseId]: { unit_key: 'feature-calib-test-zero-iter', iteration: 0 },
+  }));
+
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).unit_key === undefined,
+      `unit_key absent when pinned iteration is 0 (got: ${(complete.data || {}).unit_key})`);
+    assert((complete.data || {}).iteration === undefined,
+      `iteration absent when pinned iteration is 0 (got: ${(complete.data || {}).iteration})`);
   }
   cleanup(cwd); cleanup(configDir);
 }
@@ -538,6 +614,40 @@ console.log('\nTest 11: tuid-index-miss-emits-note (round-2, M3)');
     assert(typeof note === 'string' && note.indexOf('unit_key/iteration') !== -1,
       `calibration_note names the tuid-index miss (got: ${JSON.stringify(note)})`);
     assert((complete.data || {}).signed_off === true, 'signed_off still correctly emitted from the transcript');
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 11b: calibration-note-separator-pinned (round-3, m3)');
+{
+  // Round-3 fix (m3): the "; " join separator between calibration_note
+  // clauses was previously asserted only via indexOf on one clause -
+  // changing calibrationNoteParts.join('; ') to join(' / ') left the
+  // suite green. This test pins the FULL string, byte-for-byte, with
+  // exactly two known misses (tuid-index, diff_lines) and one known hit
+  // (signed_off, via a real sign-off in the transcript).
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-011b';
+  const agentId = 'agentcal011b';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_011b', description: 'x', spawnDepth: 1,
+  });
+  // No skeptic-tuid-index.json written at all (tuid-index miss).
+  // No "Diff under review:" line in the transcript (diff_lines miss).
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(GRANTED_SIGNOFF)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.signed_off === true, 'signed_off is a real hit, not a miss, in this fixture');
+    const expected = 'unit_key/iteration: unavailable (tuid-index miss); '
+      + 'diff_lines: unavailable (no spawn prompt found in transcript)';
+    assert(d.calibration_note === expected,
+      `calibration_note is exactly the two clauses joined by "; " (got: ${JSON.stringify(d.calibration_note)})`);
   }
   cleanup(cwd); cleanup(configDir);
 }
