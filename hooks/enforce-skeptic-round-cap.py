@@ -235,8 +235,12 @@ DS-178 unit A addition: this hook now also reads the PreToolUse payload's
             {"unit_key": ..., "iteration": ...}}` (via
             `_update_tuid_index()`; round-2 fix, M3 - the round-1 shape was
             the bare string `{tool_use_id: unit_key}`; round-3 fix, m2
-            removed the read-side tolerance for that legacy shape - see
-            `_valid_index_entry()`). Neither addition can affect the
+            removed the read-side tolerance for that legacy shape from
+            `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` - this
+            file's own `_valid_index_entry()` still ACCEPTS the legacy
+            bare-string shape when merging an on-disk index at write time,
+            so an old entry is preserved rather than dropped; only the
+            reader treats it as a miss). Neither addition can affect the
             allow/deny decision: both run strictly AFTER `_decide()` has
             already produced its verdict, and both are individually
             wrapped fail-open. The index exists so
@@ -429,9 +433,18 @@ _WHAT_TO_REVIEW_RE = re.compile(r"(?is)what to review:?\**\s*(.*)")
 # "git diff origin/main...feature/foo" or a bare "abc1234..def5678" - used
 # by `_normalize_diff_identity()` below (MAJOR 2). Anchoring at `^`
 # prevents false positives on ordinary prose containing an ellipsis
-# ("...") that happens to sit between two word-like tokens.
+# ("...") that happens to sit between two word-like tokens. Round-5 fix
+# (M3): the character class now includes `~` and `^`, mirroring
+# `hooks/subagent-stop-spawn-emit.js`'s `_DIFF_RANGE_JS_RE` (round-4
+# Minor fix there widened it to admit ordinary git revision-suffix syntax
+# like `<sha>~1..<sha>`) - the two regexes had desynchronized, so a
+# tilde/caret-suffixed range resolved a `diff_lines` measurement in the
+# JS emitter but fell through to `_normalize_diff_identity()`'s
+# unrecognized-shape branch (returning the raw text unchanged) here,
+# giving that spawn's round-cap key no round-stability benefit even
+# though the very same value's `diff_lines` was measured correctly.
 _DIFF_RANGE_RE = re.compile(
-    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/-]+)"
+    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/^~-]+)"
 )
 _SHA_LIKE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
