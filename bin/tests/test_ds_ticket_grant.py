@@ -19,15 +19,20 @@ Test groups:
   5. test_nonexistent_repo_is_hard_error - a --repo path that does not
      exist on disk is rejected (exit 1, nothing written, no directory
      created).
-  6. test_bootstraps_bare_repo_agentic_dir - a --repo with no .agentic/
-     yet gets it created at mode 0o700 (mirrors bin/ds-defer append's
-     identical documented side effect).
+  6. test_bootstraps_bare_repo_agentic_dir - a git-rooted --repo with no
+     .agentic/ yet gets it created at mode 0o700 (mirrors bin/ds-defer
+     append's identical documented side effect).
   7. test_second_grant_overwrites_first - a second `grant` call for the
      same (repo, session_id) overwrites the first rather than erroring or
      appending.
   8. test_cli_runs_through_path_symlink_resolving_lib - regression guard
      for the install.sh PATH-symlink invocation path, mirroring ds-defer's
      identical test.
+  9. test_repo_with_no_git_root_is_hard_error - M3 fix: --repo with no
+     resolvable .git ancestor is a hard error, not a silent success.
+ 10. test_repo_subdirectory_resolves_to_git_root - M3 fix: --repo <repo>/
+     sub/deeper resolves to the checkout's own root, matching the hook's
+     own lookup location.
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_ds_ticket_grant.py -x
@@ -153,7 +158,13 @@ def test_nonexistent_repo_is_hard_error():
 
 
 def test_bootstraps_bare_repo_agentic_dir():
+    """A git-rooted --repo with no .agentic/ yet (never ran
+    /ds-init-project) still gets it bootstrapped - the git-root
+    resolution added by the M3 fix (see
+    test_repo_with_no_git_root_is_hard_error below) is orthogonal to
+    whether .agentic/ itself exists yet."""
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         assert not (Path(tmp) / ".agentic").exists()
         rc, out, err = _run(
             ["ds-ticket-grant", "grant", "--repo", tmp, "--session-id", "sess-1", "--reason", "operator asked"]
@@ -162,6 +173,52 @@ def test_bootstraps_bare_repo_agentic_dir():
         agentic_dir = Path(tmp) / ".agentic"
         assert agentic_dir.is_dir()
         assert (agentic_dir.stat().st_mode & 0o777) == 0o700
+
+
+def test_repo_with_no_git_root_is_hard_error():
+    """M3 fix: --repo with no resolvable `.git` ancestor is a hard error
+    (exit 1, nothing written) rather than a silent success - the hook
+    resolves its own grant-lookup location via the same git-root walk
+    (`hooks/lib/repo_root.py`'s `resolve_agentic_cwd_with_diagnostics`),
+    so writing anywhere else would print a false "Granted..." success
+    while the hook could never find the file."""
+    with tempfile.TemporaryDirectory() as tmp:
+        rc, out, err = _run(
+            ["ds-ticket-grant", "grant", "--repo", tmp, "--session-id", "sess-1", "--reason", "operator asked"]
+        )
+        assert rc == 1
+        assert "no resolvable git root" in err
+        assert not (Path(tmp) / ".agentic").exists()
+
+
+def test_repo_subdirectory_resolves_to_git_root():
+    """M3 fix regression test: `--repo <repo>/sub/deeper` (a plausible
+    invocation from a subdirectory) must resolve to the checkout's own
+    root, matching where the hook looks - not write a stray `.agentic/`
+    under the subdirectory. Reproduces the exact scenario from the
+    Skeptic finding: before the fix, this printed a full success message
+    and the next tracker-ticket creation was denied anyway because the
+    hook never found the grant."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        deep = Path(tmp, "sub", "deeper")
+        deep.mkdir(parents=True)
+        rc, out, err = _run(
+            [
+                "ds-ticket-grant", "grant",
+                "--repo", str(deep),
+                "--session-id", "sess-1",
+                "--reason", "operator asked from a subdirectory",
+            ]
+        )
+        assert rc == 0, err
+        # Written at the REPO ROOT's .agentic/, not under sub/deeper/.
+        assert not (deep / ".agentic").exists()
+        resolved_root = Path(tmp).resolve()
+        root_grant = resolved_root / ".agentic" / ".ticket-batch-grant-sess-1.json"
+        assert root_grant.is_file()
+        hook_mod = _load_hook_module()
+        assert hook_mod._grant_path(str(resolved_root), "sess-1") == root_grant
 
 
 def test_second_grant_overwrites_first():

@@ -121,15 +121,30 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |
 
-Every kill-switch above is read once, at the hook-runner process's own
-launch - none of them can be set mid-session (a conductor `export` in a
-later tool call never reaches that already-running process). For
-`AE_TICKET_BATCH_GUARD_DISABLE`, `bin/ds-ticket-grant` is the mid-session
-alternative: it writes a one-shot, operator-attributable exception the
-hook itself reads and consumes on the next denied creation, rather than
-disabling the guard outright. See `content/references/delegation-detail.md`
-§Follow-up Ticket Creation Discipline, "Operator-granted mid-session
-exception".
+Every kill-switch above except `AGENTIC_WRAP_DAEMON` (deliberately set
+mid-flight by the deferred-wrap daemon itself, not a static session
+setting) is effectively fixed for the life of a session: each `enforce-
+*.py`/`enforce-*.sh` hook is a fresh, separate process per invocation, and
+a conductor `export` in a Bash tool call sets that variable only in the
+*conductor's own shell environment* - it never mutates the environment
+the hook-runner subsequently launches its process with, so the hook never
+observes it. This is not a "read once at process launch" detail (every
+hook process launch already re-reads its own environment fresh); it is
+that the two processes' environments are never the same environment to
+begin with. For `AE_TICKET_BATCH_GUARD_DISABLE`, `bin/ds-ticket-grant` is
+the mid-session alternative: it writes a one-shot exception (a 10-minute
+TTL, not a persisting bypass) the hook itself reads, validates, and
+atomically consumes on the next denied creation, rather than disabling
+the guard outright. Its `reason` field is mechanically enforced (must be
+a non-empty string, echoed back in the hook's decision and its
+`.enforcement-fires.jsonl` entry) but not verified against anything an
+operator actually said - nothing structurally distinguishes a genuine
+operator-authorized grant from a conductor self-grant at this trust
+boundary. What it buys over the env-var kill switch: a deliberate,
+per-create, one-shot, logged act with a quotable justification, instead
+of a standing bypass with no audit trail. See
+`content/references/delegation-detail.md` §Follow-up Ticket Creation
+Discipline, "Operator-granted mid-session exception".
 
 Platform variables (not AE-owned): `CLAUDE_CODE_SUBAGENT_MODEL` (highest-
 precedence subagent model override); `GRAPHIFY_OUT` (overrides graph output

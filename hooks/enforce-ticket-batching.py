@@ -133,23 +133,32 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
                    the `mutation` keyword is accepted as an equivalent
                    signal. See `_LINEAR_ISSUE_CREATE_RE`.
 
-         **Triage exemption.** `/ds-feedback-triage` and
-         `/ds-ticket-triage` legitimately create multiple tickets in one
-         session under an explicit human greenlight per batch (see
-         `content/references/delegation-detail.md` item 5: the triage
-         creates are gated by a stronger control than this discipline -
-         a per-batch human greenlight). Detected by parsing the payload's
-         `transcript_path` as JSONL (Claude Code session transcript
-         format) and accepting a `<command-name>` or `<command-message>`
-         marker for either triage command (`_TRIAGE_MARKER_RE`) ONLY when
-         it appears in one of two record shapes that a conductor cannot
+         **Triage exemption.** `/ds-feedback-triage` legitimately creates
+         multiple tickets in one session under an explicit human
+         greenlight per batch (see `content/references/
+         delegation-detail.md` item 5: the triage creates are gated by a
+         stronger control than this discipline - a per-batch human
+         greenlight). `/ds-ticket-triage` was PREVIOUSLY exempted here
+         too, but is NOT a create path at all - see its own file's
+         "Composition and non-goals" ("Mutate tracker tickets (no status
+         transitions, no comment posts)" is an explicit non-goal) - so
+         the exemption was removed: a session that runs `/ds-ticket-
+         triage` and then creates tickets by some other means still hits
+         the ordinary batching cap. `content/references/
+         delegation-detail.md` §Follow-up Ticket Creation Discipline was
+         corrected to match in the same change.
+
+         Detected by parsing the payload's `transcript_path` as JSONL
+         (Claude Code session transcript format) and accepting a
+         `<command-name>` or `<command-message>` marker for the
+         `/ds-feedback-triage` command (`_TRIAGE_MARKER_RE`) ONLY when it
+         appears in one of two record shapes that a conductor cannot
          forge via any tool it has access to. **The marker pattern
          requires the leading slash to be OPTIONAL** - a round-2 version
-         of this hook hardcoded the no-slash form
-         (`<command-name>ds-ticket-triage</command-name>`) as the
-         "empirically verified" shape, but every genuine accepted-shape
-         record on this machine actually carries the slash
-         (`<command-name>/ds-ticket-triage</command-name>`; verified by
+         of this hook hardcoded a no-slash form as the "empirically
+         verified" shape, but every genuine accepted-shape record on this
+         machine actually carries the slash
+         (`<command-name>/ds-feedback-triage</command-name>`; verified by
          scanning `$CLAUDE_CONFIG_DIR/projects/**/*.jsonl` for real
          `type: "user"` string-content and `type: "system"`/
          `local_command` records). A Skeptic-run independent full-corpus
@@ -157,14 +166,23 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          this machine runs two separate `CLAUDE_CONFIG_DIR` trees, and an
          engineer-run measurement scoped to only one undercounts) found
          **622 top-level transcripts total (481 under `~/.claude` + 141
-         under `~/.claude-moment8`) and 3 genuine triage sessions, all 3
-         correctly exempted, 0 false positives** against the current
-         (slash-optional, `<command-message>`-inclusive) pattern. The
+         under `~/.claude-moment8`) and 3 genuine triage sessions (a mix
+         of `/ds-feedback-triage` and the since-removed `/ds-ticket-
+         triage` exemption), all 3 correctly matched, 0 false positives**
+         against the then-current (slash-optional,
+         `<command-message>`-inclusive, BOTH-commands) pattern. That
+         figure predates the `/ds-ticket-triage` narrowing above and is
+         retained only as evidence for the slash-optional,
+         `<command-message>`-inclusive matching mechanics, which are
+         unchanged - it is not a current measurement of the
+         `/ds-feedback-triage`-only pattern's real-world hit rate, and no
+         fresh corpus scan was run for the narrowing itself (the fix is a
+         removal, not a new pattern to validate against real data). The
          round-2 no-slash-only pattern matched 0 of those transcripts,
          including every session that genuinely ran a triage command -
          unforgeable, but also permanently dead. Do not re-narrow this
-         pattern to a single hardcoded literal without re-running that
-         same full-corpus measurement first.
+         pattern to a single hardcoded literal without re-running a
+         full-corpus measurement first.
 
          **Residual Bash false-positive class (verified real, accepted).**
          The `_bash_is_creation` false-positive surface is not zero: a
@@ -359,31 +377,64 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
          `{"reason": <str>, "granted_at": <UTC ISO8601>}`, where
          `safe_session_id` is byte-for-byte the same sanitization
          `_state_path` below already applies to the batching counter's own
-         filename. On the next denied creation this session, `_decide()`
-         reads that file via `_load_grant()`: a missing file, unreadable
-         file, malformed JSON, non-dict content, or an empty/non-string
-         `reason` all resolve to "no grant" (`None`) - every failure mode
+         filename. On the next denied creation this session,
+         `_load_and_consume_grant()` validates AND atomically consumes
+         that file in one call - not two, unlike a round-1 version of
+         this hook (see that function's own docstring for the
+         concurrency and non-writable-directory bugs the split allowed,
+         both measured directly and both closed by this fix). A missing
+         file, unreadable file, malformed JSON, non-dict content, an
+         empty/non-string `reason`, a missing/unparseable `granted_at`,
+         or a `granted_at` more than `_GRANT_TTL_SECONDS` (10 minutes) in
+         the past all resolve to "no grant" (`None`) - every failure mode
          here falls toward the pre-existing deny behavior, never toward a
-         phantom allow. A valid grant ALLOWS this one creation, and
-         `_consume_grant()` deletes the file immediately (best-effort - a
-         delete failure never turns the already-emitted ALLOW decision
-         back into a deny, but also never gives a later call a second
-         chance to consume the same grant if the delete DID succeed,
-         which is the common case) - a stale, un-consumed grant from an
-         earlier session or an earlier abandoned request is never
-         reusable once a later `grant` invocation for the same session
-         overwrites it, and once consumed it cannot allow a 4th (or Nth)
-         creation without a fresh `grant` call. This is intentionally
-         one-shot rather than a bounded count or a time window - see
-         `bin/ds-ticket-grant`'s own module docstring for why a persisting
-         exception (count-based or expiry-based) would re-open the exact
-         branching-factor hole this whole hook exists to close.
+         phantom allow. The 10-minute TTL exists because a grant has no
+         other binding to the specific create it authorizes beyond the
+         session_id in its filename and the reason text an operator
+         chose to write - the CLI is invoked, and the grant written,
+         BEFORE the retried tool call is made, so there is no create-side
+         content (a tool name, a Jira project key, a Linear team) for the
+         grant to bind to at write time; the TTL instead binds it in TIME
+         to the retry it was meant for; a grant an operator authorized
+         and the conductor then never used within 10 minutes is treated
+         as abandoned, not carried forward to whatever unrelated 3rd+
+         create arrives later in the same (possibly `--resume`d) session.
+         An expired grant is pruned (deleted) the first time any denied
+         creation reads it, even though it is never returned as valid -
+         see `_load_and_consume_grant()` - so a stale grant does not
+         linger under `.agentic/` indefinitely; a grant that is never
+         read again (no further 3rd+ creation this session) is NOT
+         proactively swept by anything else, since this hook only runs on
+         a classified creation call and has no other trigger.
+         A valid, unexpired grant ALLOWS this one creation and is deleted
+         as part of the same atomic consumption - a stale, un-consumed
+         grant from an earlier session or an earlier abandoned request is
+         never reusable once a later `grant` invocation for the same
+         session overwrites it, and once consumed (or expired-and-pruned)
+         it cannot allow a 4th (or Nth) creation without a fresh `grant`
+         call. This is intentionally one-shot rather than a bounded count
+         or a long-lived window - see `bin/ds-ticket-grant`'s own module
+         docstring for why a persisting exception (count-based or a
+         multi-hour expiry) would re-open the exact branching-factor hole
+         this whole hook exists to close; the 10-minute TTL above is a
+         narrow leash on the one-shot grant's own idle lifetime, not a
+         reintroduction of a persisting exception.
          Attributability is enforced only mechanically (a non-empty
          `reason` string must be present on disk and is echoed back in
          both the hook's `permissionDecisionReason` and its `log_fire()`
          entry) - nothing here verifies an operator actually said the
-         quoted words; see `bin/ds-ticket-grant`'s module docstring for
-         why that half is left to conductor discipline, not a CLI check.
+         quoted words, and nothing structurally distinguishes an
+         operator-authorized grant from a conductor self-grant (a
+         conductor can run `bin/ds-ticket-grant` unprompted the same way
+         it can always write directly under `.agentic/`, which is exempt
+         from the shippable-edit delegation guard); see
+         `bin/ds-ticket-grant`'s module docstring for why that half is
+         left to conductor discipline, not a CLI check. What the
+         mechanism does buy is real: a passive kill-switch environment
+         variable becomes a deliberate, per-create, one-shot, logged act
+         that leaves an audit trail in `.enforcement-fires.jsonl` with a
+         quotable justification, rather than a standing bypass with none
+         of those properties.
 
          Kill switch: `AE_TICKET_BATCH_GUARD_DISABLE=1`, checked FIRST in
          `main()`. Deliberately an environment variable, NOT a
@@ -467,17 +518,21 @@ Failure modes:
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern.
     - Grant file (see "Operator-granted mid-session exception" above)
-      missing, unreadable, malformed JSON, non-dict content, or an
-      empty/non-string `reason`: treated as no grant - the deny branch's
-      pre-existing behavior applies unchanged. This is checked only on
-      what would otherwise be a 3rd+-creation DENY; it is never consulted
-      on the 1st or 2nd creation, so a grant written before either of
-      those has no effect on them (nothing to override - they already
-      allow). A grant-file DELETE failure after a successful consuming
-      read never turns the already-emitted ALLOW back into a deny for
-      THIS call - only a later call could theoretically re-read the
-      un-deleted file, and even then only if that later call also reached
-      the deny branch with the same (repo, session_id) pair.
+      missing, unreadable, malformed JSON, non-dict content, an
+      empty/non-string `reason`, a missing/unparseable `granted_at`, or a
+      `granted_at` outside the `_GRANT_TTL_SECONDS` freshness window:
+      treated as no grant - the deny branch's pre-existing behavior
+      applies unchanged. This is checked only on what would otherwise be
+      a 3rd+-creation DENY; it is never consulted on the 1st or 2nd
+      creation, so a grant written before either of those has no effect
+      on them (nothing to override - they already allow). Unlike a
+      round-1 version of this hook, the grant's DELETE now happens BEFORE
+      the ALLOW is decided, not after - `_load_and_consume_grant()`
+      returns a grant to its caller only once its own unlink of the file
+      has already succeeded, so a delete FAILURE here never reaches an
+      ALLOW at all; it falls straight to "no grant" and the ordinary deny
+      path, closing the concurrent-allow and non-writable-directory bugs
+      described in that function's own docstring.
     - A creation routed through a script file WRITTEN to disk and then
       executed (`python3 /tmp/scratch/file_tickets.py`) is invisible: this
       hook inspects `tool_input.command` only and never resolves/reads a
@@ -499,6 +554,7 @@ Performance: ~25 ms avg per call, measured directly (20 runs, Python
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import re
@@ -508,6 +564,10 @@ from pathlib import Path
 
 _ADVISORY_AT_COUNT = 2
 _DENY_FROM_COUNT = 3
+# Grant idle-lifetime ceiling - see module docstring, "Operator-granted
+# mid-session exception", for why a grant is bound in TIME to the retry
+# it authorizes rather than to the create's own content.
+_GRANT_TTL_SECONDS = 600
 
 # HTTP method signal required alongside the Jira issue-create path below -
 # without this, an ordinary GET/search request against the same endpoint
@@ -640,33 +700,36 @@ def _bash_is_compound(command: str) -> bool:
     return len(_bash_command_segments(command)) > 1
 
 
-# Matches the real harness-recorded `<command-name>` marker for either
-# triage command. MEASURED against live Claude Code transcripts on this
-# machine ($CLAUDE_CONFIG_DIR/projects/**/*.jsonl): every genuine
-# slash-command invocation records the command name WITH its leading
-# slash, e.g. `<command-name>/ds-ticket-triage</command-name>` - a prior
-# version of this pattern omitted the slash and matched ZERO real
-# accepted-shape records (0 of 622 top-level transcripts across
-# ~/.claude and ~/.claude-moment8 on this machine - see the module
-# docstring "Triage exemption" for the full corpus figures), silently
-# making the exemption permanently dead while still reading as
-# implemented. The slash is therefore OPTIONAL in the regex
-# (`/?`) so this keeps matching even if a future harness version drops
-# it - the point is to never again hardcode one exact literal against an
-# unverified real shape. Also accepts the sibling `<command-message>`
-# tag (present in the same real records, always WITHOUT a leading slash,
-# e.g. `<command-message>ds-ticket-triage</command-message>`) as an
+# Matches the real harness-recorded `<command-name>` marker for the
+# `/ds-feedback-triage` command only - `/ds-ticket-triage` was removed
+# from this pattern (see module docstring "Triage exemption"): it is not
+# a create path at all, so exempting it from the batching cap was wrong.
+# MEASURED against live Claude Code transcripts on this machine
+# ($CLAUDE_CONFIG_DIR/projects/**/*.jsonl): every genuine slash-command
+# invocation records the command name WITH its leading slash, e.g.
+# `<command-name>/ds-feedback-triage</command-name>` - a prior version of
+# this pattern omitted the slash and matched ZERO real accepted-shape
+# records (0 of 622 top-level transcripts across ~/.claude and
+# ~/.claude-moment8 on this machine - see the module docstring "Triage
+# exemption" for the full corpus figures), silently making the exemption
+# permanently dead while still reading as implemented. The slash is
+# therefore OPTIONAL in the regex (`/?`) so this keeps matching even if a
+# future harness version drops it - the point is to never again hardcode
+# one exact literal against an unverified real shape. Also accepts the
+# sibling `<command-message>` tag (present in the same real records,
+# always WITHOUT a leading slash, e.g.
+# `<command-message>ds-feedback-triage</command-message>`) as an
 # equivalent signal, since both tags are written by the harness itself
 # from the same slash-command dispatch and neither is conductor-authored
 # text a Bash echo/grep could inject into the excluded (list-content)
 # record shape.
 _TRIAGE_MARKER_RE = re.compile(
-    r"<command-name>/?ds-(?:feedback|ticket)-triage</command-name>"
-    r"|<command-message>ds-(?:feedback|ticket)-triage</command-message>"
+    r"<command-name>/?ds-feedback-triage</command-name>"
+    r"|<command-message>ds-feedback-triage</command-message>"
 )
 
 # Bounded read for the transcript scan - a session transcript can grow
-# large; this hook only needs to know whether either triage marker
+# large; this hook only needs to know whether the triage marker
 # appears anywhere, so a full-file read (not tailed) is acceptable given
 # transcripts are JSONL and typically well under this cap for an
 # in-progress session, but the cap still exists as a hard ceiling against
@@ -950,12 +1013,68 @@ def _write_state(path: Path, count: int) -> None:
         pass
 
 
-def _load_grant(path: Path) -> dict | None:
-    """Returns None ("no grant") on a missing file, unreadable file,
-    malformed JSON, non-dict content, or an empty/non-string `reason` -
-    every failure mode here falls toward the pre-existing deny behavior,
-    never toward a phantom allow. See module docstring, "Operator-granted
-    mid-session exception"."""
+def _grant_age_seconds(granted_at: object) -> float | None:
+    """Parses the UTC ISO8601 `granted_at` timestamp `bin/ds-ticket-grant`
+    writes (`%Y-%m-%dT%H:%M:%SZ`, matching `_write_state`'s own
+    `last_updated` format below) and returns the grant's age in seconds.
+    Returns None when `granted_at` is missing, not a string, or fails to
+    parse - callers must treat None as "cannot verify freshness" and fall
+    toward "no grant", same as every other malformed-field case in this
+    hook. `calendar.timegm` (not `time.mktime`) is used deliberately -
+    the timestamp is UTC, and `mktime` interprets its input in the local
+    timezone, which would silently skew the computed age by the host's
+    UTC offset."""
+    if not isinstance(granted_at, str):
+        return None
+    try:
+        parsed = time.strptime(granted_at, "%Y-%m-%dT%H:%M:%SZ")
+        granted_epoch = calendar.timegm(parsed)
+    except Exception:
+        return None
+    return time.time() - granted_epoch
+
+
+def _load_and_consume_grant(path: Path) -> dict | None:
+    """Validates AND atomically consumes a grant in one call - the two
+    steps are deliberately not separable, unlike a round-1 version of
+    this hook that ran `_load_grant` (read-only) and `_consume_grant`
+    (delete) as two independent steps after the ALLOW decision was
+    already made. That split let four concurrent hook processes racing
+    against one grant file each read the still-present file before any
+    of them deleted it, producing four `allow_grant` allows from a
+    single, supposedly one-shot grant (measured directly: 4 concurrent
+    processes, 4 allows). It also meant a grant under a directory lacking
+    write permission (e.g. mode 0o555) could never be deleted at all, so
+    every subsequent denied creation re-read the same still-valid file
+    and re-allowed it - unbounded, not one-shot (measured directly: 5
+    consecutive creates, 5 allows).
+
+    This version validates the content first WITHOUT mutating anything -
+    a missing file, unreadable file, malformed JSON, non-dict content, or
+    an empty/non-string `reason` all resolve to None here exactly as
+    before, and (matching the pre-existing, tested behavior) a malformed
+    or empty-reason grant is left ON DISK untouched, never deleted, since
+    the hook never reached a state where consuming it would apply. Only
+    once the content validates does this function attempt the actual act
+    of consumption: `Path.unlink()` on the grant's own path. On POSIX,
+    removing a directory entry is serialized by the OS - at most one
+    caller's unlink on a given path can succeed; every other concurrent
+    (or later) caller's unlink on the same, already-removed path raises
+    FileNotFoundError. This function returns the grant ONLY to the caller
+    whose unlink SUCCEEDS - every other caller (racing concurrently, or
+    arriving after the grant was already consumed) gets None and falls to
+    the ordinary deny path, which is what makes the grant genuinely
+    one-shot under concurrency.
+
+    When the containing directory itself lacks write permission, unlink
+    always fails (removing an entry needs write access to the directory,
+    not the file), so this function returns None every time a valid
+    grant is present there - the deny path applies instead of an
+    unbounded allow. This is a deliberate, physical limit, not an
+    oversight: if a directory cannot be written to at all, nothing can
+    durably record that a grant was consumed in it, so the only safe
+    choice is to stop granting rather than grant without bound. See
+    module docstring, "Operator-granted mid-session exception"."""
     try:
         if not path.is_file():
             return None
@@ -965,22 +1084,31 @@ def _load_grant(path: Path) -> dict | None:
         reason = raw.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             return None
-        return {"reason": reason.strip()}
+        age = _grant_age_seconds(raw.get("granted_at"))
+        if age is None or age < 0 or age > _GRANT_TTL_SECONDS:
+            # Missing/unparseable timestamp, a future timestamp (clock
+            # skew - never trusted as fresh), or older than the TTL: this
+            # grant is never valid, regardless of its `reason`. Prune it
+            # (best-effort) so a stale, never-consumed grant does not
+            # linger under `.agentic/` indefinitely - see module
+            # docstring, "Operator-granted mid-session exception". Unlike
+            # the malformed-content case above (left untouched - see this
+            # function's own docstring), an expired-but-otherwise-valid
+            # grant is deliberately deleted here: there is nothing to
+            # preserve by leaving a worthless grant in place, and this
+            # path never returns it as usable.
+            try:
+                path.unlink()
+            except Exception:
+                pass
+            return None
     except Exception:
         return None
-
-
-def _consume_grant(path: Path) -> None:
-    """Best-effort one-shot deletion. The ALLOW decision for the call that
-    triggered this consumption has already been decided and emitted
-    regardless of whether this delete succeeds - a delete failure never
-    turns that decision back into a deny; it only (rarely) leaves the file
-    behind for a later call to potentially re-read, which is still a
-    single, attributable, logged exception, not an unbounded one."""
     try:
         path.unlink()
     except Exception:
-        pass
+        return None
+    return {"reason": reason.strip()}
 
 
 def _ordinal(n: int) -> str:
@@ -1111,14 +1239,13 @@ def main() -> None:
             # "Operator-granted mid-session exception"). Only consulted
             # here - never on the 1st/2nd creation, which already allow.
             grant_path = _grant_path(cwd, session_id)
-            grant = _load_grant(grant_path) if grant_path is not None else None
+            grant = _load_and_consume_grant(grant_path) if grant_path is not None else None
             if grant is not None:
                 # Grant consumed: this call proceeds, state DOES advance
                 # (unlike the plain-deny branch below) because this call
                 # is actually about to create a ticket - a future call
                 # this session must see the true, advanced count.
                 _write_state(path, next_count)
-                _consume_grant(grant_path)
                 reason = _GRANT_ALLOW_TEMPLATE.format(
                     ordinal=_ordinal(next_count), reason=grant["reason"]
                 )
