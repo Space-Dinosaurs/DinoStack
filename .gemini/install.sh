@@ -23,8 +23,11 @@
 #               generated artifact, not user data. On BOTH branches (round
 #               6), a symlink at that destination is classified by the ONE
 #               shared _ae_classify_gemini_md_dst function: "ours" (target
-#               resolves to the current $GEMINI_MD_SRC, live or dangling)
-#               is replaced with no backup; "foreign-live" (resolves
+#               matches the current $GEMINI_MD_SRC - canonicalized via
+#               _ae_paths_equal when the target exists, so an aliased
+#               checkout path such as macOS /tmp -> /private/tmp still
+#               matches, and by literal string equality when the target is
+#               dangling) is replaced with no backup; "foreign-live" (resolves
 #               somewhere else and exists) is left untouched with nothing
 #               written; "foreign-dangling" (does not resolve, and is not
 #               "ours") is of UNKNOWN provenance - could be the user's own
@@ -280,6 +283,17 @@ _ae_resolve_symlink_target_abs() {
   if [[ "$raw" == /* ]]; then
     printf '%s\n' "$raw"
   else
+    # Round 7, DS-184 minor fix: install.sh already hard-depends on python3
+    # elsewhere (JSON config writes), and every symlink WE create is
+    # absolute, so this branch only fires for a relative FOREIGN symlink -
+    # but a silently-absent python3 previously let the caller's `|| true`
+    # swallow the failure into an empty target_abs, misclassifying a
+    # relative symlink whose resolution would have been "ours" as foreign
+    # instead. Fail loudly (a stderr warning) rather than silently.
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "  ! python3 not found - cannot resolve relative symlink target for $link; treating as unresolved" >&2
+      return 1
+    fi
     python3 -c "
 import os, sys
 link_dir, raw_target = sys.argv[1], sys.argv[2]
@@ -297,9 +311,13 @@ print(os.path.normpath(os.path.join(link_dir, raw_target)))
 #   absent            - nothing at the destination
 #   ours              - a symlink whose target (resolved via
 #                        _ae_resolve_symlink_target_abs, so a relative
-#                        target is resolved correctly per M2 above) equals
-#                        the current $GEMINI_MD_SRC - covers both a live
-#                        symlink and a dangling one whose target literally
+#                        target is resolved correctly per M2 above) MATCHES
+#                        the current $GEMINI_MD_SRC - via _ae_paths_equal
+#                        (canonicalizes both sides through the filesystem
+#                        when the target exists, so an aliased checkout
+#                        path is not misclassified as foreign - round 7,
+#                        M1 fix) for a live target, or literal string
+#                        equality for a dangling one whose target literally
 #                        names the current src path (the latter is a rare
 #                        edge case in practice, since Step 1's build always
 #                        recreates $GEMINI_MD_SRC before this runs - kept
@@ -331,7 +349,26 @@ _ae_classify_gemini_md_dst() {
     _AE_CLASS_TARGET="$(readlink "$dst" 2>/dev/null || true)"
     target_abs="$(_ae_resolve_symlink_target_abs "$dst" || true)"
     src_abs="$(readlink -f "$src" 2>/dev/null || echo "$src")"
-    if [[ -n "$target_abs" && "$target_abs" == "$src_abs" ]]; then
+    # Round 7, DS-184 M1 fix: `target_abs` is normalized but NOT
+    # canonicalized against filesystem symlinks (see
+    # _ae_resolve_symlink_target_abs's own comment - it deliberately does
+    # not require the target to exist). Comparing it against `$src_abs`
+    # alone (both canonicalized) is what round 6 shipped, and it silently
+    # misclassifies our OWN live symlink as foreign whenever any component
+    # of the checkout path is itself a symlink (e.g. macOS `/tmp` ->
+    # `/private/tmp`) - `target_abs` still carries the un-resolved `/tmp/...`
+    # form while `src_abs` has already been resolved to `/private/tmp/...`.
+    # `_ae_paths_equal` fixes the live case: it resolves BOTH operands via
+    # `readlink -f` when they exist, so an aliased checkout path
+    # canonicalizes on both sides and the comparison holds regardless of
+    # symlink aliasing. The `$src_abs` term is kept as an OR fallback for
+    # the dangling-target "ours" case documented above (a dangling target
+    # cannot be canonicalized by `readlink -f`, so `_ae_paths_equal` falls
+    # back to literal string equality between `target_abs` and `$src` - the
+    # un-resolved current-checkout form - while this term additionally
+    # covers the case where `target_abs` happens to already equal the
+    # resolved `$src_abs` string).
+    if [[ -n "$target_abs" ]] && { _ae_paths_equal "$target_abs" "$src" || [[ "$target_abs" == "$src_abs" ]]; }; then
       _AE_CLASS="ours"
     elif [[ -e "$dst" ]]; then
       _AE_CLASS="foreign-live"

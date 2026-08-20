@@ -79,6 +79,16 @@
 #               target resolves (correctly) to a nonexistent path, on both
 #               the healthy (7a) and degrade (7b) branches.
 #
+#          Round 7 (M1 fix - the classifier's live-target comparison now
+#          canonicalizes both sides via _ae_paths_equal) adds:
+#            8. install.sh is invoked through an ALIASED checkout path (a
+#               symlinked directory between the invocation path and the
+#               real files, manufactured deterministically so this does not
+#               depend on the host having a real /tmp symlink) - our own
+#               live symlink, created and later re-classified entirely in
+#               the aliased form, must still classify as "ours" rather than
+#               foreign (the round-6 regression this fixes).
+#
 #          Each scenario prints, at the end, the exact mutation that would
 #          redden it (per the DS-184 review's mutation-per-branch
 #          requirement) - see the comments beside each assertion group.
@@ -589,6 +599,53 @@ else
   fail "scenario7b: expected the degrade-path body with our marker as first line after install (M2 regressed)"
 fi
 assert_body_delivered "$H7B/.gemini/GEMINI.md" "scenario7b"
+
+# ---------------------------------------------------------------------------
+# Scenario 8 (round 7, M1 fix): install.sh invoked through a checkout path
+# with an ALIASED component - a symlinked directory sitting between the
+# invocation path and the real files, e.g. macOS's /tmp -> /private/tmp.
+# $ALIAS_REPO below manufactures this deterministically (portable across
+# hosts that lack a real /tmp symlink) by symlinking a fresh name onto
+# $REPO_DIR and invoking install.sh through that symlinked path instead of
+# $REPO_DIR directly. `REPO_DIR="$(cd ... && pwd)"` inside install.sh
+# preserves the symlink component (plain `pwd`, not `pwd -P`), so
+# $GEMINI_MD_SRC is built entirely in the ALIASED form, and the symlink
+# install.sh creates at ~/.gemini/GEMINI.md points at that aliased path
+# literally (its `readlink` target). Pre-fix (round 6), the classifier
+# compared that UN-canonicalized target against a `readlink -f`-CANONICALIZED
+# `$src_abs`, so the round-6 code misclassified its own live symlink as
+# foreign the moment ANY re-run resolved $src through the same alias -
+# exactly reproducing the round-6 regression against a real macOS /tmp
+# checkout (confirmed manually against .gemini/install.sh at round 6 tip
+# 9db186ad, per the round-7 review's M1 finding).
+# Mutation that reddens this: reverting the classifier's live-target
+# comparison from `_ae_paths_equal "$target_abs" "$src" || [[ "$target_abs"
+# == "$src_abs" ]]` back to round 6's `"$target_abs" == "$src_abs"` alone.
+# ---------------------------------------------------------------------------
+ALIAS_REPO="$TMP_ROOT/alias-repo-checkout"
+ln -s "$REPO_DIR" "$ALIAS_REPO"
+
+H8="$TMP_ROOT/h8-aliased-checkout-path"
+mkdir -p "$H8"
+out8_1="$(HOME="$H8" bash "$ALIAS_REPO/.gemini/install.sh" --mode=opt-out --profile=default < /dev/null 2>&1)"
+if [[ ! -L "$H8/.gemini/GEMINI.md" ]]; then
+  fail "scenario8: setup failed - first install (via aliased checkout path) did not create the expected symlink. Output:"$'\n'"$out8_1"
+else
+  rm "$H8/.gemini/skills/dinostack"          # remove our own skill symlink first...
+  mkdir -p "$H8/.gemini/skills/dinostack"    # ...then occupy the destination with a real dir -> forces degrade
+  echo "not a skill" > "$H8/.gemini/skills/dinostack/SKILL.md"
+  out8_2="$(HOME="$H8" bash "$ALIAS_REPO/.gemini/install.sh" --mode=opt-out --profile=default < /dev/null 2>&1)"
+  if [[ -L "$H8/.gemini/GEMINI.md" ]]; then
+    fail "scenario8: degrade install via an aliased checkout path left our own live symlink in place instead of delivering the body (M1 round-6 regression). Output:"$'\n'"$out8_2"
+  elif [[ ! -f "$H8/.gemini/GEMINI.md" ]]; then
+    fail "scenario8: degrade install via an aliased checkout path left no GEMINI.md at all"
+  elif [[ "$(head -1 "$H8/.gemini/GEMINI.md")" != "$MARKER" ]]; then
+    fail "scenario8: degrade install via an aliased checkout path wrote GEMINI.md but not with our marker as first line"
+  else
+    pass "scenario8: degrade install via an aliased checkout path replaces our own live symlink with the degrade-path body (M1 round-7 fix)"
+    assert_body_delivered "$H8/.gemini/GEMINI.md" "scenario8"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Static check (m1 regression): the pre-commit hook's `git add` invocation
