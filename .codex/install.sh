@@ -21,6 +21,12 @@
 #                config directory, never inside this checkout, so it
 #                survives `git clean`) instead of the .codex/AGENTS.md stub,
 #                with an explicit warning - never a silent content drop.
+#                DS-183 round 6: the companion is a real file at a
+#                user-owned config path, so a pre-existing file there is
+#                only overwritten with no backup when it carries this
+#                script's own AGENTS_DEGRADED_MARKER first line; anything
+#                else is backed up first, never destroyed on the assumption
+#                it must be ours.
 # Performance: one isolated source copy/build plus local filesystem installation,
 #              linear in repository and generated adapter size; no network access.
 set -euo pipefail
@@ -108,6 +114,18 @@ AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
 # non-symlinked root by ae_validate_install_roots below. Nothing in this
 # repository checkout can delete it.
 AGENTS_DEGRADED="$CODEX_CONFIG_DIR/AGENTS.degraded.md"
+
+# DS-183 round 6 (M1 fix): $AGENTS_DEGRADED now lives at a user-owned config
+# path ($CODEX_CONFIG_DIR), not inside this checkout, so nothing here can
+# prove a pre-existing file at that exact path is ours versus the user's own
+# data - a coincidental collision is unlikely but not impossible, and this
+# script must never destroy real user data on that basis alone. Marker
+# written as the first line of a degrade-path-generated AGENTS.degraded.md,
+# same mechanism as DS-184's GEMINI_MD_DEGRADE_MARKER (.gemini/install.sh) -
+# lets both install.sh and uninstall.sh recognize a real (non-symlink) file
+# at $AGENTS_DEGRADED as our own generated artifact rather than user data. A
+# genuinely user-authored file at that path never carries this line.
+AGENTS_DEGRADED_MARKER="<!-- dinostack:codex-degrade-generated -->"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
 NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
@@ -344,7 +362,16 @@ AE_FINAL_DESTINATIONS=(
   $'snapshot\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR"$'\t'"$HOME/.agentic/hooks-snapshot/.versions"$'\t'"$(basename "$HOOKS_SNAPSHOT_EXPECTED_DIR")"
   $'file\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.snapshot-meta.json"
   $'link\t'"$AGENTS_DST"$'\t'"$AGENTS_SRC"$'\t'"$AGENTS_DEGRADED"
-  $'file\t'"$AGENTS_DEGRADED"
+  # DS-183 round 6 (Minor fix): a `file` preflight entry for $AGENTS_DEGRADED
+  # was removed from here - it validated that path unconditionally, so a
+  # stray symlink or directory there aborted install even on the healthy
+  # path, which never writes to it. Whether $AGENTS_DEGRADED gets written at
+  # all is decided later (DINOSTACK_SKILL_LINK_OK, computed after this
+  # preflight runs, once the skill link's actual reachability is known), so
+  # it cannot be preflighted unconditionally here. The degrade-path write
+  # block itself now performs the equivalent safety checks (refuses a
+  # symlink, backs up or marker-matches a pre-existing real file, surfaces a
+  # clear error on an unwritable destination) immediately before it writes.
   $'link\t'"$NAMED_AGENTS_DST"$'\t'"$NAMED_AGENTS_SRC"
   $'link\t'"$HOOKS_DST"$'\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/hooks.json"
 )
@@ -769,17 +796,47 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
   # ae_validate_install_roots above) - nothing in this checkout can delete
   # it. Written via tmp-then-rename so an interrupted write never leaves a
   # truncated body behind a live symlink.
+  #
+  # DS-183 round 6 (M1 fix). The relocation traded checkout-fragility for a
+  # user-data-loss risk: $AGENTS_DEGRADED is now a user-owned config path,
+  # so a pre-existing real file there is not provably ours. Read its first
+  # line before touching it - only overwrite in place with no backup when
+  # it carries AGENTS_DEGRADED_MARKER (our own prior degrade-path artifact,
+  # same as install ordinarily doing on re-run); anything else is genuinely
+  # unknown-provenance and gets backed up first, same as every other
+  # non-owned destination in this script.
   if [[ -L "$AGENTS_DEGRADED" ]]; then
     echo "  ! refusing to write through symlinked $AGENTS_DEGRADED" >&2
     exit 1
   fi
   if [[ -e "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
-    BACKUP="$AGENTS_DEGRADED.backup-$(date +%Y%m%d%H%M%S)"
-    echo "  Backing up existing $AGENTS_DEGRADED to $BACKUP"
-    cp "$AGENTS_DEGRADED" "$BACKUP"
+    first_line="$(head -1 "$AGENTS_DEGRADED" 2>/dev/null || true)"
+    if [[ "$first_line" == "$AGENTS_DEGRADED_MARKER" ]]; then
+      echo "  Overwriting prior dinostack degrade-path companion at $AGENTS_DEGRADED (no backup - it's our own generated artifact)"
+    else
+      BACKUP="$AGENTS_DEGRADED.backup-$(date +%Y%m%d%H%M%S)"
+      echo "  Backing up existing $AGENTS_DEGRADED to $BACKUP"
+      # Minor fix (round 6): an unreadable pre-existing companion or a
+      # non-writable config dir would otherwise abort install here under
+      # set -e with a raw `cp:` message and no remediation, leaving the
+      # user with neither the stub nor the degrade-path body.
+      if ! cp "$AGENTS_DEGRADED" "$BACKUP"; then
+        echo "  ! could not back up $AGENTS_DEGRADED to $BACKUP - check read permissions on" >&2
+        echo "    $AGENTS_DEGRADED and write permissions on $CODEX_CONFIG_DIR, then re-run install.sh" >&2
+        exit 1
+      fi
+    fi
   fi
   AGENTS_DEGRADED_TMP="$AGENTS_DEGRADED.tmp-$$"
+  # A `! { ...; } > file` compound form does not reliably propagate a
+  # redirection failure through the `!` negation in bash - measured: it
+  # silently takes the success branch even though the redirection itself
+  # failed and printed its own "Permission denied" diagnostic. Disabling
+  # -e around the write and checking $? explicitly avoids that, and avoids
+  # -e aborting the script before this line even gets a chance to check.
+  set +e
   {
+    echo "$AGENTS_DEGRADED_MARKER"
     cat "$AGENTS_SRC"
     echo ""
     echo "---"
@@ -796,7 +853,19 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
     echo ""
     cat "$REPO_DIR/content/rules/conventions.md"
   } > "$AGENTS_DEGRADED_TMP"
-  mv "$AGENTS_DEGRADED_TMP" "$AGENTS_DEGRADED"
+  AGENTS_DEGRADED_WRITE_RC=$?
+  set -e
+  if [[ "$AGENTS_DEGRADED_WRITE_RC" -ne 0 ]]; then
+    echo "  ! could not write $AGENTS_DEGRADED_TMP - check write permissions on" >&2
+    echo "    $CODEX_CONFIG_DIR, then re-run install.sh" >&2
+    rm -f "$AGENTS_DEGRADED_TMP"
+    exit 1
+  fi
+  if ! mv "$AGENTS_DEGRADED_TMP" "$AGENTS_DEGRADED"; then
+    echo "  ! could not move $AGENTS_DEGRADED_TMP into place at $AGENTS_DEGRADED" >&2
+    rm -f "$AGENTS_DEGRADED_TMP"
+    exit 1
+  fi
   echo "  + $AGENTS_DEGRADED written with the full methodology body embedded (degrade path)"
 
   if [[ -L "$AGENTS_DST" ]]; then
@@ -823,10 +892,18 @@ elif [[ -L "$AGENTS_DST" ]]; then
     echo "    companion to the trigger-loaded stub)"
     # DS-183 round 5 (Minor fix): remove the now-orphaned companion so
     # runtime_bindings() cannot keep accepting a stale target, and so it
-    # does not sit around forever.
+    # does not sit around forever. DS-183 round 6 (M1 fix): consult the
+    # marker here too - $AGENTS_DEGRADED is a user-owned config path, so
+    # confirm it's still our own generated artifact (not swapped out for
+    # something else out-of-band) before deleting it with no backup.
     if [[ -f "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
-      rm "$AGENTS_DEGRADED"
-      echo "  - removed stale degrade-path companion at $AGENTS_DEGRADED"
+      first_line="$(head -1 "$AGENTS_DEGRADED" 2>/dev/null || true)"
+      if [[ "$first_line" == "$AGENTS_DEGRADED_MARKER" ]]; then
+        rm "$AGENTS_DEGRADED"
+        echo "  - removed stale degrade-path companion at $AGENTS_DEGRADED"
+      else
+        echo "  ! $AGENTS_DEGRADED exists but does not carry the dinostack marker - leaving it in place"
+      fi
     fi
   else
     echo "  ! ~/.codex/AGENTS.md (symlink points elsewhere: $current_target - skipping)"

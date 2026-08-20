@@ -232,9 +232,24 @@ def runtime_bindings(root: Path, invocation: str) -> dict[str, str]:
     # (itself already validated above as a real, owned, non-symlinked
     # directory) - the same ownership bar validate_activation_config()
     # already applies to the activation config file in this same function.
+    # DS-183 round 6 (Minor fix): the companion's own type/ownership checks
+    # below (symlink/directory/group-writable) previously ran unconditionally
+    # whenever expected_agents_degraded existed at all - even when the
+    # installed AGENTS.md already resolves to the healthy stub and the
+    # companion, if present, is irrelevant to this dispatch (e.g. a stray
+    # leftover from a prior degrade-path install that auto-healed but left
+    # something odd behind at that path). Skip inspecting it entirely once
+    # the healthy-path match is already confirmed; only fall through to it
+    # when AGENTS.md resolves somewhere else and the companion is the one
+    # remaining explanation.
     expected_agents_degraded = config / "AGENTS.degraded.md"
-    expected_targets = [expected_physical]
-    if expected_agents_degraded.exists():
+    if physical_agents != expected_physical:
+        if not expected_agents_degraded.exists():
+            fail(
+                f"configured AGENTS.md resolves to {physical_agents}, "
+                f"not this DinoStack repository at {expected_physical} "
+                f"(or its degrade-path companion at {expected_agents_degraded})"
+            )
         if expected_agents_degraded.is_symlink() or not expected_agents_degraded.is_file():
             fail(
                 "degrade-path companion AGENTS.md must be a real regular "
@@ -242,16 +257,15 @@ def runtime_bindings(root: Path, invocation: str) -> dict[str, str]:
             )
         validate_activation_config(expected_agents_degraded)
         try:
-            expected_targets.append(expected_agents_degraded.resolve(strict=True))
+            expected_degraded_physical = expected_agents_degraded.resolve(strict=True)
         except OSError as exc:
             fail(f"cannot inspect degrade-path companion AGENTS.md: {exc}")
-
-    if physical_agents not in expected_targets:
-        fail(
-            f"configured AGENTS.md resolves to {physical_agents}, "
-            f"not this DinoStack repository at {expected_physical} "
-            f"(or its degrade-path companion at {expected_agents_degraded})"
-        )
+        if physical_agents != expected_degraded_physical:
+            fail(
+                f"configured AGENTS.md resolves to {physical_agents}, "
+                f"not this DinoStack repository at {expected_physical} "
+                f"(or its degrade-path companion at {expected_agents_degraded})"
+            )
 
     if redirected:
         activation = config / "agentic-engineering.json"
