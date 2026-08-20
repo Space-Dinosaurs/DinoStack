@@ -1,9 +1,11 @@
 ---
 name: ds-test-suite-comprehension
-description: "Map a project's test suite against its source files and surface where verification gaps live. Returns a coverage summary, a gap report ranked by risk, and the specific test files that are highest-leve"
+description: "Status: parked (invoke-only) - fully functional, parked 2026-08-20 by operator decision (zero recorded usage), candidate for future revival or removal."
 user-invocable: true
 ---
 # /ds-test-suite-comprehension
+
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by operator decision (zero recorded usage), candidate for future revival or removal.
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 

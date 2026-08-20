@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 r"""
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by
+        operator decision (zero recorded usage); candidate for future
+        revival or removal.
+
 Purpose: Evidence spill/sketch/rehydrate CLI for the dinostack
          methodology. Ingest raw tool output (bash, rg, curl, ...) into
          versioned node files under <git-root>/.agentic/evidence/n<seq>.md,

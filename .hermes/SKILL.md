@@ -4171,20 +4171,25 @@ Purpose: Defines the evidence-on-disk spill/sketch/rehydrate protocol for
          in-context sketch lines with node IDs and rehydrate raw text on
          demand.
 
-Public API: Referenced by content/agents/engineer.md (## Implementation process,
-            "Context economy: evidence-on-disk" step) and by
-            content/references/delegation-detail.md (§Worker Preamble and
-            Execution Contract Template). The sketch line format is a shared
-            binding contract with bin/ds-evidence - the worked example
-            below must match the CLI's emitted sketch lines byte-for-byte.
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by
+        operator decision (zero recorded usage); the standing "Context
+        economy" step that unconditionally referenced this protocol from
+        every content/agents/engineer.md spawn was removed so the CLI
+        costs zero always-loaded context. This reference stays
+        trigger-loaded only, reachable via content/SKILL.md's reference
+        index or a direct read/invocation.
+
+Public API: The sketch line format is a shared binding contract with
+            bin/ds-evidence - the worked example below must match the
+            CLI's emitted sketch lines byte-for-byte.
 
 Upstream deps: bin/ds-evidence (spill/sketch/get/prune CLI). Correctness
                of the CLI is gated by bin/tests/test_agentic_evidence.py
                (required bin-tests CI check).
 
-Downstream consumers: content/agents/engineer.md (Context economy step),
-                      content/references/delegation-detail.md (advisory pointer),
-                      content/SKILL.md (Reference Docs list).
+Downstream consumers: content/references/delegation-detail.md (advisory
+                      conductor-facing pointer, not injected into spawn
+                      text), content/SKILL.md (Reference Docs list).
 
 Failure modes: If the sketch line format in the worked example drifts from the
                CLI's emitted format, node-ID citations stop matching raw nodes.
@@ -10313,9 +10318,8 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
    - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
    - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
    This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
-5. **Context economy: evidence-on-disk.** When a tool output exceeds ~20 lines / ~8k chars and you will need it again, spill it with `ds-evidence spill`, keep the sketch line in context, and `get <node-id>` on demand. Full protocol: `content/references/evidence-on-disk.md`.
-6. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-7. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
+5. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
+6. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
 ## Quality gates
 
@@ -21567,6 +21571,8 @@ or the project marker. To actually opt the project out, use
 ### /ds-test-suite-comprehension
 
 # /ds-test-suite-comprehension
+
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by operator decision (zero recorded usage), candidate for future revival or removal.
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
