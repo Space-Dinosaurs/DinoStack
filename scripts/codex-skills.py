@@ -680,38 +680,61 @@ def assert_paragraph_rules_reachable(repo: Path) -> None:
 
 
 def literal_rules_reachability_corpus(repo: Path) -> str:
-    """reachability_corpus(repo) plus two additional sources LITERAL_RULES
-    patterns can target that reachability_corpus() does not already cover:
+    """DS-183 round 5 (M3 fix). Deliberately NOT built from
+    reachability_corpus(repo): that function unconditionally appends the
+    full, unmodified text of content/rules/conventions.md and
+    content/rules/code-standards.md (lines used by
+    assert_paragraph_rules_reachable() above, which legitimately targets
+    them). Neither file is part of any real LITERAL_RULES-matching scan -
+    build-methodology.sh does not embed them into assembled METHODOLOGY.md,
+    and documents()/current_inventory() never reads them directly - so
+    including them here made every LITERAL_RULES pattern whose canonical
+    wording happens to also appear in one of those two files trivially
+    "reachable" forever, regardless of whether its real generation-facing
+    target still carries that text. Proven by execution: with this function
+    built on reachability_corpus(), deleting the identity confirm/correct
+    block from .codex/build.sh's AGENTS_RAW heredoc still left
+    assert_literal_rules_reachable() green, because the identical block also
+    lives verbatim in content/rules/conventions.md - present in the corpus
+    independent of anything real generation actually does with it.
 
+    Built instead from exactly the documents real generation-facing code
+    can put a LITERAL_RULES match through:
+
+    - content/SKILL.md, assembled_methodology(repo), and WORKFLOWS.values()
+      (the same three-plus-one set documents()/current_inventory() scans).
     - The raw text of .codex/build.sh. render_runtime_guidance() transforms
       .codex/AGENTS.md from AGENTS_RAW, a heredoc assembled inline inside
       .codex/build.sh itself (not a content/** source file) - a
       LITERAL_RULES pattern whose only remaining match target is text
       embedded directly in that heredoc (e.g. the identity confirm/correct
-      block restored there by DS-183 round 2) would be invisible to
-      reachability_corpus() alone.
+      block restored there by DS-183 round 2) would otherwise be invisible.
     - Every content/commands/*.md file, not just the 3 WORKFLOWS.values()
-      files reachability_corpus() already includes. Several LITERAL_RULES
-      patterns (the profile config-dir resolution order, the
-      <active-config-dir>/identity.yml path, and the `.claude/agents` /
-      `.claude/commands` path-mapping rules) target text that lives only in
-      dispatcher-loaded "manual-command-resource" command docs outside the
-      3 native-skill WORKFLOWS files (content/commands/ds-identity.md,
-      content/commands/ds-skeptic.md, content/commands/
-      ds-update-agentic-engineering.md) - real, shipped content an agent can
-      read via bin/ds-codex-dispatch, just never passed through
-      inventory_document()'s transform for those files specifically. This
-      widening is read-only (it only feeds this assertion, never
-      documents()/current_inventory()'s actual generation scan), so it
-      cannot change any generated artifact's content - it only makes the
-      "does this pattern match ANYTHING real, anywhere" check accurate
-      instead of narrower than the real corpus of text these patterns were
-      written to target.
+      files documents() scans. Several LITERAL_RULES patterns (the profile
+      config-dir resolution order, the <active-config-dir>/identity.yml
+      path, and the `.claude/agents` / `.claude/commands` path-mapping
+      rules) target text that lives only in dispatcher-loaded
+      "manual-command-resource" command docs outside the 3 native-skill
+      WORKFLOWS files (content/commands/ds-identity.md, content/commands/
+      ds-skeptic.md, content/commands/ds-update-agentic-engineering.md) -
+      real, shipped content an agent can read via bin/ds-codex-dispatch,
+      just never passed through inventory_document()'s transform for those
+      files specifically. This widening is read-only (it only feeds this
+      assertion, never documents()/current_inventory()'s actual generation
+      scan), so it cannot change any generated artifact's content - it only
+      makes the "does this pattern match ANYTHING real, anywhere" check
+      accurate instead of narrower than the real corpus of text these
+      patterns were written to target.
 
     Reading .codex/build.sh and content/commands/*.md as plain text is
     sufficient here - this function only needs to prove a pattern matches
     SOMEWHERE, not execute or transform either source."""
-    parts = [reachability_corpus(repo), read_text(repo / ".codex/build.sh")]
+    parts = [
+        read_text(repo / "content/SKILL.md"),
+        assembled_methodology(repo),
+    ]
+    parts.extend(read_text(repo / path) for path in WORKFLOWS.values())
+    parts.append(read_text(repo / ".codex/build.sh"))
     parts.extend(
         read_text(path) for path in sorted((repo / "content/commands").glob("*.md"))
     )
@@ -723,11 +746,14 @@ def assert_literal_rules_reachable(repo: Path) -> None:
     in literal_rules_reachability_corpus(repo). Same rationale as
     assert_paragraph_rules_reachable() above, extended to LITERAL_RULES: a
     zero-hit pattern means its Codex-specific override has silently stopped
-    applying anywhere real generation actually scans - the DS-183 round 1
-    regression this closes was LITERAL_RULES[5] (the identity confirm/
-    correct block) losing its only match target when .codex/AGENTS.md
-    stopped embedding content/rules/conventions.md verbatim, with no
-    assertion anywhere to notice."""
+    applying anywhere real generation actually scans. The DS-183 round 1
+    regression this closes was the identity confirm/correct block LITERAL_
+    RULES entry losing its only match target when .codex/AGENTS.md stopped
+    embedding content/rules/conventions.md verbatim - round 2 restored a
+    hardcoded copy of that same text directly into .codex/build.sh's
+    AGENTS_RAW heredoc, which is this function's real generation-facing
+    match target for that entry now (never conventions.md itself - see
+    literal_rules_reachability_corpus()'s docstring, M3 fix)."""
     corpus = literal_rules_reachability_corpus(repo)
     unmatched = [pattern for pattern, *_ in LITERAL_RULES if not re.search(pattern, corpus)]
     if unmatched:

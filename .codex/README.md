@@ -52,8 +52,9 @@ belong under `~/.agents/skills/`.
 The installer also:
 
 - links `.codex/AGENTS.md` (the trigger-load stub) to the selected Codex config directory when the
-  dinostack skill is reachable, or a real `.codex/AGENTS.degraded.md` companion file (full
-  methodology embedded directly) when it is not;
+  dinostack skill is reachable, or a real `AGENTS.degraded.md` companion file written inside that
+  same Codex config directory (full methodology embedded directly, never inside this checkout so a
+  `git clean` cannot remove it) when it is not;
 - links generated `.codex/agents/` TOML definitions;
 - links snapshot-backed lifecycle hooks and enables `codex_hooks` when needed;
 - links DinoStack command-line helpers into `~/.local/bin`;
@@ -132,9 +133,10 @@ staged.
   pointer, and a skill-load-on-trigger instruction). The full methodology body loads on trigger
   via the `dinostack` skill (`.codex/skills/dinostack/METHODOLOGY.md`), not from this file
   (DS-183). `.codex/install.sh` normally symlinks the installed `AGENTS.md` at this stub; when the
-  skill link is unhealthy at install time it instead writes the full body into a separate,
-  gitignored `.codex/AGENTS.degraded.md` companion file and symlinks the installed `AGENTS.md` at
-  that file instead - never at a real, non-symlinked destination, since
+  skill link is unhealthy at install time it instead writes the full body into a separate
+  `AGENTS.degraded.md` companion file inside the selected Codex config directory (never inside
+  this checkout, so nothing here can delete it) and symlinks the installed `AGENTS.md` at that
+  file instead - never at a real, non-symlinked destination, since
   `bin/ds-codex-dispatch runtime-bindings` requires the installed entry to be a symlink.
 - `.codex/agents/*.toml` - generated named-agent definitions.
 - `.codex/config/hooks.json` - lifecycle hook configuration.
