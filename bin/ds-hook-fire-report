@@ -100,7 +100,22 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                lives, so a `--repo` pointing at a tree lacking
                scripts/lib/enforcer_facts.py still loads the module
                correctly from this tool's own checkout. Reads
-               <repo>/.agentic/.enforcement-fires.jsonl.
+               <repo>/.agentic/.enforcement-fires.jsonl AND, at query time,
+               every stranded `<repo>/.claude/worktrees/*/.agentic/.
+               enforcement-fires.jsonl` copy (DS: enforcement-fire-log
+               aggregation) - fires written by a subagent running inside a
+               linked isolation worktree, before hooks/lib/
+               enforcement_log.py's write-target fix, landed in that
+               worktree's own throwaway copy instead of the primary log
+               and were never merged back in. Stranded lines are merged
+               into the same in-memory record set, deduped by EXACT line
+               text against what the primary log already contains (and
+               against each other), so a report re-run after the write-
+               target fix lands does not double-count rows the primary log
+               now also receives directly. This tool never WRITES a merged
+               copy back to disk - the merge is query-time only, and the
+               stranded per-worktree files are left untouched (worktree
+               cleanup, not this tool, is what eventually removes them).
 
 Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
                        conductor runs `ds-hook-fire-report --json` at
@@ -239,6 +254,30 @@ def _parse_ts(value) -> datetime | None:
     return dt
 
 
+def _stranded_worktree_fire_log_paths(repo_root: Path) -> list[Path]:
+    """Enumerate `.agentic/.enforcement-fires.jsonl` copies stranded inside
+    a linked isolation worktree of this repo
+    (`<repo>/.claude/worktrees/*/.agentic/.enforcement-fires.jsonl`).
+
+    These predate hooks/lib/enforcement_log.py's write-target fix (DS:
+    enforcement-fire-log aggregation): before that fix, a fire logged by a
+    subagent running inside an isolation worktree landed in the worktree's
+    OWN `.agentic/`, not the primary checkout's, and was discarded the
+    moment the worktree was removed - any worktree still on disk from
+    before the fix can hold real denies the primary log never recorded.
+    Returns an empty list when `.claude/worktrees/` does not exist, which
+    is the common case (no worktrees currently checked out, or the fix has
+    been live long enough that no pre-fix worktree survives). Never
+    raises."""
+    worktrees_dir = repo_root / ".claude" / "worktrees"
+    try:
+        if not worktrees_dir.is_dir():
+            return []
+        return sorted(worktrees_dir.glob("*/.agentic/.enforcement-fires.jsonl"))
+    except OSError:
+        return []
+
+
 def _load_jsonl(path: Path) -> tuple[list[dict], int, int]:
     """Parse a JSONL file into dicts, skipping blank/malformed lines.
     Returns (records, total_nonblank_lines, malformed_lines) so the caller
@@ -282,10 +321,61 @@ def build_report(repo_root: Path, days: int) -> dict:
     facts = enforcer_facts.derive_enforcer_facts(repo_root)
 
     fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
-    log_present = fires_path.exists()
+    fires_path_exists = fires_path.exists()
     records, log_total_lines, log_malformed_lines = (
-        _load_jsonl(fires_path) if log_present else ([], 0, 0)
+        _load_jsonl(fires_path) if fires_path_exists else ([], 0, 0)
     )
+
+    # DS: enforcement-fire-log aggregation - merge stranded worktree-local
+    # copies (see _stranded_worktree_fire_log_paths docstring) into the
+    # SAME record set the primary log feeds, deduped by exact line text
+    # against the primary log and against each other, so historical fires
+    # written before hooks/lib/enforcement_log.py's write-target fix are
+    # not silently absent from this report. Query-time only: no merged
+    # copy is ever written back to disk.
+    seen_lines: set = set()
+    if fires_path_exists:
+        try:
+            for _line in fires_path.read_text(encoding="utf-8").splitlines():
+                _line = _line.strip()
+                if _line:
+                    seen_lines.add(_line)
+        except OSError:
+            pass
+    stranded_records_merged = 0
+    stranded_files_merged = 0
+    for stranded_path in _stranded_worktree_fire_log_paths(repo_root):
+        try:
+            stranded_text = stranded_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        file_contributed = False
+        for _line in stranded_text.splitlines():
+            _line = _line.strip()
+            if not _line or _line in seen_lines:
+                continue
+            seen_lines.add(_line)
+            log_total_lines += 1
+            try:
+                rec = json.loads(_line)
+            except ValueError:
+                log_malformed_lines += 1
+                continue
+            if isinstance(rec, dict):
+                records.append(rec)
+                stranded_records_merged += 1
+                file_contributed = True
+            else:
+                log_malformed_lines += 1
+        if file_contributed:
+            stranded_files_merged += 1
+
+    # log_present now reflects "any usable source contributed data" - the
+    # primary file OR at least one stranded worktree copy - not just the
+    # primary file's own existence, so a repo whose primary log is absent
+    # but whose stranded copies hold real fires is not misreported as
+    # UNMEASURED.
+    log_present = fires_path_exists or stranded_records_merged > 0
     log_parsed_lines = len(records)
     # A present file where nothing parsed (empty, or wholly garbage) is
     # indistinguishable from "no usable data" - the PR #723
@@ -409,6 +499,8 @@ def build_report(repo_root: Path, days: int) -> dict:
         "log_effectively_empty": log_effectively_empty,
         "log_coverage_days": log_coverage_days,
         "log_confidence_eligible": log_confidence_eligible,
+        "stranded_worktree_logs_merged": stranded_files_merged,
+        "stranded_worktree_records_merged": stranded_records_merged,
         "legend": _LEGEND,
     }
     return {"meta": meta, "hooks": rows}
@@ -431,6 +523,10 @@ def _print_table(report: dict) -> None:
         f"log_coverage_days={meta['log_coverage_days']} "
         f"log_confidence_eligible={meta['log_confidence_eligible']} "
         f"requested_window_days={meta['requested_window_days']}"
+    )
+    print(
+        f"stranded_worktree_logs_merged={meta['stranded_worktree_logs_merged']} "
+        f"stranded_worktree_records_merged={meta['stranded_worktree_records_merged']}"
     )
     print()
     if not rows:
