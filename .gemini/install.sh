@@ -8,9 +8,10 @@
 #          when the skill link resolves (SKILL_LINK_OK), or WRITTEN
 #          (not symlinked, first-line-marked with GEMINI_MD_DEGRADE_MARKER)
 #          with the full methodology body appended as a degrade path
-#          otherwise - unless a FOREIGN symlink already occupies the
+#          otherwise - unless a FOREIGN, live symlink already occupies the
 #          destination, in which case it is left untouched and nothing is
-#          written (DS-184 - see the Step 3a/3b comments below for the full
+#          written (DS-184 - see _ae_classify_gemini_md_dst's own comment
+#          block and the Step 3b case statements below for the full
 #          contract); hooks block merged into ~/.gemini/settings.json,
 #          pointed at the session-stable hooks snapshot (DS-54,
 #          scripts/lib/hooks-snapshot.sh) when sync succeeds, else the
@@ -19,20 +20,20 @@
 #               .backup-<timestamp> suffix; DELETES a real file at
 #               ~/.gemini/GEMINI.md (no backup) when it carries our own
 #               GEMINI_MD_DEGRADE_MARKER first line - it is our own
-#               generated artifact, not user data. On the degrade branch
-#               (skill link unavailable) also DELETES, with no marker read
-#               and no backup, a symlink at that destination when it either
-#               points at $GEMINI_MD_SRC (our own stub, left over from a
-#               prior healthy install) or is dangling (repo moved, or the
-#               skill destination newly occupied on a re-run) - both are
-#               ours to replace with the degrade-path body; a symlink
-#               resolving anywhere else is left untouched (DS-184 M1 round
-#               4). On the healthy branch (skill link OK), also DELETES,
-#               with no backup, a dangling symlink at that destination
-#               (repo moved since the link was created) and replaces it
-#               with a fresh symlink to $GEMINI_MD_SRC; a symlink resolving
-#               anywhere else is left untouched (round 5). Creates
-#               ~/.gemini/ if absent; syncs the hooks snapshot dir.
+#               generated artifact, not user data. On BOTH branches (round
+#               6), a symlink at that destination is classified by the ONE
+#               shared _ae_classify_gemini_md_dst function: "ours" (target
+#               resolves to the current $GEMINI_MD_SRC, live or dangling)
+#               is replaced with no backup; "foreign-live" (resolves
+#               somewhere else and exists) is left untouched with nothing
+#               written; "foreign-dangling" (does not resolve, and is not
+#               "ours") is of UNKNOWN provenance - could be the user's own
+#               symlink to a since-deleted file - and is preserved via a
+#               .backup-<timestamp> move, never deleted outright (DS-184
+#               M1 fix, round 6 - round 5 backed this case up only on the
+#               degrade branch while the healthy branch deleted the
+#               identical input with no backup). Creates ~/.gemini/ if
+#               absent; syncs the hooks snapshot dir.
 # Consumers: user runs manually; re-run after repo move (or to refresh the
 #            hooks snapshot) to update absolute hook paths
 set -euo pipefail
@@ -257,6 +258,98 @@ _ae_paths_equal() {
   fi
 }
 
+# Prints the absolute, normalized target of the symlink at $1, WITHOUT
+# requiring the target to exist. A relative `readlink` result is resolved
+# against the symlink's OWN directory via python3's os.path.normpath/join
+# (round 6, DS-184 M2 fix) - never against install.sh's CWD, which is what
+# `readlink -f "$(readlink "$1")"` (the pre-fix shape used at the two
+# GEMINI_MD_DST call sites below) silently did: a relative target like
+# ".gemini/GEMINI.md" resolved from wherever install.sh happened to be
+# invoked, not from the symlink's own parent directory, so a relative
+# symlink whose CWD-relative resolution happened to equal $GEMINI_MD_SRC
+# was misclassified as "ours" regardless of what it actually pointed at.
+# Prints nothing (and returns 1) when $1 is not a symlink or has no
+# readable target. Deliberately distinct from `_ae_paths_equal` above,
+# which requires the target to EXIST to resolve it and is kept, unchanged,
+# for the SKILL_DST alias-resolution case at Step 3a (still correct there -
+# see the module manifest and round-5 review sign-off).
+_ae_resolve_symlink_target_abs() {
+  local link="$1" raw
+  raw="$(readlink "$link" 2>/dev/null || true)"
+  [[ -n "$raw" ]] || return 1
+  if [[ "$raw" == /* ]]; then
+    printf '%s\n' "$raw"
+  else
+    python3 -c "
+import os, sys
+link_dir, raw_target = sys.argv[1], sys.argv[2]
+print(os.path.normpath(os.path.join(link_dir, raw_target)))
+" "$(dirname "$link")" "$raw"
+  fi
+}
+
+# Classifies the destination path $1 for the shared GEMINI.md install
+# decision (round 6, DS-184 M1/M2/M3 fix). Sets globals _AE_CLASS and
+# _AE_CLASS_TARGET; never prints anything itself. $2 is the current
+# $GEMINI_MD_SRC, $3 is $GEMINI_MD_DEGRADE_MARKER.
+#
+# _AE_CLASS is exactly one of:
+#   absent            - nothing at the destination
+#   ours              - a symlink whose target (resolved via
+#                        _ae_resolve_symlink_target_abs, so a relative
+#                        target is resolved correctly per M2 above) equals
+#                        the current $GEMINI_MD_SRC - covers both a live
+#                        symlink and a dangling one whose target literally
+#                        names the current src path (the latter is a rare
+#                        edge case in practice, since Step 1's build always
+#                        recreates $GEMINI_MD_SRC before this runs - kept
+#                        for robustness against races/partial builds)
+#   foreign-live       - a symlink resolving to something that exists and
+#                        is not $GEMINI_MD_SRC
+#   foreign-dangling   - a symlink that does not resolve (dangling) and is
+#                        not classified "ours" - provenance unknown: could
+#                        be the user's own symlink to a since-deleted file,
+#                        or a stale ours-symlink from BEFORE a repo move
+#                        (indistinguishable from the outside), so treated
+#                        as foreign and preserved via backup, never deleted
+#                        outright (M1 fix - this is the exact class the
+#                        pre-fix healthy branch mishandled)
+#   ours-marked-file   - a real (non-symlink) file whose first line equals
+#                        $GEMINI_MD_DEGRADE_MARKER exactly
+#   foreign-file       - a real (non-symlink) file/directory without the
+#                        marker
+#
+# Both the healthy and degrade branches below call ONLY this function to
+# decide ownership - so they can never again classify the same destination
+# differently from each other (the exact defect class M1/M3 kept
+# reappearing at a new site every round).
+_ae_classify_gemini_md_dst() {
+  local dst="$1" src="$2" marker="$3" target_abs src_abs first_line
+  _AE_CLASS=""
+  _AE_CLASS_TARGET=""
+  if [[ -L "$dst" ]]; then
+    _AE_CLASS_TARGET="$(readlink "$dst" 2>/dev/null || true)"
+    target_abs="$(_ae_resolve_symlink_target_abs "$dst" || true)"
+    src_abs="$(readlink -f "$src" 2>/dev/null || echo "$src")"
+    if [[ -n "$target_abs" && "$target_abs" == "$src_abs" ]]; then
+      _AE_CLASS="ours"
+    elif [[ -e "$dst" ]]; then
+      _AE_CLASS="foreign-live"
+    else
+      _AE_CLASS="foreign-dangling"
+    fi
+  elif [[ -e "$dst" ]]; then
+    first_line="$(head -1 "$dst" 2>/dev/null || true)"
+    if [[ "$first_line" == "$marker" ]]; then
+      _AE_CLASS="ours-marked-file"
+    else
+      _AE_CLASS="foreign-file"
+    fi
+  else
+    _AE_CLASS="absent"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Hook snapshot (DS-54)
 #
@@ -398,37 +491,34 @@ _write_gemini_md_degrade_body() {
 
 GEMINI_MD_DEGRADE_WRITTEN=false
 
+# Both branches below classify the destination via the ONE shared
+# _ae_classify_gemini_md_dst function (round 6, DS-184 M1/M2/M3 fix) -
+# they differ only in what they WRITE for a given class, never in how they
+# decide ownership or whether a backup is owed. See that function's own
+# comment block above for the full _AE_CLASS enum and rationale.
+_ae_classify_gemini_md_dst "$GEMINI_MD_DST" "$GEMINI_MD_SRC" "$GEMINI_MD_DEGRADE_MARKER"
+GEMINI_MD_CLASS="$_AE_CLASS"
+GEMINI_MD_CLASS_TARGET="$_AE_CLASS_TARGET"
+
 if [[ "$SKILL_LINK_OK" == "true" ]]; then
-  if [[ -L "$GEMINI_MD_DST" ]]; then
-    current_target="$(readlink "$GEMINI_MD_DST")"
-    if _ae_paths_equal "$current_target" "$GEMINI_MD_SRC"; then
+  case "$GEMINI_MD_CLASS" in
+    ours)
       echo "  = ~/.gemini/GEMINI.md (already linked)"
-    elif [[ ! -e "$GEMINI_MD_DST" ]]; then
-      # A dangling symlink at the destination (repo moved, or this checkout
-      # relocated since the link was created) leaves the user with neither
-      # a stub nor a body if left alone - unlike a symlink resolving
-      # somewhere else, there is no live foreign content here to preserve,
-      # so it is ours to replace with a fresh, correct symlink (Minor fix,
-      # round 5 - symmetric with the degrade branch's own dangling-symlink
-      # handling below).
-      echo "  Replacing dangling symlink at ~/.gemini/GEMINI.md (was -> $current_target) with a fresh link"
-      rm "$GEMINI_MD_DST"
+      ;;
+    absent)
       ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
       echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
-    else
-      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
-    fi
-  elif [[ -e "$GEMINI_MD_DST" ]]; then
-    first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
-    if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
-      # Our own prior degrade-path artifact, not user data (DS-184 M2 fix) -
-      # replace it with the symlink outright, no backup and no false
-      # "already exists" warning.
+      ;;
+    ours-marked-file)
+      # Our own prior degrade-path artifact, not user data - replace it
+      # with the symlink outright, no backup and no false "already
+      # exists" warning.
       echo "  Replacing prior dinostack degrade-path GEMINI.md with the symlink (no backup - it's our own generated artifact)"
       rm "$GEMINI_MD_DST"
       ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
       echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
-    else
+      ;;
+    foreign-file)
       BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
       echo ""
       echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -441,67 +531,74 @@ if [[ "$SKILL_LINK_OK" == "true" ]]; then
       mv "$GEMINI_MD_DST" "$BACKUP"
       ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
       echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
-    fi
-  else
-    ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
-    echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
-  fi
+      ;;
+    foreign-dangling)
+      # Round 6 / M1 fix: a dangling symlink not recognized as ours is of
+      # UNKNOWN provenance - could be the user's own symlink to a
+      # since-deleted file, or a stale ours-symlink from before a repo
+      # move; the two are indistinguishable from the outside. Prior
+      # rounds deleted it outright here while the degrade branch backed
+      # up the identical input (M1) - both branches now agree: preserve
+      # via backup, never delete without one.
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo ""
+      echo "  WARNING: ~/.gemini/GEMINI.md is a dangling symlink (-> $GEMINI_MD_CLASS_TARGET) not"
+      echo "  recognized as our own. It cannot be confirmed to be ours, so it is being"
+      echo "  preserved (moved to $BACKUP) before linking. To restore: mv \"$BACKUP\" \"$GEMINI_MD_DST\""
+      echo ""
+      mv "$GEMINI_MD_DST" "$BACKUP"
+      ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+      echo "  + ~/.gemini/GEMINI.md linked (backup saved to $BACKUP)"
+      ;;
+    foreign-live)
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $GEMINI_MD_CLASS_TARGET - skipping)"
+      ;;
+  esac
 else
   # Degrade path: the skill link is unavailable, so write a real file (not
   # a symlink) that carries the full methodology body directly, rather than
   # leaving the session with only the trigger-load pointer and no working
-  # trigger to reach it. A symlink at the destination is NOT always foreign
-  # here: the healthy branch above creates one pointing at $GEMINI_MD_SRC,
-  # and that same symlink can also be left dangling (repo moved, or the
-  # skill destination newly occupied on a re-run) - both are ours to
-  # replace with the degrade-path body, no backup. A symlink resolving
-  # somewhere else is genuinely foreign and preserved untouched (DS-184 M1
-  # fix, round 4 - round 3's version treated every symlink as foreign,
-  # which left the degrade path unable to deliver the methodology body at
-  # all when the destination held our own now-stale symlink). Whether a
-  # symlink is OURS is only decidable when it resolves - a DANGLING symlink
-  # whose target is not literally $GEMINI_MD_SRC is of unknown provenance
-  # (could be a user's own symlink to a since-deleted file, not ours at
-  # all), so it is backed up (the symlink itself is preserved, renamed
-  # aside) with a warning rather than silently deleted, before the
-  # degrade-path body is written (round 5 Minor fix - a prior version
-  # classified every dangling symlink as ours regardless of target).
-  if [[ -L "$GEMINI_MD_DST" ]]; then
-    current_target="$(readlink "$GEMINI_MD_DST")"
-    if _ae_paths_equal "$current_target" "$GEMINI_MD_SRC"; then
+  # trigger to reach it.
+  case "$GEMINI_MD_CLASS" in
+    ours)
       echo "  Replacing dinostack symlink at ~/.gemini/GEMINI.md with the degrade-path body (skill link unavailable: $SKILL_LINK_REASON)"
       rm "$GEMINI_MD_DST"
       _write_gemini_md_degrade_body
-    elif [[ ! -e "$GEMINI_MD_DST" ]]; then
+      ;;
+    absent)
+      _write_gemini_md_degrade_body
+      ;;
+    ours-marked-file)
+      # Our own prior degrade-path artifact, not user data - overwrite in
+      # place rather than accumulating a fresh backup on every install.
+      echo "  Overwriting prior dinostack degrade-path GEMINI.md (no backup - it's our own generated artifact)"
+      rm "$GEMINI_MD_DST"
+      _write_gemini_md_degrade_body
+      ;;
+    foreign-file)
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
+      mv "$GEMINI_MD_DST" "$BACKUP"
+      _write_gemini_md_degrade_body
+      ;;
+    foreign-dangling)
+      # Provenance unknown (see the healthy branch's identical case above -
+      # both branches now classify and handle this input the same way);
+      # preserved via backup, never deleted outright.
       BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
       echo ""
-      echo "  WARNING: ~/.gemini/GEMINI.md is a dangling symlink (-> $current_target) not"
+      echo "  WARNING: ~/.gemini/GEMINI.md is a dangling symlink (-> $GEMINI_MD_CLASS_TARGET) not"
       echo "  recognized as our own. It cannot be confirmed to be ours, so it is being"
       echo "  preserved (moved to $BACKUP) rather than deleted, before writing the"
       echo "  degrade-path body in its place. To restore: mv \"$BACKUP\" \"$GEMINI_MD_DST\""
       echo ""
       mv "$GEMINI_MD_DST" "$BACKUP"
       _write_gemini_md_degrade_body
-    else
-      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping degrade-path write; not ours to touch)"
-    fi
-  elif [[ -e "$GEMINI_MD_DST" ]]; then
-    first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
-    if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
-      # Our own prior degrade-path artifact, not user data - overwrite in
-      # place rather than accumulating a fresh backup on every install.
-      echo "  Overwriting prior dinostack degrade-path GEMINI.md (no backup - it's our own generated artifact)"
-      rm "$GEMINI_MD_DST"
-      _write_gemini_md_degrade_body
-    else
-      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
-      echo "  Backing up existing ~/.gemini/GEMINI.md to: $BACKUP"
-      mv "$GEMINI_MD_DST" "$BACKUP"
-      _write_gemini_md_degrade_body
-    fi
-  else
-    _write_gemini_md_degrade_body
-  fi
+      ;;
+    foreign-live)
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $GEMINI_MD_CLASS_TARGET - skipping degrade-path write; not ours to touch)"
+      ;;
+  esac
 fi
 
 # ---------------------------------------------------------------------------
