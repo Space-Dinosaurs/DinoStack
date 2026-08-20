@@ -77,13 +77,15 @@ CLAUDE.md's frontmatter-fix obligation, not an oversight):
   non-gitignored file built by `.pi/build.sh:45-50`, from both the covered
   list and the exclusion list above - it was simply uncovered by any
   DiscoverySpec until that fix). This figure is no longer a hand-typed
-  literal: `_ROOT_ENTRY_SKILL_LABELS` and `test_root_entry_skill_count_
-  matches_docstring` below derive it from DISCOVERY_SPECS' own `min_count`
-  fields and fail if this count and that derivation diverge (round 5 Minor
-  fix - this count had already gone stale three times as a bare literal
-  before the derived pin existed; grep does not currently exist to check
-  this docstring sentence itself, so update BOTH the derivation set and
-  this sentence in the same commit when the root/entry skill set changes).
+  literal that can drift unnoticed: `_ROOT_ENTRY_SKILL_LABELS` and
+  `test_root_entry_skill_count_matches_docstring` below derive a total from
+  DISCOVERY_SPECS' own `min_count` fields and compare it against the
+  NUMBER PARSED DIRECTLY OUT OF THIS SENTENCE (via
+  `_docstring_root_entry_skill_count`, not a second hand-typed constant -
+  round 6 fix, since a separate constant let the sentence itself drift
+  while the constant stayed pinned) - update BOTH the derivation set and
+  this sentence's wording in the same commit when the root/entry skill set
+  changes, or the test fails on the mismatch.
   This enumeration was re-derived
   independently (every tracked `.md`/`.mdc` file with a `---` block
   containing a `description:` field, minus every path the DISCOVERY_SPECS
@@ -185,21 +187,43 @@ _ROOT_ENTRY_SKILL_LABELS = frozenset({
     ".gemini/skills/dinostack",
 })
 
-_DOCSTRING_ROOT_ENTRY_SKILL_COUNT = 11
+# Extracts the "N root/entry skill bodies total" figure directly from the
+# LIVE module docstring text (round 6 Minor fix - a prior version compared
+# derived_total against a separate hand-typed `_DOCSTRING_ROOT_ENTRY_SKILL_
+# COUNT = 11` constant, so mutating the docstring's own prose number left
+# this test green: the mutation changed only prose, never the constant it
+# was actually checked against). Asserting against the parsed docstring
+# text closes that gap - the two can no longer diverge without reddening.
+_DOCSTRING_ROOT_ENTRY_SKILL_COUNT_RE = re.compile(
+    r"that is (\d+) root/entry skill bodies total"
+)
+
+
+def _docstring_root_entry_skill_count() -> int:
+    match = _DOCSTRING_ROOT_ENTRY_SKILL_COUNT_RE.search(__doc__ or "")
+    assert match, (
+        "module docstring's 'that is N root/entry skill bodies total' "
+        "sentence not found - wording changed?"
+    )
+    return int(match.group(1))
 
 
 def test_root_entry_skill_count_matches_docstring():
     """Derives the "root/entry skill body" count from DISCOVERY_SPECS'
     min_count fields for the labels in _ROOT_ENTRY_SKILL_LABELS and asserts
-    it equals the module docstring's cited figure (round 5 Minor fix - this
-    count had gone stale three times as a bare hand-typed literal in the
-    docstring before this derived pin existed). Bidirectional: a label in
-    _ROOT_ENTRY_SKILL_LABELS that is missing from DISCOVERY_SPECS fails
-    (catches a renamed/removed spec), and a derived-total/docstring-figure
-    mismatch fails (catches either side going stale independently).
+    it equals the figure parsed directly out of the module docstring's own
+    prose (round 5 Minor fix - this count had gone stale three times as a
+    bare hand-typed literal in the docstring before a derived pin existed;
+    round 6 fixed the pin comparing against a SEPARATE hand-typed constant
+    rather than the docstring text itself, see
+    _docstring_root_entry_skill_count's own comment). Bidirectional: a
+    label in _ROOT_ENTRY_SKILL_LABELS that is missing from DISCOVERY_SPECS
+    fails (catches a renamed/removed spec), and a derived-total/docstring-
+    figure mismatch fails (catches either side going stale independently).
     Mutation that reddens this: adding or removing a DiscoverySpec entry
-    covered by _ROOT_ENTRY_SKILL_LABELS without updating
-    _DOCSTRING_ROOT_ENTRY_SKILL_COUNT (or the reverse)."""
+    covered by _ROOT_ENTRY_SKILL_LABELS without updating the docstring's
+    "N root/entry skill bodies total" sentence (or the reverse), OR editing
+    only that sentence's number without updating DISCOVERY_SPECS."""
     labels_present = {spec.label for spec in DISCOVERY_SPECS}
     missing = _ROOT_ENTRY_SKILL_LABELS - labels_present
     assert not missing, (
@@ -208,10 +232,10 @@ def test_root_entry_skill_count_matches_docstring():
     derived_total = sum(
         spec.min_count for spec in DISCOVERY_SPECS if spec.label in _ROOT_ENTRY_SKILL_LABELS
     )
-    assert derived_total == _DOCSTRING_ROOT_ENTRY_SKILL_COUNT, (
+    docstring_count = _docstring_root_entry_skill_count()
+    assert derived_total == docstring_count, (
         f"derived root/entry skill body count is {derived_total}, but the module "
-        f"docstring's Scope note cites {_DOCSTRING_ROOT_ENTRY_SKILL_COUNT} - "
-        "update both together"
+        f"docstring's Scope note cites {docstring_count} - update both together"
     )
 
 
