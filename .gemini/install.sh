@@ -16,11 +16,23 @@
 #          scripts/lib/hooks-snapshot.sh) when sync succeeds, else the
 #          checkout
 # Side-effects: backs up existing non-symlink, non-marker-owned targets with
-#               .backup-<timestamp> suffix; DELETES a real file/symlink at
-#               ~/.gemini/GEMINI.md when it carries our own
-#               GEMINI_MD_DEGRADE_MARKER first line (no backup - it is our
-#               own generated artifact, not user data); creates ~/.gemini/
-#               if absent; syncs the hooks snapshot dir
+#               .backup-<timestamp> suffix; DELETES a real file at
+#               ~/.gemini/GEMINI.md (no backup) when it carries our own
+#               GEMINI_MD_DEGRADE_MARKER first line - it is our own
+#               generated artifact, not user data. On the degrade branch
+#               (skill link unavailable) also DELETES, with no marker read
+#               and no backup, a symlink at that destination when it either
+#               points at $GEMINI_MD_SRC (our own stub, left over from a
+#               prior healthy install) or is dangling (repo moved, or the
+#               skill destination newly occupied on a re-run) - both are
+#               ours to replace with the degrade-path body; a symlink
+#               resolving anywhere else is left untouched (DS-184 M1 round
+#               4). On the healthy branch (skill link OK), also DELETES,
+#               with no backup, a dangling symlink at that destination
+#               (repo moved since the link was created) and replaces it
+#               with a fresh symlink to $GEMINI_MD_SRC; a symlink resolving
+#               anywhere else is left untouched (round 5). Creates
+#               ~/.gemini/ if absent; syncs the hooks snapshot dir.
 # Consumers: user runs manually; re-run after repo move (or to refresh the
 #            hooks snapshot) to update absolute hook paths
 set -euo pipefail
@@ -223,6 +235,28 @@ SETTINGS="$HOME/.gemini/settings.json"
 # from later. A genuinely user-authored GEMINI.md never carries this line.
 GEMINI_MD_DEGRADE_MARKER="<!-- dinostack:gemini-degrade-generated -->"
 
+# Resolved-path comparison for "is this symlink ours" checks below (round 5
+# Minor fix). A plain string compare of a symlink's readlink() target
+# against our freshly-computed *_SRC path misclassifies our own symlink as
+# foreign whenever the destination is reached via a symlinked-parent alias
+# (e.g. $HOME resolving through a symlink) - the two paths differ textually
+# while resolving to the same file. Falls back to a plain string compare
+# when either side cannot be resolved (nonexistent path), which keeps
+# dangling-symlink handling (compared elsewhere by existence, not this
+# helper) unaffected. `readlink -f` is used rather than `realpath` for
+# portability - confirmed present on both BSD readlink (macOS, `readlink
+# [-fn]`) and GNU readlink.
+_ae_paths_equal() {
+  local a="$1" b="$2" resolved_a resolved_b
+  resolved_a="$(readlink -f "$a" 2>/dev/null || true)"
+  resolved_b="$(readlink -f "$b" 2>/dev/null || true)"
+  if [[ -n "$resolved_a" && -n "$resolved_b" ]]; then
+    [[ "$resolved_a" == "$resolved_b" ]]
+  else
+    [[ "$a" == "$b" ]]
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Hook snapshot (DS-54)
 #
@@ -292,7 +326,7 @@ mkdir -p "$(dirname "$SKILL_DST")"
 
 if [[ -L "$SKILL_DST" ]]; then
   current_target="$(readlink "$SKILL_DST")"
-  if [[ "$current_target" == "$SKILL_SRC" ]]; then
+  if _ae_paths_equal "$current_target" "$SKILL_SRC"; then
     echo "  = ~/.gemini/skills/dinostack/ (already linked)"
   else
     echo "  ! ~/.gemini/skills/dinostack/ (symlink points elsewhere: $current_target - skipping)"
@@ -367,8 +401,20 @@ GEMINI_MD_DEGRADE_WRITTEN=false
 if [[ "$SKILL_LINK_OK" == "true" ]]; then
   if [[ -L "$GEMINI_MD_DST" ]]; then
     current_target="$(readlink "$GEMINI_MD_DST")"
-    if [[ "$current_target" == "$GEMINI_MD_SRC" ]]; then
+    if _ae_paths_equal "$current_target" "$GEMINI_MD_SRC"; then
       echo "  = ~/.gemini/GEMINI.md (already linked)"
+    elif [[ ! -e "$GEMINI_MD_DST" ]]; then
+      # A dangling symlink at the destination (repo moved, or this checkout
+      # relocated since the link was created) leaves the user with neither
+      # a stub nor a body if left alone - unlike a symlink resolving
+      # somewhere else, there is no live foreign content here to preserve,
+      # so it is ours to replace with a fresh, correct symlink (Minor fix,
+      # round 5 - symmetric with the degrade branch's own dangling-symlink
+      # handling below).
+      echo "  Replacing dangling symlink at ~/.gemini/GEMINI.md (was -> $current_target) with a fresh link"
+      rm "$GEMINI_MD_DST"
+      ln -s "$GEMINI_MD_SRC" "$GEMINI_MD_DST"
+      echo "  + ~/.gemini/GEMINI.md linked to $GEMINI_MD_SRC"
     else
       echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping)"
     fi
@@ -408,16 +454,33 @@ else
   # here: the healthy branch above creates one pointing at $GEMINI_MD_SRC,
   # and that same symlink can also be left dangling (repo moved, or the
   # skill destination newly occupied on a re-run) - both are ours to
-  # replace with the degrade-path body. Only a symlink resolving somewhere
-  # else is genuinely foreign and preserved untouched (DS-184 M1 fix,
-  # round 4 - round 3's version treated every symlink as foreign, which
-  # left the degrade path unable to deliver the methodology body at all
-  # when the destination held our own now-stale symlink).
+  # replace with the degrade-path body, no backup. A symlink resolving
+  # somewhere else is genuinely foreign and preserved untouched (DS-184 M1
+  # fix, round 4 - round 3's version treated every symlink as foreign,
+  # which left the degrade path unable to deliver the methodology body at
+  # all when the destination held our own now-stale symlink). Whether a
+  # symlink is OURS is only decidable when it resolves - a DANGLING symlink
+  # whose target is not literally $GEMINI_MD_SRC is of unknown provenance
+  # (could be a user's own symlink to a since-deleted file, not ours at
+  # all), so it is backed up (the symlink itself is preserved, renamed
+  # aside) with a warning rather than silently deleted, before the
+  # degrade-path body is written (round 5 Minor fix - a prior version
+  # classified every dangling symlink as ours regardless of target).
   if [[ -L "$GEMINI_MD_DST" ]]; then
     current_target="$(readlink "$GEMINI_MD_DST")"
-    if [[ "$current_target" == "$GEMINI_MD_SRC" ]] || [[ ! -e "$GEMINI_MD_DST" ]]; then
+    if _ae_paths_equal "$current_target" "$GEMINI_MD_SRC"; then
       echo "  Replacing dinostack symlink at ~/.gemini/GEMINI.md with the degrade-path body (skill link unavailable: $SKILL_LINK_REASON)"
       rm "$GEMINI_MD_DST"
+      _write_gemini_md_degrade_body
+    elif [[ ! -e "$GEMINI_MD_DST" ]]; then
+      BACKUP="$GEMINI_MD_DST.backup-$(date +%Y%m%d%H%M%S)"
+      echo ""
+      echo "  WARNING: ~/.gemini/GEMINI.md is a dangling symlink (-> $current_target) not"
+      echo "  recognized as our own. It cannot be confirmed to be ours, so it is being"
+      echo "  preserved (moved to $BACKUP) rather than deleted, before writing the"
+      echo "  degrade-path body in its place. To restore: mv \"$BACKUP\" \"$GEMINI_MD_DST\""
+      echo ""
+      mv "$GEMINI_MD_DST" "$BACKUP"
       _write_gemini_md_degrade_body
     else
       echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping degrade-path write; not ours to touch)"

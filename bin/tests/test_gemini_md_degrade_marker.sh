@@ -30,6 +30,16 @@
 #          from CONTAINS; scenarios 5b/5c below exercise install.sh
 #          directly with a substring-marker file.
 #
+#          Round 5 (M1 fix) additionally closes a coverage gap all prior
+#          rounds shared: every degrade-write scenario (1c, 1d, 3, 5b)
+#          checked only that a non-symlink real file existed with the
+#          marker as its first line, never that the full methodology body
+#          actually arrived after it - a mutation replacing install.sh's
+#          `cat "$SKILL_SRC/SKILL.md"` with a placeholder string passed all
+#          27 assertions unchanged. `assert_body_delivered()` below (size
+#          floor + a body-only token) is now called from each of those four
+#          scenarios.
+#
 #          Scenarios (M4's explicit minimum list):
 #            1. A foreign symlink at the GEMINI.md destination is preserved
 #               on BOTH the degrade branch (M1) and the healthy branch.
@@ -109,6 +119,39 @@ uninstall_real() {
 
 MARKER='<!-- dinostack:gemini-degrade-generated -->'
 
+# BODY_TOKEN/BODY_MIN_BYTES: round-4 review M1 finding - scenarios asserting
+# a degrade-path write must confirm the full methodology body actually
+# arrived, not merely that the marker line and a symlink-vs-file distinction
+# are correct. "Risk Classification" is a section heading present in the
+# real built .gemini/skills/dinostack/SKILL.md (verified: `grep -c` returns
+# 5 hits on the live build); BODY_MIN_BYTES is a floor well below the real
+# body's size (~130KB+) but far above what any stub-only or omitted-body
+# write could produce.
+BODY_TOKEN='Risk Classification'
+BODY_MIN_BYTES=20000
+
+# Asserts $1 (a GEMINI.md path) is a real file whose size is at least
+# BODY_MIN_BYTES and which contains BODY_TOKEN - i.e. the full methodology
+# body was actually written, not just the marker/stub. $2 is the scenario
+# label used in pass/fail messages. Mutation that reddens every caller of
+# this helper: replacing install.sh's `cat "$SKILL_SRC/SKILL.md"` (the body
+# source in _write_gemini_md_degrade_body) with a short placeholder string.
+assert_body_delivered() {
+  local file="$1" label="$2" size
+  if [[ ! -f "$file" ]]; then
+    fail "$label: expected $file to exist to check for the delivered body"
+    return
+  fi
+  size="$(wc -c < "$file" | tr -d ' ')"
+  if [[ "$size" -lt "$BODY_MIN_BYTES" ]]; then
+    fail "$label: $file is only $size bytes (< $BODY_MIN_BYTES) - body likely not delivered"
+  elif ! grep -qF "$BODY_TOKEN" "$file"; then
+    fail "$label: $file does not contain the expected body token '$BODY_TOKEN' - body likely not delivered"
+  else
+    pass "$label: $file carries the full methodology body ($size bytes, token found)"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Scenario 1a: degrade-path install, foreign symlink at destination (M1)
 # Mutation that reddens this: reverting install.sh's degrade branch to
@@ -180,6 +223,7 @@ else
     fail "scenario1c: degrade install wrote GEMINI.md but not with our marker as first line"
   else
     pass "scenario1c: degrade install replaces our own stale symlink with the degrade-path body (M1 round-4)"
+    assert_body_delivered "$H1C/.gemini/GEMINI.md" "scenario1c"
   fi
   if [[ "$out1c" == *"Replacing dinostack symlink at ~/.gemini/GEMINI.md with the degrade-path body"* ]]; then
     pass "scenario1c: degrade install prints an accurate replacing-our-own-symlink message"
@@ -208,6 +252,7 @@ elif [[ "$(head -1 "$H1D/.gemini/GEMINI.md")" != "$MARKER" ]]; then
   fail "scenario1d: degrade install wrote GEMINI.md but not with our marker as first line"
 else
   pass "scenario1d: degrade install replaces a dangling symlink with the degrade-path body (M1 round-4)"
+  assert_body_delivered "$H1D/.gemini/GEMINI.md" "scenario1d"
 fi
 
 # ---------------------------------------------------------------------------
@@ -259,6 +304,7 @@ if [[ "$first_line3" == "$MARKER" ]]; then
 else
   fail "scenario3: expected first line to equal the marker exactly, got: '$first_line3'"
 fi
+assert_body_delivered "$H3/.gemini/GEMINI.md" "scenario3-first-install"
 
 # Second degrade install (still blocked skill link) - marker recognized,
 # overwritten in place, no backup accumulation.
@@ -274,6 +320,7 @@ if [[ "$out3b" == *"Overwriting prior dinostack degrade-path GEMINI.md (no backu
 else
   fail "scenario3: expected the no-backup overwrite message on the second degrade install, got:"$'\n'"$out3b"
 fi
+assert_body_delivered "$H3/.gemini/GEMINI.md" "scenario3-second-install"
 
 # Now unblock the skill link and install again: healthy branch must
 # recognize the marker, replace with the symlink, no backup, no warning.
@@ -370,6 +417,7 @@ if [[ "$(head -1 "$H5B/.gemini/GEMINI.md")" == "$MARKER" ]]; then
 else
   fail "scenario5b: expected the exact marker as the new first line, got: '$(head -1 "$H5B/.gemini/GEMINI.md")'"
 fi
+assert_body_delivered "$H5B/.gemini/GEMINI.md" "scenario5b"
 
 # ---------------------------------------------------------------------------
 # Scenario 5c (round 4): install.sh's HEALTHY branch treats a first line
