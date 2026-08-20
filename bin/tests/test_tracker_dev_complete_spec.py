@@ -49,7 +49,11 @@ Covers:
   - Phase 11's `pipeline_order` bullet states the arity is 4 tokens and no
     longer claims a stale 3-element arity.
   - The `pending_merge_sweep` toggle DESCRIPTION names the dev-complete
-    transition at all 6 prose sites plus docs/index.html's own sentence.
+    transition at all 6 prose sites (4 full-text: README.md,
+    docs/configuration-reference.md, docs/components.md, and the canonical
+    content/references/risk-config-and-tiers.md; 2 canonical-plus-pointer:
+    content/references/conventions-detail.md, content/commands/ds-init-project.md)
+    plus docs/index.html's own sentence.
   - An enumeration audit: every "N of the M `TRACKER_STATE_*` values"-shaped
     sentence bumped from 5 to 6, with the stale 5-value phrasing at zero
     occurrences everywhere it used to appear.
@@ -555,17 +559,33 @@ def test_phase_11_pipeline_order_bullet_states_four_token_arity():
 
 
 # ---------------------------------------------------------------------------
-# pending_merge_sweep description - 6 prose sites plus docs/index.html.
+# pending_merge_sweep description - 6 prose sites (4 full-text, 2
+# canonical-plus-pointer) plus docs/index.html's own sentence.
 # ---------------------------------------------------------------------------
 
-_PENDING_MERGE_SWEEP_SITES = [
+# Canonical-plus-pointer (operator decision 2026-08-20): PUBLIC-doc sites
+# still restate the full dev-complete description verbatim - the doc-sync
+# obligation mandates restatement there. Of the three CONTENT sites,
+# `content/references/risk-config-and-tiers.md` is canonical (every sibling
+# toggle bullet in the other two files already points "Full semantics:" at
+# it); `content/references/conventions-detail.md` and
+# `content/commands/ds-init-project.md` were confirmed verbatim duplicates
+# and were deduped to a summary plus a pointer, per PR #780's established
+# toggle-dedup pattern (see `test_pending_merge_sweep_description_...`
+# below for the two-branch check that replaces the single full-text pin).
+_PENDING_MERGE_SWEEP_PUBLIC_SITES = [
     REPO_ROOT / "README.md",
     REPO_ROOT / "docs" / "configuration-reference.md",
     REPO_ROOT / "docs" / "components.md",
-    REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+]
+_PENDING_MERGE_SWEEP_CANONICAL_SITE = (
+    REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md"
+)
+_PENDING_MERGE_SWEEP_POINTER_SITES = [
     REPO_ROOT / "content" / "references" / "conventions-detail.md",
     REPO_ROOT / "content" / "commands" / "ds-init-project.md",
 ]
+_PENDING_MERGE_SWEEP_CANONICAL_POINTER = "content/references/risk-config-and-tiers.md"
 
 _PENDING_MERGE_SWEEP_NEW = (
     "the session-start pending-merge sweep that pushes the dev-complete "
@@ -579,8 +599,13 @@ _PENDING_MERGE_SWEEP_OLD = (
 )
 
 
-@pytest.mark.parametrize("path", _PENDING_MERGE_SWEEP_SITES)
+@pytest.mark.parametrize(
+    "path", _PENDING_MERGE_SWEEP_PUBLIC_SITES + [_PENDING_MERGE_SWEEP_CANONICAL_SITE]
+)
 def test_pending_merge_sweep_description_names_dev_complete(path):
+    """PUBLIC-doc sites, plus the canonical CONTENT site, still carry the
+    full literal description - unchanged pin. Deleting it here (canonical
+    or public) must fail loudly regardless of what the two pointer sites do."""
     text = path.read_text(encoding="utf-8")
     assert _PENDING_MERGE_SWEEP_NEW in text, (
         f"{path.relative_to(REPO_ROOT)} missing the dev-complete "
@@ -589,6 +614,39 @@ def test_pending_merge_sweep_description_names_dev_complete(path):
     assert text.count(_PENDING_MERGE_SWEEP_OLD) == 0, (
         f"{path.relative_to(REPO_ROOT)} still carries the stale Done-only "
         "pending_merge_sweep description"
+    )
+
+
+@pytest.mark.parametrize("path", _PENDING_MERGE_SWEEP_POINTER_SITES)
+def test_pending_merge_sweep_description_full_text_or_canonical_pointer(path):
+    """The two deduped CONTENT sites: either the full literal description
+    (same pin as the canonical/public sites) OR an explicit pointer to the
+    canonical CONTENT site. Neither present, or the stale Done-only
+    description alone, fails loudly.
+
+    Scoped to the `pending_merge_sweep` BULLET itself, not the whole file -
+    both files also carry the SAME canonical-site path string in sibling
+    bullets (e.g. the worktree guard exemptions' own "Full semantics:"
+    pointers), so an unscoped whole-file check would find the canonical
+    path string there and pass even with this bullet's own pointer broken.
+    """
+    text = path.read_text(encoding="utf-8")
+    marker = "- `pending_merge_sweep`"
+    assert marker in text, f"{path.relative_to(REPO_ROOT)} missing the '{marker}' bullet"
+    bullet_start = text.index(marker)
+    next_bullet = text.find("\n- `", bullet_start + 1)
+    bullet_text = text[bullet_start:] if next_bullet == -1 else text[bullet_start:next_bullet]
+
+    assert bullet_text.count(_PENDING_MERGE_SWEEP_OLD) == 0, (
+        f"{path.relative_to(REPO_ROOT)} still carries the stale Done-only "
+        "pending_merge_sweep description"
+    )
+    has_full_text = _PENDING_MERGE_SWEEP_NEW in bullet_text
+    has_pointer = _PENDING_MERGE_SWEEP_CANONICAL_POINTER in bullet_text
+    assert has_full_text or has_pointer, (
+        f"{path.relative_to(REPO_ROOT)} carries neither the full dev-complete "
+        f"pending_merge_sweep description nor a pointer to the canonical site "
+        f"({_PENDING_MERGE_SWEEP_CANONICAL_POINTER!r}) in its own bullet"
     )
 
 

@@ -6,9 +6,19 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift.
          rule topics - status-only, volume, answer relevance,
          self-narrating candor, editorial addenda - and that set is
          RESTATED, by name, at ten other sites with no mechanical check
-         tying them together (see `Upstream deps` below). A stale
-         cross-file assertion nothing pins is the defect class this spec
-         exists to close.
+         tying them together (see `Upstream deps` below). Of those ten,
+         eight are full-text sites that must restate every current topic
+         verbatim (`docs/index.html`, `README.md`,
+         `hooks/enforce-turn-shape.py`,
+         `content/references/conductor-turn-format.md`,
+         `content/references/risk-config-and-tiers.md` (canonical),
+         `docs/configuration-reference.md`, `docs/safe-configuration.md`,
+         `docs/components.md`), and two are CONTENT sites deduped to a
+         canonical-plus-pointer shape (`content/references/conventions-detail.md`,
+         `content/commands/ds-init-project.md`) that pass on either the full
+         text or an explicit pointer to the canonical CONTENT site (see
+         "Canonical-plus-pointer" below). A stale cross-file assertion
+         nothing pins is the defect class this spec exists to close.
 
          The derived source of truth is the style file itself: its YAML
          frontmatter `description:` field states the rule set as a
@@ -48,6 +58,28 @@ Upstream deps: content/output-styles/dinostack.md (derived source of truth);
                content/references/risk-config-and-tiers.md;
                content/references/conventions-detail.md;
                content/commands/ds-init-project.md; docs/components.md.
+
+Canonical-plus-pointer (operator decision 2026-08-20): PUBLIC-doc sites
+(docs/index.html, README.md, docs/configuration-reference.md,
+docs/safe-configuration.md, docs/components.md) still restate the full
+rule-set text verbatim - the doc-sync obligation mandates restatement
+there, and this spec continues to pin it exactly as before. Two CONTENT
+sites (`content/references/conventions-detail.md`,
+`content/commands/ds-init-project.md`) were confirmed verbatim duplicates
+of the canonical CONTENT site (`content/references/risk-config-and-tiers.md`
+- already the "Full semantics:" target every sibling toggle bullet in
+those two files points at) and were deduped to a short summary plus a
+`content/references/risk-config-and-tiers.md` pointer, per PR #780's
+established toggle-dedup pattern. Their tests now accept EITHER the full
+topic-bearing text OR the canonical pointer string
+(`test_canonical_or_pointer`, used by
+`test_conventions_detail_names_full_rule_set_or_pointer` and
+`test_ds_init_project_names_full_rule_set_or_pointer`) - the canonical site
+itself (`test_risk_config_and_tiers_names_full_rule_set`) is UNCHANGED and
+still requires the full text, so deleting it there still fails loudly.
+`hooks/enforce-turn-shape.py` and `content/references/conductor-turn-format.md`
+were NOT deduped (out of scope for this pass) and keep their original
+full-text-only assertions.
 
 Downstream consumers: CI (bin-tests / pytest bin/tests/); a human reviewer
                        of any PR that renames, adds, or removes a
@@ -319,6 +351,41 @@ def _assert_no_stale_topics(site_path: Path, site_text: str, topics: list[str]) 
     )
 
 
+# Canonical-plus-pointer target for the two deduped CONTENT sites. Path
+# string only (not a heading anchor) - the pointer sentence at both sites
+# reads "Full semantics: `content/references/risk-config-and-tiers.md`
+# §Project config."
+CANONICAL_CONTENT_POINTER = "content/references/risk-config-and-tiers.md"
+
+
+def _assert_full_text_or_canonical_pointer(
+    site_path: Path, site_text: str, topics: list[str]
+) -> None:
+    """A deduped CONTENT site must carry EITHER the full topic-bearing text
+    OR an explicit pointer to the canonical CONTENT site. Neither present
+    means the site was gutted without leaving a trail to the real
+    definition - fails loudly rather than silently passing on an absent
+    paragraph.
+
+    The no-stale-topics invariant runs on BOTH branches, not just the
+    full-text one: a summary that carries a valid pointer can still name a
+    topic the style has since retired (a summary is hand-written prose, not
+    a verbatim copy, so it can drift independently). Running the check only
+    on the full-text branch let a retired topic sit beside a valid pointer
+    and pass - see the site-level tests' comments for the constructed
+    reviewer case this closes."""
+    _assert_no_stale_topics(site_path, site_text, topics)
+    normalized_site = _normalize(site_text)
+    missing = [t for t in topics if not _topic_pattern(t).search(normalized_site)]
+    if not missing:
+        return
+    assert CANONICAL_CONTENT_POINTER in site_text, (
+        f"{site_path} carries neither the full rule-set text (missing topic(s) "
+        f"{missing}) nor a pointer to the canonical site ({CANONICAL_CONTENT_POINTER!r}) "
+        "- a deduped site must always resolve to one or the other"
+    )
+
+
 def test_index_html_names_full_rule_set(rule_set_topics):
     text = INDEX_PATH.read_text(encoding="utf-8")
     marker = "Claude Code turn-shape output style"
@@ -433,7 +500,7 @@ def test_risk_config_and_tiers_names_full_rule_set(rule_set_topics):
     _assert_no_stale_topics(RISK_CONFIG_PATH, entry_text, rule_set_topics)
 
 
-def test_conventions_detail_names_full_rule_set(rule_set_topics):
+def test_conventions_detail_names_full_rule_set_or_pointer(rule_set_topics):
     text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
     marker = "`turn_shape_guard_enabled`"
     assert marker in text, (
@@ -445,11 +512,10 @@ def test_conventions_detail_names_full_rule_set(rule_set_topics):
     next_bullet = entry_text.find("\n- `", 1)
     if next_bullet != -1:
         entry_text = entry_text[:next_bullet]
-    _assert_topics_present(CONVENTIONS_DETAIL_PATH, entry_text, rule_set_topics)
-    _assert_no_stale_topics(CONVENTIONS_DETAIL_PATH, entry_text, rule_set_topics)
+    _assert_full_text_or_canonical_pointer(CONVENTIONS_DETAIL_PATH, entry_text, rule_set_topics)
 
 
-def test_ds_init_project_names_full_rule_set(rule_set_topics):
+def test_ds_init_project_names_full_rule_set_or_pointer(rule_set_topics):
     text = DS_INIT_PROJECT_PATH.read_text(encoding="utf-8")
     marker = "`turn_shape_guard_enabled`"
     assert marker in text, (
@@ -461,8 +527,7 @@ def test_ds_init_project_names_full_rule_set(rule_set_topics):
     next_bullet = entry_text.find("\n- `", 1)
     if next_bullet != -1:
         entry_text = entry_text[:next_bullet]
-    _assert_topics_present(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
-    _assert_no_stale_topics(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
+    _assert_full_text_or_canonical_pointer(DS_INIT_PROJECT_PATH, entry_text, rule_set_topics)
 
 
 # --- Description invariant ------------------------------------------------
