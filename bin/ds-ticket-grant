@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for writing a one-shot, operator-attributable exception to
+         `hooks/enforce-ticket-batching.py`'s same-session ticket-batching
+         cap (see content/references/delegation-detail.md §Follow-up Ticket
+         Creation Discipline). That hook silently allows the 1st tracker-
+         ticket creation in a session, allows the 2nd with an advisory, and
+         DENIES the 3rd and every subsequent one - and until this CLI
+         existed, there was no way to lift that deny mid-session: the
+         hook's only kill switch (`AE_TICKET_BATCH_GUARD_DISABLE=1`) is an
+         environment variable the hook-runner process reads at its own
+         launch, and a conductor's `export` in a Bash tool call never
+         reaches that separate process - it can only be set before session
+         start, exactly when an operator's mid-session request cannot use
+         it. This CLI is the reachable path: it writes a small grant file
+         under `<repo>/.agentic/` that the hook itself reads and consumes
+         on the very next denied creation.
+
+         **Why one-shot, not a bounded count or an expiry window.** The
+         batching cap exists because a conductor creating many tickets in
+         one session is the failure mode this whole mechanism defends
+         against (see the hook's own module docstring: a single session
+         once minted 5 tickets over ~14 hours). A grant that persists -
+         whether via a count budget or a time window - re-opens exactly
+         that hole for every creation until it expires or is exhausted,
+         and an operator who authorizes "create this one" has not thereby
+         authorized "create as many as arrive before the window closes."
+         One-shot (consumed by the hook deleting the grant file the moment
+         it is read for a denied call) requires a fresh, explicit act of
+         authorization per exception, which is the whole point.
+
+         **Why this is attributable, not a conductor self-grant.** The
+         grant file's `reason` field is mandatory and is meant to carry the
+         operator's own words (or a faithful paraphrase), not a conductor-
+         invented justification - a conductor CAN run this CLI unprompted,
+         the same way it could always write directly under `.agentic/`
+         (that path is exempt from the shippable/shippable-artifact
+         delegation rule per this repo's own `AGENTS.md` §Conventions), but
+         doing so without an actual operator utterance to quote defeats the
+         entire point of the mechanism and is a misuse of it, not a gap it
+         closes. The CLI enforces only the mechanical half of
+         attributability (a non-empty `reason` string persists on disk,
+         visible to any later reader and echoed back in the hook's own
+         `permissionDecisionReason` and `log_fire()` entry when consumed);
+         the human-judgment half (did an operator actually ask for this)
+         is not something a CLI argument can verify and is not attempted
+         here.
+
+Public API:
+  ds-ticket-grant grant --repo <path> --session-id <id> --reason <str>
+  ds-ticket-grant --help
+
+  `grant` is the sole subcommand - there is deliberately no `revoke` or
+  `list`: a grant is one-shot and self-deletes on the hook's next
+  consuming read, so there is nothing to revoke once written that
+  overwriting with a fresh (or absent) grant does not already cover, and
+  a session should only ever have zero-or-one grant files live at once
+  (see Data model below).
+
+Data model:
+  <repo>/.agentic/.ticket-batch-grant-<safe_session_id>.json:
+    {"reason": <str>, "granted_at": <UTC ISO8601>}
+  `safe_session_id` is `session_id` with every character outside
+  `[A-Za-z0-9._-]` replaced by `-` (falling back to the literal string
+  "unknown" for an all-stripped/empty session_id) - this sanitization is
+  byte-for-byte identical to `enforce-ticket-batching.py`'s own
+  `_state_path` helper, so the two must be kept in sync; a filename
+  mismatch here would silently write a grant the hook can never find.
+  `--session-id` MUST be the same session_id the hook's PreToolUse
+  payload carries for this session (Claude Code exposes this to the
+  conductor's own shell environment as `CLAUDE_CODE_SESSION_ID` - callers
+  should source it from there, not invent one), or the grant is written
+  under a filename the hook will never look for and the mechanism is a
+  silent no-op.
+
+  `grant` OVERWRITES any pre-existing grant file for the same
+  (repo, session_id) pair rather than erroring - a second explicit
+  operator authorization simply replaces whatever exception (consumed or
+  not) preceded it. This is deliberate: it means a stale, never-consumed
+  grant from an earlier abandoned request cannot block a fresh one, and
+  it means there is never more than one live grant per session to reason
+  about.
+
+Upstream deps: Python 3 stdlib only (argparse, datetime, json, pathlib,
+               sys). Shared helper: bin/_lib (atomic_write) - same
+               dependency `bin/ds-defer` already uses.
+
+Downstream consumers: hooks/enforce-ticket-batching.py (`_load_grant` /
+                      `_consume_grant` read and then delete the file this
+                      CLI writes, only on what would otherwise be a 3rd+
+                      creation deny); content/references/
+                      delegation-detail.md §Follow-up Ticket Creation
+                      Discipline (documents this CLI as the mid-session
+                      escape hatch); the hook's own DENY message (cites
+                      this CLI's exact invocation form).
+
+Failure modes:
+  grant: empty/whitespace-only --reason is a hard error - exit 1, stderr
+    message, nothing written (an unattributable grant is worse than no
+    grant - see module docstring above). Empty/whitespace-only
+    --session-id is likewise a hard error - a grant written under an
+    empty-session filename would collide across every session that also
+    somehow produced an empty session_id, defeating the per-session
+    scoping the whole mechanism depends on. A non-existent --repo path is
+    a hard error - exit 1, stderr message, nothing written; this CLI does
+    NOT bootstrap a repo that was never a real checkout. An existing
+    --repo with no `.agentic/` directory yet IS bootstrapped (mode 0o700),
+    mirroring `bin/ds-defer append`'s identical documented side effect -
+    a project need not have already run `/ds-init-project` for an
+    operator to grant an exception in it. A write failure (permissions,
+    disk full) is a hard error - exit 1, stderr message; `atomic_write`
+    guarantees the destination is never left partially written.
+
+Performance: Single small JSON write via `bin/_lib.atomic_write`. No
+             locking - see Data model above for why a last-write-wins race
+             on two concurrent grants for the same session is an accepted,
+             harmless overwrite rather than a hazard needing a lock.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Shared helper from bin/_lib (same directory; bin/ is on sys.path at
+# runtime). .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-ticket-
+# grant -> repo bin/ds-ticket-grant, as created by install.sh) back to the
+# real bin/ directory so _lib.py is found on a bare invocation - see
+# bin/ds-defer's identical comment for the DS-66 bug class this avoids.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _lib_mod
+
+GRANT_FILENAME_PREFIX = ".ticket-batch-grant-"
+
+
+def _safe_session_id(session_id: str) -> str:
+    """Byte-for-byte identical to enforce-ticket-batching.py's own session-
+    id sanitization - MUST be kept in sync (see module docstring, Data
+    model)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", session_id.strip()) or "unknown"
+
+
+def _grant_path(repo: str, session_id: str) -> Path:
+    return Path(repo, ".agentic", f"{GRANT_FILENAME_PREFIX}{_safe_session_id(session_id)}.json")
+
+
+def cmd_grant(args: argparse.Namespace) -> int:
+    reason = args.reason.strip()
+    if not reason:
+        print("ds-ticket-grant: --reason must be a non-empty string", file=sys.stderr)
+        return 1
+    session_id = args.session_id.strip()
+    if not session_id:
+        print("ds-ticket-grant: --session-id must be a non-empty string", file=sys.stderr)
+        return 1
+
+    repo_path = Path(args.repo)
+    if not repo_path.is_dir():
+        print(f"ds-ticket-grant: --repo path does not exist: {args.repo}", file=sys.stderr)
+        return 1
+
+    agentic_dir = repo_path / ".agentic"
+    try:
+        agentic_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"ds-ticket-grant: could not create {agentic_dir}: {exc}", file=sys.stderr)
+        return 1
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    record = {"reason": reason, "granted_at": now}
+    path = _grant_path(args.repo, session_id)
+    try:
+        atomic_write(path, json.dumps(record, indent=2) + "\n", mode=0o600)
+    except Exception as exc:
+        print(f"ds-ticket-grant: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(
+        f"Granted a one-shot ticket-batching exception for session {session_id!r} "
+        f"({path}). It will be consumed by the next tracker-ticket creation this "
+        "hook would otherwise deny, then deleted."
+    )
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="ds-ticket-grant",
+        description=(
+            "Write a one-shot, operator-attributable exception to "
+            "hooks/enforce-ticket-batching.py's same-session ticket-batching cap."
+        ),
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_grant = sub.add_parser("grant", help="Write a one-shot batching-cap exception")
+    p_grant.add_argument("--repo", required=True, help="Repo path (grant-file locator)")
+    p_grant.add_argument(
+        "--session-id",
+        required=True,
+        help="This session's id, exactly as the hook's PreToolUse payload carries it",
+    )
+    p_grant.add_argument(
+        "--reason",
+        required=True,
+        help="The operator's own words authorizing this create (attributability)",
+    )
+    p_grant.set_defaults(func=cmd_grant)
+
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -313,16 +313,77 @@ Purpose: PreToolUse hook that mechanically enforces a grace margin under
              advisory (`permissionDecision: "allow"` with a non-empty
              `permissionDecisionReason` naming the batching rule) and log
              `"allow_advisory"` via `log_fire()`. Persist count=2.
-           - next_count >= 3 (the 3rd and every subsequent creation):
-             DENY, citing the batching rule, the concrete `bin/ds-defer`
-             escape-hatch command, and the two legitimate ways out
-             (`/ds-wrap` to close the session, or the triage commands for
-             a greenlit batch). State is NOT persisted on this branch
-             (count stays at whatever it already was) - a denied call
-             never created a ticket, so there is nothing new to count,
-             and this keeps every subsequent retry of the same call
-             denied identically rather than drifting the counter forward
-             on a call that never actually created anything.
+           - next_count >= 3 (the 3rd and every subsequent creation): a
+             valid **operator grant** (see below) is checked first. With
+             no valid grant: DENY, citing the batching rule, the concrete
+             `bin/ds-defer` escape-hatch command, and the two legitimate
+             ways out (`/ds-wrap` to close the session, or routing future
+             creates through `/ds-feedback-triage`'s own exemption for a
+             greenlit batch - which does not retroactively un-deny THIS
+             call). State is NOT persisted on this deny branch (count
+             stays at whatever it already was) - a denied call never
+             created a ticket, so there is nothing new to count, and this
+             keeps every subsequent retry of the same call denied
+             identically rather than drifting the counter forward on a
+             call that never actually created anything. With a valid
+             grant: ALLOW, citing the grant's `reason` back in the
+             response and via `log_fire()` (decision `"allow_grant"`),
+             persist next_count, and delete the grant file (see below) -
+             so a next attempt (with the grant already consumed) falls
+             straight back through to the ordinary deny path above.
+             Because a grant can now let `next_count` advance past 3, the
+             deny/allow-grant message's ordinal is computed from
+             `next_count` via `_ordinal()`, not hardcoded to "3rd" as an
+             earlier version of this hook did (correct at the time,
+             before a grant could ever make this branch fire more than
+             once per session at a value other than exactly 3).
+
+         **Operator-granted mid-session exception.** Neither of the two
+         "legitimate ways out" cited in the deny message actually lifts
+         THIS deny: `/ds-wrap` ends the session rather than continuing it,
+         and `/ds-feedback-triage`'s exemption only ever applies to
+         creates issued from inside that command's own run (a session
+         already mid-triage never reaches this deny branch at all - see
+         "Triage exemption" above), so it cannot retroactively unblock a
+         call denied outside of it. Before this mechanism existed there
+         was genuinely no way for an operator to authorize a 3rd create
+         without ending the session - `AE_TICKET_BATCH_GUARD_DISABLE=1` is
+         read once by the hook-runner process at its own launch, and a
+         conductor `export` in a later Bash tool call never reaches that
+         separate process (measured directly: it does not).
+
+         `bin/ds-ticket-grant grant --repo <repo> --session-id <id>
+         --reason '<operator's own words>'` (see that file's own module
+         docstring for the full CLI contract) writes
+         `<repo>/.agentic/.ticket-batch-grant-<safe_session_id>.json` as
+         `{"reason": <str>, "granted_at": <UTC ISO8601>}`, where
+         `safe_session_id` is byte-for-byte the same sanitization
+         `_state_path` below already applies to the batching counter's own
+         filename. On the next denied creation this session, `_decide()`
+         reads that file via `_load_grant()`: a missing file, unreadable
+         file, malformed JSON, non-dict content, or an empty/non-string
+         `reason` all resolve to "no grant" (`None`) - every failure mode
+         here falls toward the pre-existing deny behavior, never toward a
+         phantom allow. A valid grant ALLOWS this one creation, and
+         `_consume_grant()` deletes the file immediately (best-effort - a
+         delete failure never turns the already-emitted ALLOW decision
+         back into a deny, but also never gives a later call a second
+         chance to consume the same grant if the delete DID succeed,
+         which is the common case) - a stale, un-consumed grant from an
+         earlier session or an earlier abandoned request is never
+         reusable once a later `grant` invocation for the same session
+         overwrites it, and once consumed it cannot allow a 4th (or Nth)
+         creation without a fresh `grant` call. This is intentionally
+         one-shot rather than a bounded count or a time window - see
+         `bin/ds-ticket-grant`'s own module docstring for why a persisting
+         exception (count-based or expiry-based) would re-open the exact
+         branching-factor hole this whole hook exists to close.
+         Attributability is enforced only mechanically (a non-empty
+         `reason` string must be present on disk and is echoed back in
+         both the hook's `permissionDecisionReason` and its `log_fire()`
+         entry) - nothing here verifies an operator actually said the
+         quoted words; see `bin/ds-ticket-grant`'s module docstring for
+         why that half is left to conductor discipline, not a CLI check.
 
          Kill switch: `AE_TICKET_BATCH_GUARD_DISABLE=1`, checked FIRST in
          `main()`. Deliberately an environment variable, NOT a
@@ -353,7 +414,13 @@ Downstream consumers: Claude Code hook runner (PreToolUse event, three
                       bare `python3 {path}` would exit 2 (BLOCKING on
                       PreToolUse) if this file were ever removed while the
                       registration survives, denying every guarded MCP/
-                      Bash call in every session.
+                      Bash call in every session. `bin/ds-ticket-grant`
+                      is this hook's upstream writer for the operator-
+                      grant file (see "Operator-granted mid-session
+                      exception" above) - a separate CLI, not imported by
+                      this hook; the two are coupled only through the
+                      grant file's path/schema, which both sides document
+                      and must keep in sync.
 
 Failure modes:
     - Malformed stdin, non-dict tool_input, unclassifiable tool_name/
@@ -399,6 +466,18 @@ Failure modes:
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern.
+    - Grant file (see "Operator-granted mid-session exception" above)
+      missing, unreadable, malformed JSON, non-dict content, or an
+      empty/non-string `reason`: treated as no grant - the deny branch's
+      pre-existing behavior applies unchanged. This is checked only on
+      what would otherwise be a 3rd+-creation DENY; it is never consulted
+      on the 1st or 2nd creation, so a grant written before either of
+      those has no effect on them (nothing to override - they already
+      allow). A grant-file DELETE failure after a successful consuming
+      read never turns the already-emitted ALLOW back into a deny for
+      THIS call - only a later call could theoretically re-read the
+      un-deleted file, and even then only if that later call also reached
+      the deny branch with the same (repo, session_id) pair.
     - A creation routed through a script file WRITTEN to disk and then
       executed (`python3 /tmp/scratch/file_tickets.py`) is invisible: this
       hook inspects `tool_input.command` only and never resolves/reads a
@@ -791,13 +870,23 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
-def _state_path(cwd: str, session_id: str) -> Path | None:
-    """Returns None when the repo root cannot be resolved - callers must
-    skip the read/write on None rather than fall back to a raw cwd.
-    Strict tier (see module docstring): a phantom-root write here would
-    silently reset the batching counter, so this resolves via
-    `resolve_agentic_cwd_with_diagnostics` and refuses on
-    `found_git_ancestor=False`, matching
+def _safe_session_id(session_id: str) -> str:
+    """Filesystem-safe form of `session_id`, shared by `_state_path` and
+    `_grant_path` below so the two families of state file always agree on
+    naming - and byte-for-byte identical to `bin/ds-ticket-grant`'s own
+    copy of this same function (that CLI has no import path to this
+    module, so it is duplicated there rather than shared; keep both in
+    sync on any change)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", session_id.strip()) or "unknown"
+
+
+def _resolved_agentic_root(cwd: str) -> Path | None:
+    """Shared repo-root resolution for both `_state_path` and
+    `_grant_path` - returns None when the repo root cannot be resolved.
+    Strict tier (see module docstring): a phantom-root read/write here
+    would silently reset the batching counter or miss/misplace a grant, so
+    this resolves via `resolve_agentic_cwd_with_diagnostics` and refuses
+    on `found_git_ancestor=False`, matching
     `enforce-skeptic-round-cap.py`'s `_state_path`.
     """
     if _REPO_ROOT is None:
@@ -808,8 +897,27 @@ def _state_path(cwd: str, session_id: str) -> Path | None:
         return None
     if not diag.get("found_git_ancestor"):
         return None
-    safe_session = re.sub(r"[^A-Za-z0-9._-]", "-", session_id.strip()) or "unknown"
-    return Path(diag["root"]) / ".agentic" / f".ticket-batch-{safe_session}.json"
+    return Path(diag["root"]) / ".agentic"
+
+
+def _state_path(cwd: str, session_id: str) -> Path | None:
+    """Returns None when the repo root cannot be resolved - callers must
+    skip the read/write on None rather than fall back to a raw cwd."""
+    agentic_dir = _resolved_agentic_root(cwd)
+    if agentic_dir is None:
+        return None
+    return agentic_dir / f".ticket-batch-{_safe_session_id(session_id)}.json"
+
+
+def _grant_path(cwd: str, session_id: str) -> Path | None:
+    """Returns None on the same conditions `_state_path` does - a grant
+    lookup fails toward "no grant" exactly like the counter fails toward
+    "write nothing", never toward a phantom-root read. Filename must stay
+    byte-for-byte in sync with `bin/ds-ticket-grant`'s `_grant_path`."""
+    agentic_dir = _resolved_agentic_root(cwd)
+    if agentic_dir is None:
+        return None
+    return agentic_dir / f".ticket-batch-grant-{_safe_session_id(session_id)}.json"
 
 
 def _load_state(path: Path) -> dict:
@@ -842,6 +950,52 @@ def _write_state(path: Path, count: int) -> None:
         pass
 
 
+def _load_grant(path: Path) -> dict | None:
+    """Returns None ("no grant") on a missing file, unreadable file,
+    malformed JSON, non-dict content, or an empty/non-string `reason` -
+    every failure mode here falls toward the pre-existing deny behavior,
+    never toward a phantom allow. See module docstring, "Operator-granted
+    mid-session exception"."""
+    try:
+        if not path.is_file():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        reason = raw.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            return None
+        return {"reason": reason.strip()}
+    except Exception:
+        return None
+
+
+def _consume_grant(path: Path) -> None:
+    """Best-effort one-shot deletion. The ALLOW decision for the call that
+    triggered this consumption has already been decided and emitted
+    regardless of whether this delete succeeds - a delete failure never
+    turns that decision back into a deny; it only (rarely) leaves the file
+    behind for a later call to potentially re-read, which is still a
+    single, attributable, logged exception, not an unbounded one."""
+    try:
+        path.unlink()
+    except Exception:
+        pass
+
+
+def _ordinal(n: int) -> str:
+    """English ordinal suffix for a positive integer ("3rd", "4th", "21st",
+    ...). Used for the deny/allow-grant message's ordinal, which is no
+    longer always exactly 3 now that a consumed grant can let `next_count`
+    advance past `_DENY_FROM_COUNT` (see module docstring, Decision
+    algorithm)."""
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 _ADVISORY_TEMPLATE = (
     "ADVISORY: this is the 2nd tracker-ticket creation this session. Per "
     "content/references/delegation-detail.md §Follow-up Ticket Creation "
@@ -864,9 +1018,30 @@ _DENY_TEMPLATE = (
     "--reason failed_promotion_bar` and move on, OR if this genuinely is "
     "a new independent top-level operator-raised ask (not a mid-session "
     "discovery), fold it into the session's existing ticket instead of "
-    "creating a new one. Escape hatches: run /ds-wrap to close out this "
-    "session before starting fresh work, or use /ds-feedback-triage / "
-    "/ds-ticket-triage for an explicit human-greenlit batch of creates."
+    "creating a new one. If the operator explicitly asks, right now, to "
+    "create this ticket anyway: run `bin/ds-ticket-grant grant --repo "
+    "<repo> --session-id {session_id} --reason \"<the operator's own "
+    "words>\"` then retry this call - this is a one-shot exception, "
+    "consumed by this retry, and does not authorize any further create "
+    "this session without a fresh grant. Other ways out: run /ds-wrap to "
+    "close out this session before starting fresh work; or, for FUTURE "
+    "creates only (this does not un-deny the current call), route them "
+    "through /ds-feedback-triage, whose own creates are exempt from this "
+    "cap under an explicit per-batch human greenlight. "
+    "`AE_TICKET_BATCH_GUARD_DISABLE=1` disables this hook outright, but "
+    "only if set before this session started - it cannot be set "
+    "mid-session."
+)
+
+_GRANT_ALLOW_TEMPLATE = (
+    "Operator-granted exception consumed for this {ordinal} tracker-"
+    "ticket creation this session (grant reason: \"{reason}\"). This "
+    "grant was one-shot and has now been deleted - the next creation "
+    "this session is evaluated against the ordinary batching cap "
+    "(silent 1st, advisory 2nd, denied 3rd+) starting from the count "
+    "this call just advanced to, and will need its own fresh grant if "
+    "it is also to proceed. Per content/references/delegation-detail.md "
+    "§Follow-up Ticket Creation Discipline."
 )
 
 
@@ -932,14 +1107,34 @@ def main() -> None:
             sys.exit(0)
 
         if next_count >= _DENY_FROM_COUNT:
+            # Operator-granted exception check (see module docstring,
+            # "Operator-granted mid-session exception"). Only consulted
+            # here - never on the 1st/2nd creation, which already allow.
+            grant_path = _grant_path(cwd, session_id)
+            grant = _load_grant(grant_path) if grant_path is not None else None
+            if grant is not None:
+                # Grant consumed: this call proceeds, state DOES advance
+                # (unlike the plain-deny branch below) because this call
+                # is actually about to create a ticket - a future call
+                # this session must see the true, advanced count.
+                _write_state(path, next_count)
+                _consume_grant(grant_path)
+                reason = _GRANT_ALLOW_TEMPLATE.format(
+                    ordinal=_ordinal(next_count), reason=grant["reason"]
+                )
+                _emit(data, reason, "allow_grant")
+                sys.exit(0)
+
             # Deny, state unchanged (see module docstring - a denied call
             # never created anything, so there is nothing new to persist).
-            # State never advances past _ADVISORY_AT_COUNT (2) on any
-            # branch, so next_count here is always exactly 3 - hardcoded,
-            # not derived, since a generic ordinal map would carry an
-            # unreachable fallback for a value this function can never
-            # produce.
-            reason = _DENY_TEMPLATE.format(ordinal="3rd")
+            # On an all-deny session (no grant ever used) next_count is
+            # always exactly 3, since state never advances past
+            # _ADVISORY_AT_COUNT (2) on any other branch - but a consumed
+            # grant CAN advance it past 3 for a later call in the same
+            # session, so the ordinal is derived via `_ordinal()`, not
+            # hardcoded, even though "3rd" remains the overwhelmingly
+            # common case.
+            reason = _DENY_TEMPLATE.format(ordinal=_ordinal(next_count), session_id=session_id)
             _emit(data, reason, "deny")
         sys.exit(0)
     except Exception:

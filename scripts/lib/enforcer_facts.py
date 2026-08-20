@@ -53,8 +53,10 @@ import ast
 from pathlib import Path
 
 # Every fire-log `decision` literal a hook can emit, matching the shared
-# vocabulary hooks/lib/enforcement_log.py's log_fire() accepts.
-_FIRE_LOG_DECISIONS = ("deny", "allow", "allow_advisory")
+# vocabulary hooks/lib/enforcement_log.py's log_fire() accepts. "allow_grant"
+# added by enforce-ticket-batching.py's operator-granted mid-session
+# exception (bin/ds-ticket-grant) - see that hook's own module docstring.
+_FIRE_LOG_DECISIONS = ("deny", "allow", "allow_advisory", "allow_grant")
 
 
 def _callee_name(func) -> str:
