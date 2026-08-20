@@ -404,13 +404,24 @@ else
   # Degrade path: the skill link is unavailable, so write a real file (not
   # a symlink) that carries the full methodology body directly, rather than
   # leaving the session with only the trigger-load pointer and no working
-  # trigger to reach it. A pre-existing symlink at the destination is always
-  # FOREIGN here (this branch never creates one of its own), so it is
-  # preserved untouched rather than deleted (DS-184 M1 fix) - matching the
-  # healthy branch's own "symlink points elsewhere - skipping" behavior.
+  # trigger to reach it. A symlink at the destination is NOT always foreign
+  # here: the healthy branch above creates one pointing at $GEMINI_MD_SRC,
+  # and that same symlink can also be left dangling (repo moved, or the
+  # skill destination newly occupied on a re-run) - both are ours to
+  # replace with the degrade-path body. Only a symlink resolving somewhere
+  # else is genuinely foreign and preserved untouched (DS-184 M1 fix,
+  # round 4 - round 3's version treated every symlink as foreign, which
+  # left the degrade path unable to deliver the methodology body at all
+  # when the destination held our own now-stale symlink).
   if [[ -L "$GEMINI_MD_DST" ]]; then
     current_target="$(readlink "$GEMINI_MD_DST")"
-    echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping degrade-path write; not ours to touch)"
+    if [[ "$current_target" == "$GEMINI_MD_SRC" ]] || [[ ! -e "$GEMINI_MD_DST" ]]; then
+      echo "  Replacing dinostack symlink at ~/.gemini/GEMINI.md with the degrade-path body (skill link unavailable: $SKILL_LINK_REASON)"
+      rm "$GEMINI_MD_DST"
+      _write_gemini_md_degrade_body
+    else
+      echo "  ! ~/.gemini/GEMINI.md (symlink points elsewhere: $current_target - skipping degrade-path write; not ours to touch)"
+    fi
   elif [[ -e "$GEMINI_MD_DST" ]]; then
     first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
     if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
