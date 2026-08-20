@@ -34,6 +34,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-migrate` | Python | Apply additive project scaffolding migrations (`check` / `apply` / `diff` subcommands). |
 | `ds-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `ds-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
+| `ds-ticket-grant` | Python | Write a one-shot, TTL-bounded exception to `hooks/enforce-ticket-batching.py`'s same-session ticket-batching cap (`grant --repo <path> --session-id <id> --reason <str>`); the hook itself reads, validates, and atomically consumes it on the next denied creation. |
 | `ds-tracker` | Python | Manage the project-local, gitignored `.agentic/tracker.yml` tracker-config overlay (`init` / `show` / `set` / `resolve` / `path`), merged field-by-field over the `AGENTS.md` tracker resolution chain. |
 | `ds-update` | Python | Non-interactive updater: fetch origin, rebuild adapters (forcing the loop even when `old_head==new_head` if the local DS-54 hooks-snapshot has diverged from the live checkout), reset version-check cache, run `ds-doctor --fix`. |
 | `ds-wrap-acquire-lock` | Node | Poll-wait (background) for the /ds-wrap directory lock, exiting when acquired, on a 20-minute timeout, or (`--no-wait`) immediately busy; publishes a role-tagged (`--role=agent\|daemon\|commit`) lock descriptor and structurally never removes a lock. |

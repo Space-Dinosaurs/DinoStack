@@ -38,8 +38,10 @@ Test groups:
                                                     marker exempts every
                                                     creation call for the rest
                                                     of the session.
- 13. test_ticket_triage_marker_also_exempts      - the ds-ticket-triage marker
-                                                    exempts too.
+ 13. test_ticket_triage_marker_no_longer_exempts - the ds-ticket-triage
+                                                    marker does NOT exempt
+                                                    (M5 fix: it is not a
+                                                    create path at all).
  14. test_missing_session_id_failopen            - payload with no session_id
                                                     -> allow, no state written.
  15. test_missing_cwd_failopen                   - payload with no cwd ->
@@ -228,6 +230,26 @@ def _fires_path(cwd: str) -> Path:
 def _state_path(cwd: str, session_id: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)
     return Path(cwd) / ".agentic" / f".ticket-batch-{safe}.json"
+
+
+def _grant_path(cwd: str, session_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "-", session_id)
+    return Path(cwd) / ".agentic" / f".ticket-batch-grant-{safe}.json"
+
+
+def _write_grant(cwd: str, session_id: str, reason: str, granted_at: str | None = None) -> Path:
+    """Writes a grant file. `granted_at` defaults to the current UTC time
+    (fresh - within the hook's `_GRANT_TTL_SECONDS` freshness window) so
+    every existing caller of this helper keeps exercising a VALID grant;
+    pass an explicit, deliberately stale `granted_at` to test expiry."""
+    import time as _time
+
+    path = _grant_path(cwd, session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if granted_at is None:
+        granted_at = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
+    path.write_text(json.dumps({"reason": reason, "granted_at": granted_at}))
+    return path
 
 
 def _ensure_git_marker(cwd: str) -> None:
@@ -500,7 +522,13 @@ def test_triage_marker_exempts_session():
         assert not _state_path(tmp, "sess-1").exists()
 
 
-def test_ticket_triage_marker_also_exempts():
+def test_ticket_triage_marker_no_longer_exempts():
+    """M5 fix: `/ds-ticket-triage` is NOT a create path at all (see its
+    own file's "Composition and non-goals" - it never mutates tracker
+    tickets), so a transcript carrying only its marker must NOT exempt
+    creation calls from the batching cap - a prior version of this hook
+    wrongly exempted it. State must advance normally (this is treated as
+    an ordinary, non-exempt 1st creation)."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         tpath = _transcript_with_marker(tmp, "<command-name>/ds-ticket-triage</command-name>")
@@ -508,18 +536,23 @@ def test_ticket_triage_marker_also_exempts():
         payload["transcript_path"] = tpath
         rc, parsed = _run_hook(payload)
         assert rc == 0
-        assert parsed is None
-        assert not _state_path(tmp, "sess-1").exists()
+        assert parsed is None  # 1st creation still silently allows...
+        # ...but it is COUNTED (not exempt) - the state file now exists.
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 1
 
 
 def test_no_slash_marker_form_still_exempts():
     """The slash is OPTIONAL in `_TRIAGE_MARKER_RE`, not required - this
     keeps the old (round-2) no-slash literal working too, in case a
     future harness version ever drops the slash. Regression guard
-    against re-narrowing the pattern back to a single hardcoded form."""
+    against re-narrowing the pattern back to a single hardcoded form.
+    Uses `/ds-feedback-triage` (the sole remaining exempt command as of
+    the M5 fix - `/ds-ticket-triage` was removed from the pattern
+    entirely, see `test_ticket_triage_marker_no_longer_exempts`)."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        tpath = _transcript_with_marker(tmp, "<command-name>ds-ticket-triage</command-name>")
+        tpath = _transcript_with_marker(tmp, "<command-name>ds-feedback-triage</command-name>")
         payload = _jira_payload(tmp)
         payload["transcript_path"] = tpath
         rc, parsed = _run_hook(payload)
@@ -528,33 +561,24 @@ def test_no_slash_marker_form_still_exempts():
         assert not _state_path(tmp, "sess-1").exists()
 
 
-def test_real_ticket_triage_transcript_record_exempts_session():
-    """Critical fix regression test: uses a fixture copied VERBATIM out
-    of a real, live Claude Code transcript on this machine (see
+def test_real_ticket_triage_transcript_record_no_longer_exempts():
+    """M5 fix regression test: uses a fixture copied VERBATIM out of a
+    real, live Claude Code transcript on this machine (see
     `_REAL_TICKET_TRIAGE_RECORD_CONTENT`'s docstring) - a genuine
-    `/ds-ticket-triage` invocation, not a hand-authored approximation.
+    `/ds-ticket-triage` invocation, not a hand-authored approximation -
+    and proves the M5 removal actually took: this real record must NO
+    LONGER exempt creation calls, since `_TRIAGE_MARKER_RE` no longer
+    contains a `ds-ticket-triage` alternative at all (neither the
+    `<command-name>` nor the `<command-message>` form the real record
+    carries). This supersedes the pre-M5 version of this test, which
+    asserted the opposite (exempt) - `/ds-ticket-triage` is not a create
+    path (see its own file's "Composition and non-goals"), so the
+    original exemption was itself the defect.
 
-    Mutation evidence: reverting `_TRIAGE_MARKER_RE` to the round-2
-    no-slash-only pattern
-    (`r"<command-name>ds-(?:feedback|ticket)-triage</command-name>"`,
-    with no `<command-message>` alternative and no optional slash) makes
-    this test fail - but ONLY the missing optional slash is load-bearing
-    for THIS specific fixture, not the missing `<command-message>`
-    alternative: the real record's content carries BOTH tags together
-    (`<command-message>ds-ticket-triage</command-name>` with no slash,
-    followed by `<command-name>/ds-ticket-triage</command-name>` WITH
-    the slash - see `_REAL_TICKET_TRIAGE_RECORD_CONTENT`), and the
-    `<command-name>` alternative alone (once slash-optional) is
-    sufficient to match it. The `<command-message>` alternative is
-    isolated and independently pinned by
-    `test_command_message_alone_exempts_isolated_from_real_record`
-    below. The real record's `<command-name>` tag always carries the
-    leading slash - confirmed by running the hook against this exact
-    fixture with the pre-fix regex during round-3 development (0 of the
-    full 622-transcript corpus on this machine matched the no-slash
-    pattern, including the 3 genuine `/ds-ticket-triage`/
-    `/ds-feedback-triage` sessions found by direct corpus scan - see the
-    module docstring "Triage exemption" for the full-corpus figures)."""
+    Mutation evidence: re-adding `ds-ticket-triage` back into
+    `_TRIAGE_MARKER_RE`'s alternation (reverting the M5 fix) flips this
+    test from denied-and-counted back to silently-exempt, which is
+    exactly the regression this test exists to catch."""
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         tpath = _transcript_with_real_ticket_triage_record(tmp)
@@ -562,36 +586,35 @@ def test_real_ticket_triage_transcript_record_exempts_session():
         payload["transcript_path"] = tpath
         rc, parsed = _run_hook(payload)
         assert rc == 0
-        assert parsed is None
-        assert not _state_path(tmp, "sess-1").exists()
+        assert parsed is None  # 1st creation still silently allows...
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 1  # ...but it is COUNTED, not exempt.
 
 
-def test_command_message_alone_exempts_isolated_from_real_record():
+def test_command_message_alone_exempts_isolated():
     """Minor fix regression test: isolates the `<command-message>`
     alternative in `_TRIAGE_MARKER_RE` from the `<command-name>`
     alternative it always co-occurs with in every real transcript record
-    found on this machine (see `_REAL_TICKET_TRIAGE_RECORD_CONTENT`'s
-    docstring - a genuine slash-command dispatch always writes BOTH tags
-    together, so `test_real_ticket_triage_transcript_record_exempts_
-    session` above never exercises the `<command-message>` clause
-    independently; its `<command-name>` clause alone is sufficient to
-    pass it).
+    on this machine (a genuine slash-command dispatch always writes BOTH
+    tags together, so a test carrying both never exercises the
+    `<command-message>` clause independently - its `<command-name>`
+    clause alone would already be sufficient to pass it).
 
-    This fixture is NOT hand-authored from scratch - it is the VERBATIM
-    first line of `_REAL_TICKET_TRIAGE_RECORD_CONTENT` (the real,
-    byte-for-byte transcript content), sliced to keep only the
-    `<command-message>` tag and drop the `<command-name>` line that
-    follows it in the real record, isolating the alternative under test
-    while still deriving the fixture text from real data.
+    Post-M5, `/ds-ticket-triage` is no longer a member of
+    `_TRIAGE_MARKER_RE` at all (see
+    `test_real_ticket_triage_transcript_record_no_longer_exempts`), so
+    this fixture can no longer be sliced from the real
+    `_REAL_TICKET_TRIAGE_RECORD_CONTENT` transcript data the way it was
+    before that fix - it is hand-authored for `/ds-feedback-triage`
+    instead, matching the shape (`<command-message>...</command-message>`
+    with no leading slash) every real record on this machine has been
+    observed to carry for that tag.
 
     Mutation evidence: deleting the `<command-message>` alternative from
     `_TRIAGE_MARKER_RE` flips this test RED while leaving every other
-    test in the suite (including
-    `test_real_ticket_triage_transcript_record_exempts_session`) green -
-    proving the alternative was previously exercised by no test at
-    all."""
-    message_only = _REAL_TICKET_TRIAGE_RECORD_CONTENT.split("\n")[0]
-    assert message_only == "<command-message>ds-ticket-triage</command-message>"
+    test in the suite green - proving the alternative is exercised by
+    this test and no other."""
+    message_only = "<command-message>ds-feedback-triage</command-message>"
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
         transcript = Path(tmp) / "transcript.jsonl"
@@ -1273,7 +1296,7 @@ def test_local_command_system_record_exempts():
         genuine = json.dumps({
             "type": "system",
             "subtype": "local_command",
-            "content": "<command-name>ds-ticket-triage</command-name>",
+            "content": "<command-name>ds-feedback-triage</command-name>",
         })
         tpath = _transcript_with_records(tmp, [genuine])
         payload = _jira_payload(tmp)
@@ -1445,6 +1468,294 @@ def test_state_resolution_fails_open_with_no_git_ancestor():
             "state file written at the unresolved cwd - the hook must "
             "skip (fail open) entirely"
         )
+
+
+# --- Operator-granted mid-session exception (bin/ds-ticket-grant) ---
+
+
+def test_grant_allows_third_creation():
+    """A valid grant present at the 3rd creation ALLOWS it (not denied),
+    persists state to count==3, deletes the grant file, and logs
+    "allow_grant" via log_fire - the end-to-end demonstration the ticket
+    asks for."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        grant_path = _write_grant(tmp, "sess-1", "operator said: create it, I need this tracked now")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert not _is_denied(parsed)
+        out = parsed["hookSpecificOutput"]
+        assert out["permissionDecision"] == "allow"
+        assert "operator said: create it" in out["permissionDecisionReason"]
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 3
+        assert not grant_path.exists(), "grant must be consumed (deleted) on use"
+        fires = _fires_path(tmp).read_text().strip().splitlines()
+        assert json.loads(fires[-1])["decision"] == "allow_grant"
+
+
+def test_grant_consumed_does_not_allow_fourth():
+    """The same grant that unblocked the 3rd creation must not also
+    unblock a 4th - it was deleted on first use, so the 4th falls back to
+    the ordinary deny path."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator authorized one more")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert not _is_denied(parsed)  # 3rd: granted
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed), "a consumed grant must not allow a 4th creation"
+        assert "4th" in parsed["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_malformed_grant_file_denies_like_no_grant():
+    """A grant file that exists but is not valid JSON must leave 3rd+
+    behavior byte-identical to the absent-grant case: denied, state
+    unchanged."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        grant_path = _grant_path(tmp, "sess-1")
+        grant_path.parent.mkdir(parents=True, exist_ok=True)
+        grant_path.write_text("{not valid json")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+        state = json.loads(_state_path(tmp, "sess-1").read_text())
+        assert state["count"] == 2
+        # A malformed grant is left in place (never "consumed") - the
+        # hook never reached a state where consuming it would apply.
+        assert grant_path.exists()
+
+
+def test_empty_reason_grant_denies_like_no_grant():
+    """A grant file with a present-but-empty `reason` field must deny,
+    same as no grant at all - an unattributable grant is treated as
+    absent."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "   ")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+
+
+def test_absent_grant_file_denies():
+    """No grant file at all (the ordinary, overwhelmingly common case)
+    denies exactly as before this feature existed - no `.ticket-batch-
+    grant-*.json` is ever created as a side effect of denying."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+        assert not _grant_path(tmp, "sess-1").exists()
+
+
+def test_grant_for_different_session_does_not_apply():
+    """A grant written for one session_id must never unblock a different
+    session's 3rd creation - the grant file is session-scoped by
+    filename, same as the counter itself."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload_a = _jira_payload(tmp, session_id="sess-A")
+        payload_b = _jira_payload(tmp, session_id="sess-B")
+        _run_hook(payload_a)
+        _run_hook(payload_a)
+        _write_grant(tmp, "sess-B", "grant meant for a different session")
+        rc, parsed = _run_hook(payload_a)
+        assert rc == 0
+        assert _is_denied(parsed)
+
+
+def test_grant_path_is_session_scoped():
+    """Unit-level check on `_grant_path` itself: two different session_ids
+    against the same cwd MUST resolve to two different files. The
+    end-to-end `test_grant_for_different_session_does_not_apply` above
+    only proves a grant written under one literal filename is never read
+    under a different literal filename - true of any two distinct paths
+    regardless of whether session_id is actually consulted - so it cannot
+    by itself catch a mutation that makes the grant filename stop
+    depending on session_id (e.g. accidentally keying it off `cwd` alone).
+    This test targets that specific mutation directly."""
+    mod = _load_hook_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        path_a = mod._grant_path(tmp, "sess-A")
+        path_b = mod._grant_path(tmp, "sess-B")
+        assert path_a is not None and path_b is not None
+        assert path_a != path_b
+
+
+def test_unreadable_agentic_dir_exits_cleanly():
+    """The hook must still terminate correctly (exit 0, no traceback) when
+    `.agentic/` exists but is unreadable - covering the grant lookup path
+    added by this feature, not just the pre-existing state-file path.
+
+    Strengthened beyond `rc == 0` (a Skeptic Minor: the original assertion
+    would pass a mutation that turned this path into an ALLOW, an
+    ALLOW_ADVISORY, or even an allow_grant - `rc` is 0 on every one of
+    those, not just on the correct silent-allow-with-no-state-write this
+    call is supposed to produce as the 1st creation this session).
+    `parsed is None` pins the DECISION (silent allow, no
+    permissionDecisionReason emitted, no fire-log entry) - the same
+    invariant `test_first_creation_allows_silently` pins for a healthy
+    `.agentic/`. State cannot be written either (the directory is
+    unreadable/unwritable), so no `.ticket-batch-*.json` should exist."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        agentic_dir = Path(tmp) / ".agentic"
+        agentic_dir.mkdir(mode=0o000)
+        try:
+            rc, parsed = _run_hook(_jira_payload(tmp))
+            assert rc == 0
+            assert parsed is None, "1st creation with an unreadable .agentic/ must silently allow"
+        finally:
+            agentic_dir.chmod(0o700)
+        assert not _state_path(tmp, "sess-1").exists()
+
+
+def test_grant_consumption_atomic_under_concurrency():
+    """M1 (Skeptic Critical-adjacent fix): four hook processes racing
+    against ONE grant file at the 3rd-creation point must produce exactly
+    ONE `allow_grant`, not four. A round-1 version of this hook read the
+    grant file (`_load_grant`) and deleted it (`_consume_grant`) as two
+    separate steps after the ALLOW was already decided - every concurrent
+    reader saw the still-present, still-valid file before any of them
+    deleted it. `_load_and_consume_grant` closes this by validating THEN
+    attempting `Path.unlink()` as the actual act of consumption, and only
+    returning the grant to the caller whose unlink call succeeds; POSIX
+    serializes directory-entry removal, so at most one of N concurrent
+    unlink calls on the same path can succeed."""
+    import concurrent.futures
+
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        # Advance to count==2 (1st + 2nd creation) sequentially first, so
+        # every concurrent call below is genuinely at the 3rd-creation
+        # decision point.
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator said: go ahead, create it now")
+
+        def _fire():
+            return _run_hook(_jira_payload(tmp))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(lambda _: _fire(), range(4)))
+
+        for rc, _parsed in results:
+            assert rc == 0
+        fires = _fires_path(tmp).read_text().strip().splitlines()
+        decisions = [json.loads(line)["decision"] for line in fires]
+        allow_grants = [d for d in decisions if d == "allow_grant"]
+        assert len(allow_grants) == 1, (
+            f"expected exactly 1 allow_grant across 4 concurrent racers, got "
+            f"{len(allow_grants)}: {decisions}"
+        )
+        # The grant file itself must be gone - consumed by the one winner.
+        assert not _grant_path(tmp, "sess-1").exists()
+
+
+def test_unwritable_agentic_dir_never_allows_grant_unboundedly():
+    """M1 (Skeptic Critical-adjacent fix): with `.agentic/` at mode 0o555
+    (readable/traversable, NOT writable), a valid grant can never be
+    durably consumed - `Path.unlink()` always fails there (removing a
+    directory entry needs write access to the directory, not the file).
+    A round-1 version of this hook deleted the grant only as an
+    afterthought AFTER already deciding to allow, so the failed delete
+    never undid the allow, and every subsequent denied creation re-read
+    the same still-present, still-valid grant file and allowed it again
+    - unbounded, not one-shot (measured directly: 5 consecutive creates,
+    5 allows, before this fix). This test asserts the FIXED, bounded
+    behavior: zero allows across 5 consecutive attempts - since nothing
+    can durably record consumption in an unwritable directory, the safe
+    choice is to deny, not to allow without limit."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator said: create it, this is fine")
+        agentic_dir = Path(tmp) / ".agentic"
+        agentic_dir.chmod(0o555)
+        try:
+            decisions = []
+            for _ in range(5):
+                rc, parsed = _run_hook(_jira_payload(tmp))
+                assert rc == 0
+                decisions.append(parsed)
+        finally:
+            agentic_dir.chmod(0o700)
+        allow_grants = [
+            d for d in decisions
+            if d and d.get("hookSpecificOutput", {}).get("permissionDecision") == "allow"
+        ]
+        assert len(allow_grants) == 0, (
+            f"expected zero allows under an unwritable .agentic/, got {len(allow_grants)}"
+        )
+
+
+def test_expired_grant_denies_and_is_pruned():
+    """M2 fix: a grant older than `_GRANT_TTL_SECONDS` (10 minutes) must
+    be treated as no grant at all AND pruned (deleted) on the read that
+    discovers its age - it must not sit around indefinitely to fire on
+    some later, unrelated 3rd+ creation."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        stale_ts = "2020-01-01T00:00:00Z"
+        grant_path = _write_grant(tmp, "sess-1", "operator said: yes, do it", granted_at=stale_ts)
+        assert grant_path.exists()
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed), "an expired grant must not allow the 3rd creation"
+        assert not grant_path.exists(), "an expired grant must be pruned (deleted) on read"
+
+
+def test_missing_granted_at_denies_like_no_grant():
+    """A grant file with a valid `reason` but no `granted_at` field at all
+    (or a non-string one) cannot have its freshness verified, so it must
+    resolve to "no grant" - same fail-toward-deny discipline as every
+    other malformed-field case, never a phantom allow just because the
+    reason happened to be well-formed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        grant_path = _grant_path(tmp, "sess-1")
+        grant_path.parent.mkdir(parents=True, exist_ok=True)
+        grant_path.write_text(json.dumps({"reason": "operator said: go ahead"}))
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert _is_denied(parsed)
+
+
+def test_fresh_grant_within_ttl_still_allows():
+    """Sanity check that the TTL fix did not break the ordinary, common
+    case: a grant written moments before the retry (well within
+    `_GRANT_TTL_SECONDS`) still allows the 3rd creation - guards against a
+    mutation that makes the TTL check reject everything, not just stale
+    grants."""
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        _run_hook(_jira_payload(tmp))
+        _run_hook(_jira_payload(tmp))
+        _write_grant(tmp, "sess-1", "operator said: yes, right now")
+        rc, parsed = _run_hook(_jira_payload(tmp))
+        assert rc == 0
+        assert not _is_denied(parsed)
+        assert parsed["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
 if __name__ == "__main__":

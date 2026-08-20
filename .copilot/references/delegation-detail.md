@@ -123,8 +123,43 @@ top-level operator-raised asks arriving in the same session (each of
 which legitimately earns its own ticket under item 1's carve-out), not a
 redefinition of the rule. A conductor that creates a 2nd ticket in
 violation of the prose rule is advised, not stopped; only a 3rd is
-mechanically denied. `/ds-feedback-triage` and `/ds-ticket-triage`
-(item 5) are exempted from the counter entirely.
+mechanically denied. `/ds-feedback-triage` (item 5) is exempted from the
+counter entirely for creates issued from inside its own run - measured
+against real transcripts, this exemption is genuinely implemented (see
+the hook's own module docstring "Triage exemption"), not merely prose.
+`/ds-ticket-triage` is NOT a create path at all (see its own file's
+"Composition and non-goals" - it never mutates tracker tickets), so it
+was previously listed here and in the hook's own deny message as an
+escape hatch it cannot be; both are corrected.
+
+**Operator-granted mid-session exception.** Neither escape hatch above
+actually lifts an in-progress deny: `/ds-wrap` ends the session rather
+than continuing it, and `/ds-feedback-triage`'s exemption only ever
+covers creates issued from inside that command's own run, not a call
+denied outside of it. When an operator explicitly asks, right now, to
+create a ticket that would otherwise be denied, run `bin/ds-ticket-grant
+grant --repo <repo> --session-id <id> --reason "<the operator's own
+words>"` (session-id from `$CLAUDE_CODE_SESSION_ID`), then retry the
+create. This writes a one-shot, session-scoped exception under
+`<repo>/.agentic/` that the hook validates, TTL-checks (10 minutes -
+an unused grant is treated as abandoned, not carried forward to a later,
+unrelated creation), and atomically consumes (deletes) on the very next
+denied creation - it does not persist as a standing bypass, and does not
+authorize any further create this session without a fresh grant.
+**This does not make the grant unforgeable by a conductor.** The `reason`
+field is mechanically required (a non-empty string, echoed back in the
+hook's decision and its `.enforcement-fires.jsonl` entry) but not
+verified against anything an operator actually said - nothing here
+structurally distinguishes a genuine operator-authorized grant from a
+conductor self-grant, and nothing can, at this trust boundary: a
+conductor can already write directly under `.agentic/` (exempt from the
+shippable-edit delegation guard) or run this CLI unprompted. What the
+mechanism buys is real, not nothing: a passive kill-switch environment
+variable becomes a deliberate, per-create, one-shot, logged act with a
+quotable justification, in place of a standing bypass with no audit
+trail at all. See `hooks/enforce-ticket-batching.py`'s own module
+docstring for the full mechanism and `bin/ds-ticket-grant`'s for the CLI
+contract.
 
 1. **Execution-scope carve-out.** A discovery made during an in-progress
    unit (including at wrap/PR-summary time) is not "net-new work" for the

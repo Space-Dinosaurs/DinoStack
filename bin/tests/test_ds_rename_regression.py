@@ -74,15 +74,21 @@ SUFFIXES = [
     "update", "wrap-acquire-lock", "wrap-release-lock",
 ]
 
-# The 5 real bin/_lib.py dependents (verified by grep against all 26
-# bin/ds-* files currently on disk - a live count, NOT the fixed 25-entry
-# SUFFIXES rename batch above; bin/ds-defer was added directly as a ds-*
-# tool after the rename event and was never itself renamed, so it is
-# intentionally absent from SUFFIXES but IS a genuine _lib.py dependent):
-# config, defer, feedback, migrate, tracker. bin/ds-evidence is explicitly
-# self-contained (imports no sibling module, per its own module manifest)
-# and is NOT in this list.
-LIB_DEPENDENT_SUFFIXES = ["config", "defer", "feedback", "migrate", "tracker"]
+# 6 bin/_lib.py dependents covered here (verified by grepping all
+# bin/ds-* files on disk for the `SourceFileLoader("_lib", ...)` import
+# pattern - a live count, NOT the fixed 25-entry SUFFIXES rename batch
+# above; bin/ds-defer and bin/ds-ticket-grant were both added directly as
+# ds-* tools after the rename event and were never themselves renamed, so
+# they are intentionally absent from SUFFIXES but ARE genuine _lib.py
+# dependents): config, defer, feedback, migrate, tracker, ticket-grant.
+# bin/ds-evidence is explicitly self-contained (imports no sibling
+# module, per its own module manifest) and is NOT in this list. NOTE: a
+# live grep also finds bin/ds-parse-subagent-usage and
+# bin/ds-learning-shard importing _lib.py the same way - both are
+# pre-existing omissions from this list, predating this file's most
+# recent LIB_DEPENDENT_SUFFIXES edit, and are out of scope for this fix;
+# do not assume this list is exhaustive without re-grepping.
+LIB_DEPENDENT_SUFFIXES = ["config", "defer", "feedback", "migrate", "tracker", "ticket-grant"]
 
 # Representative safe-invocation subset for the through-symlink behavioral
 # check: (suffix, args, stdin_devnull). Chosen so invocation is read-only /

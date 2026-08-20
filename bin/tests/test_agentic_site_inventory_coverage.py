@@ -285,6 +285,16 @@ EXCLUDED_FILES = {
     # same explicit-argument exemption rationale as bin/ds-evaluate above,
     # which reads the identical fires-log file the same way.
     "bin/ds-hook-fire-report",
+    # DS-186 (ds-ticket-grant): bin/ds-ticket-grant is an operator-invoked
+    # CLI whose sole `.agentic`-writing site (the batching-cap grant file)
+    # derives from `args.repo`, an explicit, REQUIRED `--repo` argument
+    # with no cwd fallback (there is no bare-cwd code path at all to drift)
+    # - same explicit-argument exemption rationale as bin/ds-cleanup-
+    # worktrees/bin/ds-agentic-repair above. Not shelled out to by any
+    # hooks/*.js or hooks/*.py call site - hooks/enforce-ticket-batching.py
+    # only ever READS the grant file this CLI writes, via its own
+    # independently-anchored `_grant_path` (inventoried below).
+    "bin/ds-ticket-grant",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.
