@@ -93,7 +93,8 @@ task and get back a verifiable outcome.
    as any other change, and self-referential machinery that protects the methodology is still a
    cost charged against those pillars, not a cost outside them. No new gate, hook, count-pin, or
    enforcement mechanism ships without naming (a) a specific failure it would have caught and (b)
-   the condition under which it retires. An enumeration of banned shapes that grows by one entry
+   the condition under which it retires - a permanent enforcement floor whose retirement condition
+   is "never" satisfies (b) by naming it as such. An enumeration of banned shapes that grows by one entry
    per incident, the way Pillar 1 already names for attention-tax evasions, is the same smell
    here: it means the principle a mechanism should have generalized from is missing, not that the
    enumeration needs one more line. Binding prose lives at exactly one canonical site with
@@ -110,7 +111,8 @@ task and get back a verifiable outcome.
    instrumented, or its measurement gap otherwise closed, so the question is answered by
    measurement, never by assumption. (The "simplicity test": can you name the specific failure
    this mechanism would have caught and the condition under which it retires? If either cannot be
-   named, it does not ship. For an existing mechanism where either is unclear, that is a call to
+   named, it does not ship. A permanent enforcement floor whose retirement condition is "never"
+   satisfies this by naming it as such. For an existing mechanism where either is unclear, that is a call to
    measure, not to delete: an enforcement floor is never a deletion candidate regardless of what
    the measurement shows, and non-floor machinery becomes a deletion candidate only on a measured
    zero yield, never on assumption alone. A single session once found a review-overhead ratio of
@@ -141,7 +143,9 @@ trust — escalating to the human only for genuine decisions.
 - **Not** a license to skip the reviewer's copy of a check because the producer now runs it too:
   a mechanical check moved earlier augments the review, it does not replace it.
 - **Not** self-defending machinery: a gate/hook/pin whose only demonstrated catch is defects in
-  other gates/hooks/pins is accretion, not protection.
+  other gates/hooks/pins is accretion, not protection - but removing an enforcement floor is
+  never the remedy; the remedy is instrumentation or replacing the mechanism's justification,
+  per Pillar 8's boundary.
 
 ## How to use this for PR alignment
 
@@ -158,10 +162,11 @@ it could catch the defect earlier without weakening the review (fails the preven
 asserts a conclusion/value in a spawn brief that came from neither a subagent return nor a
 conductor read verified against `origin/main` (fails the orchestration test), or ships a new
 gate, hook, count-pin, or enforcement mechanism without a named failure it would have caught and
-a named retirement condition, or duplicates binding prose outside a spawn-prompt-embedding or
-public-facing-doc exception (fails the simplicity test). Symmetrically, a PR that cuts a gate,
-review round, verification step, or enforcement floor to save tokens or to finish sooner - or
-that removes a reviewer's mechanical check because the producer now runs it too - is also
-misaligned, regardless of how it scores on the efficiency, latency, or prevention test - that
-trade-off is never on the table. Misalignment is a *direction* signal for the operator — not
+a named retirement condition, or duplicates binding prose outside a spawn-prompt-embedding,
+public-facing-doc, or point-of-use-restatement-with-pointer exception (fails the simplicity
+test). Symmetrically, a PR that cuts a gate, review round, verification step, or enforcement
+floor to save tokens, to finish sooner, or to simplify - or that removes a reviewer's mechanical
+check because the producer now runs it too - is also misaligned, regardless of how it scores on
+the efficiency, latency, simplicity, or prevention test - that trade-off is never on the table.
+Misalignment is a *direction* signal for the operator — not
 necessarily a request-changes verdict on correctness.
