@@ -101,21 +101,33 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                scripts/lib/enforcer_facts.py still loads the module
                correctly from this tool's own checkout. Reads
                <repo>/.agentic/.enforcement-fires.jsonl AND, at query time,
-               every stranded `<repo>/.claude/worktrees/*/.agentic/.
-               enforcement-fires.jsonl` copy (DS: enforcement-fire-log
-               aggregation) - fires written by a subagent running inside a
-               linked isolation worktree, before hooks/lib/
+               every stranded copy found under three locations (DS:
+               enforcement-fire-log aggregation): (1)
+               `<repo>/.claude/worktrees/*/.agentic/.enforcement-fires.jsonl`
+               - fires written by a subagent running inside a Claude-Code-
+               locked isolation worktree, before hooks/lib/
                enforcement_log.py's write-target fix, landed in that
                worktree's own throwaway copy instead of the primary log
-               and were never merged back in. Stranded lines are merged
-               into the same in-memory record set, deduped by EXACT line
-               text against what the primary log already contains (and
-               against each other), so a report re-run after the write-
-               target fix lands does not double-count rows the primary log
-               now also receives directly. This tool never WRITES a merged
+               and were never merged back in; (2)
+               `<repo>/.agentic/worktrees/*/.agentic/.enforcement-fires.jsonl`
+               - the same class of stranding under the conventional
+               feature-worktree path this repo's own AGENTS.md documents
+               (`.agentic/worktrees/<branch-name>`); (3)
+               `<repo>/.agentic/stray-agentic-archive/*/.enforcement-fires.jsonl`
+               - a stray `.agentic/` tree's fires file, archived flat (one
+               level, no nested `.agentic/` segment) by `bin/ds-agentic-
+               repair`'s `--fix` path once the tree itself is gone. All
+               three sources are read-only inputs to the SAME query-time
+               merge. Stranded lines are merged into the same in-memory
+               record set, deduped by EXACT line text against what the
+               primary log already contains (and against each other, in
+               path-sort order), so a report re-run after the write-target
+               fix lands does not double-count rows the primary log now
+               also receives directly. This tool never WRITES a merged
                copy back to disk - the merge is query-time only, and the
-               stranded per-worktree files are left untouched (worktree
-               cleanup, not this tool, is what eventually removes them).
+               stranded copies (worktree or archive) are left untouched
+               (worktree cleanup / archive retention, not this tool, is
+               what eventually removes them).
 
 Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
                        conductor runs `ds-hook-fire-report --json` at
@@ -127,6 +139,15 @@ Downstream consumers: content/commands/ds-prune-harness.md Signal 8 (the
                        `meta.log_coverage_days` (the >= 30 span check),
                        never `meta.requested_window_days` or a per-row
                        `window_days` - see the Public API note above.
+                       `meta.stranded_worktree_logs_merged` (count of
+                       stranded copies, across all three locations above,
+                       that contributed at least one real parsed record)
+                       and `meta.stranded_worktree_records_merged` (total
+                       records contributed across all of them) let a
+                       caller see how much of the report's data came from
+                       recovered stranded copies rather than the primary
+                       log, without having to re-derive it from
+                       `log_total_lines`/`log_parsed_lines` deltas.
 
 Failure modes: never raises on a missing or malformed fires log - an
                absent file, or one where zero lines parse, yields
@@ -255,36 +276,89 @@ def _parse_ts(value) -> datetime | None:
 
 
 def _stranded_worktree_fire_log_paths(repo_root: Path) -> list[Path]:
-    """Enumerate `.agentic/.enforcement-fires.jsonl` copies stranded inside
-    a linked isolation worktree of this repo
-    (`<repo>/.claude/worktrees/*/.agentic/.enforcement-fires.jsonl`).
+    """Enumerate every stranded `.enforcement-fires.jsonl` copy this repo
+    might hold, across the three known stranding locations (DS:
+    enforcement-fire-log aggregation, extended to cover feature worktrees
+    and the stray-agentic-archive):
 
-    These predate hooks/lib/enforcement_log.py's write-target fix (DS:
-    enforcement-fire-log aggregation): before that fix, a fire logged by a
-    subagent running inside an isolation worktree landed in the worktree's
-    OWN `.agentic/`, not the primary checkout's, and was discarded the
-    moment the worktree was removed - any worktree still on disk from
-    before the fix can hold real denies the primary log never recorded.
-    Returns an empty list when `.claude/worktrees/` does not exist, which
-    is the common case (no worktrees currently checked out, or the fix has
-    been live long enough that no pre-fix worktree survives). Never
-    raises."""
-    worktrees_dir = repo_root / ".claude" / "worktrees"
-    try:
-        if not worktrees_dir.is_dir():
-            return []
-        return sorted(worktrees_dir.glob("*/.agentic/.enforcement-fires.jsonl"))
-    except OSError:
-        return []
+      1. `<repo>/.claude/worktrees/*/.agentic/.enforcement-fires.jsonl` -
+         a Claude-Code-locked isolation worktree's own copy.
+      2. `<repo>/.agentic/worktrees/*/.agentic/.enforcement-fires.jsonl` -
+         a conventional feature worktree's own copy (this repo's own
+         AGENTS.md documents `.agentic/worktrees/<branch-name>` as the
+         feature-worktree path).
+      3. `<repo>/.agentic/stray-agentic-archive/*/.enforcement-fires.jsonl`
+         - a stray `.agentic/` tree's fires file, archived FLAT (one
+         level, no nested `.agentic/` segment - see bin/ds-agentic-repair's
+         `repair_one()`) once `--fix` removes the stray tree itself.
+
+    All three predate (or bypass) hooks/lib/enforcement_log.py's write-
+    target fix: before that fix, a fire logged by a subagent running
+    inside an isolation or feature worktree landed in that worktree's OWN
+    `.agentic/`, not the primary checkout's, and was discarded the moment
+    the worktree was removed unless it happened to survive on disk (case
+    1/2) or get archived by ds-agentic-repair before removal (case 3).
+    Returns an empty list when none of the three parent directories
+    exist, which is the common case. Never raises - each glob is
+    independently guarded, so one missing/unreadable location does not
+    suppress results from the others."""
+    globs = (
+        (repo_root / ".claude" / "worktrees", "*/.agentic/.enforcement-fires.jsonl"),
+        (repo_root / ".agentic" / "worktrees", "*/.agentic/.enforcement-fires.jsonl"),
+        (repo_root / ".agentic" / "stray-agentic-archive", "*/.enforcement-fires.jsonl"),
+    )
+    found: list[Path] = []
+    for base_dir, pattern in globs:
+        try:
+            if not base_dir.is_dir():
+                continue
+            found.extend(base_dir.glob(pattern))
+        except OSError:
+            continue
+    return sorted(found)
 
 
-def _load_jsonl(path: Path) -> tuple[list[dict], int, int]:
-    """Parse a JSONL file into dicts, skipping blank/malformed lines.
-    Returns (records, total_nonblank_lines, malformed_lines) so the caller
-    can distinguish "present but nothing parsed" from "present and clean"
+def _load_jsonl(
+    path: Path, seen: set[str] | None = None, dedupe: bool = False
+) -> tuple[list[dict], int, int]:
+    """Parse a JSONL file into dicts, skipping blank lines. Returns
+    (records, total_nonblank_lines, malformed_lines) so the caller can
+    distinguish "present but nothing parsed" from "present and clean"
     from "present and partially malformed" - a bare `records` list alone
     cannot make that distinction (an empty list looks identical whether
-    the file had 0 lines or 500 unparseable ones)."""
+    the file had 0 lines or 500 unparseable ones).
+
+    This is the SOLE JSONL-parsing implementation in this module - both
+    the primary fires log and every stranded copy (see
+    _stranded_worktree_fire_log_paths) are parsed by calling this
+    function, never by a second hand-rolled loop, so there is exactly one
+    place that decides what counts as a line, a parse failure, or a
+    record.
+
+    `seen`, when given, is a dedup set of exact stripped line texts a
+    caller shares across multiple calls (e.g. one call per source file in
+    a merge). `dedupe` controls what this call DOES with that set:
+      - dedupe=False (the primary-log call): every non-blank line counts
+        toward total/malformed/records regardless of whether its text
+        duplicates another line already in `seen` - the primary log is
+        the source of truth, and a coincidentally-identical fire record
+        is still a real, separate fire. `seen` is still POPULATED with
+        every line this call sees (mutated in place), so a later
+        dedupe=True call can detect the primary log already having it.
+      - dedupe=True (every stranded-copy call): a line whose exact text
+        is already in `seen` is treated as already counted by an earlier
+        source in the same merge and contributes to NEITHER
+        total/malformed/records for this call - this is what makes a
+        stranded copy of a fire the primary log (or an earlier stranded
+        file) already holds count exactly once, never twice. A line not
+        already in `seen` counts normally and is added to `seen` so a
+        THIRD source sharing the same set also skips it.
+
+    This one rule - count a given line's text once across the whole
+    merge, but never suppress a repeat WITHIN a single source - is what
+    `meta.log_malformed_ratio`'s denominator (`log_total_lines`) follows
+    project-wide; see build_report's merge loop for where both call
+    shapes are used."""
     records: list[dict] = []
     total = 0
     malformed = 0
@@ -296,6 +370,10 @@ def _load_jsonl(path: Path) -> tuple[list[dict], int, int]:
         line = line.strip()
         if not line:
             continue
+        if dedupe and seen is not None and line in seen:
+            continue
+        if seen is not None:
+            seen.add(line)
         total += 1
         try:
             rec = json.loads(line)
@@ -322,52 +400,37 @@ def build_report(repo_root: Path, days: int) -> dict:
 
     fires_path = repo_root / ".agentic" / ".enforcement-fires.jsonl"
     fires_path_exists = fires_path.exists()
+    # `seen_lines` is shared with every stranded-copy call below via
+    # `_load_jsonl`'s `seen`/`dedupe` params - the primary-log call
+    # populates it (dedupe=False: every line still counts here) so the
+    # stranded calls that follow (dedupe=True) can detect a line the
+    # primary log already holds and skip counting it a second time. See
+    # _load_jsonl's docstring for the full rule.
+    seen_lines: set[str] = set()
     records, log_total_lines, log_malformed_lines = (
-        _load_jsonl(fires_path) if fires_path_exists else ([], 0, 0)
+        _load_jsonl(fires_path, seen=seen_lines, dedupe=False)
+        if fires_path_exists
+        else ([], 0, 0)
     )
 
-    # DS: enforcement-fire-log aggregation - merge stranded worktree-local
-    # copies (see _stranded_worktree_fire_log_paths docstring) into the
-    # SAME record set the primary log feeds, deduped by exact line text
-    # against the primary log and against each other, so historical fires
+    # DS: enforcement-fire-log aggregation - merge stranded copies (see
+    # _stranded_worktree_fire_log_paths docstring for all three source
+    # locations) into the SAME record set the primary log feeds, via the
+    # SAME _load_jsonl parse path (dedupe=True), so historical fires
     # written before hooks/lib/enforcement_log.py's write-target fix are
     # not silently absent from this report. Query-time only: no merged
     # copy is ever written back to disk.
-    seen_lines: set = set()
-    if fires_path_exists:
-        try:
-            for _line in fires_path.read_text(encoding="utf-8").splitlines():
-                _line = _line.strip()
-                if _line:
-                    seen_lines.add(_line)
-        except OSError:
-            pass
     stranded_records_merged = 0
     stranded_files_merged = 0
     for stranded_path in _stranded_worktree_fire_log_paths(repo_root):
-        try:
-            stranded_text = stranded_path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        file_contributed = False
-        for _line in stranded_text.splitlines():
-            _line = _line.strip()
-            if not _line or _line in seen_lines:
-                continue
-            seen_lines.add(_line)
-            log_total_lines += 1
-            try:
-                rec = json.loads(_line)
-            except ValueError:
-                log_malformed_lines += 1
-                continue
-            if isinstance(rec, dict):
-                records.append(rec)
-                stranded_records_merged += 1
-                file_contributed = True
-            else:
-                log_malformed_lines += 1
-        if file_contributed:
+        stranded_records, stranded_total, stranded_malformed = _load_jsonl(
+            stranded_path, seen=seen_lines, dedupe=True
+        )
+        log_total_lines += stranded_total
+        log_malformed_lines += stranded_malformed
+        records.extend(stranded_records)
+        stranded_records_merged += len(stranded_records)
+        if stranded_records:
             stranded_files_merged += 1
 
     # log_present now reflects "any usable source contributed data" - the

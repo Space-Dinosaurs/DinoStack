@@ -755,6 +755,7 @@ def test_days_window_is_respected(tmp_path):
     row = _row_for(report, "enforce-fake-abdication.py")
     assert row["fire_count_window"] == 0
     assert row["fire_count_all_time"] == 1
+    assert row["status"] == "ZERO_INVOCATIONS"
 
 
 # ---------------------------------------------------------------------------
