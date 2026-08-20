@@ -1086,6 +1086,146 @@ console.log('\nTest 25: m3-iteration-uses-pinned-value-not-live-state');
   cleanup(cwd); cleanup(configDir);
 }
 
+console.log('\nTest 26: round4-m1-option-shaped-range-rejected-not-fabricated');
+{
+  // Round-4 regression test (M2): a "Diff under review" line whose range
+  // is option-shaped to git (leading `-`) must be rejected before the
+  // `git diff` subprocess call, not passed through as a real range - a
+  // prompt-derived "-O/etc/passwd..HEAD" value would otherwise be
+  // consumed by git as a flag and could report a fabricated `diff_lines:
+  // 0` instead of a miss. Confirmed failing pre-fix (Mutation E: deleting
+  // the `if (rangeArg.startsWith('-')) return ...` guard) reproduces
+  // exactly that: {"diffLines":0,"diffLinesNote":null} - a fabricated
+  // zero with no note.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-026';
+  const agentId = 'agentcal026';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_026', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord('Review this.\n- **Diff under review:** -O/etc/passwd..HEAD\n'),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === undefined, 'diff_lines never fabricated for an option-shaped range');
+    assert(typeof d.calibration_note === 'string' && d.calibration_note.indexOf('diff_lines') !== -1,
+      `calibration_note names the diff_lines miss (got: ${JSON.stringify(d.calibration_note)})`);
+    assert(d.calibration_note.indexOf('option-shaped') !== -1,
+      `calibration_note distinguishes the rejected-shape cause from a plain absent-range miss (got: ${JSON.stringify(d.calibration_note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 27: round4-wrong-note-rejected-shape-differs-from-absent-range');
+{
+  // Minor fix: the rejected-option-shape note (Test 26) must differ from
+  // the plain "no range found" note (Test 19) - a range WAS found and
+  // rejected in Test 26, vs. never found at all here. Conflating the two
+  // makes the two miss classes indistinguishable in calibration_note.
+  const cwdRejected = makeTmpDir('ae-calib-test-');
+  const configDirRejected = makeTmpDir('ae-calib-config-');
+  writeSidecar(configDirRejected, cwdRejected, 'sess-cal-027a', 'agentcal027a', {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_027a', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDirRejected, cwdRejected, 'sess-cal-027a', 'agentcal027a', [
+    userRecord('Review this.\n- **Diff under review:** -O/etc/passwd..HEAD\n'),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  runHook(stopPayload(cwdRejected, 'sess-cal-027a', 'agentcal027a'), cwdRejected, configDirRejected);
+  const rejectedNote = (readEvents(cwdRejected).find((e) => e.event === 'spawn_complete').data || {}).calibration_note;
+
+  const cwdAbsent = makeTmpDir('ae-calib-test-');
+  const configDirAbsent = makeTmpDir('ae-calib-config-');
+  writeSidecar(configDirAbsent, cwdAbsent, 'sess-cal-027b', 'agentcal027b', {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_027b', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDirAbsent, cwdAbsent, 'sess-cal-027b', 'agentcal027b', [
+    userRecord('Review this.\n- **Diff under review:** some free-form prose, no range here\n'),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  runHook(stopPayload(cwdAbsent, 'sess-cal-027b', 'agentcal027b'), cwdAbsent, configDirAbsent);
+  const absentNote = (readEvents(cwdAbsent).find((e) => e.event === 'spawn_complete').data || {}).calibration_note;
+
+  assert(typeof rejectedNote === 'string' && typeof absentNote === 'string',
+    `both notes present (rejected: ${JSON.stringify(rejectedNote)}, absent: ${JSON.stringify(absentNote)})`);
+  assert(rejectedNote !== absentNote,
+    `rejected-shape note differs from absent-range note (rejected: ${JSON.stringify(rejectedNote)}, absent: ${JSON.stringify(absentNote)})`);
+  cleanup(cwdRejected); cleanup(configDirRejected);
+  cleanup(cwdAbsent); cleanup(configDirAbsent);
+}
+
+console.log('\nTest 28: round4-minor-tilde-caret-range-syntax-resolves');
+{
+  // Minor fix: `~` and `^` are ordinary git revision-suffix syntax
+  // (`<sha>~1..<sha>`, `<sha>^..<sha>`) and must resolve, not be
+  // rejected as NOTE_NO_RANGE by an overly narrow character class.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-028';
+  const agentId = 'agentcal028';
+  initGitRepo(cwd);
+  gitCommit(cwd, 'file.txt', 'line1\n', 'initial');
+  gitCommit(cwd, 'file.txt', 'line1\nline2\n', 'second');
+  const headRes = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' });
+  const head = headRes.stdout.trim();
+
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_028', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord(`Review this.\n- **Diff under review:** ${head}~1..${head}\n`),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === 1, `diff_lines === 1 for the tilde-suffixed range (got: ${JSON.stringify(d.diff_lines)})`);
+    assert(d.calibration_note === undefined || d.calibration_note.indexOf('diff_lines') === -1,
+      `no diff_lines miss reported (got: ${JSON.stringify(d.calibration_note)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+console.log('\nTest 29: round4-minor-caret-range-syntax-resolves');
+{
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-029';
+  const agentId = 'agentcal029';
+  initGitRepo(cwd);
+  gitCommit(cwd, 'file.txt', 'line1\n', 'initial');
+  gitCommit(cwd, 'file.txt', 'line1\nline2\n', 'second');
+  const headRes = spawnSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' });
+  const head = headRes.stdout.trim();
+
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_029', description: 'x', spawnDepth: 1,
+  });
+  writeTranscript(configDir, cwd, sessionId, agentId, [
+    userRecord(`Review this.\n- **Diff under review:** ${head}^..${head}\n`),
+    assistantRecord(GRANTED_SIGNOFF),
+  ]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    const d = complete.data || {};
+    assert(d.diff_lines === 1, `diff_lines === 1 for the caret-suffixed range (got: ${JSON.stringify(d.diff_lines)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
