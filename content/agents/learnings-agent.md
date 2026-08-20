@@ -40,11 +40,22 @@ Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
   is the failure path; the conductor warns and proceeds.
 - Write failure on .agentic/learnings.md or MEMORY.md: soft-fail, skip silently.
-- Dedup skip: LRN dedup on Pattern field (case-insensitive substring); KNW dedup
-  on Fact field (case-insensitive substring). Returns JSON with skipped_reason
-  "duplicate" and no write when matched.
+- Dedup skip: index-first semantic dedup against the Index section's hooks,
+  confirmed by a targeted read of the one matched entry's body, with
+  case-insensitive substring match on the Pattern (LRN) or Fact (KNW) field
+  as a secondary exact guard. Returns JSON with skipped_reason "duplicate"
+  and no write when matched.
 
-Performance: ~15s budget per message. One file read, small number of append writes.
+Performance: ~15s budget per message on the normal (post-migration) path - an
+             index-section read (not a full-file read), a small number of
+             targeted single-entry reads for plausible dedup matches, and a
+             small number of append writes. The one-time absent-index
+             migration path (Step 0) is a full-file read plus an index
+             rewrite and may exceed the 15s budget on a large pre-Index
+             file; mitigation: migration runs once per file, and the writer
+             may spend the whole message performing the migration alone,
+             deferring the triggering event's own new entry to a follow-up
+             message.
 -->
 
 ## Role
@@ -80,18 +91,31 @@ The conductor sends learning event messages with the following fields:
 
 ## Workflow
 
-### 1. Read .agentic/learnings.md
+### 0. Absent-index migration (one-time, first writer only)
 
-Read the existing `.agentic/learnings.md` (if present) to determine the next ID counters and to prepare for dedup.
+Before Step 1, check whether `.agentic/learnings.md` exists and has no `## Index` section. This trigger is unconditional on entry count - it does not matter whether the file has zero, one, or many `## [ID]` entries under `## Entries`. If the file exists and has no `## Index` section, you are the migration owner - the first writer to touch the file after the Index section was introduced:
+
+- Read the **whole file once**. This is the one sanctioned full-file read; the index-first discipline in Step 1 does not apply yet because there is no index to read.
+- In file order, generate one index line per existing entry (`- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating each entry's title). A zero-entry file migrates trivially: the scan finds no entries, so this step produces an empty `## Index` section.
+- Insert a `## Index` section (containing those backfilled lines, or empty if there were none) immediately above `## Entries`. If the file also lacks a `## Entries` heading above its first entry, add that heading too.
+- Derive today's LRN/KNW counters from this same full scan (highest existing `XXX` per prefix for today's date, or `001` if none exist for today) - not from an empty index.
+- **Dedup for this one pass uses the full set of entries you just read** (the old whole-file case-insensitive substring procedure on Pattern/Fact), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced.
+- Write the backfilled `## Index` section and your own new entry (if any), plus its index line, in the same edit. **On a large pre-Index file the full-file read plus index rewrite may exceed this message's budget** - if so, spend the whole message performing the migration alone and defer the triggering event's own new entry to a follow-up message; migration itself still runs only once per file.
+
+After this one-time migration, the index-first flow in Step 1 below is authoritative for every subsequent writer in every subsequent session. A file that already has a `## Index` section never re-triggers migration, even if it is empty - an empty Index on a file with zero entries is the correct starting state, not a migration trigger.
+
+### 1. Read the Index section of .agentic/learnings.md
+
+Read the `## Index` section of the existing `.agentic/learnings.md` (if present) - **not the whole file** - to determine the next ID counters and to prepare dedup candidates. The Index holds one line per entry (`- [<ID>] <one-line hook>`, in file order), so this read stays cheap regardless of how large the Entries section below it has grown.
 
 **ID format:** Two independent per-day counters:
 
 - **LRN:** `LRN-YYYYMMDD-XXX` - counter resets per day, independent of KNW.
 - **KNW:** `KNW-YYYYMMDD-XXX` - counter resets per day, independent of LRN.
 
-For each prefix: scan for existing entries with today's date, find the highest `XXX` value, and increment. If none exist for today, start at `001`.
+For each prefix: scan the Index for entries with today's date, find the highest `XXX` value, and increment. If none exist for today, start at `001`.
 
-Example: on 2026-06-13, if the file already has `LRN-20260613-002` and `KNW-20260613-001`, the next LRN is `LRN-20260613-003` and the next KNW is `KNW-20260613-002`.
+Example: on 2026-06-13, if the Index already has `LRN-20260613-002` and `KNW-20260613-001`, the next LRN is `LRN-20260613-003` and the next KNW is `KNW-20260613-002`.
 
 ### 2. Classify and evaluate the event
 
@@ -136,9 +160,9 @@ For `tool-failure-workaround`, `architectural-decision`, `cross-component-gotcha
 - **why-it-matters**: The future-token cost this saves. From `resolution`; if omitted by conductor, derive a one-line "saves re-deriving X" statement.
 - **source**: Brief context description (command, path:line, URL, or "session").
 
-### 4. Write to .agentic/learnings.md
+### 4. Write to .agentic/learnings.md (after any needed migration)
 
-Path: `.agentic/learnings.md` at the project root (cwd).
+Path: `.agentic/learnings.md` at the project root (cwd). If Step 0's one-time migration ran, this write follows it in the same edit; otherwise the index-first flow below applies directly.
 
 **File format for LRN entries:**
 
@@ -167,13 +191,16 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 If the file does not exist, create it by copying the full template content from
 `content/templates/.agentic/learnings.md` (everything up to and including the
-`## Entries` line and its comment), then append the entry beneath it.
+`## Entries` line and its comment - this includes the empty `## Index` section),
+then append the entry beneath `## Entries`.
 
-**Append discipline:**
-- Read the existing file first (if it exists).
-- **LRN dedup:** before writing, check if the same pattern already exists. Use case-insensitive substring match on the `Pattern` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
-- **KNW dedup:** before writing, check if the same fact already exists. Use case-insensitive substring match on the `Fact` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
-- Append new entries at the end of the file (before any trailing blank lines).
+**Append discipline (index-first dedup):**
+- Read the `## Index` section in full first (if the file exists) - never the whole file.
+- **Semantic dedup:** compare the candidate's title/pattern-or-fact against the index hooks. On a plausible match, read only that one entry's body (targeted read, not a full-file read) to confirm.
+- **LRN secondary exact guard:** case-insensitive substring match on the matched entry's `Pattern` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
+- **KNW secondary exact guard:** case-insensitive substring match on the matched entry's `Fact` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
+- **On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit.** Format: `- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating the entry's title. An entry appended without its index line is a protocol violation the next writer must repair before trusting the index for dedup.
+- Append new entries at the end of the Entries section (before any trailing blank lines).
 
 **Cap at 5 entries per message.** If more generalizable findings exist (e.g., a compound event), prioritize by: LRN Critical > LRN Major > KNW > LRN Minor. (KNW ranks above LRN Minor by design - a knowledge fact a future agent would re-derive carries more future-token value than a low-severity bug-fix residual.)
 
@@ -246,8 +273,9 @@ The only files you may write are:
 
 ## Rules
 
-- **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append.** LRN: case-insensitive substring on Pattern. KNW: case-insensitive substring on Fact.
+- **Append-only governs entry bodies, not the Index.** Never delete, never reorder, never edit an existing `## [ID]` entry under `## Entries`. The `## Index` section is a maintained derived index, not an append-only log: inserting a missing index line at its correct file-order position (or performing the one-time absent-index migration in Step 0) is required repair, not a violation of append-only.
+- **Dedup before every append, index-first (after any needed migration).** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact. Step 0's one-time migration pass is the sole exception, using full-file dedup instead.
+- **The bidirectional Index<->Entries invariant is CI-enforced only for the shipped template** (`content/templates/.agentic/learnings.md`, which ships with zero entries). On a live consumer project's committed `.agentic/learnings.md`, maintaining the invariant is a writer obligation, not a gate - repair drift per the rules above rather than assuming a check will catch it.
 - **Independent per-day counters.** LRN and KNW counters are separate; each starts at `001` for the day independently.
 - **Caps are hard.** 5 entries to learnings.md per message, 1 entry to MEMORY.md per event, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.

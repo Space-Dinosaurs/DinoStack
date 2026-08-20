@@ -262,3 +262,444 @@ def test_learnings_pipeline_slides_trigger_contrast_uses_mandatory_language():
         f"{MANDATORY_GATE_CITATION} actually establishes"
     )
     assert "captures ad-hoc session events no phase gate would catch" not in text
+
+
+# ---------------------------------------------------------------------------
+# Index-first dedup (DS: learnings.md INDEX section) - the INDEX section
+# added to content/templates/.agentic/learnings.md replaces the prior
+# read-the-whole-file dedup procedure: learnings-agent and learning-extractor
+# now read only the compact `## Index` section (one line per entry) to
+# determine ID counters and find dedup candidates, falling back to a
+# targeted single-entry read only on a plausible match. The bidirectional
+# completeness check below asserts every `## [ID]` entry heading (under
+# `## Entries`) has exactly one matching index line (under `## Index`), and
+# vice versa - an entry without its index line is a protocol violation the
+# next writer must repair, and a phantom index line with no matching entry
+# is equally a defect (over-declaration, not just under-declaration).
+# ---------------------------------------------------------------------------
+
+LEARNINGS_TEMPLATE = CONTENT_DIR / "templates" / ".agentic" / "learnings.md"
+
+_ENTRY_HEADING_RE = re.compile(r"^## \[((?:LRN|KNW)-\d{8}-\d{3})\]", re.MULTILINE)
+_INDEX_LINE_RE = re.compile(r"^- \[((?:LRN|KNW)-\d{8}-\d{3})\]", re.MULTILINE)
+
+
+def _section_body(text: str, start_heading: str, end_heading: str | None = None) -> str:
+    """Return the text strictly between `start_heading` (exclusive) and either
+    `end_heading` (if given and found) or the next top-level SECTION heading
+    ('## ' not followed by '[' - i.e. not an entry heading like
+    '## [LRN-...]'). Returns '' if `start_heading` is absent. Used to scope
+    entry/index scanning to the real Index/Entries sections only - the
+    '## Format' block above them contains example
+    `## [LRN-YYYYMMDD-XXX]`/`## [KNW-YYYYMMDD-XXX]` headings inside a fenced
+    code block that must NOT be counted as entries, and (for the '## Entries'
+    section with no end_heading) the fallback boundary must not itself match
+    the FIRST real entry heading it is supposed to include."""
+    start_match = re.search(r"^" + re.escape(start_heading) + r"\s*$", text, re.MULTILINE)
+    if start_match is None:
+        return ""
+    start_idx = start_match.end()
+    if end_heading is not None:
+        end_match = re.search(
+            r"^" + re.escape(end_heading) + r"\s*$", text[start_idx:], re.MULTILINE
+        )
+        if end_match is not None:
+            return text[start_idx : start_idx + end_match.start()]
+    match = re.search(r"^## (?!\[)", text[start_idx:], re.MULTILINE)
+    return text[start_idx : start_idx + match.start()] if match else text[start_idx:]
+
+
+def learnings_index_completeness(text: str) -> tuple[list[str], list[str]]:
+    """Return (missing_from_index, phantom_in_index): sorted ID lists.
+
+    missing_from_index - entry IDs under '## Entries' with no matching line
+    under '## Index'. phantom_in_index - index IDs under '## Index' with no
+    matching entry heading under '## Entries'. Bidirectional set equality,
+    not one-directional containment (see MEMORY.md's derived-pin discipline -
+    a one-directional check misses over-declaration entirely)."""
+    index_section = _section_body(text, "## Index", "## Entries")
+    entries_section = _section_body(text, "## Entries")
+    index_ids = set(_INDEX_LINE_RE.findall(index_section))
+    entry_ids = set(_ENTRY_HEADING_RE.findall(entries_section))
+    missing_from_index = sorted(entry_ids - index_ids)
+    phantom_in_index = sorted(index_ids - entry_ids)
+    return missing_from_index, phantom_in_index
+
+
+def test_learnings_template_has_index_section_before_entries():
+    text = LEARNINGS_TEMPLATE.read_text(encoding="utf-8")
+    assert "## Index" in text, "content/templates/.agentic/learnings.md is missing the '## Index' section"
+    index_pos = text.index("## Index")
+    entries_pos = text.index("## Entries")
+    assert index_pos < entries_pos, (
+        "'## Index' must appear before '## Entries' in "
+        "content/templates/.agentic/learnings.md"
+    )
+
+
+def test_learnings_template_index_is_bidirectionally_complete():
+    # The template ships with zero entries, so this is the trivial-complete
+    # case: both lists must be empty. A real project's .agentic/learnings.md
+    # (untracked scaffold output, not present in this repo) inherits the same
+    # invariant from the moment it is created from this template.
+    text = LEARNINGS_TEMPLATE.read_text(encoding="utf-8")
+    missing, phantom = learnings_index_completeness(text)
+    assert missing == [], f"template Entries section has entries with no index line: {missing}"
+    assert phantom == [], f"template Index section has phantom lines with no matching entry: {phantom}"
+
+
+_POSITIVE_FIXTURE = """# Learnings
+
+## Format
+
+```markdown
+## [LRN-YYYYMMDD-XXX] <title>
+
+**Pattern:** example
+```
+
+## Index
+
+- [LRN-20260601-001] example LRN hook
+- [KNW-20260601-001] example KNW hook
+
+## Entries
+
+## [LRN-20260601-001] Example LRN title
+
+**Discovered:** 2026-06-01 (session)
+**Severity:** Minor
+**Domain:** test
+**Pattern:** example pattern
+**Fix:** example fix
+**Source:** test
+
+## [KNW-20260601-001] Example KNW title
+
+**Discovered:** 2026-06-01 (session)
+**Domain:** test
+**Fact:** example fact
+**Why-it-matters:** example
+**Source:** test
+"""
+
+
+def test_index_completeness_checker_passes_on_well_formed_fixture():
+    # Positive control: the fixture's two entries each have exactly one
+    # matching index line, and the '## Format' block's example headings
+    # inside the fenced code block are correctly excluded from the scan.
+    missing, phantom = learnings_index_completeness(_POSITIVE_FIXTURE)
+    assert missing == []
+    assert phantom == []
+
+
+def test_index_completeness_checker_catches_entry_missing_its_index_line():
+    # [MUTATION] Remove the KNW entry's index line - simulates an append that
+    # wrote the entry body but not its index hook in the same edit.
+    mutated = _POSITIVE_FIXTURE.replace("- [KNW-20260601-001] example KNW hook\n", "")
+    missing, phantom = learnings_index_completeness(mutated)
+    assert missing == ["KNW-20260601-001"], (
+        f"expected the checker to catch the entry with no index line, got missing={missing}"
+    )
+    assert phantom == []
+
+
+def test_index_completeness_checker_catches_phantom_index_line():
+    # [MUTATION] Add an index line with no matching entry - simulates a
+    # dangling/over-declared index entry (e.g. the entry was later deleted
+    # but its index line was not).
+    mutated = _POSITIVE_FIXTURE.replace(
+        "- [KNW-20260601-001] example KNW hook\n",
+        "- [KNW-20260601-001] example KNW hook\n- [LRN-20260601-999] phantom entry, never written\n",
+    )
+    missing, phantom = learnings_index_completeness(mutated)
+    assert missing == []
+    assert phantom == ["LRN-20260601-999"], (
+        f"expected the checker to catch the phantom index line, got phantom={phantom}"
+    )
+
+
+def test_index_completeness_checker_excludes_format_block_example_headings():
+    # [MUTATION-adjacent regression guard] The '## Format' section's example
+    # `## [LRN-YYYYMMDD-XXX] <title>` heading is not a real ID (it is a
+    # literal YYYYMMDD/XXX placeholder, which the ID regex does not match
+    # anyway) - but this also guards against a future fixture/template using
+    # a real-shaped ID in a documentation example leaking into the count.
+    fixture_with_realistic_example = _POSITIVE_FIXTURE.replace(
+        "## [LRN-YYYYMMDD-XXX] <title>",
+        "## [LRN-20260601-001] <title>",
+    )
+    missing, phantom = learnings_index_completeness(fixture_with_realistic_example)
+    assert missing == [] and phantom == [], (
+        "a '## [ID]'-shaped heading inside the fenced '## Format' example block must not be "
+        f"counted as a real entry; got missing={missing}, phantom={phantom}"
+    )
+
+
+_INDEX_LESS_FIXTURE = """# Learnings
+
+## Entries
+
+## [LRN-20260601-001] Example LRN title
+
+**Discovered:** 2026-06-01 (session)
+**Severity:** Minor
+**Domain:** test
+**Pattern:** example pattern
+**Fix:** example fix
+**Source:** test
+
+## [KNW-20260601-001] Example KNW title
+
+**Discovered:** 2026-06-01 (session)
+**Domain:** test
+**Fact:** example fact
+**Why-it-matters:** example
+**Source:** test
+"""
+
+
+def test_index_completeness_checker_reports_migration_needed_as_all_entries_missing():
+    # A legacy file with entries but no '## Index' section at all (predates
+    # the Index section's introduction) is reported by this checker as every
+    # one of its N entries missing from the index - but this checker is NOT
+    # the migration-needed signal a writer actually uses: the writer's real
+    # trigger (content/agents/learnings-agent.md Step 0 / the migration
+    # paragraph in learning-extractor.md) is the direct, unconditional check
+    # "does the file have a '## Index' heading at all", independent of entry
+    # count. That distinction matters precisely because this checker's
+    # missing-list is empty (not "N missing") for a zero-entry pre-Index
+    # file, which would silently look like nothing-to-migrate if the writer
+    # mistakenly used this checker's output as its trigger instead of the
+    # direct heading-absence check. This test only confirms the checker's own
+    # (secondary, diagnostic) behavior on a non-empty legacy file.
+    missing, phantom = learnings_index_completeness(_INDEX_LESS_FIXTURE)
+    assert missing == ["KNW-20260601-001", "LRN-20260601-001"], (
+        f"expected both pre-Index entries reported missing (migration-needed detection), got {missing}"
+    )
+    assert phantom == []
+
+
+def test_index_completeness_checker_passes_after_migration_backfill():
+    # The same file, after a writer performs the one-time absent-index
+    # migration (Step 0 in learnings-agent.md / the migration paragraph in
+    # learning-extractor.md): backfilled Index lines make it bidirectionally
+    # complete again.
+    migrated = _INDEX_LESS_FIXTURE.replace(
+        "## Entries",
+        "## Index\n\n"
+        "- [LRN-20260601-001] Example LRN title\n"
+        "- [KNW-20260601-001] Example KNW title\n\n"
+        "## Entries",
+        1,
+    )
+    missing, phantom = learnings_index_completeness(migrated)
+    assert missing == [], f"post-migration fixture should be bidirectionally complete, got missing={missing}"
+    assert phantom == [], f"post-migration fixture should be bidirectionally complete, got phantom={phantom}"
+
+
+_STRAY_LINE_OUTSIDE_INDEX_FIXTURE = """# Learnings
+
+This file uses the `## Index` section below to speed up dedup.
+
+- [LRN-20260601-666] stray line sitting in prose before the real Index section, must not count
+
+## Index
+
+- [LRN-20260601-001] example LRN hook
+
+## Entries
+
+## [LRN-20260601-001] Example LRN title
+
+**Discovered:** 2026-06-01 (session)
+**Severity:** Minor
+**Domain:** test
+**Pattern:** example pattern
+**Fix:** example fix
+**Source:** test
+"""
+
+
+def test_index_completeness_checker_ignores_stray_index_shaped_line_outside_real_section():
+    # [MUTATION - section-scoping] The fixture's prose above the real '## Index'
+    # heading contains both a literal (inline, not line-start) mention of
+    # '## Index'/'## Entries' AND a stray '- [ID]'-shaped line. Under a
+    # substring-based `text.find("## Index")` / `text.find("## Entries")`
+    # section boundary (the pre-fix implementation), the inline mentions are
+    # matched as if they were the real headings, pulling the stray line into
+    # the computed Index section and reporting it as a phantom index entry -
+    # this assertion goes RED under that implementation. Line-anchoring the
+    # heading search (requiring the heading alone on its own line) excludes
+    # the stray line correctly.
+    missing, phantom = learnings_index_completeness(_STRAY_LINE_OUTSIDE_INDEX_FIXTURE)
+    assert missing == [], f"expected no missing entries, got {missing}"
+    assert phantom == [], (
+        "a '- [ID]'-shaped line sitting outside the real '## Index' section (in prose before it) "
+        f"must not be counted as an index line, got phantom={phantom}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent specs document the index-first dedup procedure, including the
+# same-edit index-line obligation (R2 in the ticket's rubric)
+# ---------------------------------------------------------------------------
+
+LEARNINGS_AGENT_MD = CONTENT_DIR / "agents" / "learnings-agent.md"
+LEARNING_EXTRACTOR_MD = CONTENT_DIR / "agents" / "learning-extractor.md"
+
+
+def test_learnings_agent_and_learning_extractor_document_index_first_dedup():
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        assert "index-first" in text.lower(), (
+            f"{_rel(path)} no longer documents the index-first dedup procedure"
+        )
+        assert "## Index" in text, (
+            f"{_rel(path)} no longer references the '## Index' section"
+        )
+        assert "same edit" in text.lower(), (
+            f"{_rel(path)} no longer states the same-edit index-line obligation "
+            "(an entry appended without its index line is a protocol violation)"
+        )
+        assert "protocol violation" in text.lower(), (
+            f"{_rel(path)} no longer states that an entry without its index line "
+            "is a protocol violation the next writer must repair"
+        )
+
+
+def test_learnings_agent_and_learning_extractor_document_absent_index_migration():
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "migration" in lower, (
+            f"{_rel(path)} no longer names the absent-index migration owner and procedure"
+        )
+        assert "one-time" in lower or "one time" in lower, (
+            f"{_rel(path)} no longer states the migration is a one-time pass"
+        )
+        assert "full-file" in lower or "whole file" in lower, (
+            f"{_rel(path)} no longer states migration dedup falls back to a full-file read/compare"
+        )
+
+
+def test_learnings_agent_and_learning_extractor_migration_trigger_is_unconditional_on_index_absence():
+    # [ROUND-2 RELOCATION FIX] Round 1's Critical (migration trigger gated on
+    # a live discretionary-capture-style qualifier) was hand-patched in
+    # round 2 into a NEW, still-broken gate: "has one or more `## [ID]`
+    # entries under `## Entries` ... and has no `## Index` section" - which
+    # left the migration path unreachable for any pre-Index file with zero
+    # entries. The round-2 prose-pin (see the "migration"/"one-time"/
+    # "full-file" test above) passed anyway, because it pinned generic
+    # migration vocabulary, never the trigger CONDITION itself. This test
+    # pins the trigger condition directly: the migration mandate reads "no
+    # `## Index`" (case-insensitive) with NO adjacent entry-count qualifier,
+    # and the file states that a zero-entry pre-Index file also migrates.
+    # [MUTATION] Re-adding "has one or more ... entries under `## Entries`,
+    # and has no `## Index`" back into either file reddens this test - verify
+    # this by temporarily restoring the pre-fix phrasing and re-running.
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "no `## index`" in lower, (
+            f"{_rel(path)} does not state the unconditional trigger 'no `## Index`' - the "
+            "migration mandate must trigger on '## Index' absence alone, adjacent to the "
+            "migration-owner declaration"
+        )
+        assert "has one or more" not in lower, (
+            f"{_rel(path)} still gates the migration trigger on an entry-count qualifier "
+            "('has one or more ... entries') - this is the round-1 Critical relocated, not "
+            "fixed: it makes migration unreachable for a zero-entry pre-Index file. Delete "
+            "the qualifier; the trigger must be unconditional on '## Index' absence alone."
+        )
+        assert "zero-entry" in lower, (
+            f"{_rel(path)} does not state that a zero-entry pre-Index file also migrates "
+            "(trivially, producing an empty '## Index' section)"
+        )
+
+
+def test_learnings_agent_and_learning_extractor_resolve_append_only_vs_index_repair():
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "append-only governs" in lower, (
+            f"{_rel(path)} still states a bare 'append-only' rule without scoping it to entry "
+            "bodies - this reads as forbidding the required Index-repair/migration writes"
+        )
+        assert "required repair" in lower, (
+            f"{_rel(path)} does not state that inserting a missing index line is required repair, "
+            "not an append-only violation"
+        )
+
+
+def test_learnings_agent_and_learning_extractor_disclose_index_invariant_enforcement_scope():
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        assert "CI-enforced only for the shipped template" in text, (
+            f"{_rel(path)} does not disclose that the bidirectional Index invariant is mechanically "
+            "enforced only for the shipped (zero-entry) template, and is a writer obligation on a "
+            "live consumer project's committed .agentic/learnings.md"
+        )
+
+
+def test_wrap_ticket_scopes_id_extraction_to_entries_section():
+    path = CONTENT_DIR / "agents" / "wrap-ticket.md"
+    text = path.read_text(encoding="utf-8")
+    assert "## Entries" in text, (
+        f"{_rel(path)} Phase 11b extraction no longer references the '## Entries' section"
+    )
+    assert "index" in text.lower() and "hook" in text.lower(), (
+        f"{_rel(path)} does not explain why extraction must be scoped away from '## Index' "
+        "hook lines, which match the same ID-shaped regex"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Round-3 regression pins (Skeptic round 4)
+# ---------------------------------------------------------------------------
+
+def test_wrap_ticket_states_pre_migration_fallback_never_zero_matching_entries():
+    # [MUTATION] Delete the "Pre-migration fallback:" sentence (or its "Never
+    # silently treat a pre-migration file as zero matching entries" clause)
+    # from content/agents/wrap-ticket.md - this assertion goes RED.
+    path = CONTENT_DIR / "agents" / "wrap-ticket.md"
+    text = path.read_text(encoding="utf-8")
+    assert "Pre-migration fallback:" in text, (
+        f"{_rel(path)} no longer states the 'Pre-migration fallback:' clause for a "
+        "'.agentic/learnings.md' with no '## Entries' heading yet (predates the Index "
+        "section and no writer has migrated it)"
+    )
+    assert "Never silently treat a pre-migration file as zero matching entries" in text, (
+        f"{_rel(path)} no longer states the explicit warning against silently treating a "
+        "pre-migration file as zero matching entries - without it, Phase 11b extraction can "
+        "silently drop every learning in an unmigrated file"
+    )
+
+
+def test_learning_extractor_has_single_learnings_header_and_scoped_append_only():
+    # [MUTATION] Restore round-2's divergent second '# Learnings' header block
+    # in content/agents/learning-extractor.md (or reintroduce a bare
+    # 'Append-only.' line, i.e. the unscoped rule this round's fix replaced
+    # with 'Append-only governs entry bodies, not the Index.') - either
+    # mutation goes RED. The negative assertions are scoped so the legitimate
+    # qualified wording ("Append-only governs entry bodies") still passes.
+    path = CONTENT_DIR / "agents" / "learning-extractor.md"
+    text = path.read_text(encoding="utf-8")
+
+    header_matches = re.findall(r"^# Learnings\s*$", text, re.MULTILINE)
+    assert len(header_matches) == 0, (
+        f"{_rel(path)} contains a second, divergent '# Learnings' header block - this file "
+        "must have a single shape for the template/procedure it documents, not two competing "
+        f"copies. Found {len(header_matches)} bare '# Learnings' header line(s)."
+    )
+
+    bare_append_only = re.findall(r"^Append-only\.\s*$", text, re.MULTILINE)
+    assert not bare_append_only, (
+        f"{_rel(path)} contains a bare, unscoped 'Append-only.' line - this reads as forbidding "
+        "the required Index-repair/migration writes. The rule must be scoped, e.g. "
+        "'Append-only governs entry bodies, not the Index.'"
+    )
+    assert "append-only governs entry bodies" in text.lower(), (
+        f"{_rel(path)} lost the scoped 'Append-only governs entry bodies, not the Index.' "
+        "wording while checking for the unscoped form"
+    )
