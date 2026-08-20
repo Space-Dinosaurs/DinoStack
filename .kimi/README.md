@@ -19,7 +19,7 @@ loading it guarantees the methodology is active.
 
 | Concept | Claude Code | Kimi Code CLI |
 |---|---|---|
-| Auto-loaded rules | `~/.claude/rules/*.md` + CLAUDE.md | `.kimi/AGENTS.md` (loaded via `${KIMI_AGENTS_MD}`) |
+| Auto-loaded rules | `~/.claude/rules/*.md` + CLAUDE.md | `.kimi/AGENTS.md` (loaded via `${KIMI_AGENTS_MD}`) - a lean activation stub (DS-185), not the methodology body |
 | Conditional rules | Skill (`SKILL.md`) | Skill (`.kimi/skills/<name>/SKILL.md`) |
 | Agent definitions | `~/.claude/agents/*.md` | Built-in subagent types (`coder`, `explore`, `plan`) with detailed prompts |
 | Slash commands | `~/.claude/commands/*.md` | Skills loaded via `/skill:<name>` (no custom slash commands) |
@@ -29,8 +29,14 @@ loading it guarantees the methodology is active.
 
 ## What's adapted
 
-- **AGENTS.md**: Auto-generated from `content/sections/`, loaded automatically by Kimi Code CLI via `${KIMI_AGENTS_MD}`.
-- **Skill**: `dinostack` SKILL.md with Kimi-compatible guidance. Includes subagent mapping (coder/explore/plan to DinoStack roles) and command index.
+- **AGENTS.md**: A lean, always-resident activation stub (DS-185) loaded automatically by Kimi
+  Code CLI via `${KIMI_AGENTS_MD}` on every session - not the full methodology body. It points at
+  the `dinostack` skill and the activation config.
+- **Skill**: `dinostack` SKILL.md embeds the full methodology body (assembled from
+  `content/sections/` plus the two rules files, DS-185 - mirroring the DS-143 change that moved
+  the equivalent always-loaded body out of Claude Code's `~/.claude/CLAUDE.md`) and loads on
+  trigger, not at session start. Includes subagent mapping (coder/explore/plan to DinoStack
+  roles) and command index.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Sections**: Symlinked from `content/sections/` into the skill directory for easy access.
 - **Commands**: Symlinked from `content/commands/` into the skill directory. Invoked via `/skill:dinostack <command-name>` or by asking the agent to run a specific command.
@@ -44,7 +50,8 @@ bash ~/DinoStack/.kimi/install.sh
 ```
 
 This will:
-1. Build the adapter (generates AGENTS.md and symlinks from `content/`)
+1. Build the adapter (generates the AGENTS.md stub, the skill's `SKILL.md`, and symlinks from
+   `content/`)
 2. Configure activation mode (opt-out or opt-in)
 3. Symlink the skill to `~/.kimi/skills/dinostack/` for global availability
 
@@ -57,7 +64,9 @@ bash .kimi/uninstall.sh
 ## Project-level vs global
 
 **Project-level** (no install required):
-When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` and `.kimi/skills/dinostack/`.
+When this repo is your working directory, Kimi automatically discovers `.kimi/AGENTS.md` (the
+activation stub, always loaded) and `.kimi/skills/dinostack/` (the full methodology body,
+trigger-loaded).
 
 **Global** (optional):
 Running `install.sh` symlinks the skill to `~/.kimi/skills/` so the methodology is available in all projects.
@@ -87,12 +96,35 @@ Note: The shared `hooks/stop-context.js` is designed for Claude Code. Kimi users
 bash .kimi/build.sh
 ```
 
-This regenerates AGENTS.md and verifies symlinks. Run this after editing files in `content/`.
+This regenerates the AGENTS.md stub, the skill's `SKILL.md` (embedded methodology body), and
+verifies symlinks. Run this after editing files in `content/`.
+
+## Install-time embed-health degrade path
+
+`.kimi/install.sh` runs `scripts/check-kimi-skill-embed-budget.sh` after every build and
+classifies its result (Minor, DS-185 round 6 - previously undocumented here):
+
+- **Healthy (warn only, `AGENTS.md` stays a lean stub):** the gate reports a benign,
+  already-verified-complete boundary - a `SKILL.md`/`AGENTS.md` size ceiling breach with the
+  embed itself confirmed intact, or a stale `EXPECTED_SECTION_COUNT`/`EXPECTED_RULES_COUNT` pin
+  that just needs bumping. `install.sh` prints an advisory note and leaves `AGENTS.md` untouched.
+- **Degraded (`AGENTS.md` grows to tens of KB):** anything else - a missing or crashed gate
+  script, a genuinely incomplete embed (a dropped source file, a missing/duplicate heading), or a
+  body below the size floor. `install.sh` falls back to appending the full methodology body
+  (delegation, risk classification, the two rules files, etc.) directly onto `.kimi/AGENTS.md`
+  under a `## Fallback: full methodology body` heading, so the session still has the full
+  methodology available even though the trigger-loaded skill couldn't be verified healthy.
+
+If you see a `.kimi/AGENTS.md` far larger than the ~1.5 KB lean stub, this fallback fired -
+re-run `bash .kimi/build.sh` and `bash scripts/check-kimi-skill-embed-budget.sh` directly to see
+the underlying diagnostic, fix it, then re-run `bash .kimi/install.sh` to shrink `AGENTS.md` back
+down. This degrade path is intentional (fail toward more context, not less) and is not itself a
+sign of installer malfunction - only that the health check couldn't yet confirm a clean embed.
 
 ## Limitations
 
 - **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are available as individual skills (`/skill:<command-name>`) or via the main skill (`/skill:dinostack <command>`), or through natural language requests.
 - **Agent definitions are reference material**: Kimi's `Agent` tool uses built-in subagent types (`coder`, `explore`, `plan`). The named agent roles from `content/agents/` are mapped to these types with detailed prompts rather than distinct subagent configurations.
 - **Hook scripts are manual**: Kimi requires hooks to be configured in `config.toml`. The installer does not modify `~/.kimi/config.toml` automatically.
-- **Global install copies SKILL.md**: The installer copies `SKILL.md` to `~/.kimi/skills/` and uses absolute symlinks for `content/`. This makes the global skill survive git branch switches, but means you must re-run `install.sh` after updating `SKILL.md` itself.
+- **Global install symlinks SKILL.md**: `~/.kimi/skills/dinostack/SKILL.md` is an absolute symlink into this checkout's `.kimi/skills/dinostack/SKILL.md` (DS-185 round 3; previously a copy). A rebuild via `bash .kimi/build.sh` after editing `content/` propagates instantly through the symlink - re-running `install.sh` is only needed if the symlink itself is missing or stale (e.g. after a fresh clone).
 - **No `conductor_overreach` advisory**: Kimi Code CLI has no Stop hook mechanism, so the warn-only conductor-overreach detector (`hooks/conductor-overreach-nudge.js`) has no equivalent here.
