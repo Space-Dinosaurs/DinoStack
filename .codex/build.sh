@@ -13,6 +13,15 @@
 #                or on methodology assembly, mirror replacement, native-skill,
 #                prompt-wrapper, or named-agent generation failure.
 #
+# Side-effects: .codex/AGENTS.md is generated as a minimal always-resident stub
+#               (runtime binding preamble, activation-preflight pointer, and a
+#               skill-load-on-trigger instruction) - it no longer embeds the
+#               full methodology body. The full body is written only into
+#               .codex/skills/dinostack/METHODOLOGY.md by the native-skill
+#               build step below (scripts/codex-skills.py build), which loads
+#               on trigger via the dinostack skill instead of unconditionally
+#               on every session (DS-183).
+#
 # Performance: linear in canonical content and generated Codex artifact size.
 
 set -euo pipefail
@@ -62,11 +71,19 @@ validate_mirror_root "hooks" "$HOOKS_DST"
 # ---------------------------------------------------------------------------
 # Build AGENTS.md
 #
-# Assembles the methodology body via scripts/build-methodology.sh (which
-# reads content/sections/), appends the remaining rules files, then translates
-# workflow references through scripts/codex-skills.py so the result advertises
-# native dollar skills and dispatcher-backed manual resources. A header and
-# protocol reference footer are prepended/appended.
+# DS-183: AGENTS.md is a minimal always-resident stub, not the full
+# methodology body. It carries only the runtime binding preamble (needed to
+# locate the repo/config before anything else can run), an
+# activation-preflight pointer (not the full preflight text), and an
+# instruction to load the `dinostack` skill on trigger - the skill is where
+# the full methodology body actually lives (.codex/skills/dinostack/
+# METHODOLOGY.md, built independently below by scripts/codex-skills.py
+# build(), which calls scripts/build-methodology.sh itself). This mirrors
+# DS-143's Claude Code trigger-load design: the resident set stays small and
+# the full body loads only when the skill is invoked. The assembled stub
+# text is translated through scripts/codex-skills.py runtime-guidance so it
+# advertises native dollar skills and dispatcher-backed manual resources,
+# same as before.
 # ---------------------------------------------------------------------------
 
 AGENTS_DST="$CODEX_DIR/AGENTS.md"
@@ -81,7 +98,10 @@ trap cleanup_agents_temps EXIT
   cat <<'HEADER'
 # Agentic Engineering Protocol
 
-This file loads the agentic engineering methodology into every Codex session in this repository.
+This file binds the agentic engineering runtime for every Codex session in this repository. The
+full methodology (delegation, risk classification, activation preflight, Skeptic loop, quality
+gates, agent definitions) loads separately, on trigger, via the `dinostack` skill - see "Load the
+methodology on trigger" below.
 
 ## Codex runtime binding preamble
 
@@ -123,17 +143,28 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 ---
 
-HEADER
+## Activation preflight (pointer)
 
-  bash "$REPO_DIR/scripts/build-methodology.sh"
-  echo ""
-  echo "---"
-  echo ""
-  cat "$CONTENT/rules/code-standards.md"
-  echo ""
-  echo "---"
-  echo ""
-  cat "$CONTENT/rules/conventions.md"
+Run the activation preflight once at the first skill invocation (and every `/`-command), before any other operational instruction: identity resolution, opt-in/opt-out check, and profile resolution. Its full procedure is Step 1 of the loaded methodology - invoke the `dinostack` skill below and follow it before proceeding. Do not spawn or use LLM reasoning for this step; it is a direct resolver call.
+
+## Identity confirmation (provisional handle)
+
+When the activation preflight resolves a provisional effective identity, surface this notice at the first user-facing turn - non-blocking:
+
+```
+IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
+Telemetry is buffered (not lost) until confirmed.
+  Confirm: ds-identity confirm --scope <scope>
+  Correct: ds-identity init <handle> --force --scope <scope>
+```
+
+Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Full contract: `content/commands/ds-identity.md`.
+
+## Load the methodology on trigger
+
+Before starting any task, check if the `dinostack` skill should be loaded: code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, or project setup. If any signal matches, invoke it (`$dinostack`) before proceeding - it carries the activation preflight, delegation model, risk classification, Skeptic loop, quality gates, agent definitions, and every reference doc. When in doubt, invoke it.
+
+HEADER
 
   cat <<'FOOTER'
 

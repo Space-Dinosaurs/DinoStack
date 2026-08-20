@@ -1,27 +1,27 @@
-# Purpose: Shared infra for the three size-ratchet gates under scripts/
-#          (check-resident-budget.sh, check-skill-embed-budget.sh,
-#          check-command-file-budget.sh). Extracts the byte-for-byte
-#          identical pieces that had accumulated across all three
-#          (repo-dir resolution, plain byte measurement, and the common
-#          "OK / OVER BUDGET" report shape) so a third near-copy of the
-#          skeleton is no longer the norm. Each gate's genuinely distinct
-#          MEASUREMENT logic (resident's manifest-offset split, skill-
-#          embed's two-sided floor/ceiling, this file's raw `wc -c`)
-#          stays in its own script - only the plumbing around that
-#          measurement lives here.
+# Purpose: Shared infra for the size-ratchet gates under scripts/ (see
+#          Downstream consumers below for the current set - DS-183/184/185/
+#          186 have each added one; do not hand-count them here, they drift).
+#          Extracts the byte-for-byte identical pieces that had accumulated
+#          across the earliest three (repo-dir resolution, plain byte
+#          measurement, and the common "OK / OVER BUDGET" report shape) so
+#          another near-copy of the skeleton is no longer the norm. Each
+#          gate's genuinely distinct MEASUREMENT logic (resident's
+#          manifest-offset split, skill-embed's two-sided floor/ceiling,
+#          command-file's raw `wc -c`) stays in its own script - only the
+#          plumbing around that measurement lives here.
 #
 #          DS-182 added a second axis, git-based, on top of the original
 #          absolute-size-only measurement: a fixed ceiling on a shared,
 #          monotonically growing artifact makes a PR's pass/fail a
 #          function of merge order rather than its own diff (two of the
-#          three gates measured here sat within one ordinary merge of
-#          blocking all work). budget_delta/budget_burn_line/
-#          budget_base_resolve give callers a per-PR delta (for an
-#          AUTHORED target, where "this PR grew the file by too much" is
-#          a meaningful failure) and a purely informational burn line (for
-#          a DERIVED/generated target, where a big delta may just be
-#          upstream churn, not this PR's doing) without forcing either
-#          axis on a caller that doesn't want it.
+#          gates measured here sat within one ordinary merge of blocking
+#          all work). budget_delta/budget_burn_line/budget_base_resolve
+#          give callers a per-PR delta (for an AUTHORED target, where
+#          "this PR grew the file by too much" is a meaningful failure)
+#          and a purely informational burn line (for a DERIVED/generated
+#          target, where a big delta may just be upstream churn, not this
+#          PR's doing) without forcing either axis on a caller that
+#          doesn't want it.
 #
 # Public API: source scripts/lib/budget-gate.sh, then call:
 #             budget_repo_dir <script_dir>            -> prints repo root
@@ -195,12 +195,29 @@
 #                        that script's own header comment for why - and
 #                        calls budget_burn_line for the informational
 #                        burn-rate line printed on every exit path; no
-#                        delta axis); scripts/check-command-file-budget.sh
-#                        (added a budget_delta-based per-PR delta axis and
-#                        calls budget_eval directly, not budget_report, so
-#                        a delta breach can still let the THRESHOLD_BYTES
-#                        report run before this script decides its own
-#                        combined exit code).
+#                        delta axis; also the original caller of
+#                        budget_check_embedded_set below - no longer the
+#                        only one, see check-codex-skill-budget.sh further
+#                        down this list);
+#                        scripts/check-command-file-budget.sh (added a
+#                        budget_delta-based per-PR delta axis and calls
+#                        budget_eval directly, not budget_report, so a delta
+#                        breach can still let the THRESHOLD_BYTES report run
+#                        before this script decides its own combined exit
+#                        code); scripts/check-copilot-skill-budget.sh
+#                        (DS-186; hand-rolled FLOOR/STUB-CEILING report,
+#                        same shape as check-skill-embed-budget.sh, plus
+#                        budget_burn_line - no budget_check_embedded_set
+#                        call, no delta axis); scripts/check-codex-skill-
+#                        budget.sh (DS-183; also calls
+#                        budget_check_embedded_set below for its own
+#                        section/rules embed-completeness check - see that
+#                        function's own header comment for the extraction
+#                        history between the two callers).
+#                        grep -rln '^source .*lib/budget-gate.sh' scripts/*.sh
+#                        finds the live set - do not hand-count it here, it
+#                        drifts (see the Purpose comment above and
+#                        AGENTS.md's matching non-cardinal wording).
 #
 # Failure modes: budget_file_bytes exits nonzero (via set -e in the
 #                sourcing script) if the target path does not exist -
@@ -462,4 +479,102 @@ budget_burn_line() {
     echo "burn: ${burn_per_day} B/day over ${days_span} d"
   fi
   return 0
+}
+
+# budget_check_embedded_set <caller_label> <dir> <pattern> <exclude> \
+#                            <expected_count> <label> <constant_name> \
+#                            <target_file> <all_headings_var_name> \
+#                            <target_label> <band_label>
+#   DS-183 round 2 (M6 fix): extracted verbatim from
+#   check-skill-embed-budget.sh's own `_check_embedded_set` (that script's
+#   ONLY caller before this extraction, still calling this exact function
+#   now instead of a locally-defined copy - its own output wording is
+#   UNCHANGED by this extraction: <caller_label> supplies each caller's own
+#   script-name prefix, <target_label> supplies the built-artifact name
+#   quoted in two messages (skill-embed-budget passes "SKILL.md", matching
+#   its pre-extraction literal text exactly), and <band_label> supplies the
+#   byte-bound-check name quoted in one message (skill-embed-budget passes
+#   "FLOOR/CEILING", matching its pre-extraction literal text exactly).
+#   check-codex-skill-budget.sh's section-heading half was a 47-line
+#   near-verbatim reimplementation of this same logic before the
+#   extraction; its rules-reachability half legitimately differs (symlink
+#   resolution + file-count match, not a text-presence check) and is NOT
+#   covered here - that half stays in check-codex-skill-budget.sh's own
+#   `_check_rules_reachable`.
+#
+#   Asserts <dir>/<pattern> (minus <exclude>, when non-empty) contains
+#   exactly <expected_count> files, then asserts each file's own first
+#   top-level '## ' heading is present verbatim somewhere in <target_file>.
+#   On any violation, prints a `<caller_label>: embed incomplete` (or
+#   `no <label> files found`) message to stderr and calls `exit 1` directly
+#   - this function is NOT a bool-returning budget_eval-style helper, it
+#   exits the whole script on failure, matching what the pre-extraction
+#   inline code in both callers already did.
+#
+#   <all_headings_var_name> names a caller-scoped (non-local) variable this
+#   function APPENDS each checked heading into (one per line) - callers that
+#   check more than one set (e.g. check-skill-embed-budget.sh's sections +
+#   rules) use this to build a combined duplicate-heading check across both
+#   sets afterward, exactly as the pre-extraction code did. Pass a variable
+#   name the caller has already initialized to "" before the first call.
+budget_check_embedded_set() {
+  local caller_label="$1" dir="$2" pattern="$3" exclude="$4"
+  local expected_count="$5" label="$6" constant_name="$7"
+  local target_file="$8" all_headings_var_name="$9"
+  local target_label="${10}" band_label="${11}"
+  local files file_count f heading
+  if [ -n "$exclude" ]; then
+    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" ! -name "$exclude" | LC_ALL=C sort)"
+  else
+    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" | LC_ALL=C sort)"
+  fi
+  if [ -z "$files" ]; then
+    echo "$caller_label: no $label files found in $dir" >&2
+    exit 1
+  fi
+  file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
+  if [ "$file_count" -gt "$expected_count" ]; then
+    echo "$caller_label: embed incomplete" >&2
+    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
+    echo "  a new $label source file was added - this is likely intentional." >&2
+    echo "  If so, bump $constant_name above in the same commit that adds the" >&2
+    echo "  file. If not, an extra file landed under $dir unexpectedly -" >&2
+    echo "  investigate before bumping the count." >&2
+    exit 1
+  fi
+  if [ "$file_count" -lt "$expected_count" ]; then
+    echo "$caller_label: embed incomplete" >&2
+    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
+    echo "  a $label source file went missing from $dir. This is the deleted-" >&2
+    echo "  file case the pinned $constant_name constant exists to catch (see" >&2
+    echo "  its comment above) - restore the missing file. Do NOT lower the" >&2
+    echo "  expected count to make this pass unless the removal was" >&2
+    echo "  deliberate." >&2
+    exit 1
+  fi
+  while IFS= read -r f; do
+    heading="$(grep -m1 '^## ' "$f" || true)"
+    if [ -z "$heading" ]; then
+      echo "$caller_label: embed incomplete" >&2
+      echo "  $f has no top-level '## ' heading to check against" >&2
+      echo "  every embedded $label source file needs its own distinct" >&2
+      echo "  top-level '## Heading' line for this check to verify its" >&2
+      echo "  presence in the built $target_label - add one (e.g. a '# ' opener" >&2
+      echo "  demoted to '## ', or a missing heading added outright)." >&2
+      exit 1
+    fi
+    if ! grep -qxF "$heading" "$target_file"; then
+      echo "$caller_label: embed incomplete" >&2
+      echo "  missing $label heading from $(basename "$f"): $heading" >&2
+      echo "  this file is not present in the built $target_label - assembly" >&2
+      echo "  silently dropped a whole embedded file, which the $band_label" >&2
+      echo "  byte band alone cannot detect." >&2
+      exit 1
+    fi
+    # Append into the caller-named global accumulator variable (deliberately
+    # not `local` here) so the caller can assert every checked heading is
+    # unique across however many sets it checks, after all its calls return.
+    eval "$all_headings_var_name=\"\${$all_headings_var_name}\$heading
+\""
+  done <<< "$files"
 }

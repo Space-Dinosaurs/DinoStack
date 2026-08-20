@@ -209,11 +209,63 @@ def runtime_bindings(root: Path, invocation: str) -> dict[str, str]:
         fail(f"cannot inspect repository AGENTS.md: {exc}")
     if not stat.S_ISREG(expected_info.st_mode):
         fail(f"repository AGENTS.md is not a regular file: {expected_agents}")
+
+    # DS-183 (C1 fix, round 2): when the dinostack skill link is unhealthy at
+    # install time, .codex/install.sh's degrade path can no longer point the
+    # installed symlink at the always-present stub (that stub's whole
+    # purpose - loading the methodology body on trigger via the skill - is
+    # unreachable in that state). Instead it writes the full body into a
+    # second, separate regular file and symlinks the installed AGENTS.md at
+    # it. Accept EITHER physical target here, never a third.
+    #
+    # DS-183 round 5 (M1 fix): that second file previously lived inside
+    # this repository at root / ".codex/AGENTS.degraded.md", gitignored -
+    # so a routine `git clean -xfd` or a fresh worktree deleted it out from
+    # under an installed symlink, leaving the methodology unreachable with
+    # no working degrade path either. install.sh now writes it inside the
+    # user's own Codex config directory instead (a sibling of the AGENTS.md
+    # symlink itself), which nothing in this checkout can delete. The
+    # identity check below therefore no longer requires the physical target
+    # to live inside this repository for the degrade-path case - it instead
+    # requires the target to be a real regular file owned by the current
+    # user, not group/world-writable, living directly inside `config`
+    # (itself already validated above as a real, owned, non-symlinked
+    # directory) - the same ownership bar validate_activation_config()
+    # already applies to the activation config file in this same function.
+    # DS-183 round 6 (Minor fix): the companion's own type/ownership checks
+    # below (symlink/directory/group-writable) previously ran unconditionally
+    # whenever expected_agents_degraded existed at all - even when the
+    # installed AGENTS.md already resolves to the healthy stub and the
+    # companion, if present, is irrelevant to this dispatch (e.g. a stray
+    # leftover from a prior degrade-path install that auto-healed but left
+    # something odd behind at that path). Skip inspecting it entirely once
+    # the healthy-path match is already confirmed; only fall through to it
+    # when AGENTS.md resolves somewhere else and the companion is the one
+    # remaining explanation.
+    expected_agents_degraded = config / "AGENTS.degraded.md"
     if physical_agents != expected_physical:
-        fail(
-            f"configured AGENTS.md resolves to {physical_agents}, "
-            f"not this DinoStack repository at {expected_physical}"
-        )
+        if not expected_agents_degraded.exists():
+            fail(
+                f"configured AGENTS.md resolves to {physical_agents}, "
+                f"not this DinoStack repository at {expected_physical} "
+                f"(or its degrade-path companion at {expected_agents_degraded})"
+            )
+        if expected_agents_degraded.is_symlink() or not expected_agents_degraded.is_file():
+            fail(
+                "degrade-path companion AGENTS.md must be a real regular "
+                f"file: {expected_agents_degraded}"
+            )
+        validate_activation_config(expected_agents_degraded)
+        try:
+            expected_degraded_physical = expected_agents_degraded.resolve(strict=True)
+        except OSError as exc:
+            fail(f"cannot inspect degrade-path companion AGENTS.md: {exc}")
+        if physical_agents != expected_degraded_physical:
+            fail(
+                f"configured AGENTS.md resolves to {physical_agents}, "
+                f"not this DinoStack repository at {expected_physical} "
+                f"(or its degrade-path companion at {expected_agents_degraded})"
+            )
 
     if redirected:
         activation = config / "agentic-engineering.json"

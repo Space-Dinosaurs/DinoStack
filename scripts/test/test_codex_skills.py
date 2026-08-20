@@ -1004,12 +1004,244 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual("", symlink_rejected.stdout)
         self.assertIn("must not be a symlink", symlink_rejected.stderr)
 
+    def test_degrade_path_companion_survives_git_clean_and_round_trips(self) -> None:
+        # DS-183 round 5 (M1/M2 fix). The degrade-path companion previously
+        # lived inside this checkout at .codex/AGENTS.degraded.md, gitignored
+        # - deleted by a routine `git clean -xfd` or absent in a fresh
+        # worktree, leaving the installed AGENTS.md symlink dangling with
+        # nothing behind it. This test forces the degrade path (a real,
+        # non-symlink directory pre-placed at the dinostack skill's load
+        # path, exactly as the reviewer reproduced it), then simulates a
+        # `git clean` of the checkout and asserts the companion is untouched
+        # because it never lived there. It also covers the two behaviours a
+        # Critical (C1) and a Major (M1) were filed against: install writes
+        # the companion and symlinks AGENTS_DST at it, and
+        # runtime_bindings() accepts that target; plus uninstall removing
+        # the companion and auto-heal switching back when the skill link
+        # becomes healthy again.
+        dispatcher = self.repo / "bin/agentic-codex-dispatch"
+        fixture = Path(self.temporary.name) / "degrade-path"
+        home = fixture / "home"
+        invoked = fixture / "invoked-project"
+        home.mkdir(parents=True)
+        invoked.mkdir()
+        execute(["git", "init", "-q", str(invoked)], cwd=fixture)
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env.pop("AGENTIC_CONFIG_DIR", None)
+        env.pop("CODEX_HOME", None)
+
+        # Force the degrade path: a real (non-symlink) directory sitting
+        # where install.sh would otherwise place the dinostack skill
+        # symlink makes the skill unreachable at its load path.
+        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst.mkdir(parents=True)
+
+        install = [
+            "bash", str(self.repo / ".codex/install.sh"),
+            "--mode=opt-out", "--profile=default", "--no-identity",
+        ]
+        result = execute(install, cwd=invoked, env=env)
+        self.assertIn("degrade path", result.stdout)
+
+        agents_dst = home / ".codex/AGENTS.md"
+        agents_degraded = home / ".codex/AGENTS.degraded.md"
+        # Behaviour 1: companion written, installed symlink points at it -
+        # and it lives under the Codex config dir, never inside self.repo.
+        self.assertTrue(agents_dst.is_symlink())
+        self.assertEqual(str(agents_degraded), os.readlink(agents_dst))
+        self.assertTrue(agents_degraded.is_file())
+        self.assertFalse(agents_degraded.is_relative_to(self.repo))
+        self.assertIn("Embedded methodology", agents_degraded.read_text(encoding="utf-8"))
+
+        # Behaviour 2: runtime_bindings() accepts the degraded target.
+        bindings_result = execute(
+            [sys.executable, str(dispatcher), "runtime-bindings", str(invoked.resolve())],
+            cwd=fixture,
+            env=env,
+        )
+        bindings = json.loads(bindings_result.stdout)
+        self.assertEqual(str((home / ".codex").resolve()), bindings["AE_CODEX_CONFIG_DIR"])
+
+        # M1's actual reproduction: `git clean -xfd` on this checkout (or a
+        # fresh worktree) cannot touch the companion, because it never
+        # lived inside self.repo - asserted directly below via
+        # is_relative_to(self.repo) rather than by actually invoking
+        # `git clean` against the fixture. Confirm the companion and a
+        # working runtime both survive a would-be clean.
+        self.assertTrue(agents_degraded.exists())
+        post_clean_bindings = execute(
+            [sys.executable, str(dispatcher), "runtime-bindings", str(invoked.resolve())],
+            cwd=fixture,
+            env=env,
+        )
+        self.assertEqual(bindings_result.stdout, post_clean_bindings.stdout)
+
+        # Behaviour 3: runtime_bindings() still rejects a third, arbitrary
+        # physical target - the identity check is not simply disabled.
+        rogue = home / ".codex/rogue-AGENTS.md"
+        rogue.write_text("not dinostack\n", encoding="utf-8")
+        agents_dst.unlink()
+        agents_dst.symlink_to(rogue)
+        rejected = execute(
+            [sys.executable, str(dispatcher), "runtime-bindings", str(invoked.resolve())],
+            cwd=fixture,
+            env=env,
+            expected=2,
+        )
+        self.assertIn("configured AGENTS.md resolves to", rejected.stderr)
+        # Restore the degrade-path link for the remaining assertions below.
+        agents_dst.unlink()
+        agents_dst.symlink_to(agents_degraded)
+
+        # Behaviour 4: auto-heal switches AGENTS_DST back to the stub and
+        # removes the now-orphaned companion once the skill link is
+        # healthy again.
+        shutil.rmtree(skill_dst)
+        heal_result = execute(install, cwd=invoked, env=env)
+        self.assertIn("skill link healthy again", heal_result.stdout)
+        self.assertTrue(agents_dst.is_symlink())
+        self.assertEqual(str(self.repo / ".codex/AGENTS.md"), os.readlink(agents_dst))
+        self.assertFalse(agents_degraded.exists())
+
+        # Behaviour 5: force the degrade path again, then uninstall - the
+        # companion must be removed.
+        if skill_dst.is_symlink():
+            skill_dst.unlink()
+        else:
+            shutil.rmtree(skill_dst)
+        skill_dst.mkdir(parents=True)
+        execute(install, cwd=invoked, env=env)
+        self.assertTrue(agents_degraded.exists())
+        execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=invoked, env=env)
+        self.assertFalse(agents_degraded.exists())
+        self.assertFalse(agents_dst.exists())
+
+    def test_degrade_path_companion_never_destroys_unmarked_user_data(self) -> None:
+        # DS-183 round 6 (M1 fix). $AGENTS_DEGRADED moved to a user-owned
+        # config path in round 5 - fixing the checkout-fragility problem
+        # (see the test above) but introducing a data-loss one: nothing
+        # distinguished a pre-existing real user file at that exact path
+        # from install.sh/uninstall.sh's own generated artifact, so
+        # uninstall.sh deleted it outright with no backup. This test
+        # reproduces that against a genuine, unmarked pre-existing file and
+        # asserts every step of the marker-based fix: install backs it up
+        # rather than clobbering it; a second install (now marker-owned)
+        # overwrites in place with no new backup; and uninstall restores
+        # the ORIGINAL user backup rather than just deleting the companion.
+        dispatcher = self.repo / "bin/agentic-codex-dispatch"
+        fixture = Path(self.temporary.name) / "degrade-path-user-data"
+        home = fixture / "home"
+        invoked = fixture / "invoked-project"
+        home.mkdir(parents=True)
+        invoked.mkdir()
+        execute(["git", "init", "-q", str(invoked)], cwd=fixture)
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env.pop("AGENTIC_CONFIG_DIR", None)
+        env.pop("CODEX_HOME", None)
+
+        # Force the degrade path, same technique as the test above.
+        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst.mkdir(parents=True)
+
+        codex_dir = home / ".codex"
+        codex_dir.mkdir(parents=True)
+        agents_degraded = codex_dir / "AGENTS.degraded.md"
+        user_content = "MY OWN IMPORTANT NOTES - do not delete\n"
+        agents_degraded.write_text(user_content, encoding="utf-8")
+
+        install = [
+            "bash", str(self.repo / ".codex/install.sh"),
+            "--mode=opt-out", "--profile=default", "--no-identity",
+        ]
+        execute(install, cwd=invoked, env=env)
+
+        # The pre-existing unmarked file must be preserved via backup, not
+        # overwritten in place.
+        backups = sorted(codex_dir.glob("AGENTS.degraded.md.backup-*"))
+        self.assertEqual(1, len(backups), f"expected exactly one backup, found {backups}")
+        self.assertEqual(user_content, backups[0].read_text(encoding="utf-8"))
+        self.assertIn(
+            "dinostack:codex-degrade-generated",
+            agents_degraded.read_text(encoding="utf-8").splitlines()[0],
+        )
+
+        dispatcher_check = execute(
+            [sys.executable, str(dispatcher), "runtime-bindings", str(invoked.resolve())],
+            cwd=fixture,
+            env=env,
+        )
+        self.assertTrue(json.loads(dispatcher_check.stdout)["AE_CODEX_CONFIG_DIR"])
+
+        # A second install run (now marker-owned) overwrites the companion
+        # in place with no additional backup.
+        execute(install, cwd=invoked, env=env)
+        backups_after_second_install = sorted(codex_dir.glob("AGENTS.degraded.md.backup-*"))
+        self.assertEqual(1, len(backups_after_second_install))
+        self.assertEqual(backups[0], backups_after_second_install[0])
+
+        # Uninstall removes the marker-owned companion and restores the
+        # ORIGINAL user backup, rather than just deleting the companion and
+        # leaving the user's own data stranded in a .backup-* file only.
+        execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=invoked, env=env)
+        self.assertTrue(agents_degraded.exists())
+        self.assertEqual(user_content, agents_degraded.read_text(encoding="utf-8"))
+        self.assertEqual([], sorted(codex_dir.glob("AGENTS.degraded.md.backup-*")))
+
+    def test_degrade_path_write_failure_reports_actionable_error(self) -> None:
+        # DS-183 round 6 (Minor fix). A non-writable Codex config directory
+        # previously aborted the degrade-path write with a raw shell
+        # "Permission denied" and no remediation. The straightforward-looking
+        # `if ! { ...; } > "$TMP"; then` guard does NOT reliably propagate a
+        # redirection failure through bash's `!` negation on a brace-group
+        # command - measured directly: it silently takes the success branch
+        # even though the write failed - so the actual fix disables -e
+        # around the write and checks $? explicitly instead. This test
+        # covers the fixed behaviour: a clear, actionable error and a clean
+        # exit 1, never a raw abort with no guidance.
+        fixture = Path(self.temporary.name) / "degrade-path-write-failure"
+        home = fixture / "home"
+        invoked = fixture / "invoked-project"
+        home.mkdir(parents=True)
+        invoked.mkdir()
+        execute(["git", "init", "-q", str(invoked)], cwd=fixture)
+
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env.pop("AGENTIC_CONFIG_DIR", None)
+        env.pop("CODEX_HOME", None)
+
+        # Force the degrade path.
+        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst.mkdir(parents=True)
+
+        codex_dir = home / ".codex"
+        codex_dir.mkdir(parents=True)
+        codex_dir.chmod(0o555)
+        self.addCleanup(lambda: codex_dir.chmod(0o755))
+
+        install = [
+            "bash", str(self.repo / ".codex/install.sh"),
+            "--mode=opt-out", "--profile=default", "--no-identity",
+        ]
+        result = execute(install, cwd=invoked, env=env, expected=1)
+        self.assertIn("could not write", result.stderr)
+        self.assertIn("check write permissions on", result.stderr)
+        codex_dir.chmod(0o755)
+        self.assertEqual([], list(codex_dir.glob("AGENTS.degraded.md.tmp-*")))
+
     def test_generated_base_branch_guidance_matches_dispatcher_grammar(self) -> None:
-        paths = [self.repo / ".codex/AGENTS.md"]
-        paths.extend(
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded skill bodies, so `.codex/AGENTS.md` is
+        # deliberately excluded here - it no longer carries this text. Each
+        # skill's own SKILL.md still must.
+        paths = [
             self.repo / f".codex/skills/{skill}/SKILL.md"
             for skill in sorted(SKILL_NAMES)
-        )
+        ]
         for path in paths:
             with self.subTest(path=path.relative_to(self.repo)):
                 text = path.read_text(encoding="utf-8")
@@ -1041,9 +1273,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 self.assertNotIn("$HOME/.claude", preamble)
 
     def test_generated_stop_lifecycle_matches_actual_codex_hook(self) -> None:
-        agents = (self.repo / ".codex/AGENTS.md").read_text(encoding="utf-8")
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded wrap skill body, so `.codex/AGENTS.md`
+        # is deliberately excluded here - it no longer carries this text.
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
-        for label, text in (("AGENTS", agents), ("wrap", wrap)):
+        for label, text in (("wrap", wrap),):
             with self.subTest(surface=label):
                 self.assertIn("~/.codex/projects/[hash]/context.md", text)
                 self.assertIn("context-writer-migration", text)
@@ -1896,10 +2130,18 @@ class CodexSkillGenerationTests(unittest.TestCase):
         )
 
         installed_agents = (home / ".codex/AGENTS.md").read_text(encoding="utf-8")
+        # DS-183 moved this workflow-token guidance out of the always-loaded
+        # `.codex/AGENTS.md` stub into the trigger-loaded dinostack skill's
+        # METHODOLOGY.md, symlinked (not copied) into ~/.agents/skills/ by
+        # install.sh - so the workflow-token assertions below are retargeted
+        # at that installed symlink target rather than installed AGENTS.md.
+        installed_methodology = (
+            home / ".agents/skills/dinostack/METHODOLOGY.md"
+        ).read_text(encoding="utf-8")
         for token in sorted(native_tokens):
-            self.assertIn(token, installed_agents)
+            self.assertIn(token, installed_methodology)
         for token in sorted(skeptic_tokens):
-            self.assertIn(token, installed_agents)
+            self.assertIn(token, installed_methodology)
         self.assertNotIn("$skeptic", installed_agents)
         self.assertNotRegex(installed_agents, r"(?<![\w./-])/ds-[a-z0-9-]+\b")
 
@@ -2084,8 +2326,12 @@ class CodexSkillGenerationTests(unittest.TestCase):
                     offenders.append(f"{relative}: {pattern.pattern}")
         self.assertEqual([], offenders)
 
+        # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
+        # stub into the trigger-loaded skill bodies, so `.codex/AGENTS.md` is
+        # deliberately excluded from this positive check (it is still covered
+        # by the false_project_local_claims negative check above via
+        # generated_surfaces).
         for relative in (
-            ".codex/AGENTS.md",
             ".codex/skills/wrap/SKILL.md",
             ".codex/skills/implement-ticket/SKILL.md",
         ):

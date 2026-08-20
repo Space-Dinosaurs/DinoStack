@@ -24,13 +24,15 @@ Failure modes: refuses symlinked/special generated roots, unmatched source
                occurrences, invalid frontmatter, escaping resources, or drift.
                Check is read-only. A canonical-output build replaces only its
                owned generated tree; an arbitrary-output build also creates or atomically replaces
-               .agentic/codex-skill-root-ownership.json. A PARAGRAPH_RULES
-               anchor that matches zero times anywhere in
-               reachability_corpus() (assert_paragraph_rules_reachable(),
-               called from current_inventory()) aborts build, check, AND
-               inventory alike with a SkillError naming the unmatched
-               pattern(s) - current_inventory() is the common choke point
-               all three subcommands share.
+               .agentic/codex-skill-root-ownership.json. Two independent
+               reachability assertions both run from current_inventory() -
+               the common choke point build, check, AND inventory all share -
+               and either one aborts all three subcommands with a SkillError
+               naming what went unmatched: a PARAGRAPH_RULES anchor that
+               matches zero times anywhere in reachability_corpus()
+               (assert_paragraph_rules_reachable()), and a LITERAL_RULES
+               pattern that matches zero times in the same corpus
+               (assert_literal_rules_reachable()).
 
 Performance: linear in canonical source and generated-tree size.
 """
@@ -522,6 +524,110 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
 )
 
 
+# Module-level (hoisted out of inventory_document, DS-183 round 2 fix for
+# M2) so the pattern list has a single canonical identity shared by both the
+# matcher (inventory_document's literal_rules loop) and the unmatched-rule
+# assertion (assert_literal_rules_reachable). Each entry is (pattern, cls,
+# generated, mode, target_kind, target, scope) - same shape as before the
+# hoist, just no longer redefined on every inventory_document() call. See
+# assert_literal_rules_reachable's own docstring for what "reachable" means
+# here and why it needs a corpus wider than reachability_corpus() alone.
+LITERAL_RULES: tuple[tuple[str, str, str, str, str, str, str], ...] = (
+    (
+        r"ds-identity resolve-hook --cwd <cwd>",
+        "codex-profile-identity-command",
+        'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
+        'resolve-hook --cwd "$AE_PROJECT_DIR"',
+        "validated-config-path",
+        "profile-identity-command",
+        "AE_CODEX_CONFIG_DIR",
+        "codex-config-directory",
+    ),
+    (
+        r"The active config dir is the first non-empty qualifying "
+        r"environment value in\nthis order:\n\n1\. `AGENTIC_CONFIG_DIR`\n2"
+        r"\. `CLAUDE_CONFIG_DIR`\n3\. `CODEX_HOME`\n4\. `PI_CODING_AGENT_DIR`",
+        "codex-config-binding",
+        "For Codex, use only the already-validated `$AE_CODEX_CONFIG_DIR` "
+        "runtime binding as the active profile config dir; do not re-resolve "
+        "it from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or "
+        "`PI_CODING_AGENT_DIR`.",
+        "validated-config-path",
+        "runtime-binding",
+        "AE_CODEX_CONFIG_DIR",
+        "codex-config-directory",
+    ),
+    # Two entries previously here (the "it selects the first qualifying
+    # profile binding..." override and the "pass `--profile-dir <dir>` when
+    # the active config dir cannot be derived..." override) were removed
+    # during the DS-183 round 2 literal-rules reachability audit (the audit
+    # that added assert_literal_rules_reachable() below): their exact match
+    # text does not exist ANYWHERE in the current repository (confirmed via
+    # `git grep`, not just this file's own narrower corpus) - genuinely
+    # obsolete canonical prose, not merely reworded, same class as the
+    # PARAGRAPH_RULES deletions noted in that tuple's own comments above.
+    # content/commands/ds-identity.md's "Profile config-dir resolution"
+    # section (matched by the entry immediately above) and its "Profile
+    # scope uses the active config-dir env automatically" sentence (matched
+    # by the entry below) now cover the same ground the two deleted entries
+    # once targeted.
+    (
+        r"<active-config-dir>/identity\.yml",
+        "codex-config-path",
+        "$AE_CODEX_CONFIG_DIR/identity.yml",
+        "validated-config-path",
+        "identity-file",
+        "identity.yml",
+        "codex-config-directory",
+    ),
+    (
+        r"  Confirm: ds-identity confirm --scope <scope>\n"
+        r"  Correct: ds-identity init <handle> --force --scope <scope>",
+        "codex-profile-identity-command",
+        "  Confirm (global/project): ds-identity confirm --scope "
+        "<global|project>\n"
+        "  Correct (global/project): ds-identity init <handle> --force "
+        "--scope <global|project>\n"
+        "  Show (profile): ds-identity show --scope profile --profile-dir "
+        "\"$AE_CODEX_CONFIG_DIR\"\n"
+        "  Confirm (profile): ds-identity confirm --scope profile "
+        "--profile-dir \"$AE_CODEX_CONFIG_DIR\"\n"
+        "  Correct (profile): ds-identity init <handle> --force --scope "
+        "profile --profile-dir \"$AE_CODEX_CONFIG_DIR\"",
+        "validated-config-path",
+        "profile-identity-command",
+        "AE_CODEX_CONFIG_DIR",
+        "codex-config-directory",
+    ),
+    # Reworded, not removed (DS-183 round 2, same audit as above): the "For
+    # profile scope, the command uses the active config-dir environment
+    # automatically; append `--profile-dir <dir>` only when no profile env
+    # is available." pattern's old wording does not exist anywhere in the
+    # repository - content/commands/ds-identity.md:275 now reads "Profile
+    # scope uses the active config-dir env automatically; append
+    # `--profile-dir <dir>` only when needed." (the still-live paragraph
+    # below matches that current wording).
+    (
+        r"Profile scope uses the active\s+config-dir env automatically; "
+        r"append `--profile-dir <dir>` only when\s+needed\.",
+        "codex-profile-identity-command",
+        "For profile scope, always pass `--profile-dir "
+        "\"$AE_CODEX_CONFIG_DIR\"` to `show`, `confirm`, `init`, and `auto`.",
+        "validated-config-path",
+        "profile-identity-command",
+        "AE_CODEX_CONFIG_DIR",
+        "codex-config-directory",
+    ),
+    (r"~/DinoStack/\.claude/skills/dinostack", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
+    (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
+    (r"~?/??\.claude/skills/dinostack", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
+    (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
+    (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
+    (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
+    (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/ds-codex-session-id", "codex-harness"),
+)
+
+
 def reachability_corpus(repo: Path) -> str:
     """Concatenation of assembled_methodology() + WORKFLOWS.values() +
     content/rules/conventions.md + content/rules/code-standards.md, for
@@ -572,6 +678,96 @@ def assert_paragraph_rules_reachable(repo: Path) -> None:
             "the matching regex here, silently reverting the Codex-specific override to "
             "canonical (Claude-only) text. Update the anchor pattern(s) to the current "
             "canonical wording:\n" + previews
+        )
+
+
+def literal_rules_reachability_corpus(repo: Path) -> str:
+    """DS-183 round 5 (M3 fix). Deliberately NOT built from
+    reachability_corpus(repo): that function unconditionally appends the
+    full, unmodified text of content/rules/conventions.md and
+    content/rules/code-standards.md (lines used by
+    assert_paragraph_rules_reachable() above, which legitimately targets
+    them). Neither file is part of any real LITERAL_RULES-matching scan -
+    build-methodology.sh does not embed them into assembled METHODOLOGY.md,
+    and documents()/current_inventory() never reads them directly - so
+    including them here made every LITERAL_RULES pattern whose canonical
+    wording happens to also appear in one of those two files trivially
+    "reachable" forever, regardless of whether its real generation-facing
+    target still carries that text. Proven by execution: with this function
+    built on reachability_corpus(), deleting the identity confirm/correct
+    block from .codex/build.sh's AGENTS_RAW heredoc still left
+    assert_literal_rules_reachable() green, because the identical block also
+    lives verbatim in content/rules/conventions.md - present in the corpus
+    independent of anything real generation actually does with it.
+
+    Built instead from exactly the documents real generation-facing code
+    can put a LITERAL_RULES match through:
+
+    - content/SKILL.md, assembled_methodology(repo), and WORKFLOWS.values()
+      (the same three-plus-one set documents()/current_inventory() scans).
+    - The raw text of .codex/build.sh. render_runtime_guidance() transforms
+      .codex/AGENTS.md from AGENTS_RAW, a heredoc assembled inline inside
+      .codex/build.sh itself (not a content/** source file) - a
+      LITERAL_RULES pattern whose only remaining match target is text
+      embedded directly in that heredoc (e.g. the identity confirm/correct
+      block restored there by DS-183 round 2) would otherwise be invisible.
+    - Every content/commands/*.md file, not just the 3 WORKFLOWS.values()
+      files documents() scans. Several LITERAL_RULES patterns (the profile
+      config-dir resolution order, the <active-config-dir>/identity.yml
+      path, and the `.claude/agents` / `.claude/commands` path-mapping
+      rules) target text that lives only in dispatcher-loaded
+      "manual-command-resource" command docs outside the 3 native-skill
+      WORKFLOWS files (content/commands/ds-identity.md, content/commands/
+      ds-skeptic.md, content/commands/ds-update-agentic-engineering.md) -
+      real, shipped content an agent can read via bin/ds-codex-dispatch,
+      just never passed through inventory_document()'s transform for those
+      files specifically. This widening is read-only (it only feeds this
+      assertion, never documents()/current_inventory()'s actual generation
+      scan), so it cannot change any generated artifact's content - it only
+      makes the "does this pattern match ANYTHING real, anywhere" check
+      accurate instead of narrower than the real corpus of text these
+      patterns were written to target.
+
+    Reading .codex/build.sh and content/commands/*.md as plain text is
+    sufficient here - this function only needs to prove a pattern matches
+    SOMEWHERE, not execute or transform either source."""
+    parts = [
+        read_text(repo / "content/SKILL.md"),
+        assembled_methodology(repo),
+    ]
+    parts.extend(read_text(repo / path) for path in WORKFLOWS.values())
+    parts.append(read_text(repo / ".codex/build.sh"))
+    parts.extend(
+        read_text(path) for path in sorted((repo / "content/commands").glob("*.md"))
+    )
+    return "\n\n".join(parts)
+
+
+def assert_literal_rules_reachable(repo: Path) -> None:
+    """Fail loudly if any LITERAL_RULES pattern matches zero times anywhere
+    in literal_rules_reachability_corpus(repo). Same rationale as
+    assert_paragraph_rules_reachable() above, extended to LITERAL_RULES: a
+    zero-hit pattern means its Codex-specific override has silently stopped
+    applying anywhere real generation actually scans. The DS-183 round 1
+    regression this closes was the identity confirm/correct block LITERAL_
+    RULES entry losing its only match target when .codex/AGENTS.md stopped
+    embedding content/rules/conventions.md verbatim - round 2 restored a
+    hardcoded copy of that same text directly into .codex/build.sh's
+    AGENTS_RAW heredoc, which is this function's real generation-facing
+    match target for that entry now (never conventions.md itself - see
+    literal_rules_reachability_corpus()'s docstring, M3 fix)."""
+    corpus = literal_rules_reachability_corpus(repo)
+    unmatched = [pattern for pattern, *_ in LITERAL_RULES if not re.search(pattern, corpus)]
+    if unmatched:
+        previews = "\n".join(f"  - {pattern[:100]!r}" for pattern in unmatched)
+        raise SkillError(
+            f"{len(unmatched)} of {len(LITERAL_RULES)} LITERAL_RULES pattern(s) in "
+            "scripts/codex-skills.py matched ZERO times anywhere in the literal-rules "
+            "reachability corpus - the canonical text this pattern targets was likely "
+            "reworded or removed without updating the matching regex here (or without "
+            "restoring the matched text to a still-generated artifact), silently dropping "
+            "a Codex-specific override. Update the pattern or restore its match text:\n"
+            + previews
         )
 
 
@@ -1102,104 +1298,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             "codex-harness",
         )
 
-    literal_rules = [
-        (
-            r"ds-identity resolve-hook --cwd <cwd>",
-            "codex-profile-identity-command",
-            'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
-            'resolve-hook --cwd "$AE_PROJECT_DIR"',
-            "validated-config-path",
-            "profile-identity-command",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (
-            r"The active profile config dir is the first non-empty qualifying value "
-            r"from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, then `CODEX_HOME`; "
-            r"expand a leading `~`, normalize lexically, accept only a path under "
-            r"`\$HOME`, and reject symlinked components\.",
-            "codex-config-binding",
-            "For Codex, use only the already-validated `$AE_CODEX_CONFIG_DIR` "
-            "runtime binding as the active profile config dir; do not re-resolve "
-            "it from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, or `CODEX_HOME`.",
-            "validated-config-path",
-            "runtime-binding",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (
-            r"it selects the first qualifying profile binding from "
-            r"`AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or "
-            r"`PI_CODING_AGENT_DIR`",
-            "codex-config-binding",
-            "it must use only the already-validated `$AE_CODEX_CONFIG_DIR` "
-            "runtime binding",
-            "validated-config-path",
-            "runtime-binding",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (
-            r"<active-config-dir>/identity\.yml",
-            "codex-config-path",
-            "$AE_CODEX_CONFIG_DIR/identity.yml",
-            "validated-config-path",
-            "identity-file",
-            "identity.yml",
-            "codex-config-directory",
-        ),
-        (
-            r"pass `--profile-dir <dir>` when the active config dir cannot be "
-            r"derived from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, "
-            r"`CODEX_HOME`, or `PI_CODING_AGENT_DIR`",
-            "codex-profile-identity-command",
-            "always pass `--profile-dir \"$AE_CODEX_CONFIG_DIR\"` for profile "
-            "identity operations",
-            "validated-config-path",
-            "profile-identity-command",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (
-            r"  Confirm: ds-identity confirm --scope <scope>\n"
-            r"  Correct: ds-identity init <handle> --force --scope <scope>",
-            "codex-profile-identity-command",
-            "  Confirm (global/project): ds-identity confirm --scope "
-            "<global|project>\n"
-            "  Correct (global/project): ds-identity init <handle> --force "
-            "--scope <global|project>\n"
-            "  Show (profile): ds-identity show --scope profile --profile-dir "
-            "\"$AE_CODEX_CONFIG_DIR\"\n"
-            "  Confirm (profile): ds-identity confirm --scope profile "
-            "--profile-dir \"$AE_CODEX_CONFIG_DIR\"\n"
-            "  Correct (profile): ds-identity init <handle> --force --scope "
-            "profile --profile-dir \"$AE_CODEX_CONFIG_DIR\"",
-            "validated-config-path",
-            "profile-identity-command",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (
-            r"For profile scope, the command uses the active config-dir "
-            r"environment automatically; append `--profile-dir <dir>` only when "
-            r"no profile env is available\.",
-            "codex-profile-identity-command",
-            "For profile scope, always pass `--profile-dir "
-            "\"$AE_CODEX_CONFIG_DIR\"` to `show`, `confirm`, `init`, and `auto`.",
-            "validated-config-path",
-            "profile-identity-command",
-            "AE_CODEX_CONFIG_DIR",
-            "codex-config-directory",
-        ),
-        (r"~/DinoStack/\.claude/skills/dinostack", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
-        (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
-        (r"~?/??\.claude/skills/dinostack", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
-        (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
-        (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
-        (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
-        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/ds-codex-session-id", "codex-harness"),
-    ]
-    for pattern, cls, generated, mode, target_kind, target, scope in literal_rules:
+    for pattern, cls, generated, mode, target_kind, target, scope in LITERAL_RULES:
         for match in re.finditer(pattern, doc.text):
             add_occurrence(found, occupied, doc, match.start(), match.end(), cls, match.group(0),
                            generated, "operational", mode, target, scope)
@@ -1325,6 +1424,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
 def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[Occurrence]]]:
     assert_paragraph_rules_reachable(repo)
+    assert_literal_rules_reachable(repo)
     by_source: dict[str, list[Occurrence]] = {}
     for doc in documents(repo):
         by_source[doc.source] = inventory_document(doc, repo)

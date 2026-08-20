@@ -328,11 +328,12 @@ BUDGET_SCRIPTS: tuple[str, ...] = (
     "check-command-file-budget.sh",
     "check-copilot-skill-budget.sh",
     "check-kimi-skill-embed-budget.sh",
+    "check-codex-skill-budget.sh",
 )
 
 
 def _collect_budget_gates(repo: Path) -> dict | None:
-    """Run the budget-gate scripts and capture exit + tail of stdout.
+    """Run the registered budget-gate scripts and capture exit + tail of stdout.
 
     A missing or unrunnable script omits that gate (never a crash).
     """
