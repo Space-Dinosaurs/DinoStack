@@ -6,7 +6,7 @@ Purpose: Read .agentic/events.jsonl and render Skeptic calibration rollups -
          layer documented in content/references/skeptic-protocol.md Section
          13.
 
-Public API: ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+Public API: ds-calibrate density   [--since <ISO8601>] [--task <unit>]
             ds-calibrate divergence [--since <ISO8601>]
             ds-calibrate help
             All subcommands print fixed-width tables to stdout. Exit codes:
@@ -118,15 +118,22 @@ def cmd_density(args: argparse.Namespace) -> int:
         if not _is_skeptic_spawn_complete(ev):
             continue
         data = ev.get("data") or {}
-        if "findings_count" not in data or "diff_lines" not in data:
+        if "findings_count" not in data:
             continue
-        if args.task and ev.get("task_id") != args.task:
+        # unit_key (DS-178) identifies a review round; older hook-emitted
+        # and self-reported rows carry only task_id, so fall back to it.
+        # diff_lines is intentionally NOT part of this row-inclusion test -
+        # a row with a real findings_count but an absent diff_lines (e.g. an
+        # unresolvable diff range) is still an informative calibration row.
+        unit = data.get("unit_key") or ev.get("task_id") or "-"
+        if args.task and unit != args.task:
             continue
         rows.append({
-            "task_id": ev.get("task_id") or "-",
+            "unit": unit,
             "iteration": data.get("iteration", "-"),
             "findings_count": data.get("findings_count") or {},
-            "diff_lines": data.get("diff_lines", 0),
+            # None means absent, distinct from a real measured 0.
+            "diff_lines": data.get("diff_lines"),
             "signed_off": bool(data.get("signed_off", False)),
             "ts": ev.get("ts", "-"),
         })
@@ -136,7 +143,7 @@ def cmd_density(args: argparse.Namespace) -> int:
 
     print("Skeptic findings density (per 100 diff-lines)")
     print("=" * 72)
-    print(f"{'task_id':<32} {'iter':>4} {'C':>3} {'M':>3} {'m':>3} {'lines':>6} {'density':>9}")
+    print(f"{'unit':<32} {'iter':>4} {'C':>3} {'M':>3} {'m':>3} {'lines':>6} {'density':>9}")
     print("-" * 72)
     for r in rows:
         fc = r["findings_count"]
@@ -147,10 +154,15 @@ def cmd_density(args: argparse.Namespace) -> int:
         if isinstance(dl, int) and dl > 0:
             density = (c + ma + mi) * 100.0 / dl
             density_s = f"{density:>8.2f}"
+            dl_s = str(dl)
+        elif dl is None:
+            density_s = "      N/A"
+            dl_s = "-"
         else:
             density_s = "      N/A"
-        tid = str(r["task_id"])[:32]
-        print(f"{tid:<32} {str(r['iteration']):>4} {c:>3} {ma:>3} {mi:>3} {str(dl):>6} {density_s:>9}")
+            dl_s = str(dl)
+        unit_s = str(r["unit"])[:32]
+        print(f"{unit_s:<32} {str(r['iteration']):>4} {c:>3} {ma:>3} {mi:>3} {dl_s:>6} {density_s:>9}")
     print("-" * 72)
 
     if n_qualifying < WARMING_UP_THRESHOLD:
@@ -231,7 +243,7 @@ def cmd_help(_args: argparse.Namespace) -> int:
     print(__doc__.strip() if __doc__ else "ds-calibrate")
     print()
     print("Subcommands:")
-    print("  density   [--since <ISO8601>] [--task <task_id>]   "
+    print("  density   [--since <ISO8601>] [--task <unit>]   "
           "Findings per 100 diff-lines.")
     print("  divergence [--since <ISO8601>]                      "
           "Meta-Skeptic divergence rate.")
@@ -248,7 +260,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_density = sub.add_parser("density", help="Findings per 100 diff-lines.")
     p_density.add_argument("--since", default=None, help="ISO8601 lower bound.")
-    p_density.add_argument("--task", default=None, help="Filter by task_id.")
+    p_density.add_argument(
+        "--task", default=None,
+        help="Filter by unit (data.unit_key, falling back to task_id).",
+    )
     p_density.set_defaults(func=cmd_density)
 
     p_div = sub.add_parser("divergence", help="Meta-Skeptic divergence rate.")

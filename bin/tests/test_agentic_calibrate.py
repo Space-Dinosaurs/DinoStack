@@ -54,6 +54,37 @@ def _make_skeptic_spawn_complete(
     })
 
 
+def _make_skeptic_spawn_complete_ex(
+    task_id: str,
+    ts: str,
+    findings_count: dict,
+    diff_lines: int | None = None,
+    unit_key: str | None = None,
+    signed_off: bool = True,
+    iteration: int = 1,
+) -> str:
+    """Like _make_skeptic_spawn_complete but diff_lines/unit_key are omitted
+    from `data` entirely when None, matching DS-178's real
+    present-or-absent-with-note contract (never a zero-filled placeholder)."""
+    data: dict = {
+        "findings_count": findings_count,
+        "signed_off": signed_off,
+        "iteration": iteration,
+    }
+    if diff_lines is not None:
+        data["diff_lines"] = diff_lines
+    if unit_key is not None:
+        data["unit_key"] = unit_key
+    return json.dumps({
+        "ts": ts,
+        "phase": "hook",
+        "event": "spawn_complete",
+        "agent": "skeptic",
+        "task_id": task_id,
+        "data": data,
+    })
+
+
 def _make_meta_review_complete(
     task_id: str,
     ts: str,
@@ -215,6 +246,132 @@ def test_density_task_filter():
     print("PASS test_density_task_filter")
 
 
+def test_density_absent_diff_lines_renders_dash():
+    """A row with findings_count but no diff_lines key renders '-' in the
+    lines column (DS-178 unit B, rubric R3) - never a zero-fill."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events_path = agentic / "events.jsonl"
+        events_path.write_text(
+            _make_skeptic_spawn_complete_ex(
+                "T-ABSENT", "2026-08-01T10:00:00Z",
+                {"critical": 0, "major": 1, "minor": 0},
+                diff_lines=None,
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(since=None, task=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        data_line = next(l for l in out.splitlines() if "T-ABSENT" in l)
+        cols = data_line.split()
+        assert cols[5] == "-", f"Expected '-' for absent diff_lines, row: {data_line!r}"
+        assert cols[6] == "N/A", f"Expected N/A density for absent diff_lines: {data_line!r}"
+    print("PASS test_density_absent_diff_lines_renders_dash")
+
+
+def test_density_real_diff_lines_renders_number():
+    """A row with a real diff_lines value renders the integer, not '-'."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events_path = agentic / "events.jsonl"
+        events_path.write_text(
+            _make_skeptic_spawn_complete_ex(
+                "T-REAL", "2026-08-01T10:00:00Z",
+                {"critical": 0, "major": 1, "minor": 0},
+                diff_lines=142,
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(since=None, task=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)
+        assert rc == 0
+        data_line = next(l for l in out.splitlines() if "T-REAL" in l)
+        cols = data_line.split()
+        assert cols[5] == "142", f"Expected '142' for real diff_lines, row: {data_line!r}"
+    print("PASS test_density_real_diff_lines_renders_number")
+
+
+def test_density_unit_key_preferred_over_task_id():
+    """When both unit_key and task_id exist, the row renders unit_key, not task_id."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events_path = agentic / "events.jsonl"
+        events_path.write_text(
+            _make_skeptic_spawn_complete_ex(
+                "TASK-XYZ", "2026-08-01T10:00:00Z",
+                {"critical": 0, "major": 0, "minor": 1},
+                diff_lines=40, unit_key="unit-key-abc",
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(since=None, task=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)
+        assert rc == 0
+        assert "unit-key-abc" in out, f"Expected unit_key in output: {out!r}"
+        data_line = next(l for l in out.splitlines() if "unit-key-abc" in l)
+        assert "TASK-XYZ" not in data_line, (
+            f"Expected task_id NOT to appear when unit_key is present: {data_line!r}"
+        )
+    print("PASS test_density_unit_key_preferred_over_task_id")
+
+
+def test_density_task_id_fallback_when_no_unit_key():
+    """Older rows lacking unit_key still group/render on task_id (degrade gracefully)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events_path = agentic / "events.jsonl"
+        events_path.write_text(
+            _make_skeptic_spawn_complete_ex(
+                "DS-64", "2026-07-02T19:09:16Z",
+                {"critical": 0, "major": 1, "minor": 0},
+                diff_lines=1409,
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(since=None, task=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)
+        assert rc == 0
+        assert "DS-64" in out, f"Expected task_id fallback in output: {out!r}"
+    print("PASS test_density_task_id_fallback_when_no_unit_key")
+
+
+def test_density_task_filter_matches_unit_key():
+    """--task filters against the rendered unit (unit_key, falling back to
+    task_id) - not the raw task_id when unit_key is present."""
+    with tempfile.TemporaryDirectory() as tmp:
+        agentic = Path(tmp) / ".agentic"
+        agentic.mkdir()
+        events_path = agentic / "events.jsonl"
+        events_path.write_text(
+            _make_skeptic_spawn_complete_ex(
+                "T1", "2026-08-01T10:00:00Z",
+                {"critical": 1, "major": 0, "minor": 0},
+                diff_lines=80, unit_key="U1",
+            ) + "\n"
+            + _make_skeptic_spawn_complete_ex(
+                "T2", "2026-08-01T10:01:00Z",
+                {"critical": 0, "major": 0, "minor": 1},
+                diff_lines=40, unit_key="U2",
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(since=None, task="U1")
+        rc, out, _ = _capture_cmd(_mod.cmd_density, args, events_path)
+        assert rc == 0
+        assert "U1" in out, f"Expected U1 in filtered output: {out!r}"
+        data_lines = [l for l in out.splitlines() if "U2" in l]
+        assert not data_lines, f"U2 should be filtered out: {out!r}"
+        # Filtering on the raw task_id "T1" must NOT match when unit_key differs.
+        args2 = types.SimpleNamespace(since=None, task="T1")
+        rc2, out2, _ = _capture_cmd(_mod.cmd_density, args2, events_path)
+        assert rc2 == 0
+        data_lines2 = [l for l in out2.splitlines() if "U1" in l]
+        assert not data_lines2, (
+            f"--task T1 should not match a row whose unit_key is U1: {out2!r}"
+        )
+    print("PASS test_density_task_filter_matches_unit_key")
+
+
 def test_density_since_filter():
     """--since filters events before the given timestamp."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -335,6 +492,11 @@ if __name__ == "__main__":
     test_density_renders_table_rows()
     test_density_aggregate_above_threshold()
     test_density_task_filter()
+    test_density_absent_diff_lines_renders_dash()
+    test_density_real_diff_lines_renders_number()
+    test_density_unit_key_preferred_over_task_id()
+    test_density_task_id_fallback_when_no_unit_key()
+    test_density_task_filter_matches_unit_key()
     test_density_since_filter()
     test_density_malformed_since_exits_two()
     test_divergence_no_meta_events()

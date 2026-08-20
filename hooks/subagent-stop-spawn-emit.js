@@ -166,13 +166,13 @@
  *                        Before this unit, that branch was structurally
  *                        dead for any hook-emitted row (hook payloads never
  *                        carried calibration data at all); it is live now.
- *                        `bin/ds-calibrate` (DS-178 unit B, not yet built
- *                        as of this unit) is expected to add its own
- *                        density-report consumer of `agent_source`/
- *                        `model`/`unit_key`/`iteration`/`findings_count`/
- *                        `signed_off`/`findings_parse_ambiguous`/
- *                        `diff_lines`/`calibration_note` - that consumer
- *                        does not exist yet, but `capture-gap.js`'s does.
+ *                        `bin/ds-calibrate` (DS-178 unit B) is now also a
+ *                        live consumer: its `density` subcommand groups on
+ *                        `data.unit_key` (falling back to the event's
+ *                        `task_id` for pre-unit-A rows) and renders
+ *                        `data.diff_lines` as `-` when absent rather than
+ *                        zero-filling it, per this event's own
+ *                        present-or-absent-with-`calibration_note` contract.
  *
  * Failure modes: Fully fail-open, mirroring hooks/pre-tool-use-spawn-emit.js.
  *                Entire body wrapped in try/catch; ALWAYS process.exit(0).
