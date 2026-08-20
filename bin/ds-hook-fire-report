@@ -120,8 +120,12 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, sys,
                three sources are read-only inputs to the SAME query-time
                merge. Stranded lines are merged into the same in-memory
                record set, deduped by EXACT line text against what the
-               primary log already contains (and against each other, in
-               path-sort order), so a report re-run after the write-target
+               primary log already contains, against every other stranded
+               file processed earlier (path-sort order), AND against
+               earlier lines within that same stranded file - a stranded
+               file's own internal repeats are also suppressed. Only the
+               primary log itself is exempt from dedup, including against
+               its own repeats, so a report re-run after the write-target
                fix lands does not double-count rows the primary log now
                also receives directly. This tool never WRITES a merged
                copy back to disk - the merge is query-time only, and the
@@ -342,23 +346,26 @@ def _load_jsonl(
         toward total/malformed/records regardless of whether its text
         duplicates another line already in `seen` - the primary log is
         the source of truth, and a coincidentally-identical fire record
-        is still a real, separate fire. `seen` is still POPULATED with
-        every line this call sees (mutated in place), so a later
-        dedupe=True call can detect the primary log already having it.
+        is still a real, separate fire, even a repeat WITHIN the primary
+        log itself. `seen` is still POPULATED with every line this call
+        sees (mutated in place), so a later dedupe=True call can detect
+        the primary log already having it.
       - dedupe=True (every stranded-copy call): a line whose exact text
-        is already in `seen` is treated as already counted by an earlier
-        source in the same merge and contributes to NEITHER
-        total/malformed/records for this call - this is what makes a
-        stranded copy of a fire the primary log (or an earlier stranded
-        file) already holds count exactly once, never twice. A line not
+        is already in `seen` - whether it was put there by the primary
+        log, an earlier stranded file, OR an earlier line in THIS SAME
+        file - contributes to NEITHER total/malformed/records for this
+        call. Because `seen` is checked and updated per line within the
+        same call, a repeat WITHIN a single stranded source is also
+        suppressed, not just a repeat across sources - a stranded file
+        containing the identical line twice counts it once. A line not
         already in `seen` counts normally and is added to `seen` so a
-        THIRD source sharing the same set also skips it.
+        later line (in this file or a later source) also skips it.
 
-    This one rule - count a given line's text once across the whole
-    merge, but never suppress a repeat WITHIN a single source - is what
-    `meta.log_malformed_ratio`'s denominator (`log_total_lines`) follows
-    project-wide; see build_report's merge loop for where both call
-    shapes are used."""
+    This one rule - count a given line's exact text once across the
+    whole merge, with the primary log alone exempt from dedup entirely
+    (including against itself) - is what `meta.log_malformed_ratio`'s
+    denominator (`log_total_lines`) follows project-wide; see
+    build_report's merge loop for where both call shapes are used."""
     records: list[dict] = []
     total = 0
     malformed = 0
