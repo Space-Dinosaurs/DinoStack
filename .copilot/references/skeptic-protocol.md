@@ -897,7 +897,7 @@ Existing `spawn_complete` fields (`tier`, `tool_use_id`, `agent_id`, `model`, `w
 
 ### Sampling protocol
 
-A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: hash `task_id` concatenated with `iteration` into a uniform 0-99 bucket; trigger if `bucket < 5`. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
+A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: sha256-hash `task_id` and `iteration` concatenated with no separator (`<task_id><iteration>`) into a uniform 0-99 bucket (`int(hexdigest, 16) % 100`); trigger if `bucket < 5`. See `content/commands/ds-implement-ticket.md`'s "Compute the deterministic sampling bucket" step for the canonical implementation this describes. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
 
 Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/ds-emit`.
 
@@ -968,12 +968,12 @@ Format: single line, ISO8601 UTC timestamp (e.g. `2026-05-13T16:30:00Z`). File-a
 `bin/ds-calibrate` is the queryable surface for calibration data:
 
 ```
-ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+ds-calibrate density   [--since <ISO8601>] [--task <unit>]
 ds-calibrate divergence [--since <ISO8601>]
 ds-calibrate help
 ```
 
-`density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Spawns where `diff_lines == 0` are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows. When fewer than 10 spawns have been observed (after zero-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
+`density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Each row is keyed on `data.unit_key` (the DS-178 unit-A calibration field), falling back to the event's `task_id` for older rows that predate it - the rendered/filtered `unit` column reflects whichever resolved. Spawns where `diff_lines` is `0` OR absent are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows, and prints `-` (never `0`) in the lines column when `diff_lines` is absent, distinguishing "not measured" from a real zero. When fewer than 10 spawns have been observed (after zero/absent-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
 
 `divergence` reads `meta_review_complete` events and prints the divergence rate (Critical/Major/Minor missed counts and percentage of sampled spawns).
 

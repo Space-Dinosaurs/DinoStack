@@ -112,6 +112,19 @@ When `agent == "skeptic"`, additional calibration fields are present:
 `findings_count` (`{critical, major, minor}`), `diff_lines`, `signed_off`,
 `iteration`.
 
+**DS-178 unit A hook-emitted calibration fields.** The hook-emitted variant
+described below additionally resolves `unit_key`/`iteration` (via a
+tuid-index lookup), `findings_count`/`signed_off` (parsed from the Skeptic's
+sign-off statement), and `diff_lines` (a best-effort `git diff --shortstat`
+measurement) - each is present with a real value or absent, sharing a single
+`calibration_note` field naming which of the three missed and why. It also
+always carries `agent_source` (`"sidecar"`, `"paired_start"`, or
+`"unknown"`), recording the provenance of the resolved `agent` label. See
+`content/references/events-log.md`'s "Hook-emitted calibration fields
+(DS-178 unit A)" bullet for the full per-field miss taxonomy - the summary
+above is deliberately partial, per this file's own "Update alongside"
+discipline.
+
 **DS-160 hook-emitted variant.** `hooks/subagent-stop-spawn-emit.js`
 (`SubagentStop`) also emits a deterministic `spawn_complete` with
 `data.source:"hook"`, independent of the conductor-emitted event described
