@@ -3,8 +3,13 @@
 # Role: Remove the Gemini CLI adapter from ~/.gemini/
 # Inputs: currently installed symlinks and settings at ~/.gemini/
 # Outputs: symlinks removed; hooks block removed from ~/.gemini/settings.json;
-#          .backup-<timestamp> files restored if present
-# Side-effects: modifies ~/.gemini/settings.json in-place
+#          .backup-<timestamp> files restored if present; a real (non-symlink)
+#          ~/.gemini/GEMINI.md carrying our own GEMINI_MD_DEGRADE_MARKER
+#          first line is DELETED outright (DS-184 degrade-path artifact, not
+#          user data); a real GEMINI.md without that marker is left alone
+# Side-effects: modifies ~/.gemini/settings.json in-place; DELETES
+#               ~/.gemini/GEMINI.md when it is our own marked degrade-path
+#               artifact (see Outputs above)
 # Consumers: user runs manually to reverse install.sh
 set -euo pipefail
 
@@ -20,10 +25,53 @@ COMMANDS_DST="$HOME/.gemini/commands"
 AGENTS_SRC="$GEMINI_DIR/agents"
 AGENTS_DST="$HOME/.gemini/agents"
 
+SKILL_SRC="$GEMINI_DIR/skills/dinostack"
+SKILL_DST="$HOME/.gemini/skills/dinostack"
+
 SETTINGS="$HOME/.gemini/settings.json"
+
+# Marker written as the first line of a degrade-path-generated GEMINI.md by
+# install.sh (DS-184 M2/M3 fix). Distinguishes our own generated artifact
+# from genuine user data at the same destination - see install.sh's own
+# definition of this constant for the full rationale.
+GEMINI_MD_DEGRADE_MARKER="<!-- dinostack:gemini-degrade-generated -->"
+
+# ---------------------------------------------------------------------------
+# Remove ~/.gemini/skills/dinostack symlink
+#
+# No backup-restore step here (unlike the other three symlinks below):
+# install.sh's Step 3a never backs up a pre-existing real file/directory at
+# this destination - it skips linking outright and leaves the conflict for
+# the operator to resolve manually (install.sh:293-301) - so no
+# ${SKILL_DST}.backup-* can ever exist to restore. A restore block here
+# would be dead code (DS-184 m2 fix).
+# ---------------------------------------------------------------------------
+
+echo "Removing skill: dinostack..."
+
+if [[ -L "$SKILL_DST" ]]; then
+  current_target="$(readlink "$SKILL_DST")"
+  if [[ "$current_target" == "$SKILL_SRC" ]]; then
+    rm "$SKILL_DST"
+    echo "  - ~/.gemini/skills/dinostack/ symlink removed"
+  else
+    echo "  = ~/.gemini/skills/dinostack/ (points to $current_target - not ours, skipping)"
+  fi
+elif [[ -e "$SKILL_DST" ]]; then
+  echo "  = ~/.gemini/skills/dinostack/ (real directory - not removing)"
+else
+  echo "  = ~/.gemini/skills/dinostack/ (not found - nothing to do)"
+fi
 
 # ---------------------------------------------------------------------------
 # Remove ~/.gemini/GEMINI.md symlink and restore backup if one exists
+#
+# DS-184: a broken skill link at install time may have left a WRITTEN file
+# here instead of a symlink (the degrade path in install.sh Step 3b). That
+# file carries GEMINI_MD_DEGRADE_MARKER on its first line - recognized below
+# as our own generated artifact and removed outright, same as the symlink
+# case. A real (non-symlink) file WITHOUT the marker is genuine user data
+# and is left alone.
 # ---------------------------------------------------------------------------
 
 echo "Removing global GEMINI.md..."
@@ -44,7 +92,13 @@ if [[ -L "$GEMINI_MD_DST" ]]; then
     echo "  = ~/.gemini/GEMINI.md (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$GEMINI_MD_DST" ]]; then
-  echo "  = ~/.gemini/GEMINI.md (real file - not removing)"
+  first_line="$(head -1 "$GEMINI_MD_DST" 2>/dev/null || true)"
+  if [[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]; then
+    rm "$GEMINI_MD_DST"
+    echo "  - ~/.gemini/GEMINI.md (dinostack degrade-path artifact) removed"
+  else
+    echo "  = ~/.gemini/GEMINI.md (real file - not removing)"
+  fi
 else
   echo "  = ~/.gemini/GEMINI.md (not found - nothing to do)"
 fi
@@ -230,10 +284,11 @@ echo ""
 echo "Uninstall complete."
 echo ""
 echo "Note: The following files were NOT removed (they are part of the repo, not installed):"
-echo "  .gemini/GEMINI.md      - stays in the repo (generated artifact)"
-echo "  .gemini/agents/        - stays in the repo (generated markdown files)"
-echo "  .gemini/commands/      - stays in the repo (generated TOML files)"
-echo "  .gemini/references/    - stays in the repo (hardlinks)"
-echo "  .gemini/hooks/         - stays in the repo (hook scripts)"
+echo "  .gemini/GEMINI.md          - stays in the repo (generated stub)"
+echo "  .gemini/skills/dinostack/  - stays in the repo (generated skill, DS-184)"
+echo "  .gemini/agents/            - stays in the repo (generated markdown files)"
+echo "  .gemini/commands/          - stays in the repo (generated TOML files)"
+echo "  .gemini/references/        - stays in the repo (hardlinks)"
+echo "  .gemini/hooks/             - stays in the repo (hook scripts)"
 echo ""
 echo "If you want to remove the full repo, delete ~/DinoStack/ manually."
