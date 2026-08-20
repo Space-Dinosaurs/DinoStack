@@ -185,6 +185,19 @@ else
   _fail "OK fixture: expected rc=0 and 'OK' summary, got rc=$RC stdout=$GATE_STDOUT stderr=$GATE_STDERR"
 fi
 
+# --- Scenario (DS-186 finding, registration pin): lines[-1] of stdout on
+#     the OK path is the exact `  headroom to stub ceiling: <N> B` line -
+#     the contract bin/ds-evaluate's _collect_budget_gates depends on when
+#     it reads this gate's summary. Mirrors the equivalent pins in
+#     test_check_command_file_budget.sh and test_check_skill_embed_budget.sh.
+ok_last_line="$(echo "$GATE_STDOUT" | grep -v '^[[:space:]]*$' | tail -1)"
+ok_expected_headroom=$(( AGENTS_STUB_CEILING - MID_AGENTS ))
+if [[ "$ok_last_line" == "  headroom to stub ceiling: $ok_expected_headroom B" ]]; then
+  _pass "OK fixture's lines[-1] is the headroom to stub ceiling: line ($ok_expected_headroom B) bin/ds-evaluate reads as this gate's summary"
+else
+  _fail "OK fixture's lines[-1] is [$ok_last_line], expected [  headroom to stub ceiling: $ok_expected_headroom B]"
+fi
+
 # --- Scenario: missing METHODOLOGY.md --------------------------------------
 FIX="$TMP_ROOT/missing-methodology"
 build_fixture "$FIX" "$MID_METHODOLOGY" "$MID_AGENTS"
