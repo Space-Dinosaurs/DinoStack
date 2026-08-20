@@ -249,6 +249,18 @@ brought you here. It is also not silent - pytest emits
 exit code instead of the summary line. Do not add new `-> int` returners;
 new hook tests should assert.
 
+## Registering a new enforce-*.py hook: the Pillar-8 naming obligation
+
+Per `docs/overview/vision.md` Pillar 8, a new `enforce-*.py` hook does not ship
+without naming a specific failure it would have caught and the condition
+under which it retires. This is the naming obligation only, not the full
+registration procedure - the mechanical steps (the guarded
+`test -f <path> && python3 <path> || exit 0` wiring form documented in each
+new hook's own module manifest, adding the basename to `bin/ds-doctor`'s
+`MANAGED_HOOK_BASENAMES`, and updating every site in
+`bin/tests/test_tracker_writeback_ranking_spec.py`'s `_ENFORCER_SUBCOUNT_SITES`)
+live at those symbols directly, not restated here.
+
 ## Fail-open on absent tool_input fields
 
 A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /

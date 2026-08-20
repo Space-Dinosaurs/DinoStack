@@ -6,7 +6,9 @@ Purpose: Canonical authoring guidance for command files, skill definitions, and
          fire rather than summarize behavior) and bad/good example-pair seeding
          (concrete pairs encode taste via few-shot transfer more reliably than
          abstract rules). Also states the module-manifest requirement for new
-         command files.
+         command files (§3) and the Pillar-8 gate/mechanism authoring discipline
+         for any command or agent definition that authors a new enforcement
+         mechanism (§4).
 
 Public API: Read on trigger when authoring or editing a command file
             (content/commands/*.md), a skill definition (e.g. a
@@ -19,8 +21,9 @@ Upstream deps: content/rules/module-manifest.md (manifest requirement for new
                command files).
 
 Downstream consumers: authors of new commands, skills, and agent definitions;
-                      Skeptic (may cite these sections when reviewing an
-                      authoring change).
+                      authors of new gates/hooks/enforcement mechanisms defined
+                      via a command or agent file (§4); Skeptic (may cite these
+                      sections when reviewing an authoring change).
 
 Failure modes: Prose reference; does not auto-execute. The cited examples go
                stale if the artifacts they quote change (the qa-engineer.md
@@ -145,3 +148,10 @@ Step 3.5. `content/SKILL.md`'s Commands section is a curated subset - only a few
 commands warrant prominent placement there, so add a command to it only when
 that is the case. The two principles above apply to the command's description
 during that wiring.
+
+## 4. Gate/mechanism authoring discipline
+
+Per `docs/overview/vision.md` Pillar 8, a new gate, hook, count-pin, or other
+enforcement mechanism authored via a command or agent definition does not ship
+without naming a specific failure it would have caught and the condition
+under which it retires.

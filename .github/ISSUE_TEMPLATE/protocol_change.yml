@@ -40,7 +40,7 @@ body:
     id: north_star_alignment
     attributes:
       label: North Star alignment
-      description: Which pillar in docs/overview/vision.md does this advance (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone, guard agent context, shorten wall-clock time to a finished, verified result, prevent defects at the producing step)? Note any pillar it could regress or trade off. (This RFC gate is issue-type-scoped per CONTRIBUTING.md's protocol-change definition - a narrower, distinct gate from the path-based trigger canonical in content/agents/skeptic.md step 3.6, not a duplicate of it.)
+      description: Which pillar in docs/overview/vision.md does this advance (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone, guard agent context, shorten wall-clock time to a finished, verified result, prevent defects at the producing step, keep methodology machinery no more complicated than the benefit it provides)? Note any pillar it could regress or trade off. (This RFC gate is issue-type-scoped per CONTRIBUTING.md's protocol-change definition - a narrower, distinct gate from the path-based trigger canonical in content/agents/skeptic.md step 3.6, not a duplicate of it.)
     validations:
       required: true
   - type: textarea

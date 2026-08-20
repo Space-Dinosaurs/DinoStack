@@ -1915,7 +1915,9 @@ Purpose: Canonical authoring guidance for command files, skill definitions, and
          fire rather than summarize behavior) and bad/good example-pair seeding
          (concrete pairs encode taste via few-shot transfer more reliably than
          abstract rules). Also states the module-manifest requirement for new
-         command files.
+         command files (§3) and the Pillar-8 gate/mechanism authoring discipline
+         for any command or agent definition that authors a new enforcement
+         mechanism (§4).
 
 Public API: Read on trigger when authoring or editing a command file
             (content/commands/*.md), a skill definition (e.g. a
@@ -1928,8 +1930,9 @@ Upstream deps: content/rules/module-manifest.md (manifest requirement for new
                command files).
 
 Downstream consumers: authors of new commands, skills, and agent definitions;
-                      Skeptic (may cite these sections when reviewing an
-                      authoring change).
+                      authors of new gates/hooks/enforcement mechanisms defined
+                      via a command or agent file (§4); Skeptic (may cite these
+                      sections when reviewing an authoring change).
 
 Failure modes: Prose reference; does not auto-execute. The cited examples go
                stale if the artifacts they quote change (the qa-engineer.md
@@ -2054,6 +2057,13 @@ Step 3.5. `content/SKILL.md`'s Commands section is a curated subset - only a few
 commands warrant prominent placement there, so add a command to it only when
 that is the case. The two principles above apply to the command's description
 during that wiring.
+
+## 4. Gate/mechanism authoring discipline
+
+Per `docs/overview/vision.md` Pillar 8, a new gate, hook, count-pin, or other
+enforcement mechanism authored via a command or agent definition does not ship
+without naming a specific failure it would have caught and the condition
+under which it retires.
 
 ---
 
@@ -13138,7 +13148,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 
    For any diff touching none of these, skip this step entirely - do not manufacture a finding on a non-methodology change.
 
-   When applicable, read `docs/overview/vision.md` if it exists and apply its "How to use this for PR alignment" rubric: does the diff advance at least one North Star pillar (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone, guard agent context, shorten wall-clock time to a finished, verified result, prevent defects at the producing step) without regressing another?
+   When applicable, read `docs/overview/vision.md` if it exists and apply its "How to use this for PR alignment" rubric: does the diff advance at least one North Star pillar (guard operator attention, produce verifiable outcomes autonomously, low friction, works for everyone, guard agent context, shorten wall-clock time to a finished, verified result, prevent defects at the producing step, keep methodology machinery no more complicated than the benefit it provides) without regressing another?
 
    - **Trivial diffs stay trivial.** If the diff is typo-only, formatting-only, whitespace-only, or comment-only on an otherwise in-scope path, the check is satisfied by noting the triviality in your sign-off (e.g. "trivial formatting-only change, no pillar impact") - do not manufacture a Major or Minor finding demanding vision analysis on a diff with no behavioral surface. Proportionality applies inside scope, not just outside it.
    - If the diff writes to `docs/overview/vision.md` or `docs/overview/requirements.md` directly (as opposed to `docs/overview/_proposed/`): this is a **Critical** finding regardless of content - these files are operator-owned (see `content/references/planning-artifacts.md` §Product-intent layer) and no Worker or engineer may write them.
