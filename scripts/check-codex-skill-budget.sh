@@ -117,11 +117,14 @@ AGENTS_FILE="$REPO_DIR/.codex/AGENTS.md"
 # size and far above what a pointer-only skill would ever measure.
 METHODOLOGY_FLOOR=80000
 
-# Ceiling on the always-resident AGENTS.md stub. The live measured size is
-# ~5,000 B (2026-08-19, post-DS-183); 10,000 B leaves headroom for the stub
-# to grow (new pointer text, a longer trigger-signal list) while still
-# catching an accidental re-embed of the full methodology body, which
-# measured 140,910 B pre-DS-183 - more than 14x this ceiling.
+# Ceiling on the always-resident AGENTS.md stub. Run
+# `wc -c .codex/AGENTS.md` for the live measured size rather than trusting
+# a cited figure here - it drifts on every stub prose edit (round 5, M2/M5
+# fix: measured 6,004 B at time of writing, not the 5,000 B a stale round-2
+# comment claimed). 10,000 B leaves headroom for the stub to grow (new
+# pointer text, a longer trigger-signal list) while still catching an
+# accidental re-embed of the full methodology body, which measured
+# 140,910 B pre-DS-183 - more than 14x this ceiling.
 AGENTS_STUB_CEILING=10000
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted

@@ -16,10 +16,11 @@
 #                are backed up before replacement; optional identity and snapshot
 #                helpers degrade with explicit warnings. DS-183: when the
 #                dinostack skill link does not resolve, ~/.codex/AGENTS.md is
-#                written as a real file with the full methodology body
-#                embedded (degrade path) instead of symlinked to the
-#                .codex/AGENTS.md stub, with an explicit warning - never a
-#                silent content drop.
+#                symlinked to a real degrade-path companion file with the
+#                full methodology body embedded (written inside the Codex
+#                config directory, never inside this checkout, so it
+#                survives `git clean`) instead of the .codex/AGENTS.md stub,
+#                with an explicit warning - never a silent content drop.
 # Performance: one isolated source copy/build plus local filesystem installation,
 #              linear in repository and generated adapter size; no network access.
 set -euo pipefail
@@ -96,7 +97,17 @@ AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
 # for the AE_FINAL_DESTINATIONS preflight allowlist a few lines down -
 # ae_validate_install_destinations refuses a "link" whose target isn't one
 # of its declared allowed values, and AGENTS_DEGRADED is one now.
-AGENTS_DEGRADED="$REPO_DIR/.codex/AGENTS.degraded.md"
+# DS-183 round 5 (M1 fix): this companion previously lived inside the
+# checkout at $REPO_DIR/.codex/AGENTS.degraded.md, gitignored. A routine
+# `git clean -xfd` or a fresh worktree deletes any gitignored file, which
+# left $AGENTS_DST dangling with nothing behind it - the methodology
+# silently stopped loading at all, worse than the pre-degrade-path state.
+# Moved into $CODEX_CONFIG_DIR itself, alongside the AGENTS_DST it backs -
+# the same directory install.sh already writes config.toml, hooks.json, and
+# agentic-engineering.json into, and one already validated as a real, owned,
+# non-symlinked root by ae_validate_install_roots below. Nothing in this
+# repository checkout can delete it.
+AGENTS_DEGRADED="$CODEX_CONFIG_DIR/AGENTS.degraded.md"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
 NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
@@ -333,6 +344,7 @@ AE_FINAL_DESTINATIONS=(
   $'snapshot\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR"$'\t'"$HOME/.agentic/hooks-snapshot/.versions"$'\t'"$(basename "$HOOKS_SNAPSHOT_EXPECTED_DIR")"
   $'file\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.snapshot-meta.json"
   $'link\t'"$AGENTS_DST"$'\t'"$AGENTS_SRC"$'\t'"$AGENTS_DEGRADED"
+  $'file\t'"$AGENTS_DEGRADED"
   $'link\t'"$NAMED_AGENTS_DST"$'\t'"$NAMED_AGENTS_SRC"
   $'link\t'"$HOOKS_DST"$'\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/hooks.json"
 )
@@ -697,11 +709,14 @@ done
 DINOSTACK_SKILL_LINK_OK=true
 DINOSTACK_SKILL_LINK_REASON=""
 _ae_dinostack_skill_dst="$SKILLS_DST/dinostack"
-if [[ ! -f "$_ae_dinostack_skill_dst/SKILL.md" ]]; then
+# DS-183 round 5 (Minor fix): `-f` is true for a present-but-zero-byte file,
+# so a truncated SKILL.md/METHODOLOGY.md would have reported healthy with
+# nothing readable behind it. `-s` requires both existence and size > 0.
+if [[ ! -s "$_ae_dinostack_skill_dst/SKILL.md" ]]; then
   DINOSTACK_SKILL_LINK_OK=false
   DINOSTACK_SKILL_LINK_REASON="no SKILL.md reachable at $_ae_dinostack_skill_dst"
 fi
-if [[ "$DINOSTACK_SKILL_LINK_OK" == "true" && ! -f "$_ae_dinostack_skill_dst/METHODOLOGY.md" ]]; then
+if [[ "$DINOSTACK_SKILL_LINK_OK" == "true" && ! -s "$_ae_dinostack_skill_dst/METHODOLOGY.md" ]]; then
   DINOSTACK_SKILL_LINK_OK=false
   DINOSTACK_SKILL_LINK_REASON="skill link resolves but METHODOLOGY.md is missing beneath it"
 fi
@@ -724,8 +739,9 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
   echo ""
   echo "  WARNING: the dinostack skill is not reachable ($DINOSTACK_SKILL_LINK_REASON)."
   echo "  The trigger-loaded methodology body would be unreachable from the stub, so the full"
-  echo "  methodology body is being written into a real file inside this repository"
-  echo "  (.codex/AGENTS.degraded.md) and \$AGENTS_DST is symlinked at THAT instead of the stub."
+  echo "  methodology body is being written into a real file in your Codex config directory"
+  echo "  (\$CODEX_CONFIG_DIR/AGENTS.degraded.md) and \$AGENTS_DST is symlinked at THAT instead"
+  echo "  of the stub."
   echo "  Re-run install.sh after resolving the skill-link issue to switch back to the"
   echo "  trigger-loaded stub."
   echo ""
@@ -736,19 +752,33 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
   # rejected (rubric line 4's "configured AGENTS.md must be an installed
   # symlink" fail-closed check), leaving a degrade-path user with neither
   # a working stub nor a working runtime, even though the content was
-  # genuinely there. Instead: write the full body into a real, tracked-
-  # never (gitignored) regular file INSIDE this repository -
-  # $REPO_DIR/.codex/AGENTS.degraded.md - and symlink $AGENTS_DST at that
-  # file, never at $AGENTS_SRC (the stub) while unhealthy. This keeps
-  # $AGENTS_DST an installed symlink whose physical target is a real
-  # regular file beneath this repository's .codex/ directory - the exact
-  # shape bin/ds-codex-dispatch's identity check requires, now extended to
+  # genuinely there. Instead: write the full body into a real regular file
+  # and symlink $AGENTS_DST at that file, never at $AGENTS_SRC (the stub)
+  # while unhealthy. This keeps $AGENTS_DST an installed symlink whose
+  # physical target is a real regular file - the exact shape
+  # bin/ds-codex-dispatch's identity check requires, now extended to
   # recognize this second known-good target (see that script's own
   # runtime_bindings() comment for the matching half of this fix).
+  #
+  # DS-183 round 5 (M1 fix). That real file previously lived inside this
+  # checkout at $REPO_DIR/.codex/AGENTS.degraded.md, gitignored - so a
+  # routine `git clean -xfd` or a fresh worktree deleted it, leaving
+  # $AGENTS_DST dangling with no methodology reachable at all. It now
+  # lives at $AGENTS_DEGRADED, inside $CODEX_CONFIG_DIR itself (the user's
+  # own Codex config directory, already validated as a real owned root by
+  # ae_validate_install_roots above) - nothing in this checkout can delete
+  # it. Written via tmp-then-rename so an interrupted write never leaves a
+  # truncated body behind a live symlink.
   if [[ -L "$AGENTS_DEGRADED" ]]; then
     echo "  ! refusing to write through symlinked $AGENTS_DEGRADED" >&2
     exit 1
   fi
+  if [[ -e "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
+    BACKUP="$AGENTS_DEGRADED.backup-$(date +%Y%m%d%H%M%S)"
+    echo "  Backing up existing $AGENTS_DEGRADED to $BACKUP"
+    cp "$AGENTS_DEGRADED" "$BACKUP"
+  fi
+  AGENTS_DEGRADED_TMP="$AGENTS_DEGRADED.tmp-$$"
   {
     cat "$AGENTS_SRC"
     echo ""
@@ -765,7 +795,8 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
     echo "---"
     echo ""
     cat "$REPO_DIR/content/rules/conventions.md"
-  } > "$AGENTS_DEGRADED"
+  } > "$AGENTS_DEGRADED_TMP"
+  mv "$AGENTS_DEGRADED_TMP" "$AGENTS_DEGRADED"
   echo "  + $AGENTS_DEGRADED written with the full methodology body embedded (degrade path)"
 
   if [[ -L "$AGENTS_DST" ]]; then
@@ -790,6 +821,13 @@ elif [[ -L "$AGENTS_DST" ]]; then
     ln -sfn "$AGENTS_SRC" "$AGENTS_DST"
     echo "  ~ ~/.codex/AGENTS.md (skill link healthy again - switched back from the degrade-path"
     echo "    companion to the trigger-loaded stub)"
+    # DS-183 round 5 (Minor fix): remove the now-orphaned companion so
+    # runtime_bindings() cannot keep accepting a stale target, and so it
+    # does not sit around forever.
+    if [[ -f "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
+      rm "$AGENTS_DEGRADED"
+      echo "  - removed stale degrade-path companion at $AGENTS_DEGRADED"
+    fi
   else
     echo "  ! ~/.codex/AGENTS.md (symlink points elsewhere: $current_target - skipping)"
   fi
@@ -1094,7 +1132,8 @@ echo ""
 echo "What is available in the repo:"
 echo "  .codex/AGENTS.md       - Trigger-load stub; source for the global ~/.codex/AGENTS.md symlink"
 echo "                            when the dinostack skill link is healthy (conditional - see"
-echo "                            .codex/AGENTS.degraded.md below for the unhealthy case)"
+echo "                            \$CODEX_CONFIG_DIR/AGENTS.degraded.md, NOT in this repo, for the"
+echo "                            unhealthy case)"
 echo "  .codex/agents/         - Generated named agent TOML files (source: content/agents/*.md)"
 echo "  .codex/config/hooks.json - Source hooks configuration for ~/.codex/hooks.json"
 echo "  .codex/hooks/          - Hook scripts (risk-reminder.sh, stop-context-codex.js)"

@@ -215,23 +215,36 @@ def runtime_bindings(root: Path, invocation: str) -> dict[str, str]:
     # installed symlink at the always-present stub (that stub's whole
     # purpose - loading the methodology body on trigger via the skill - is
     # unreachable in that state). Instead it writes the full body into a
-    # second, separate regular file inside this same repository,
-    # .codex/AGENTS.degraded.md (never tracked - see .gitignore), and
-    # symlinks the installed AGENTS.md at it. Accept EITHER physical target
-    # here, never a third: the identity check below still requires the
-    # symlink's physical target to be a real regular file living inside
-    # THIS DinoStack repository (the exact CWE-59 guard the single-target
-    # check enforced before), it just now recognizes two known-good repo-
-    # relative targets instead of one. A user with the degrade-path file
-    # installed must get a working runtime, not the "must be an installed
-    # symlink" failure this function raised before this fix (rubric line 4).
-    expected_agents_degraded = root / ".codex/AGENTS.degraded.md"
+    # second, separate regular file and symlinks the installed AGENTS.md at
+    # it. Accept EITHER physical target here, never a third.
+    #
+    # DS-183 round 5 (M1 fix): that second file previously lived inside
+    # this repository at root / ".codex/AGENTS.degraded.md", gitignored -
+    # so a routine `git clean -xfd` or a fresh worktree deleted it out from
+    # under an installed symlink, leaving the methodology unreachable with
+    # no working degrade path either. install.sh now writes it inside the
+    # user's own Codex config directory instead (a sibling of the AGENTS.md
+    # symlink itself), which nothing in this checkout can delete. The
+    # identity check below therefore no longer requires the physical target
+    # to live inside this repository for the degrade-path case - it instead
+    # requires the target to be a real regular file owned by the current
+    # user, not group/world-writable, living directly inside `config`
+    # (itself already validated above as a real, owned, non-symlinked
+    # directory) - the same ownership bar validate_activation_config()
+    # already applies to the activation config file in this same function.
+    expected_agents_degraded = config / "AGENTS.degraded.md"
     expected_targets = [expected_physical]
-    if expected_agents_degraded.is_file() and not expected_agents_degraded.is_symlink():
+    if expected_agents_degraded.exists():
+        if expected_agents_degraded.is_symlink() or not expected_agents_degraded.is_file():
+            fail(
+                "degrade-path companion AGENTS.md must be a real regular "
+                f"file: {expected_agents_degraded}"
+            )
+        validate_activation_config(expected_agents_degraded)
         try:
             expected_targets.append(expected_agents_degraded.resolve(strict=True))
         except OSError as exc:
-            fail(f"cannot inspect repository degraded AGENTS.md: {exc}")
+            fail(f"cannot inspect degrade-path companion AGENTS.md: {exc}")
 
     if physical_agents not in expected_targets:
         fail(
