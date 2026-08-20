@@ -62,6 +62,23 @@
 #               covered this "implicitly" was false, since scenario 3 never
 #               writes a substring-only marker).
 #
+#          Round 6 (M1/M2/M3 fix - both branches now share ONE
+#          _ae_classify_gemini_md_dst classifier) adds:
+#            6. A DANGLING symlink whose target is NOT $GEMINI_MD_SRC (of
+#               unknown provenance - could be the user's own symlink to a
+#               since-deleted file) is now backed up before replacement on
+#               BOTH the healthy branch (6a - the exact M1 regression:
+#               round 5 backed this up only on the degrade branch while
+#               the healthy branch deleted the identical input with no
+#               backup) and the degrade branch (6b, confirming round 5's
+#               existing behaviour still holds post-refactor).
+#            7. A RELATIVE symlink target is resolved against the
+#               symlink's OWN directory, not install.sh's CWD (M2) -
+#               reproduced by running install.sh from $REPO_DIR (matching
+#               the review's exact repro) against a symlink whose relative
+#               target resolves (correctly) to a nonexistent path, on both
+#               the healthy (7a) and degrade (7b) branches.
+#
 #          Each scenario prints, at the end, the exact mutation that would
 #          redden it (per the DS-184 review's mutation-per-branch
 #          requirement) - see the comments beside each assertion group.
@@ -443,6 +460,135 @@ if [[ -L "$H5C/.gemini/GEMINI.md" ]]; then
 else
   fail "scenario5c: GEMINI.md destination is not a symlink after the healthy install"
 fi
+
+# ---------------------------------------------------------------------------
+# Scenario 6a (round 6, M1 fix): HEALTHY branch, a DANGLING symlink whose
+# target is NOT $GEMINI_MD_SRC (the review's exact repro: a user's own
+# symlink to a file they since deleted) is preserved via backup, not
+# deleted outright. This is the exact M1 regression - round 5 fixed this
+# case on the degrade branch (scenario 1d covers a similar dangling case,
+# but its target there is never a real prior file) while the healthy
+# branch's own dangling-symlink arm treated ANY dangling target as "ours"
+# to replace with no backup at all.
+# Mutation that reddens this: reverting the healthy branch's
+# foreign-dangling case back to unconditional `rm` + relink (the pre-fix
+# shape at old install.sh:498-509), or reverting
+# _ae_classify_gemini_md_dst to classify every dangling symlink as "ours".
+# ---------------------------------------------------------------------------
+H6A="$TMP_ROOT/h6a-healthy-foreign-dangling"
+mkdir -p "$H6A/.gemini"
+echo "my private notes" > "$H6A/mynotes.md"
+ln -s "$H6A/mynotes.md" "$H6A/.gemini/GEMINI.md"
+rm "$H6A/mynotes.md"   # now dangling, target never equalled $GEMINI_MD_SRC
+
+out6a="$(install_real "$H6A" 2>&1)"
+backup6a="$(ls -t "$H6A/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+
+if [[ -n "$backup6a" ]] && [[ -L "$backup6a" ]] && [[ "$(readlink "$backup6a")" == "$H6A/mynotes.md" ]]; then
+  pass "scenario6a: healthy install backs up a foreign dangling symlink (preserving its exact target) before replacing it (M1)"
+else
+  fail "scenario6a: expected a backup symlink preserving 'mynotes.md' as its target; found: '$backup6a'"
+fi
+
+if [[ -L "$H6A/.gemini/GEMINI.md" ]] && [[ "$(readlink "$H6A/.gemini/GEMINI.md")" == "$H6A/.gemini/GEMINI.md" || "$(readlink -f "$H6A/.gemini/GEMINI.md" 2>/dev/null)" == "$REPO_DIR/.gemini/GEMINI.md" ]]; then
+  pass "scenario6a: healthy install replaces the foreign dangling symlink with the correct stub link after backing it up"
+else
+  fail "scenario6a: GEMINI.md destination is not correctly linked after install: $(readlink "$H6A/.gemini/GEMINI.md" 2>/dev/null || echo '(not a symlink)')"
+fi
+
+if [[ "$out6a" == *"WARNING: ~/.gemini/GEMINI.md is a dangling symlink"*"not"$'\n'*"recognized as our own"* || "$out6a" == *"not recognized as our own"* ]]; then
+  pass "scenario6a: healthy install prints the unknown-provenance warning"
+else
+  fail "scenario6a: expected the unknown-provenance dangling-symlink warning, got:"$'\n'"$out6a"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 6b (round 6): DEGRADE branch, same input as 6a - confirms round
+# 5's existing backup behaviour for this class survives the round-6
+# classifier refactor unchanged.
+# Mutation that reddens this: any change to the classifier or the degrade
+# branch's foreign-dangling case that stops backing this input up.
+# ---------------------------------------------------------------------------
+H6B="$TMP_ROOT/h6b-degrade-foreign-dangling"
+mkdir -p "$H6B/.gemini/skills/dinostack"   # forces degrade
+echo "my private notes" > "$H6B/mynotes.md"
+ln -s "$H6B/mynotes.md" "$H6B/.gemini/GEMINI.md"
+rm "$H6B/mynotes.md"
+
+out6b="$(install_real "$H6B" 2>&1)"
+backup6b="$(ls -t "$H6B/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+
+if [[ -n "$backup6b" ]] && [[ -L "$backup6b" ]] && [[ "$(readlink "$backup6b")" == "$H6B/mynotes.md" ]]; then
+  pass "scenario6b: degrade install backs up a foreign dangling symlink before writing the degrade-path body"
+else
+  fail "scenario6b: expected a backup symlink preserving 'mynotes.md' as its target; found: '$backup6b'"
+fi
+if [[ -f "$H6B/.gemini/GEMINI.md" ]] && [[ "$(head -1 "$H6B/.gemini/GEMINI.md")" == "$MARKER" ]]; then
+  pass "scenario6b: degrade install writes the degrade-path body after backing up the foreign dangling symlink"
+else
+  fail "scenario6b: expected the degrade-path body with our marker as first line"
+fi
+assert_body_delivered "$H6B/.gemini/GEMINI.md" "scenario6b"
+
+# ---------------------------------------------------------------------------
+# Scenario 7a (round 6, M2 fix): HEALTHY branch, a RELATIVE symlink target
+# resolved against CWD (the pre-fix bug) instead of the symlink's own
+# directory. Reproduces the review's exact repro: `ln -s
+# ".gemini/GEMINI.md" ~/.gemini/GEMINI.md` then run install FROM THE REPO
+# ROOT. Under the pre-fix CWD-relative resolution, `readlink -f
+# ".gemini/GEMINI.md"` (evaluated from $REPO_DIR) resolves onto
+# $GEMINI_MD_SRC itself, misclassifying this as "already linked" and
+# leaving the destination as a BROKEN dangling symlink with neither a stub
+# nor a body. Resolved correctly (against the symlink's own directory,
+# $H7A/.gemini/), the target is $H7A/.gemini/.gemini/GEMINI.md - which does
+# not exist - so this is foreign-dangling, not ours.
+# Mutation that reddens this: reverting _ae_resolve_symlink_target_abs's
+# relative-target branch back to `readlink -f "$raw"` (CWD-relative).
+# ---------------------------------------------------------------------------
+H7A="$TMP_ROOT/h7a-healthy-relative-symlink-cwd"
+mkdir -p "$H7A/.gemini"
+ln -s ".gemini/GEMINI.md" "$H7A/.gemini/GEMINI.md"
+
+out7a="$( (cd "$REPO_DIR" && HOME="$H7A" bash "$REPO_DIR/.gemini/install.sh" --mode=opt-out --profile=default < /dev/null) 2>&1)"
+backup7a="$(ls -t "$H7A/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+
+if [[ -n "$backup7a" ]] && [[ -L "$backup7a" ]] && [[ "$(readlink "$backup7a")" == ".gemini/GEMINI.md" ]]; then
+  pass "scenario7a: healthy install resolves the relative symlink target against its OWN directory, not CWD, and backs it up as foreign-dangling (M2)"
+else
+  fail "scenario7a: expected a backup symlink with relative target '.gemini/GEMINI.md' preserved; found: '$backup7a'. Full output:"$'\n'"$out7a"
+fi
+
+if [[ -L "$H7A/.gemini/GEMINI.md" ]] && [[ "$(readlink -f "$H7A/.gemini/GEMINI.md" 2>/dev/null)" == "$REPO_DIR/.gemini/GEMINI.md" ]]; then
+  pass "scenario7a: healthy install repairs the destination to a correct symlink after the M2 fix"
+else
+  fail "scenario7a: GEMINI.md destination is not correctly linked after install (M2 regressed - the relative symlink was likely misclassified as already-linked and left dangling)"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 7b (round 6, M2 fix): DEGRADE branch, identical relative-symlink
+# setup and CWD as 7a - the same _ae_resolve_symlink_target_abs bug existed
+# at the degrade branch's own (former) _ae_paths_equal call site.
+# Mutation that reddens this: same as 7a.
+# ---------------------------------------------------------------------------
+H7B="$TMP_ROOT/h7b-degrade-relative-symlink-cwd"
+mkdir -p "$H7B/.gemini/skills/dinostack"   # forces degrade
+ln -s ".gemini/GEMINI.md" "$H7B/.gemini/GEMINI.md"
+
+out7b="$( (cd "$REPO_DIR" && HOME="$H7B" bash "$REPO_DIR/.gemini/install.sh" --mode=opt-out --profile=default < /dev/null) 2>&1)"
+backup7b="$(ls -t "$H7B/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+
+if [[ -n "$backup7b" ]] && [[ -L "$backup7b" ]] && [[ "$(readlink "$backup7b")" == ".gemini/GEMINI.md" ]]; then
+  pass "scenario7b: degrade install resolves the relative symlink target against its OWN directory, not CWD, and backs it up as foreign-dangling (M2)"
+else
+  fail "scenario7b: expected a backup symlink with relative target '.gemini/GEMINI.md' preserved; found: '$backup7b'. Full output:"$'\n'"$out7b"
+fi
+
+if [[ -f "$H7B/.gemini/GEMINI.md" ]] && [[ "$(head -1 "$H7B/.gemini/GEMINI.md")" == "$MARKER" ]]; then
+  pass "scenario7b: degrade install writes the degrade-path body after the M2 fix correctly classifies the relative symlink as foreign-dangling"
+else
+  fail "scenario7b: expected the degrade-path body with our marker as first line after install (M2 regressed)"
+fi
+assert_body_delivered "$H7B/.gemini/GEMINI.md" "scenario7b"
 
 # ---------------------------------------------------------------------------
 # Static check (m1 regression): the pre-commit hook's `git add` invocation
