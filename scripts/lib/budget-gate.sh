@@ -195,8 +195,10 @@
 #                        that script's own header comment for why - and
 #                        calls budget_burn_line for the informational
 #                        burn-rate line printed on every exit path; no
-#                        delta axis; also the original, and still one, caller
-#                        of budget_check_embedded_set below);
+#                        delta axis; also the original caller of
+#                        budget_check_embedded_set below - no longer the
+#                        only one, see check-codex-skill-budget.sh further
+#                        down this list);
 #                        scripts/check-command-file-budget.sh (added a
 #                        budget_delta-based per-PR delta axis and calls
 #                        budget_eval directly, not budget_report, so a delta

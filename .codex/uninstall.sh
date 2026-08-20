@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: Uninstalls the DinoStack Codex adapter by removing only symlinks,
-#          hook config, flags, and legacy prompt links that point back to this
-#          checkout, while restoring user backups where the installer made one.
+#          hook config, flags, legacy prompt links that point back to this
+#          checkout, and its own marker-owned degrade-path companion file,
+#          while restoring user backups where the installer made one.
 #
 # Public API:
 #   bash .codex/uninstall.sh
@@ -12,9 +13,12 @@
 #
 # Downstream consumers: developers removing or refreshing the Codex adapter.
 #
-# Failure modes: skips real user files and symlinks not owned by this checkout;
-#   missing marker files prevent automatic config flag removal; backup restore
-#   uses the newest matching backup if present.
+# Failure modes: skips real user files and symlinks not owned by this
+#   checkout; the AGENTS.degraded.md companion is removed only when it
+#   carries this checkout's own AGENTS_DEGRADED_MARKER first line, else
+#   left in place as genuine user data; missing marker files prevent
+#   automatic config flag removal; backup restore uses the newest matching
+#   backup if present.
 #
 # Performance: local filesystem operations only; normally completes in <1 s.
 # ---------------------------------------------------------------------------
@@ -33,6 +37,12 @@ AGENTS_DST="$HOME/.codex/AGENTS.md"
 # (gitignored, deleted by a routine `git clean`) into the Codex config
 # directory itself, alongside AGENTS_DST. See install.sh's matching comment.
 AGENTS_DEGRADED="$HOME/.codex/AGENTS.degraded.md"
+# DS-183 round 6 (M1 fix): $AGENTS_DEGRADED is a user-owned config path, so
+# a real file found there is only ours to remove when it carries this
+# marker as its first line - same mechanism, and same marker string, as
+# install.sh's AGENTS_DEGRADED_MARKER. A real file without it is genuine
+# user data and is left alone.
+AGENTS_DEGRADED_MARKER="<!-- dinostack:codex-degrade-generated -->"
 
 NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
 NAMED_AGENTS_DST="$HOME/.codex/agents"
@@ -130,16 +140,33 @@ fi
 
 # ---------------------------------------------------------------------------
 # Remove the degrade-path companion file (DS-183 round 2, M3 fix; relocated
-# round 5, M1 fix). This file lives at $HOME/.codex/AGENTS.degraded.md,
-# a sibling of $AGENTS_DST, so it survives outside the $AGENTS_DST
-# symlink-removal block above and would otherwise never be cleaned up. This
-# block only needs to remove the companion file itself, never a symlink
-# (guarded the same way as every other real-file removal in this script).
+# round 5, M1 fix; marker-gated round 6, M1 fix). This file lives at
+# $HOME/.codex/AGENTS.degraded.md, a sibling of $AGENTS_DST, so it survives
+# outside the $AGENTS_DST symlink-removal block above and would otherwise
+# never be cleaned up. $AGENTS_DEGRADED is now a user-owned config path, so
+# a real file found there is recognized as ours - and removed outright,
+# with its own backup restored if one exists - only when it carries
+# AGENTS_DEGRADED_MARKER on its first line; a real file without the marker
+# is genuine user data and is left in place untouched.
 # ---------------------------------------------------------------------------
 
 if [[ -f "$AGENTS_DEGRADED" && ! -L "$AGENTS_DEGRADED" ]]; then
-  rm "$AGENTS_DEGRADED"
-  echo "  - .codex/AGENTS.degraded.md removed"
+  first_line="$(head -1 "$AGENTS_DEGRADED" 2>/dev/null || true)"
+  if [[ "$first_line" == "$AGENTS_DEGRADED_MARKER" ]]; then
+    rm "$AGENTS_DEGRADED"
+    echo "  - $HOME/.codex/AGENTS.degraded.md (dinostack degrade-path artifact) removed"
+
+    # Restore the most recent backup if one exists (round 6 M1 fix - the
+    # three sibling symlink-removal blocks in this script all restore their
+    # own backup; this block previously did not).
+    latest_backup="$(ls -t "${AGENTS_DEGRADED}.backup-"* 2>/dev/null | head -1 || true)"
+    if [[ -n "$latest_backup" ]]; then
+      mv "$latest_backup" "$AGENTS_DEGRADED"
+      echo "  + Restored backup: $latest_backup -> $AGENTS_DEGRADED"
+    fi
+  else
+    echo "  = $HOME/.codex/AGENTS.degraded.md (real file, no dinostack marker - not removing)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

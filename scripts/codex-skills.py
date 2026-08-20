@@ -24,13 +24,15 @@ Failure modes: refuses symlinked/special generated roots, unmatched source
                occurrences, invalid frontmatter, escaping resources, or drift.
                Check is read-only. A canonical-output build replaces only its
                owned generated tree; an arbitrary-output build also creates or atomically replaces
-               .agentic/codex-skill-root-ownership.json. A PARAGRAPH_RULES
-               anchor that matches zero times anywhere in
-               reachability_corpus() (assert_paragraph_rules_reachable(),
-               called from current_inventory()) aborts build, check, AND
-               inventory alike with a SkillError naming the unmatched
-               pattern(s) - current_inventory() is the common choke point
-               all three subcommands share.
+               .agentic/codex-skill-root-ownership.json. Two independent
+               reachability assertions both run from current_inventory() -
+               the common choke point build, check, AND inventory all share -
+               and either one aborts all three subcommands with a SkillError
+               naming what went unmatched: a PARAGRAPH_RULES anchor that
+               matches zero times anywhere in reachability_corpus()
+               (assert_paragraph_rules_reachable()), and a LITERAL_RULES
+               pattern that matches zero times in the same corpus
+               (assert_literal_rules_reachable()).
 
 Performance: linear in canonical source and generated-tree size.
 """
