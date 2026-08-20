@@ -61,7 +61,13 @@
 #                        its checkout step needs `fetch-depth: 0` so the
 #                        burn line can resolve `origin/main`, or the git
 #                        axis silently degrades to its SKIPPED variant on
-#                        every CI run).
+#                        every CI run); bin/ds-evaluate's
+#                        _collect_budget_gates (reads lines[-1] of stdout as
+#                        this gate's summary - see
+#                        scripts/check-skill-embed-budget.sh's identical
+#                        consumer note for why the OK-path tail is
+#                        hand-rolled rather than routed through
+#                        budget_eval).
 #
 # Failure modes: embed incomplete (a source file dropped from assembly, or
 #                a file count mismatch against EXPECTED_SECTION_COUNT/
@@ -104,8 +110,8 @@ STUB_FILE="$REPO_DIR/.github/copilot-instructions.md"
 # Floor: catches a regression to a pointer-only skill (the embed step in
 # .copilot/build.sh silently breaking and no longer inlining the
 # methodology body into SKILL.md). 100,000 B is far below any realistic
-# embedded size (live measured 135,521 B) and far above what a
-# pointer-only skill would ever measure.
+# embedded size (run `wc -c .github/skills/dinostack/SKILL.md` for the
+# live figure) and far above what a pointer-only skill would ever measure.
 FLOOR=100000
 
 # Stub ceiling: catches the accidental-re-embed regression on the OTHER

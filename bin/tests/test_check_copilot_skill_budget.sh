@@ -254,7 +254,10 @@ fi
 #     its SKIPPED-degrade variant against this non-git fixture (never a
 #     blank line, per budget_burn_line's contract), and the final output
 #     line is still "headroom to floor:" (no CEILING axis on the skill
-#     body itself for this gate). ---
+#     body itself for this gate) - this is the lines[-1] summary contract
+#     bin/ds-evaluate's _collect_budget_gates depends on, same as
+#     check-skill-embed-budget.sh's identical pin at
+#     test_check_skill_embed_budget.sh:246. ---
 if echo "$bash_out" | grep -q "burn: SKIPPED (base unresolvable)"; then
   _pass "burn line renders its SKIPPED variant (not a crash, not a blank line) against a non-git fixture"
 else
@@ -263,9 +266,9 @@ fi
 
 parity_last_line="$(echo "$bash_out" | grep -v '^[[:space:]]*$' | tail -1)"
 if [[ "$parity_last_line" == "  headroom to floor:"*"B" ]]; then
-  _pass "non-git fixture's last output line is still the headroom to floor: line"
+  _pass "non-git fixture's lines[-1] is still the headroom to floor: line (the exact wording bin/ds-evaluate's summary depends on)"
 else
-  _fail "non-git fixture's last output line is [$parity_last_line], expected a headroom to floor: line"
+  _fail "non-git fixture's lines[-1] is [$parity_last_line], expected a headroom to floor: line"
 fi
 
 # --- Scenario 2: below FLOOR fails as an embed regression ---
