@@ -140,6 +140,17 @@ Test groups:
                                                          `_STABLE_KEY_SHAPE_RE` (the whitespace in the piped
                                                          command) - confirms the shape gate is independently
                                                          load-bearing, not merely redundant with the `..` check.
+ 34. test_tool_use_ids_round_trip_through_load_state    - DS-178 unit A: a `tool_use_id` supplied on the
+                                                         PreToolUse payload survives into the round-state
+                                                         file's `tool_use_ids` list across two rounds (deduped,
+                                                         order-preserving) - proves `_load_state`/`_write_state`
+                                                         no longer silently drop a schema field outside the
+                                                         original hardcoded 6 keys.
+ 35. test_tuid_index_round_trip                         - DS-178 unit A: `.agentic/skeptic-tuid-index.json` maps
+                                                         each spawn's `tool_use_id` to the correct unit_key, is
+                                                         updated (not merely appended) across rounds of the same
+                                                         unit, and correctly separates two distinct units'
+                                                         tool_use_ids in the same index file.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -1339,6 +1350,286 @@ def test_pipe_no_range_caught_only_by_shape_gate():
         )
         state = json.loads(expected_path.read_text())
         assert state["round_count"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# 34. DS-178 unit A: tool_use_ids round-trip through _load_state/_write_state
+# --------------------------------------------------------------------------- #
+def test_tool_use_ids_round_trip_through_load_state():
+    """A `tool_use_id` supplied on the PreToolUse payload is recorded into
+    the round-state file's `tool_use_ids` list and survives a second round
+    (deduped, order-preserving) - proves the schema fix (both `_load_state`
+    and `_write_state` previously handled a hardcoded 6-key dict only) is
+    load-bearing. Executed mutation: reverting `_load_state`'s default dict
+    and its `raw.get(...)` reconstruction to the pre-fix 6-key form (drop
+    the `tool_use_ids` key entirely) reddens this test - the second round's
+    state would carry no `tool_use_ids` key at all, or at best a
+    fresh/truncated one, never the accumulated 2-entry list asserted below."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/round-cap-test"
+        rc1, parsed1 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 1",
+                extra={"tool_use_id": "toolu_round1"},
+            )
+        )
+        assert not _is_denied(parsed1)
+        state1 = _read_state(tmp, unit)
+        assert state1["tool_use_ids"] == ["toolu_round1"], state1
+
+        rc2, parsed2 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 2",
+                extra={"tool_use_id": "toolu_round2"},
+            )
+        )
+        assert not _is_denied(parsed2)
+        state2 = _read_state(tmp, unit)
+        assert state2["tool_use_ids"] == ["toolu_round1", "toolu_round2"], state2
+
+        # A repeated tool_use_id (e.g. a retried call) must not duplicate.
+        rc3, parsed3 = _run_hook(
+            _skeptic_payload(
+                tmp, unit, what_to_review="worker output round 2",
+                extra={"tool_use_id": "toolu_round2"},
+            )
+        )
+        state3 = _read_state(tmp, unit)
+        assert state3["tool_use_ids"] == ["toolu_round1", "toolu_round2"], state3
+
+
+# --------------------------------------------------------------------------- #
+# 35. DS-178 unit A: skeptic-tuid-index.json round trip
+# --------------------------------------------------------------------------- #
+def test_tuid_index_round_trip():
+    """`.agentic/skeptic-tuid-index.json` maps each spawn's `tool_use_id` to
+    the correct unit_key AND the round number that spawn was allowed at
+    (round-2 rework, M3: `{"unit_key": ..., "iteration": ...}`, pinned at
+    spawn time - see `_update_tuid_index()`'s docstring for why the round-1
+    bare-string shape could not answer "what round was THIS spawn" for an
+    out-of-order completion). Two distinct units get correctly separated
+    entries in the SAME index file, and a second round on one unit updates
+    (not duplicates) that unit's entries with a NEW pinned iteration.
+    Executed mutation: removing the `_update_tuid_index(path.parent,
+    tool_use_id, unit_key, new_state["round_count"])` call from `main()`
+    reddens this test - the index file would never be created."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit_a = "feature/tuid-index-a"
+        unit_b = "feature/tuid-index-b"
+
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_a, what_to_review="unit-a round 1",
+                extra={"tool_use_id": "toolu_a1"},
+            )
+        )
+        assert not _is_denied(parsed)
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_b, what_to_review="unit-b round 1",
+                extra={"tool_use_id": "toolu_b1"},
+            )
+        )
+        assert not _is_denied(parsed)
+
+        index_path = Path(tmp) / ".agentic" / "skeptic-tuid-index.json"
+        assert index_path.is_file(), "expected skeptic-tuid-index.json to be created"
+        index = json.loads(index_path.read_text())
+        assert index.get("toolu_a1") == {"unit_key": _unit_key(unit_a), "iteration": 1}, index
+        assert index.get("toolu_b1") == {"unit_key": _unit_key(unit_b), "iteration": 1}, index
+
+        # A second round on unit_a with a NEW tool_use_id adds a new entry
+        # pointing at the SAME unit_key with a PINNED iteration of 2 (not
+        # 1 again - each spawn's own round number, not a copy of the
+        # first), without disturbing unit_b's entry.
+        rc, parsed = _run_hook(
+            _skeptic_payload(
+                tmp, unit_a, what_to_review="unit-a round 2",
+                extra={"tool_use_id": "toolu_a2"},
+            )
+        )
+        assert not _is_denied(parsed)
+        index_after = json.loads(index_path.read_text())
+        assert index_after.get("toolu_a1") == {"unit_key": _unit_key(unit_a), "iteration": 1}, index_after
+        assert index_after.get("toolu_a2") == {"unit_key": _unit_key(unit_a), "iteration": 2}, index_after
+        assert index_after.get("toolu_b1") == {"unit_key": _unit_key(unit_b), "iteration": 1}, index_after
+
+
+def test_tuid_index_concurrent_writes_not_lost():
+    """M4 regression: `_update_tuid_index()`'s read-merge-write is now
+    guarded by a best-effort `flock` (`_tuid_index_lock()`). 40 PARALLEL
+    hook invocations for the SAME unit (mirroring a real
+    `skeptic_strategy: multi-dimensional` fan-out - correctness-Skeptic +
+    security-auditor + perf-analyst, each a genuinely separate SubagentStop
+    with its own `tool_use_id`, all sharing this unit's round-fingerprint
+    coalescing so they all ALLOW as the same round) must produce 40
+    distinct index entries, not fewer.
+
+    Round-3 fix (m4): n was previously 6, which made this guard
+    INTERMITTENT rather than deterministic - re-running the pre-fix
+    (unlocked) code at n=6 five times gave 4 failed / 1 passed, a ~20%
+    false-green rate on a real revert. n=40 (matching the reviewer's own
+    out-of-band measurement: pre-fix `lost=6/40`, post-fix `lost=0/40`,
+    three consecutive runs) is at a scale where the write-write race
+    reliably manifests pre-fix and reliably does not post-fix. Executed
+    pre-fix at n=6: 6 parallel writers against the unlocked
+    read-merge-write produced 4 entries (2 lost to a write-write race).
+    Executed mutation: reverting `_update_tuid_index()` to call
+    `_write_state`-style unlocked write (skip `_tuid_index_lock()`
+    entirely) reproduces loss under this same test - the lock is what
+    this test asserts exists and is exercised, not merely declared in a
+    docstring."""
+    import threading
+
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/tuid-index-concurrent"
+        n = 40
+        results: list[tuple[int, dict | None]] = [None] * n  # type: ignore[list-item]
+
+        def _spawn(i: int) -> None:
+            results[i] = _run_hook(
+                _skeptic_payload(
+                    tmp, unit, what_to_review="concurrent round",
+                    extra={"tool_use_id": f"toolu_concurrent_{i}"},
+                )
+            )
+
+        threads = [threading.Thread(target=_spawn, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        for i, result in enumerate(results):
+            assert result is not None, f"writer {i} did not complete"
+            rc, parsed = result
+            assert not _is_denied(parsed), f"writer {i} unexpectedly denied: {parsed}"
+
+        index_path = Path(tmp) / ".agentic" / "skeptic-tuid-index.json"
+        assert index_path.is_file(), "expected skeptic-tuid-index.json to be created"
+        index = json.loads(index_path.read_text())
+        missing = [f"toolu_concurrent_{i}" for i in range(n) if f"toolu_concurrent_{i}" not in index]
+        assert not missing, f"lost {len(missing)}/{n} concurrent writer entries: {missing} (full index: {index})"
+        for i in range(n):
+            assert index[f"toolu_concurrent_{i}"]["unit_key"] == _unit_key(unit)
+
+
+def test_state_file_preserves_unknown_keys_round_trip():
+    """m4 regression: `_load_state`/`_write_state` now preserve a
+    genuinely UNKNOWN top-level key through a load-then-write round trip
+    via the `_extra` passthrough bucket, correcting the round-1 commit
+    message's claim ("no longer silently drop schema fields outside a
+    hardcoded 6-key dict") which was false for any key beyond
+    `tool_use_ids` itself - a differential against `main` showed an
+    `extra_key`/`nested` pair lost on BOTH `main` and the round-1 branch.
+    Executed mutation: removing the `_extra` unpack loop in
+    `_write_state()` (or the `extra = {k: v for k, v in raw.items() if k
+    not in _KNOWN_STATE_KEYS}` line in `_load_state()`) reddens this test -
+    `extra_key`/`nested` would vanish from the state file after one more
+    round."""
+    with tempfile.TemporaryDirectory() as tmp:
+        unit = "feature/unknown-key-preservation"
+        _ensure_git_marker(tmp)
+        state_path = Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key(unit)}.json"
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps({
+            "round_count": 1,
+            "decision": None,
+            "unresolved_critical": False,
+            "last_round_fingerprint": None,
+            "last_decision_allow": True,
+            "last_decision_reason": "",
+            "tool_use_ids": [],
+            "extra_key": "some forensic value a human hand-added",
+            "nested": {"a": 1, "b": [2, 3]},
+        }, indent=2))
+
+        rc, parsed = _run_hook(
+            _skeptic_payload(tmp, unit, what_to_review="round after hand-edit")
+        )
+        assert not _is_denied(parsed)
+
+        state_after = json.loads(state_path.read_text())
+        assert state_after.get("extra_key") == "some forensic value a human hand-added", state_after
+        assert state_after.get("nested") == {"a": 1, "b": [2, 3]}, state_after
+        # The active schema still advanced normally alongside the
+        # preserved unknown keys.
+        assert state_after.get("round_count") == 2, state_after
+
+
+# --------------------------------------------------------------------------- #
+# Round-6 (M1/M3) regression: the round-5 widening of `_DIFF_RANGE_RE` to
+# admit `~`/`^` collapsed every `<x>~n..HEAD` / `<x>^..HEAD` "Diff under
+# review" value onto the single literal token "HEAD" (strategy 1 in
+# `_normalize_diff_identity()`: `ref2` is "HEAD", which is not SHA-like,
+# so it is returned verbatim regardless of `<x>`) - two DISTINCT units
+# both using this shape collided onto ONE shared round-cap counter. These
+# tests are DECISION-level (assert on `_is_denied`/state-file identity,
+# not on the regex in isolation) per the round-6 finding: a prior round's
+# "0 divergences" report compared the Python and JS regexes to EACH
+# OTHER, never to actual hook decisions, and missed this collision
+# entirely. Confirmed failing pre-fix (round-6 review): two such units
+# both keyed to `skeptic-round-HEAD-7138a51661.json`, and unit B's first
+# spawn was denied on the strength of unit A's already-spent budget.
+# --------------------------------------------------------------------------- #
+def test_tilde_suffixed_ranges_do_not_collide_across_units():
+    """Two distinct units, each citing a `<unit-specific-base>~N..HEAD`
+    range (no stable-key pipe form - the bare legacy shape), must NOT
+    collide onto a shared round-cap counter. Pre-fix, both normalized to
+    the literal token "HEAD" and shared one counter; post-fix, `~` is
+    outside `_DIFF_RANGE_RE`'s charclass so the value falls through to
+    strategy 4 ("return raw text unchanged") and each round's own
+    (round-varying) text becomes its own key - unstable per round for
+    this unrecognized shape, but never collidable across units, which is
+    the property this test asserts."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(1, 4):
+            line = f"6. Diff under review: git diff 1232779c~{i}..HEAD"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, line, what_to_review=f"unit A worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
+
+        # Unit B's FIRST spawn, using a completely different base SHA but
+        # the same `~N..HEAD` shape, must be a genuine round 1 - not a
+        # round 4 denial inherited from unit A's exhausted budget.
+        line_b = "6. Diff under review: git diff b7a596d9^..HEAD"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, line_b, what_to_review="unit B worker output round 1")
+        )
+        assert not _is_denied(parsed), (
+            f"unit B's first spawn was denied - it collided with unit A's counter: {parsed}"
+        )
+
+        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert "skeptic-round-HEAD-7138a51661.json" not in state_files, (
+            f"unit A and unit B collided onto the shared 'HEAD' literal key: {state_files}"
+        )
+
+
+def test_caret_suffixed_range_does_not_reach_round_4_cap_via_shared_head_key():
+    """A single unit using the caret form (`<base>^..HEAD`) across several
+    rounds must never be silently coalesced onto the SAME state file as an
+    unrelated unit using the tilde form (`<other-base>~1..HEAD`) - both
+    forms previously normalized to the bare "HEAD" token regardless of
+    which base SHA was cited. Runs unit A (caret) to its round-3 cap, then
+    proves unit B (tilde) still gets an independent, un-denied first
+    round rather than inheriting unit A's spent budget."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(1, 4):
+            line = f"6. Diff under review: git diff aaaaaaa^{i}..HEAD"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, line, what_to_review=f"unit A (caret) worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
+
+        line_b = "6. Diff under review: git diff bbbbbbb~1..HEAD"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, line_b, what_to_review="unit B (tilde) worker output round 1")
+        )
+        assert not _is_denied(parsed), (
+            f"unit B's first spawn was denied - it inherited unit A's exhausted budget: {parsed}"
+        )
 
 
 if __name__ == "__main__":
