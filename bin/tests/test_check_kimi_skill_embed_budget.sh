@@ -15,7 +15,13 @@
 #          version of this suite claimed full per-axis coverage while
 #          leaving these four branches unexercised) - plus the pass path
 #          built from the real repo's live-derived constants (never a
-#          hand-typed copy).
+#          hand-typed copy). DS-185 round 4 (m1): also pins the exact
+#          literal diagnostic markers ("SKILL.md ABOVE CEILING.",
+#          "AGENTS.md ABOVE STUB CEILING.", "is likely intentional.")
+#          that .kimi/install.sh's fail-safe link-health classification
+#          matches against - a rewording of any of these three strings in
+#          this gate must fail this suite, not silently flip install.sh's
+#          benign/degrade classification unnoticed.
 #
 # Public API: ./bin/tests/test_check_kimi_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -213,6 +219,14 @@ run_gate() {
   else
     fail "expected ABOVE CEILING failure, got rc=$rc, output: $out"
   fi
+  # (DS-185 round 4, m1) .kimi/install.sh's fail-safe classification
+  # allowlists ONLY a literal "SKILL.md ABOVE CEILING." match (with the
+  # trailing period) - pin the exact string here.
+  if [[ $rc -ne 0 ]] && grep -qF "SKILL.md ABOVE CEILING." <<<"$out"; then
+    pass "SKILL.md above CEILING diagnostic includes the exact marker install.sh's classification depends on"
+  else
+    fail "expected the exact 'SKILL.md ABOVE CEILING.' marker in the diagnostic, got: $out"
+  fi
 }
 
 # --- Scenario 4: AGENTS.md above AGENTS_CEILING ----------------------------
@@ -226,6 +240,14 @@ run_gate() {
     pass "AGENTS.md above AGENTS_CEILING fails with ABOVE STUB CEILING message"
   else
     fail "expected ABOVE STUB CEILING failure, got rc=$rc, output: $out"
+  fi
+  # (DS-185 round 4, m1) .kimi/install.sh's fail-safe classification
+  # allowlists ONLY a literal "AGENTS.md ABOVE STUB CEILING." match (with
+  # the trailing period) - pin the exact string here.
+  if [[ $rc -ne 0 ]] && grep -qF "AGENTS.md ABOVE STUB CEILING." <<<"$out"; then
+    pass "AGENTS.md above AGENTS_CEILING diagnostic includes the exact marker install.sh's classification depends on"
+  else
+    fail "expected the exact 'AGENTS.md ABOVE STUB CEILING.' marker in the diagnostic, got: $out"
   fi
 }
 
@@ -275,6 +297,16 @@ run_gate() {
     pass "extra rules source file fails on file count mismatch"
   else
     fail "expected file count mismatch failure, got rc=$rc, output: $out"
+  fi
+  # (DS-185 round 4, m1) .kimi/install.sh's fail-safe classification
+  # allowlists ONLY a literal "is likely intentional." match as the
+  # benign found-more-than-expected case - pin it here so a reworded
+  # diagnostic fails this test rather than silently falling out of that
+  # allowlist unnoticed.
+  if [[ $rc -ne 0 ]] && grep -qF "is likely intentional." <<<"$out"; then
+    pass "extra rules source file diagnostic includes the exact 'is likely intentional.' marker install.sh's classification depends on"
+  else
+    fail "expected the exact 'is likely intentional.' marker in the diagnostic, got: $out"
   fi
 }
 

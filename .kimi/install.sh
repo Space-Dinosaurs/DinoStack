@@ -15,7 +15,14 @@
 # Upstream deps: bash 3.2+, python3 (for JSON config reads/writes and realpath
 #                resolution), git (via build.sh), REPO_DIR layout with content/
 #                tree, .kimi/build.sh, .kimi/skills/dinostack/ as
-#                the per-adapter skill source.
+#                the per-adapter skill source, scripts/lib/kimi-rules.sh
+#                (hard-required - see the fail-fast check right below this
+#                header; both this script's link-health fallback rules
+#                embed and build.sh's skill body assembly depend on it),
+#                scripts/check-kimi-skill-embed-budget.sh (the link-health
+#                gate invoked below; a missing or crashed gate is itself a
+#                degrade trigger, not a skipped check - see the failure
+#                modes entry below).
 #
 # Downstream consumers: humans installing the adapter manually;
 #                       scripts/update.js (generic multi-adapter updater,
@@ -51,6 +58,18 @@
 #                body directly onto AGENTS.md - the two mechanisms differ and
 #                neither is a mirror of the other; do not restate a
 #                "mirrors" claim here without re-verifying both scripts.
+#                DS-185 round 4: the gate-output classification is a
+#                fail-safe ALLOWLIST, not a pattern match for known-broken
+#                text. A missing scripts/check-kimi-skill-embed-budget.sh, a
+#                crashed gate (e.g. a missing scripts/lib/budget-gate.sh
+#                dependency), or any diagnostic text not matching one of the
+#                two known-benign markers ("ABOVE CEILING."/"ABOVE STUB
+#                CEILING." for a healthy size-ceiling breach, "is likely
+#                intentional." for a healthy file-count-over pin needing a
+#                bump) all degrade to the AGENTS.md fallback above. Only an
+#                exact match on one of those markers warns without
+#                appending. Both markers are pinned literally in
+#                bin/tests/test_check_kimi_skill_embed_budget.sh.
 #
 # Performance: ~2-5 s wall time (dominated by build.sh git operations).
 set -euo pipefail
@@ -159,39 +178,59 @@ else
   if [[ "$_kimi_skill_md_bytes" -lt "$KIMI_SKILL_MD_FLOOR_BYTES" ]]; then
     KIMI_SKILL_MD_OK=false
     KIMI_SKILL_MD_REASON="suspiciously small ($_kimi_skill_md_bytes B < $KIMI_SKILL_MD_FLOOR_BYTES B floor): $KIMI_SKILL_MD_TARGET"
-  elif [[ -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]]; then
-    # Byte-band checks alone cannot see a whole embedded source file
-    # silently dropped from assembly (M1) - the gate's embed-completeness
-    # check catches that. Re-run it here rather than reimplementing it.
-    # (Major, DS-185 round 3) Round 2 treated ANY nonzero exit from the
-    # gate alike, so a ceiling breach (the body is healthy but grew past
-    # an advisory size boundary) triggered the same fallback as a
-    # genuinely broken body - appending ~132 KB into a tracked file on a
-    # healthy build, which is exactly the regression this check exists to
-    # prevent. Inspect the gate's own diagnostic text to distinguish an
-    # embed-completeness failure (a dropped source file - degrade) from a
-    # ceiling breach (warn only, no fallback). Known residual: an
-    # embed-completeness "file count mismatch" for an EXTRA file (an
-    # EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT pin that simply hasn't
-    # been bumped for a legitimately new, genuinely-embedded source file -
-    # round 3's repro (b)) still degrades under this branch even though
-    # the body is healthy, because the gate cannot distinguish "stale pin"
-    # from "unwanted extra file" and the round-3 review explicitly left
-    # inclusion of the embed-completeness sub-check as an option, not a
-    # requirement to further split. The correct remedy for that case is
-    # bumping the pinned constant, which also clears the CI gate.
-    _kimi_gate_rc=0
-    _kimi_gate_output="$(bash "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" 2>&1)" || _kimi_gate_rc=$?
-    if [[ "$_kimi_gate_rc" -ne 0 ]]; then
-      if grep -q 'embed incomplete' <<< "$_kimi_gate_output"; then
-        KIMI_SKILL_MD_OK=false
-        KIMI_SKILL_MD_REASON="failed embed-completeness check - a source file was dropped, an unaccounted-for file was added, or a heading collision was found (run 'bash scripts/check-kimi-skill-embed-budget.sh' for details): $KIMI_SKILL_MD_TARGET"
-      else
-        echo ""
-        echo "  WARNING: scripts/check-kimi-skill-embed-budget.sh reported a budget-ceiling"
-        echo "  issue (not an embed-completeness or floor failure) - the skill body itself"
-        echo "  is complete and healthy, so no fallback is being appended to AGENTS.md."
-        echo "  Run 'bash scripts/check-kimi-skill-embed-budget.sh' for details."
+  else
+    # Fail-safe classification (DS-185 round 4). This defect relocated at
+    # constant severity across three prior rounds rather than converging:
+    # round 1 had no gate check at all; round 2 degraded on ANY nonzero
+    # gate exit, including a healthy ceiling-only breach; round 3 flipped
+    # to matching the gate's "embed incomplete" diagnostic text and
+    # degraded only on that match - which meant a CRASHED gate (missing
+    # scripts/lib/budget-gate.sh), a MISSING gate script, a REWORDED
+    # diagnostic, or any other unrecognised failure text all fell through
+    # to the "healthy, no fallback" branch, silently losing the
+    # embed-completeness protection this check exists to provide.
+    #
+    # This round inverts the match: instead of pattern-matching for a
+    # KNOWN-BROKEN diagnostic (which fails open on anything not
+    # anticipated), it pattern-matches for a KNOWN-BENIGN diagnostic and
+    # degrades on everything else by construction. There are exactly two
+    # benign classes, both reflecting a build that is healthy but tripped
+    # an advisory boundary rather than losing content:
+    #   - a size ceiling breach (SKILL.md or AGENTS.md) - the body built
+    #     correctly and just grew past an informational size boundary;
+    #   - a file-count mismatch where MORE files were found than the
+    #     pinned EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT constant
+    #     expects - a legitimate new source file landed and the pin
+    #     merely hasn't been bumped yet (the gate's own diagnostic says
+    #     "this is likely intentional." for exactly this case).
+    # Every other outcome - a missing gate script, a crashed gate, an
+    # unrecognised diagnostic, a reworded gate, a dropped source file, a
+    # missing top-level heading, a heading collision, or a stale-pin
+    # UNDER-count (a genuinely deleted source file) - degrades. Both
+    # benign markers are pinned literally in
+    # bin/tests/test_check_kimi_skill_embed_budget.sh so a reworded gate
+    # diagnostic fails that test rather than silently falling out of this
+    # allowlist unnoticed.
+    if [[ ! -f "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" ]]; then
+      KIMI_SKILL_MD_OK=false
+      KIMI_SKILL_MD_REASON="scripts/check-kimi-skill-embed-budget.sh not found - cannot verify embed completeness, degrading rather than assuming health: $KIMI_SKILL_MD_TARGET"
+    else
+      _kimi_gate_rc=0
+      _kimi_gate_output="$(bash "$REPO_DIR/scripts/check-kimi-skill-embed-budget.sh" 2>&1)" || _kimi_gate_rc=$?
+      if [[ "$_kimi_gate_rc" -ne 0 ]]; then
+        if grep -qF 'SKILL.md ABOVE CEILING.' <<< "$_kimi_gate_output" \
+          || grep -qF 'AGENTS.md ABOVE STUB CEILING.' <<< "$_kimi_gate_output" \
+          || grep -qF 'is likely intentional.' <<< "$_kimi_gate_output"; then
+          echo ""
+          echo "  WARNING: scripts/check-kimi-skill-embed-budget.sh reported an advisory"
+          echo "  boundary issue (a size ceiling, or a file-count pin that simply hasn't"
+          echo "  been bumped for a legitimate new source file) - the skill body itself is"
+          echo "  complete and healthy, so no fallback is being appended to AGENTS.md."
+          echo "  Run 'bash scripts/check-kimi-skill-embed-budget.sh' for details."
+        else
+          KIMI_SKILL_MD_OK=false
+          KIMI_SKILL_MD_REASON="failed scripts/check-kimi-skill-embed-budget.sh with a diagnostic not on the known-benign allowlist (degrading by default rather than assuming health - run 'bash scripts/check-kimi-skill-embed-budget.sh' for details): $KIMI_SKILL_MD_TARGET"
+        fi
       fi
     fi
   fi
