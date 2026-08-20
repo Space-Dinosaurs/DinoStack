@@ -87,40 +87,37 @@ task and get back a verifiable outcome.
    checks - the cross-file reference-consistency check, the async error-handling check, the
    new-test-CI-wiring check, and the per-consumer impact-table check - had no counterpart anywhere
    in the engineer's own process, so the engineer had no way to catch them before submitting.)
-
-8. **Machinery only as complicated as the benefit requires.** The methodology's
-   own machinery - gates, hooks, count-pins, sweeps, counters, telemetry, and
-   prose - is not exempt from Pillars 1, 5, and 6: it spends the same scarce
-   operator attention, agent context, and wall-clock time as any other change,
-   and self-referential machinery that protects the methodology is still a
-   cost charged against those pillars, not a cost outside them. No new gate,
-   hook, count-pin, or enforcement mechanism ships without naming (a) a
-   specific failure it would have caught and (b) the condition under which it
-   retires. An enumeration of banned shapes that grows by one entry per
-   incident, the way Pillar 1 already names for attention-tax evasions, is the
-   same smell here: it means the principle a mechanism should have generalized
-   from is missing, not that the enumeration needs one more line. Binding
-   prose lives at exactly one canonical site with pointers to it; a verbatim
-   copy is justified only when the text must be embedded directly into a spawn
-   prompt (an agent cannot follow a pointer mid-task) or when it is
-   public-facing documentation serving a different audience than the
-   methodology's own source. The boundary is exact, the same way Pillars 5, 6,
-   and 7 state theirs: simplification is won only by deleting machinery whose
-   failure-catching is unproven or duplicated - never by deleting an
-   enforcement floor that demonstrably binds. This is the same floor-vs-dial
-   distinction Pillar 5 already draws: an enforcement floor is not waste, and
-   a mechanism that has proven its catch is not a candidate for this pillar's
-   pruning even when it is expensive. (The "simplicity test": can you name the
-   specific failure this mechanism would have caught and the measured
-   condition under which it retires? If neither can be named, it does not
-   ship - and an existing mechanism for which neither can be named, verified
-   by measurement rather than assumed, is a deletion candidate. A single
-   session once found a review-overhead ratio of roughly 1.7 review actions
-   per unit of shipped value, a resident always-loaded set that grew 5-6x in
-   one quarter, gates whose only demonstrated catch was a defect in another
-   gate, and a test suite that mandated verbatim prose duplication as its
-   passing condition - all of it individually satisfying every other pillar
-   while collectively working against all of them.)
+8. **Machinery only as complicated as the benefit requires.** The methodology's own machinery -
+   gates, hooks, count-pins, sweeps, counters, telemetry, and prose - is not exempt from Pillars
+   1, 5, and 6: it spends the same scarce operator attention, agent context, and wall-clock time
+   as any other change, and self-referential machinery that protects the methodology is still a
+   cost charged against those pillars, not a cost outside them. No new gate, hook, count-pin, or
+   enforcement mechanism ships without naming (a) a specific failure it would have caught and (b)
+   the condition under which it retires. An enumeration of banned shapes that grows by one entry
+   per incident, the way Pillar 1 already names for attention-tax evasions, is the same smell
+   here: it means the principle a mechanism should have generalized from is missing, not that the
+   enumeration needs one more line. Binding prose lives at exactly one canonical site with
+   pointers to it; a verbatim copy is justified only when the text must be embedded directly into
+   a spawn prompt (an agent cannot follow a pointer mid-task), when it is public-facing
+   documentation serving a different audience than the methodology's own source, or when it is a
+   one-to-two-sentence normative restatement at the point of use accompanied by a pointer to the
+   canonical site. The boundary is exact, the same way Pillars 5, 6, and 7 state theirs:
+   simplification is won only by deleting non-floor machinery whose failure-catching is measured
+   at zero yield - never by deleting an enforcement floor, measured or not. This is the same
+   floor-vs-dial distinction Pillar 5 already draws: an enforcement floor is not waste and is
+   never a candidate for this pillar's pruning, however expensive it is to run. A mechanism with
+   no named catch and no measured fires is not thereby a deletion candidate either - it is first
+   instrumented, or its measurement gap otherwise closed, so the question is answered by
+   measurement, never by assumption. (The "simplicity test": can you name the specific failure
+   this mechanism would have caught and the condition under which it retires? If either cannot be
+   named, it does not ship. For an existing mechanism where either is unclear, that is a call to
+   measure, not to delete: an enforcement floor is never a deletion candidate regardless of what
+   the measurement shows, and non-floor machinery becomes a deletion candidate only on a measured
+   zero yield, never on assumption alone. A single session once found a review-overhead ratio of
+   roughly 1.7 review actions per unit of shipped value, a resident always-loaded set that grew
+   5-6x in one quarter, gates whose only demonstrated catch was a defect in another gate, and a
+   test suite that mandated verbatim prose duplication as its passing condition - all of it
+   individually satisfying every other pillar while collectively working against all of them.)
 
 ## What it does
 
@@ -149,21 +146,22 @@ trust — escalating to the human only for genuine decisions.
 ## How to use this for PR alignment
 
 A pull request is **aligned** if it advances at least one North Star pillar without regressing
-another (especially the attention test). A PR is **misaligned** if it adds operator attention
-tax for little autonomy/verifiability gain, makes outcomes harder to verify, increases friction
-without justification, pulls the methodology toward "human must babysit," fails the
-portability test (works only for the author's identity, tracker, or setup), or grows
-always-loaded surface, duplicates binding prose, or adds an unconsumed output field without a
-proportional gain (fails the efficiency test), or needlessly serializes independent work, spends
-a full review cycle on a single non-blocking finding, or otherwise adds wall-clock delay without
-a proportional gain (fails the latency test), or leaves a mechanical review check unmoved to the
-producing step when it could catch the defect earlier without weakening the review (fails the
-prevention test), or asserts a conclusion/value in a spawn brief that came from neither a
-subagent return nor a conductor read verified against `origin/main` (fails the orchestration
-test), or ships a new gate, hook, count-pin, or enforcement mechanism without a named failure
-it would have caught and a named retirement condition, or duplicates binding prose outside a
-spawn-prompt-embedding or public-facing-doc exception (fails the simplicity test). Symmetrically, a PR that cuts a gate, review round, verification step, or
-enforcement floor to save tokens or to finish sooner - or that removes a reviewer's mechanical
-check because the producer now runs it too - is also misaligned, regardless of how it scores on
-the efficiency, latency, or prevention test - that trade-off is never on the table. Misalignment is
-a *direction* signal for the operator — not necessarily a request-changes verdict on correctness.
+another (especially the attention test). A PR is **misaligned** if it adds operator attention tax
+for little autonomy/verifiability gain, makes outcomes harder to verify, increases friction
+without justification, pulls the methodology toward "human must babysit," fails the portability
+test (works only for the author's identity, tracker, or setup), or grows always-loaded surface,
+duplicates binding prose, or adds an unconsumed output field without a proportional gain (fails
+the efficiency test), or needlessly serializes independent work, spends a full review cycle on a
+single non-blocking finding, or otherwise adds wall-clock delay without a proportional gain
+(fails the latency test), or leaves a mechanical review check unmoved to the producing step when
+it could catch the defect earlier without weakening the review (fails the prevention test), or
+asserts a conclusion/value in a spawn brief that came from neither a subagent return nor a
+conductor read verified against `origin/main` (fails the orchestration test), or ships a new
+gate, hook, count-pin, or enforcement mechanism without a named failure it would have caught and
+a named retirement condition, or duplicates binding prose outside a spawn-prompt-embedding or
+public-facing-doc exception (fails the simplicity test). Symmetrically, a PR that cuts a gate,
+review round, verification step, or enforcement floor to save tokens or to finish sooner - or
+that removes a reviewer's mechanical check because the producer now runs it too - is also
+misaligned, regardless of how it scores on the efficiency, latency, or prevention test - that
+trade-off is never on the table. Misalignment is a *direction* signal for the operator — not
+necessarily a request-changes verdict on correctness.
