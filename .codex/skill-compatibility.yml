@@ -1352,16 +1352,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9ab03a52bfb8046776ca589744d8aada0f1261449144fc50302cfdbcdb733339",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -1410,16 +1400,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Write"
-    },
-    {
-      "expected_target": "content/references/cross-harness-teams.md",
-      "generated_token": "$AE_REPO_DIR/content/references/cross-harness-teams.md",
-      "kind": "operational",
-      "occurrence_hash": "a34d10abe9fc7d6621d45061a979d64728855ac0edfd1822616612a566591275",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/cross-harness-teams.md"
     },
     {
       "expected_target": "content/commands/ds-brief.md",
@@ -1495,7 +1475,7 @@
       "expected_target": "content/references/cross-harness-teams.md",
       "generated_token": "$AE_REPO_DIR/content/references/cross-harness-teams.md",
       "kind": "operational",
-      "occurrence_hash": "abe0f58f7cdd15bd9acc4466cb05e2f66454fbbf488cebd9af77e83c5944e8cd",
+      "occurrence_hash": "ab1fc4ca7ee8c862909b4aa8f8c296f6dc2ef11470b5702e2847fff77f53fead",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
