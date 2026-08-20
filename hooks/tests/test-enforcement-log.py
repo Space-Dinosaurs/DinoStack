@@ -194,6 +194,65 @@ check(
     not os.path.isdir(os.path.join(drifted, ".agentic")),
 )
 
+# ---------------------------------------------------------------------------
+# 8. Worktree fire-log aggregation: a fire from a cwd inside a LINKED git
+#    worktree (its own .git is a FILE pointing into a
+#    <primary>/.git/worktrees/<name> admin dir) must land in the PRIMARY
+#    checkout's .agentic/.enforcement-fires.jsonl, not the worktree's own
+#    throwaway copy. This is the actual defect this test guards against a
+#    regression of: reverting the log_fire() root resolution back to a bare
+#    resolve_agentic_cwd(cwd) call (dropping the _resolve_primary_root
+#    follow-through) must turn this test red.
+# ---------------------------------------------------------------------------
+print("\nTest 8: worktree fire-log aggregation lands at the primary checkout")
+tmp8 = tempfile.mkdtemp(prefix="test-enforcement-log-8-")
+tmp8 = os.path.realpath(tmp8)
+primary8 = os.path.join(tmp8, "primary")
+os.makedirs(os.path.join(primary8, ".git"))  # fake primary checkout root marker
+
+worktree8 = os.path.join(tmp8, "primary", ".claude", "worktrees", "agent-abc123")
+os.makedirs(worktree8)
+git_admin_dir = os.path.join(primary8, ".git", "worktrees", "agent-abc123")
+os.makedirs(git_admin_dir)
+with open(os.path.join(worktree8, ".git"), "w", encoding="utf-8") as f:
+    f.write(f"gitdir: {git_admin_dir}\n")
+
+enforcement_log.log_fire(
+    {"cwd": worktree8}, "enforce-worktree-read", "deny", "worktree aggregation probe"
+)
+
+primary8_lines = read_lines(primary8)
+worktree8_lines = read_lines(worktree8)
+check(
+    "fire row landed at the PRIMARY checkout, not the worktree",
+    len(primary8_lines) == 1,
+)
+check(
+    "NO stranded fire row written inside the worktree itself",
+    len(worktree8_lines) == 0,
+)
+if primary8_lines:
+    check(
+        "primary-checkout row carries the expected hook/decision",
+        primary8_lines[0].get("hook") == "enforce-worktree-read"
+        and primary8_lines[0].get("decision") == "deny",
+    )
+
+# 8b. A submodule's .git is also a FILE, but its gitdir pointer has no
+# `.git/worktrees/` admin-dir segment - must NOT be treated as a worktree
+# and must write at its own root, exactly as before this fix.
+print("\nTest 8b: a submodule-shaped .git file is not treated as a worktree")
+tmp8b = tempfile.mkdtemp(prefix="test-enforcement-log-8b-")
+tmp8b = os.path.realpath(tmp8b)
+host8b = os.path.join(tmp8b, "host")
+sub8b = os.path.join(tmp8b, "host", "sub")
+os.makedirs(os.path.join(host8b, ".git", "modules", "sub"), exist_ok=True)
+os.makedirs(sub8b, exist_ok=True)
+with open(os.path.join(sub8b, ".git"), "w", encoding="utf-8") as f:
+    f.write(f"gitdir: {os.path.join(host8b, '.git', 'modules', 'sub')}\n")
+enforcement_log.log_fire({"cwd": sub8b}, "enforce-tier", "deny", "submodule probe")
+check("submodule root keeps its own fire row (not redirected)", len(read_lines(sub8b)) == 1)
+
 print(f"\n{total - failed}/{total} tests passed.")
 if failed:
     print(f"FAILED: {failed} test(s) failed.")

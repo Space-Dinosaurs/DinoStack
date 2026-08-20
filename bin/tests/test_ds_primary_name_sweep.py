@@ -387,6 +387,16 @@ EXPECTED_RESIDUE_SET: set[tuple[str, str]] = {
     # DS-agentic-repair added it there as the sixth writer).
     ("content/references/events-log.md", "agentic-repair"),
     ("content/sections/09-events-log.md", "agentic-repair"),
+    # Round-3 rework of the isolation-worktree fire-log aggregation fix
+    # (fix/ds-enforcement-fire-log-aggregation) added a third recovery
+    # location to events-log.md's "Write-target resolution" paragraph:
+    # `.agentic/stray-agentic-archive/*/.enforcement-fires.jsonl`, the
+    # flat archive directory `bin/ds-agentic-repair`'s `--fix` path
+    # writes stray `.agentic/` trees into. "stray-agentic-archive" is a
+    # substring artifact of that literal archive-directory NAME, not a
+    # stale pre-rename `agentic-*` tool identity surviving in content/ -
+    # same shape as the "agentic-repair" entry directly above.
+    ("content/references/events-log.md", "agentic-archive"),
 }
 
 

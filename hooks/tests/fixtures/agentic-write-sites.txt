@@ -94,7 +94,7 @@ hooks/lib/capture-gap.js::const learningsPath = path.join(resolveAgenticCwd(cwd)
 hooks/lib/context-rollup.js::'WRAP-LOCK-STUCK: .agentic/wrap/lock has been ' + state + ' for ' + ageLabel
 hooks/lib/context-rollup.js::+ '*Derived from .agentic/context.d/ - ' + blocks.length
 hooks/lib/context-rollup.js::return path.join(resolveAgenticCwd(cwd), '.agentic');
-hooks/lib/enforcement_log.py::agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
+hooks/lib/enforcement_log.py::agentic_dir = os.path.join(root, ".agentic")
 hooks/lib/loop_guard.py::agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
 hooks/lib/loop_guard.py::return os.path.join(resolve_agentic_cwd(cwd), ".agentic", counter_filename)
 hooks/lib/skill-candidate-detector.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');

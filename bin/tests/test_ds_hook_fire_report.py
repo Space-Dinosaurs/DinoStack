@@ -756,3 +756,218 @@ def test_days_window_is_respected(tmp_path):
     assert row["fire_count_window"] == 0
     assert row["fire_count_all_time"] == 1
     assert row["status"] == "ZERO_INVOCATIONS"
+
+
+# ---------------------------------------------------------------------------
+# DS: enforcement-fire-log aggregation - stranded worktree-local copies are
+# merged into the report at query time.
+# Mutation for each test below: delete _stranded_worktree_fire_log_paths'
+# glob call (or its call site in build_report) - the merged records
+# disappear and these assertions turn red.
+# ---------------------------------------------------------------------------
+
+
+def test_stranded_worktree_log_row_counted_even_when_primary_log_absent(tmp_path):
+    """A fire logged only inside a linked-worktree-local copy (no primary
+    log at all) must still be counted, not reported as UNMEASURED."""
+    repo = _make_repo(tmp_path)
+    stranded = (
+        repo
+        / ".claude"
+        / "worktrees"
+        / "agent-abc123"
+        / ".agentic"
+        / ".enforcement-fires.jsonl"
+    )
+    _write(
+        stranded,
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-action",
+                "decision": "deny",
+                "reason": "stranded worktree fire",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["stranded_worktree_logs_merged"] == 1
+    assert report["meta"]["stranded_worktree_records_merged"] == 1
+    row = _row_for(report, "enforce-fake-action.py")
+    assert row["status"] == "ACTIVE"
+    assert row["fire_count_window"] == 1
+    assert row["fire_count_all_time"] == 1
+
+
+def test_stranded_worktree_log_merges_alongside_primary_log(tmp_path):
+    """A real primary log plus a stranded worktree copy for a DIFFERENT
+    hook: both must be visible in the same report, and the primary log's
+    own presence/count must be unaffected by the merge."""
+    repo = _make_repo(tmp_path)
+    _write(
+        repo / ".agentic" / ".enforcement-fires.jsonl",
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-abdication",
+                "decision": "allow",
+                "reason": "primary log row",
+            }
+        )
+        + "\n",
+    )
+    stranded = (
+        repo
+        / ".claude"
+        / "worktrees"
+        / "agent-def456"
+        / ".agentic"
+        / ".enforcement-fires.jsonl"
+    )
+    _write(
+        stranded,
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-action",
+                "decision": "deny",
+                "reason": "stranded worktree row",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["stranded_worktree_logs_merged"] == 1
+    assert report["meta"]["stranded_worktree_records_merged"] == 1
+    primary_row = _row_for(report, "enforce-fake-abdication.py")
+    assert primary_row["fire_count_all_time"] == 1
+    stranded_row = _row_for(report, "enforce-fake-action.py")
+    assert stranded_row["fire_count_all_time"] == 1
+    assert stranded_row["status"] == "ACTIVE"
+
+
+def test_stranded_worktree_log_deduped_against_primary_log(tmp_path):
+    """The identical line present in BOTH the primary log and a stranded
+    worktree copy (the state after the write-target fix has been live for
+    a while, and something re-copies a worktree's stale file) must be
+    counted exactly once, never twice."""
+    repo = _make_repo(tmp_path)
+    line = json.dumps(
+        {
+            "ts": _RECENT_TS,
+            "hook": "enforce-fake-action",
+            "decision": "deny",
+            "reason": "duplicate line",
+        }
+    )
+    _write(repo / ".agentic" / ".enforcement-fires.jsonl", line + "\n")
+    stranded = (
+        repo
+        / ".claude"
+        / "worktrees"
+        / "agent-ghi789"
+        / ".agentic"
+        / ".enforcement-fires.jsonl"
+    )
+    _write(stranded, line + "\n")
+    report = _run_json(repo)
+    assert report["meta"]["stranded_worktree_records_merged"] == 0
+    row = _row_for(report, "enforce-fake-action.py")
+    assert row["fire_count_all_time"] == 1
+
+
+def test_no_worktrees_dir_reports_zero_stranded_merges(tmp_path):
+    """The common case (no `.claude/worktrees/` at all) must not error and
+    must report zero stranded merges, not omit the fields."""
+    repo = _make_repo(tmp_path)
+    report = _run_json(repo)
+    assert report["meta"]["stranded_worktree_logs_merged"] == 0
+    assert report["meta"]["stranded_worktree_records_merged"] == 0
+
+
+def test_stranded_worktree_field_visible_in_table_output(tmp_path):
+    repo = _make_repo(tmp_path)
+    table_proc = _run(repo)
+    assert "stranded_worktree_logs_merged=0" in table_proc.stdout
+    assert "stranded_worktree_records_merged=0" in table_proc.stdout
+
+
+def test_stranded_feature_worktree_log_is_recovered(tmp_path):
+    """A fire logged only inside a conventional feature-worktree copy
+    (`.agentic/worktrees/<branch-name>/.agentic/.enforcement-fires.jsonl`,
+    per this repo's own AGENTS.md worktree path convention - distinct from
+    the `.claude/worktrees/*` isolation-worktree location already covered
+    above) must also be recovered. Mutation: break the second glob tuple
+    in `_stranded_worktree_fire_log_paths` (e.g. typo the `.agentic` base
+    dir or the `*/.agentic/...` pattern) and this row disappears / the
+    merge counters drop to 0."""
+    repo = _make_repo(tmp_path)
+    stranded = (
+        repo
+        / ".agentic"
+        / "worktrees"
+        / "fix-some-branch"
+        / ".agentic"
+        / ".enforcement-fires.jsonl"
+    )
+    _write(
+        stranded,
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-action",
+                "decision": "deny",
+                "reason": "stranded feature-worktree fire",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["stranded_worktree_logs_merged"] == 1
+    assert report["meta"]["stranded_worktree_records_merged"] == 1
+    row = _row_for(report, "enforce-fake-action.py")
+    assert row["status"] == "ACTIVE"
+    assert row["fire_count_window"] == 1
+    assert row["fire_count_all_time"] == 1
+
+
+def test_stranded_archive_log_is_recovered(tmp_path):
+    """A fire logged only inside a `bin/ds-agentic-repair`-archived stray
+    tree (`.agentic/stray-agentic-archive/<leaf>/.enforcement-fires.jsonl`
+    - FLAT, no nested `.agentic/` segment, matching the shape
+    `repair_one()` actually produces) must also be recovered. Mutation:
+    break the third glob tuple in `_stranded_worktree_fire_log_paths`
+    (e.g. typo the `stray-agentic-archive` base dir or drop the flat
+    `*/.enforcement-fires.jsonl` pattern in favor of a nested one) and
+    this row disappears / the merge counters drop to 0."""
+    repo = _make_repo(tmp_path)
+    stranded = (
+        repo
+        / ".agentic"
+        / "stray-agentic-archive"
+        / "some-stray-leaf"
+        / ".enforcement-fires.jsonl"
+    )
+    _write(
+        stranded,
+        json.dumps(
+            {
+                "ts": _RECENT_TS,
+                "hook": "enforce-fake-action",
+                "decision": "deny",
+                "reason": "stranded archived fire",
+            }
+        )
+        + "\n",
+    )
+    report = _run_json(repo)
+    assert report["meta"]["log_present"] is True
+    assert report["meta"]["stranded_worktree_logs_merged"] == 1
+    assert report["meta"]["stranded_worktree_records_merged"] == 1
+    row = _row_for(report, "enforce-fake-action.py")
+    assert row["status"] == "ACTIVE"
+    assert row["fire_count_window"] == 1
+    assert row["fire_count_all_time"] == 1

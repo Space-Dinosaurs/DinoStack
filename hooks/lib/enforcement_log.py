@@ -65,10 +65,27 @@ Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
                effect for every caller that dynamically loads this file)
                - anchors the write below to the repo root instead of the
                raw payload cwd (or the os.getcwd() fallback when cwd is
-               absent from the payload). Writes ONLY
+               absent from the payload). Also imports the sibling
+               hooks/lib/git_worktree.py module the same way
+               (_load_git_worktree) and, when the resolved root is ITSELF
+               a genuine linked git worktree's root (its own `.git` is a
+               file pointing into a `.git/worktrees/<name>` admin dir -
+               see git_worktree.resolve_worktree_primary_root()), follows
+               that pointer to the PRIMARY checkout root before writing.
+               Without this, a subagent running inside an isolation
+               worktree (`.claude/worktrees/agent-<id>`) writes its fire
+               rows into that worktree's OWN throwaway
+               `.agentic/.enforcement-fires.jsonl`, which is discarded the
+               moment the worktree is removed - fragmenting the fire log
+               across every worktree that ever existed and silently
+               undercounting every consumer of the primary copy (e.g.
+               bin/ds-hook-fire-report). Writes ONLY
                [resolved root]/.agentic/.enforcement-fires.jsonl (creates
                that .agentic/ dir with os.makedirs(exist_ok=True) if
-               absent). Never reads any file.
+               absent). Never reads any file other than the two `.git`
+               entries this resolution may probe (repo_root's existence-
+               only walk, and git_worktree's read of a single `.git` file
+               at the walk's resolved root).
 
 Downstream consumers: all twelve enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
@@ -143,6 +160,45 @@ import json
 import os
 
 
+def _load_git_worktree():
+    """Best-effort dynamic import of the sibling hooks/lib/git_worktree.py
+    module, same isolated-loader pattern as _load_repo_root() below (see
+    its docstring for why this is not a plain `import`)."""
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "git_worktree.py")
+        spec = _ilu.spec_from_file_location("git_worktree", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_GIT_WORKTREE = _load_git_worktree()
+
+
+def _resolve_primary_root(root: str) -> str:
+    """If `root` (the resolve_agentic_cwd() result) is itself a genuine
+    linked git worktree's root, follow its `gitdir:` pointer to the
+    PRIMARY checkout root so fire-log rows from an isolation-worktree
+    subagent land in one shared file instead of a discarded worktree-local
+    copy. Returns `root` unchanged when the worktree module failed to
+    load, `root` is not a worktree, or resolution fails for any reason -
+    this only ever narrows the write target toward the primary checkout,
+    never invents a new path (mirrors resolve_agentic_cwd()'s own
+    fall-back-to-unchanged discipline just above)."""
+    if _GIT_WORKTREE is None:
+        return root
+    try:
+        primary = _GIT_WORKTREE.resolve_worktree_primary_root(root)
+    except Exception:
+        return root
+    return primary if primary else root
+
+
 def _load_repo_root():
     """Best-effort dynamic import of the sibling hooks/lib/repo_root.py
     module. Round-2 rework (Minor): replaces a `sys.path.insert(0, ...)` +
@@ -215,8 +271,12 @@ def log_fire(data, hook_name, decision, reason, *, detail=None) -> None:
         # resolve_agentic_cwd walks up from cwd (whether it came from the
         # payload or the os.getcwd() fallback above) to the nearest .git
         # ancestor, so a drifted process cwd never determines the write
-        # location on its own.
-        agentic_dir = os.path.join(resolve_agentic_cwd(cwd), ".agentic")
+        # location on its own. When that ancestor is itself a linked git
+        # worktree's root, _resolve_primary_root follows its gitdir
+        # pointer to the primary checkout so the row lands in the one
+        # shared fire log rather than a discarded worktree-local copy.
+        root = _resolve_primary_root(resolve_agentic_cwd(cwd))
+        agentic_dir = os.path.join(root, ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
         log_path = os.path.join(agentic_dir, _LOG_BASENAME)
 
