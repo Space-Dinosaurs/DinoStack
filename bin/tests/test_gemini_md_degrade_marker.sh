@@ -16,9 +16,27 @@
 #          .gemini/uninstall.sh via `HOME=<scratch> bash ...`, never an
 #          extracted snippet.
 #
+#          Round 4 additionally fixes: the degrade branch treated ANY
+#          symlink at the destination as foreign, including our own (from a
+#          prior healthy install, or dangling after a repo move), refusing
+#          to deliver the methodology body at all in either case - now it
+#          replaces a symlink pointing at our own stub, or a dangling one,
+#          with the degrade-path body, and only a symlink resolving
+#          elsewhere is treated as foreign (scenarios 1c/1d below). Round 4
+#          also closes a coverage gap in scenario 5's own header, which
+#          claimed install.sh's first-line-EQUALS behaviour was covered
+#          "implicitly via scenario 3's exact marker" - scenario 3 only
+#          ever writes an exact marker, so it cannot distinguish EQUALS
+#          from CONTAINS; scenarios 5b/5c below exercise install.sh
+#          directly with a substring-marker file.
+#
 #          Scenarios (M4's explicit minimum list):
 #            1. A foreign symlink at the GEMINI.md destination is preserved
 #               on BOTH the degrade branch (M1) and the healthy branch.
+#            1c/1d (round 4). A symlink at the destination that is OURS
+#               (points at our stub, or is dangling) is replaced with the
+#               degrade-path body rather than skipped, on the degrade
+#               branch (M1 round-4 fix).
 #            2. A foreign regular file (no marker) is preserved+backed up
 #               with an accurate warning, on both branches.
 #            3. Our own marked degrade artifact is replaced with neither a
@@ -28,8 +46,11 @@
 #               foreign file/symlink alone.
 #            5. The marker match is first-line-EQUALS, not
 #               first-line-CONTAINS (m5) - a line that merely contains the
-#               marker string is treated as foreign, on both install.sh
-#               and uninstall.sh.
+#               marker string is treated as foreign, on uninstall.sh (5)
+#               and on install.sh's degrade and healthy branches (5b/5c,
+#               round 4 - the pre-round-4 header's claim that scenario 3
+#               covered this "implicitly" was false, since scenario 3 never
+#               writes a substring-only marker).
 #
 #          Each scenario prints, at the end, the exact mutation that would
 #          redden it (per the DS-184 review's mutation-per-branch
@@ -132,6 +153,61 @@ if [[ -L "$H1B/.gemini/GEMINI.md" ]] && [[ "$(readlink "$H1B/.gemini/GEMINI.md")
   pass "scenario1b: healthy-path install preserves a foreign symlink at ~/.gemini/GEMINI.md"
 else
   fail "scenario1b: healthy-path install did not preserve the foreign symlink"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 1c (round 4, M1 regression fix): a symlink at the destination
+# pointing at OUR OWN stub (left over from a prior healthy install, now
+# unusable because a later run forced degrade) is replaced with the
+# degrade-path body, not skipped as foreign.
+# Mutation that reddens this: reverting the degrade branch to treat every
+# `-L "$GEMINI_MD_DST"` as foreign (round-3 shape).
+# ---------------------------------------------------------------------------
+H1C="$TMP_ROOT/h1c-degrade-own-symlink"
+mkdir -p "$H1C/.gemini"
+install_real "$H1C" > /dev/null 2>&1   # healthy install first: creates our own symlink
+if [[ ! -L "$H1C/.gemini/GEMINI.md" ]]; then
+  fail "scenario1c: setup failed - first install did not create the expected symlink"
+else
+  rm "$H1C/.gemini/skills/dinostack"   # remove our own skill symlink first...
+  mkdir -p "$H1C/.gemini/skills/dinostack"   # ...then occupy the destination with a real dir -> forces degrade
+  out1c="$(install_real "$H1C" 2>&1)"
+  if [[ -L "$H1C/.gemini/GEMINI.md" ]]; then
+    fail "scenario1c: degrade install left our own stale symlink in place instead of delivering the body (M1 round-4 regressed)"
+  elif [[ ! -f "$H1C/.gemini/GEMINI.md" ]]; then
+    fail "scenario1c: degrade install left no GEMINI.md at all"
+  elif [[ "$(head -1 "$H1C/.gemini/GEMINI.md")" != "$MARKER" ]]; then
+    fail "scenario1c: degrade install wrote GEMINI.md but not with our marker as first line"
+  else
+    pass "scenario1c: degrade install replaces our own stale symlink with the degrade-path body (M1 round-4)"
+  fi
+  if [[ "$out1c" == *"Replacing dinostack symlink at ~/.gemini/GEMINI.md with the degrade-path body"* ]]; then
+    pass "scenario1c: degrade install prints an accurate replacing-our-own-symlink message"
+  else
+    fail "scenario1c: expected a 'Replacing dinostack symlink ... degrade-path body' message, got:"$'\n'"$out1c"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 1d (round 4, M1 regression fix): a DANGLING symlink at the
+# destination (simulating a repo move - the target no longer exists) is
+# replaced with the degrade-path body, not skipped as foreign.
+# Mutation that reddens this: reverting the degrade branch's dangling-check
+# (`[[ ! -e "$GEMINI_MD_DST" ]]`) to only the equals-our-stub check.
+# ---------------------------------------------------------------------------
+H1D="$TMP_ROOT/h1d-degrade-dangling-symlink"
+mkdir -p "$H1D/.gemini/skills/dinostack"   # forces degrade
+ln -s "$H1D/nonexistent-target.md" "$H1D/.gemini/GEMINI.md"
+
+out1d="$(install_real "$H1D" 2>&1)"
+if [[ -L "$H1D/.gemini/GEMINI.md" ]]; then
+  fail "scenario1d: degrade install left a dangling symlink in place instead of delivering the body (M1 round-4 regressed)"
+elif [[ ! -f "$H1D/.gemini/GEMINI.md" ]]; then
+  fail "scenario1d: degrade install left no GEMINI.md at all"
+elif [[ "$(head -1 "$H1D/.gemini/GEMINI.md")" != "$MARKER" ]]; then
+  fail "scenario1d: degrade install wrote GEMINI.md but not with our marker as first line"
+else
+  pass "scenario1d: degrade install replaces a dangling symlink with the degrade-path body (M1 round-4)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -252,8 +328,9 @@ fi
 
 # ---------------------------------------------------------------------------
 # Scenario 5: marker match is first-line-EQUALS, not first-line-CONTAINS
-# (m5), on both install.sh (implicit via scenario 3's exact marker) and
-# uninstall.sh (explicit here).
+# (m5), on uninstall.sh. install.sh's own EQUALS behaviour is exercised
+# separately by scenarios 5b/5c below (round 4) - scenario 3 alone cannot
+# cover it, since it only ever writes an exact marker.
 # Mutation that reddens this: reverting either script's comparison from
 # `[[ "$first_line" == "$MARKER" ]]` back to
 # `head -1 ... | grep -qF "$MARKER"`.
@@ -270,12 +347,65 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Static check (m1 regression): the pre-commit hook's git add invocation
-# stages all four .gemini/ generated artifact paths. Mutation that reddens
-# this: dropping any one of the four paths from hooks/pre-commit's git add
-# block.
+# Scenario 5b (round 4): install.sh's DEGRADE branch treats a first line
+# merely CONTAINING the marker as foreign - backed up with a warning, not
+# silently overwritten as if it were our own artifact.
+# Mutation that reddens this: reverting install.sh's degrade-branch marker
+# comparison from `[[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]` back
+# to `head -1 ... | grep -qF "$GEMINI_MD_DEGRADE_MARKER"`.
+# ---------------------------------------------------------------------------
+H5B="$TMP_ROOT/h5b-install-degrade-substring-marker"
+mkdir -p "$H5B/.gemini/skills/dinostack"   # forces degrade
+printf 'this line merely contains %s in the middle, not exactly\nmy own content\n' "$MARKER" > "$H5B/.gemini/GEMINI.md"
+
+out5b="$(install_real "$H5B" 2>&1)"
+backup5b="$(ls -t "$H5B/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+if [[ -n "$backup5b" ]] && grep -qF "my own content" "$backup5b"; then
+  pass "scenario5b: degrade install backs up a substring-marker file rather than silently overwriting it (m5, round 4)"
+else
+  fail "scenario5b: expected a backup file preserving the substring-marker file's content; found: '$backup5b'"
+fi
+if [[ "$(head -1 "$H5B/.gemini/GEMINI.md")" == "$MARKER" ]]; then
+  pass "scenario5b: degrade install writes the exact marker as the new first line after backing up"
+else
+  fail "scenario5b: expected the exact marker as the new first line, got: '$(head -1 "$H5B/.gemini/GEMINI.md")'"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 5c (round 4): install.sh's HEALTHY branch treats a first line
+# merely CONTAINING the marker as foreign - backed up with a warning, not
+# silently replaced as if it were our own artifact.
+# Mutation that reddens this: reverting install.sh's healthy-branch marker
+# comparison from `[[ "$first_line" == "$GEMINI_MD_DEGRADE_MARKER" ]]` back
+# to `head -1 ... | grep -qF "$GEMINI_MD_DEGRADE_MARKER"`.
+# ---------------------------------------------------------------------------
+H5C="$TMP_ROOT/h5c-install-healthy-substring-marker"
+mkdir -p "$H5C/.gemini"
+printf 'this line merely contains %s in the middle, not exactly\nmy own content\n' "$MARKER" > "$H5C/.gemini/GEMINI.md"
+
+out5c="$(install_real "$H5C" 2>&1)"
+backup5c="$(ls -t "$H5C/.gemini/GEMINI.md.backup-"* 2>/dev/null | head -1 || true)"
+if [[ -n "$backup5c" ]] && grep -qF "my own content" "$backup5c"; then
+  pass "scenario5c: healthy install backs up a substring-marker file rather than silently replacing it (m5, round 4)"
+else
+  fail "scenario5c: expected a backup file preserving the substring-marker file's content; found: '$backup5c'"
+fi
+if [[ -L "$H5C/.gemini/GEMINI.md" ]]; then
+  pass "scenario5c: healthy install replaces the substring-marker file with our symlink after backing it up"
+else
+  fail "scenario5c: GEMINI.md destination is not a symlink after the healthy install"
+fi
+
+# ---------------------------------------------------------------------------
+# Static check (m1 regression): the pre-commit hook's `git add` invocation
+# stages every .gemini/ generated artifact path listed below. Scoped to the
+# git-add block itself (not the whole file), so a path mentioned elsewhere
+# in hooks/pre-commit (e.g. in a comment) cannot pass this check by
+# accident. Mutation that reddens this: dropping any one of the listed
+# paths from hooks/pre-commit's git add block.
 # ---------------------------------------------------------------------------
 PRECOMMIT="$REPO_DIR/hooks/pre-commit"
+GIT_ADD_BLOCK="$(awk '/^  git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$/) exit}' "$PRECOMMIT")"
 for p in \
   '.gemini/GEMINI.md' \
   '.gemini/skills/dinostack/SKILL.md' \
@@ -283,10 +413,10 @@ for p in \
   '.gemini/commands/' \
   '.gemini/agents/'
 do
-  if grep -qF "$p" "$PRECOMMIT"; then
-    pass "static: hooks/pre-commit stages $p"
+  if grep -qF "$p" <<<"$GIT_ADD_BLOCK"; then
+    pass "static: hooks/pre-commit's git add block stages $p"
   else
-    fail "static: hooks/pre-commit does not reference $p in its git add block"
+    fail "static: hooks/pre-commit's git add block does not reference $p"
   fi
 done
 
