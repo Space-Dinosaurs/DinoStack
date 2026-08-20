@@ -652,3 +652,54 @@ def test_wrap_ticket_scopes_id_extraction_to_entries_section():
         f"{_rel(path)} does not explain why extraction must be scoped away from '## Index' "
         "hook lines, which match the same ID-shaped regex"
     )
+
+
+# ---------------------------------------------------------------------------
+# Round-3 regression pins (Skeptic round 4)
+# ---------------------------------------------------------------------------
+
+def test_wrap_ticket_states_pre_migration_fallback_never_zero_matching_entries():
+    # [MUTATION] Delete the "Pre-migration fallback:" sentence (or its "Never
+    # silently treat a pre-migration file as zero matching entries" clause)
+    # from content/agents/wrap-ticket.md - this assertion goes RED.
+    path = CONTENT_DIR / "agents" / "wrap-ticket.md"
+    text = path.read_text(encoding="utf-8")
+    assert "Pre-migration fallback:" in text, (
+        f"{_rel(path)} no longer states the 'Pre-migration fallback:' clause for a "
+        "'.agentic/learnings.md' with no '## Entries' heading yet (predates the Index "
+        "section and no writer has migrated it)"
+    )
+    assert "Never silently treat a pre-migration file as zero matching entries" in text, (
+        f"{_rel(path)} no longer states the explicit warning against silently treating a "
+        "pre-migration file as zero matching entries - without it, Phase 11b extraction can "
+        "silently drop every learning in an unmigrated file"
+    )
+
+
+def test_learning_extractor_has_single_learnings_header_and_scoped_append_only():
+    # [MUTATION] Restore round-2's divergent second '# Learnings' header block
+    # in content/agents/learning-extractor.md (or reintroduce a bare
+    # 'Append-only.' line, i.e. the unscoped rule this round's fix replaced
+    # with 'Append-only governs entry bodies, not the Index.') - either
+    # mutation goes RED. The negative assertions are scoped so the legitimate
+    # qualified wording ("Append-only governs entry bodies") still passes.
+    path = CONTENT_DIR / "agents" / "learning-extractor.md"
+    text = path.read_text(encoding="utf-8")
+
+    header_matches = re.findall(r"^# Learnings\s*$", text, re.MULTILINE)
+    assert len(header_matches) == 0, (
+        f"{_rel(path)} contains a second, divergent '# Learnings' header block - this file "
+        "must have a single shape for the template/procedure it documents, not two competing "
+        f"copies. Found {len(header_matches)} bare '# Learnings' header line(s)."
+    )
+
+    bare_append_only = re.findall(r"^Append-only\.\s*$", text, re.MULTILINE)
+    assert not bare_append_only, (
+        f"{_rel(path)} contains a bare, unscoped 'Append-only.' line - this reads as forbidding "
+        "the required Index-repair/migration writes. The rule must be scoped, e.g. "
+        "'Append-only governs entry bodies, not the Index.'"
+    )
+    assert "append-only governs entry bodies" in text.lower(), (
+        f"{_rel(path)} lost the scoped 'Append-only governs entry bodies, not the Index.' "
+        "wording while checking for the unscoped form"
+    )
