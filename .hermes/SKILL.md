@@ -10760,7 +10760,9 @@ Failure modes:
 
 Performance: ~30s budget. The conductor enforces a 30s timeout on the spawn;
              learning-extractor should complete well within this envelope -
-             one file read, small number of append writes.
+             an index-section read (not a full-file read), a small number of
+             targeted single-entry reads for plausible dedup matches, and a
+             small number of append writes.
 -->
 
 > **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/ds-implement-ticket`). `learning-extractor` produces LRN entries only; KNW entries are produced by `learnings-agent` via mandatory conductor triggers.
@@ -10829,6 +10831,10 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 <!-- Target: under 50 entries. Pruning is DEFERRED until learnings-retrieval is wired into the reading agents and demonstrated - until then keep entries even past the target so retrieval has a corpus to match against. Once retrieval is demonstrated, resume pruning entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
 
+## Index
+
+<!-- One line per entry, in file order: `- [<ID>] <one-line hook, <=100 chars>`. Bidirectional with the entry headings below - an appended entry without its index line, in the same edit, is a protocol violation the next writer must repair. -->
+
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 
 **Discovered:** YYYY-MM-DD (ticket: TICKET_ID)
@@ -10842,13 +10848,14 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 **ID format:** `LRN-YYYYMMDD-XXX` where:
 - `YYYYMMDD` is today's date
 - `XXX` is a monotonic counter starting at `001` for each day
-- Read the existing file to determine the next counter value. If today's date already has entries, increment from the highest existing counter. If no entries exist for today, start at `001`.
+- Read the Index section in full (cheap at any file size) to determine the next counter value. If today's date already has an Index entry, increment from the highest existing counter. If none exist for today, start at `001`.
 
-**Append discipline:**
-- Read the existing file first (if it exists).
-- **Dedup:** before writing each entry, check if the same pattern already exists. Use case-insensitive substring match on the `Pattern` field text. If matched, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
-- Append new entries at the end of the file (before any trailing blank lines).
-- If the file does not exist, create it with the header block above followed by the entries.
+**Append discipline (index-first dedup):**
+- Read the Index section in full first (if the file exists) - never the whole file.
+- **Dedup:** compare the candidate's finding-title/pattern against the index hooks (semantic match, not literal). On a plausible match, read only that one entry's body (targeted read, not a full-file read) and decide. As a secondary exact guard, also apply case-insensitive substring match on the matched entry's `Pattern` field text. If either confirms a duplicate, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
+- On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit - an entry with no index line is a protocol violation the next writer must repair.
+- Append new entries at the end of the Entries section (before any trailing blank lines).
+- If the file does not exist, create it with the header block above (including the empty Index section) followed by the entries.
 
 **Cap at 5 entries per run.** If more generalizable findings exist, prioritize by severity (Critical > Major) then by likely recurrence, and drop the rest.
 
@@ -10901,7 +10908,7 @@ The only file you may write is:
 ## Rules
 
 - **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append.** Case-insensitive substring match on the Pattern field against existing entries.
+- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.
@@ -10951,11 +10958,15 @@ Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
   is the failure path; the conductor warns and proceeds.
 - Write failure on .agentic/learnings.md or MEMORY.md: soft-fail, skip silently.
-- Dedup skip: LRN dedup on Pattern field (case-insensitive substring); KNW dedup
-  on Fact field (case-insensitive substring). Returns JSON with skipped_reason
-  "duplicate" and no write when matched.
+- Dedup skip: index-first semantic dedup against the Index section's hooks,
+  confirmed by a targeted read of the one matched entry's body, with
+  case-insensitive substring match on the Pattern (LRN) or Fact (KNW) field
+  as a secondary exact guard. Returns JSON with skipped_reason "duplicate"
+  and no write when matched.
 
-Performance: ~15s budget per message. One file read, small number of append writes.
+Performance: ~15s budget per message. An index-section read (not a full-file
+             read), a small number of targeted single-entry reads for
+             plausible dedup matches, and a small number of append writes.
 -->
 
 ## Role
@@ -10991,18 +11002,18 @@ The conductor sends learning event messages with the following fields:
 
 ## Workflow
 
-### 1. Read .agentic/learnings.md
+### 1. Read the Index section of .agentic/learnings.md
 
-Read the existing `.agentic/learnings.md` (if present) to determine the next ID counters and to prepare for dedup.
+Read the `## Index` section of the existing `.agentic/learnings.md` (if present) - **not the whole file** - to determine the next ID counters and to prepare dedup candidates. The Index holds one line per entry (`- [<ID>] <one-line hook>`, in file order), so this read stays cheap regardless of how large the Entries section below it has grown.
 
 **ID format:** Two independent per-day counters:
 
 - **LRN:** `LRN-YYYYMMDD-XXX` - counter resets per day, independent of KNW.
 - **KNW:** `KNW-YYYYMMDD-XXX` - counter resets per day, independent of LRN.
 
-For each prefix: scan for existing entries with today's date, find the highest `XXX` value, and increment. If none exist for today, start at `001`.
+For each prefix: scan the Index for entries with today's date, find the highest `XXX` value, and increment. If none exist for today, start at `001`.
 
-Example: on 2026-06-13, if the file already has `LRN-20260613-002` and `KNW-20260613-001`, the next LRN is `LRN-20260613-003` and the next KNW is `KNW-20260613-002`.
+Example: on 2026-06-13, if the Index already has `LRN-20260613-002` and `KNW-20260613-001`, the next LRN is `LRN-20260613-003` and the next KNW is `KNW-20260613-002`.
 
 ### 2. Classify and evaluate the event
 
@@ -11078,13 +11089,16 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 If the file does not exist, create it by copying the full template content from
 `content/templates/.agentic/learnings.md` (everything up to and including the
-`## Entries` line and its comment), then append the entry beneath it.
+`## Entries` line and its comment - this includes the empty `## Index` section),
+then append the entry beneath `## Entries`.
 
-**Append discipline:**
-- Read the existing file first (if it exists).
-- **LRN dedup:** before writing, check if the same pattern already exists. Use case-insensitive substring match on the `Pattern` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
-- **KNW dedup:** before writing, check if the same fact already exists. Use case-insensitive substring match on the `Fact` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
-- Append new entries at the end of the file (before any trailing blank lines).
+**Append discipline (index-first dedup):**
+- Read the `## Index` section in full first (if the file exists) - never the whole file.
+- **Semantic dedup:** compare the candidate's title/pattern-or-fact against the index hooks. On a plausible match, read only that one entry's body (targeted read, not a full-file read) to confirm.
+- **LRN secondary exact guard:** case-insensitive substring match on the matched entry's `Pattern` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
+- **KNW secondary exact guard:** case-insensitive substring match on the matched entry's `Fact` field text. If matched, skip and record `"skipped (duplicate): <title>"` in `writer_actions[]`.
+- **On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit.** Format: `- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating the entry's title. An entry appended without its index line is a protocol violation the next writer must repair before trusting the index for dedup.
+- Append new entries at the end of the Entries section (before any trailing blank lines).
 
 **Cap at 5 entries per message.** If more generalizable findings exist (e.g., a compound event), prioritize by: LRN Critical > LRN Major > KNW > LRN Minor. (KNW ranks above LRN Minor by design - a knowledge fact a future agent would re-derive carries more future-token value than a low-severity bug-fix residual.)
 
@@ -11158,7 +11172,7 @@ The only files you may write are:
 ## Rules
 
 - **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append.** LRN: case-insensitive substring on Pattern. KNW: case-insensitive substring on Fact.
+- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, then apply the secondary exact guard: LRN case-insensitive substring on Pattern, KNW case-insensitive substring on Fact.
 - **Independent per-day counters.** LRN and KNW counters are separate; each starts at `001` for the day independently.
 - **Caps are hard.** 5 entries to learnings.md per message, 1 entry to MEMORY.md per event, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.

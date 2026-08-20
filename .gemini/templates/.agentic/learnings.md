@@ -39,6 +39,19 @@ first LRN is `LRN-20260613-001` and the first KNW is `KNW-20260613-001`.
 **Source:** <path:line | command | URL | context>
 ```
 
+## Index
+
+<!-- One line per entry, in file order: `- [<ID>] <one-line hook, <=100 chars>`.
+     A writer determines the next ID counter and prepares dedup candidates by
+     reading THIS section in full - it stays cheap regardless of how large the
+     Entries section below grows. On a plausible hook match, read only that
+     one entry's body (not the whole file) before deciding it is a duplicate.
+     Every `## [ID]` entry heading below must have exactly one matching index
+     line here, and vice versa - bidirectional. Appending an entry without
+     its index line, in the same edit, leaves the file in a protocol-violating
+     state; the next writer must add the missing index line before trusting
+     the index for dedup. -->
+
 ## Entries
 
 <!-- Append new entries at the bottom. Target: under 50 entries total.

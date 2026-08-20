@@ -42,7 +42,9 @@ Failure modes:
 
 Performance: ~30s budget. The conductor enforces a 30s timeout on the spawn;
              learning-extractor should complete well within this envelope -
-             one file read, small number of append writes.
+             an index-section read (not a full-file read), a small number of
+             targeted single-entry reads for plausible dedup matches, and a
+             small number of append writes.
 -->
 
 > **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/ds-implement-ticket`). `learning-extractor` produces LRN entries only; KNW entries are produced by `learnings-agent` via mandatory conductor triggers.
@@ -111,6 +113,10 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 
 <!-- Target: under 50 entries. Pruning is DEFERRED until learnings-retrieval is wired into the reading agents and demonstrated - until then keep entries even past the target so retrieval has a corpus to match against. Once retrieval is demonstrated, resume pruning entries whose pattern has been absorbed into AGENTS.md or MEMORY.md. -->
 
+## Index
+
+<!-- One line per entry, in file order: `- [<ID>] <one-line hook, <=100 chars>`. Bidirectional with the entry headings below - an appended entry without its index line, in the same edit, is a protocol violation the next writer must repair. -->
+
 ## [LRN-YYYYMMDD-XXX] <finding-title>
 
 **Discovered:** YYYY-MM-DD (ticket: TICKET_ID)
@@ -124,13 +130,14 @@ Path: `.agentic/learnings.md` at the project root (cwd).
 **ID format:** `LRN-YYYYMMDD-XXX` where:
 - `YYYYMMDD` is today's date
 - `XXX` is a monotonic counter starting at `001` for each day
-- Read the existing file to determine the next counter value. If today's date already has entries, increment from the highest existing counter. If no entries exist for today, start at `001`.
+- Read the Index section in full (cheap at any file size) to determine the next counter value. If today's date already has an Index entry, increment from the highest existing counter. If none exist for today, start at `001`.
 
-**Append discipline:**
-- Read the existing file first (if it exists).
-- **Dedup:** before writing each entry, check if the same pattern already exists. Use case-insensitive substring match on the `Pattern` field text. If matched, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
-- Append new entries at the end of the file (before any trailing blank lines).
-- If the file does not exist, create it with the header block above followed by the entries.
+**Append discipline (index-first dedup):**
+- Read the Index section in full first (if the file exists) - never the whole file.
+- **Dedup:** compare the candidate's finding-title/pattern against the index hooks (semantic match, not literal). On a plausible match, read only that one entry's body (targeted read, not a full-file read) and decide. As a secondary exact guard, also apply case-insensitive substring match on the matched entry's `Pattern` field text. If either confirms a duplicate, skip and record `"skipped (duplicate): <finding-title>"` in `writer_actions[]`.
+- On append, write both the full entry (bottom of Entries) AND its one-line index hook (bottom of Index) in the same edit - an entry with no index line is a protocol violation the next writer must repair.
+- Append new entries at the end of the Entries section (before any trailing blank lines).
+- If the file does not exist, create it with the header block above (including the empty Index section) followed by the entries.
 
 **Cap at 5 entries per run.** If more generalizable findings exist, prioritize by severity (Critical > Major) then by likely recurrence, and drop the rest.
 
@@ -183,7 +190,7 @@ The only file you may write is:
 ## Rules
 
 - **Append-only.** Never delete, never reorder, never edit existing entries.
-- **Dedup before every append.** Case-insensitive substring match on the Pattern field against existing entries.
+- **Dedup before every append, index-first.** Read the Index section (not the whole file) to find a plausible match, read only that one entry's body to confirm, and fall back to case-insensitive substring match on the Pattern field as a secondary exact guard.
 - **Caps are hard.** 5 entries per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.

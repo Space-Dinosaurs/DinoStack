@@ -262,3 +262,201 @@ def test_learnings_pipeline_slides_trigger_contrast_uses_mandatory_language():
         f"{MANDATORY_GATE_CITATION} actually establishes"
     )
     assert "captures ad-hoc session events no phase gate would catch" not in text
+
+
+# ---------------------------------------------------------------------------
+# Index-first dedup (DS: learnings.md INDEX section) - the INDEX section
+# added to content/templates/.agentic/learnings.md replaces the prior
+# read-the-whole-file dedup procedure: learnings-agent and learning-extractor
+# now read only the compact `## Index` section (one line per entry) to
+# determine ID counters and find dedup candidates, falling back to a
+# targeted single-entry read only on a plausible match. The bidirectional
+# completeness check below asserts every `## [ID]` entry heading (under
+# `## Entries`) has exactly one matching index line (under `## Index`), and
+# vice versa - an entry without its index line is a protocol violation the
+# next writer must repair, and a phantom index line with no matching entry
+# is equally a defect (over-declaration, not just under-declaration).
+# ---------------------------------------------------------------------------
+
+LEARNINGS_TEMPLATE = CONTENT_DIR / "templates" / ".agentic" / "learnings.md"
+
+_ENTRY_HEADING_RE = re.compile(r"^## \[((?:LRN|KNW)-\d{8}-\d{3})\]", re.MULTILINE)
+_INDEX_LINE_RE = re.compile(r"^- \[((?:LRN|KNW)-\d{8}-\d{3})\]", re.MULTILINE)
+
+
+def _section_body(text: str, start_heading: str, end_heading: str | None = None) -> str:
+    """Return the text strictly between `start_heading` (exclusive) and either
+    `end_heading` (if given and found) or the next top-level SECTION heading
+    ('## ' not followed by '[' - i.e. not an entry heading like
+    '## [LRN-...]'). Returns '' if `start_heading` is absent. Used to scope
+    entry/index scanning to the real Index/Entries sections only - the
+    '## Format' block above them contains example
+    `## [LRN-YYYYMMDD-XXX]`/`## [KNW-YYYYMMDD-XXX]` headings inside a fenced
+    code block that must NOT be counted as entries, and (for the '## Entries'
+    section with no end_heading) the fallback boundary must not itself match
+    the FIRST real entry heading it is supposed to include."""
+    start_idx = text.find(start_heading)
+    if start_idx == -1:
+        return ""
+    start_idx += len(start_heading)
+    if end_heading is not None:
+        end_idx = text.find(end_heading, start_idx)
+        if end_idx != -1:
+            return text[start_idx:end_idx]
+    match = re.search(r"^## (?!\[)", text[start_idx:], re.MULTILINE)
+    return text[start_idx : start_idx + match.start()] if match else text[start_idx:]
+
+
+def learnings_index_completeness(text: str) -> tuple[list[str], list[str]]:
+    """Return (missing_from_index, phantom_in_index): sorted ID lists.
+
+    missing_from_index - entry IDs under '## Entries' with no matching line
+    under '## Index'. phantom_in_index - index IDs under '## Index' with no
+    matching entry heading under '## Entries'. Bidirectional set equality,
+    not one-directional containment (see MEMORY.md's derived-pin discipline -
+    a one-directional check misses over-declaration entirely)."""
+    index_section = _section_body(text, "## Index", "## Entries")
+    entries_section = _section_body(text, "## Entries")
+    index_ids = set(_INDEX_LINE_RE.findall(index_section))
+    entry_ids = set(_ENTRY_HEADING_RE.findall(entries_section))
+    missing_from_index = sorted(entry_ids - index_ids)
+    phantom_in_index = sorted(index_ids - entry_ids)
+    return missing_from_index, phantom_in_index
+
+
+def test_learnings_template_has_index_section_before_entries():
+    text = LEARNINGS_TEMPLATE.read_text(encoding="utf-8")
+    assert "## Index" in text, "content/templates/.agentic/learnings.md is missing the '## Index' section"
+    index_pos = text.index("## Index")
+    entries_pos = text.index("## Entries")
+    assert index_pos < entries_pos, (
+        "'## Index' must appear before '## Entries' in "
+        "content/templates/.agentic/learnings.md"
+    )
+
+
+def test_learnings_template_index_is_bidirectionally_complete():
+    # The template ships with zero entries, so this is the trivial-complete
+    # case: both lists must be empty. A real project's .agentic/learnings.md
+    # (untracked scaffold output, not present in this repo) inherits the same
+    # invariant from the moment it is created from this template.
+    text = LEARNINGS_TEMPLATE.read_text(encoding="utf-8")
+    missing, phantom = learnings_index_completeness(text)
+    assert missing == [], f"template Entries section has entries with no index line: {missing}"
+    assert phantom == [], f"template Index section has phantom lines with no matching entry: {phantom}"
+
+
+_POSITIVE_FIXTURE = """# Learnings
+
+## Format
+
+```markdown
+## [LRN-YYYYMMDD-XXX] <title>
+
+**Pattern:** example
+```
+
+## Index
+
+- [LRN-20260601-001] example LRN hook
+- [KNW-20260601-001] example KNW hook
+
+## Entries
+
+## [LRN-20260601-001] Example LRN title
+
+**Discovered:** 2026-06-01 (session)
+**Severity:** Minor
+**Domain:** test
+**Pattern:** example pattern
+**Fix:** example fix
+**Source:** test
+
+## [KNW-20260601-001] Example KNW title
+
+**Discovered:** 2026-06-01 (session)
+**Domain:** test
+**Fact:** example fact
+**Why-it-matters:** example
+**Source:** test
+"""
+
+
+def test_index_completeness_checker_passes_on_well_formed_fixture():
+    # Positive control: the fixture's two entries each have exactly one
+    # matching index line, and the '## Format' block's example headings
+    # inside the fenced code block are correctly excluded from the scan.
+    missing, phantom = learnings_index_completeness(_POSITIVE_FIXTURE)
+    assert missing == []
+    assert phantom == []
+
+
+def test_index_completeness_checker_catches_entry_missing_its_index_line():
+    # [MUTATION] Remove the KNW entry's index line - simulates an append that
+    # wrote the entry body but not its index hook in the same edit.
+    mutated = _POSITIVE_FIXTURE.replace("- [KNW-20260601-001] example KNW hook\n", "")
+    missing, phantom = learnings_index_completeness(mutated)
+    assert missing == ["KNW-20260601-001"], (
+        f"expected the checker to catch the entry with no index line, got missing={missing}"
+    )
+    assert phantom == []
+
+
+def test_index_completeness_checker_catches_phantom_index_line():
+    # [MUTATION] Add an index line with no matching entry - simulates a
+    # dangling/over-declared index entry (e.g. the entry was later deleted
+    # but its index line was not).
+    mutated = _POSITIVE_FIXTURE.replace(
+        "- [KNW-20260601-001] example KNW hook\n",
+        "- [KNW-20260601-001] example KNW hook\n- [LRN-20260601-999] phantom entry, never written\n",
+    )
+    missing, phantom = learnings_index_completeness(mutated)
+    assert missing == []
+    assert phantom == ["LRN-20260601-999"], (
+        f"expected the checker to catch the phantom index line, got phantom={phantom}"
+    )
+
+
+def test_index_completeness_checker_excludes_format_block_example_headings():
+    # [MUTATION-adjacent regression guard] The '## Format' section's example
+    # `## [LRN-YYYYMMDD-XXX] <title>` heading is not a real ID (it is a
+    # literal YYYYMMDD/XXX placeholder, which the ID regex does not match
+    # anyway) - but this also guards against a future fixture/template using
+    # a real-shaped ID in a documentation example leaking into the count.
+    fixture_with_realistic_example = _POSITIVE_FIXTURE.replace(
+        "## [LRN-YYYYMMDD-XXX] <title>",
+        "## [LRN-20260601-001] <title>",
+    )
+    missing, phantom = learnings_index_completeness(fixture_with_realistic_example)
+    assert missing == [] and phantom == [], (
+        "a '## [ID]'-shaped heading inside the fenced '## Format' example block must not be "
+        f"counted as a real entry; got missing={missing}, phantom={phantom}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent specs document the index-first dedup procedure, including the
+# same-edit index-line obligation (R2 in the ticket's rubric)
+# ---------------------------------------------------------------------------
+
+LEARNINGS_AGENT_MD = CONTENT_DIR / "agents" / "learnings-agent.md"
+LEARNING_EXTRACTOR_MD = CONTENT_DIR / "agents" / "learning-extractor.md"
+
+
+def test_learnings_agent_and_learning_extractor_document_index_first_dedup():
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        assert "index-first" in text.lower(), (
+            f"{_rel(path)} no longer documents the index-first dedup procedure"
+        )
+        assert "## Index" in text, (
+            f"{_rel(path)} no longer references the '## Index' section"
+        )
+        assert "same edit" in text.lower(), (
+            f"{_rel(path)} no longer states the same-edit index-line obligation "
+            "(an entry appended without its index line is a protocol violation)"
+        )
+        assert "protocol violation" in text.lower(), (
+            f"{_rel(path)} no longer states that an entry without its index line "
+            "is a protocol violation the next writer must repair"
+        )
