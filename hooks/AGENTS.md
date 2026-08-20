@@ -249,6 +249,12 @@ brought you here. It is also not silent - pytest emits
 exit code instead of the summary line. Do not add new `-> int` returners;
 new hook tests should assert.
 
+## Registering a new enforce-*.py hook
+
+Per `docs/overview/vision.md` Pillar 8, a new `enforce-*.py` hook does not ship
+without naming a specific failure it would have caught and the condition
+under which it retires.
+
 ## Fail-open on absent tool_input fields
 
 A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /

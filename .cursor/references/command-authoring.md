@@ -145,3 +145,10 @@ Step 3.5. `content/SKILL.md`'s Commands section is a curated subset - only a few
 commands warrant prominent placement there, so add a command to it only when
 that is the case. The two principles above apply to the command's description
 during that wiring.
+
+## 4. Gate/mechanism authoring discipline
+
+Per `docs/overview/vision.md` Pillar 8, a new gate, hook, count-pin, or other
+enforcement mechanism authored via a command or agent definition does not ship
+without naming a specific failure it would have caught and the condition
+under which it retires.
