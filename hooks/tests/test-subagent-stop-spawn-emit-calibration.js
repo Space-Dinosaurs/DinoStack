@@ -1092,15 +1092,27 @@ console.log('\nTest 26: round4-m1-option-shaped-range-rejected-not-fabricated');
   // is option-shaped to git (leading `-`) must be rejected before the
   // `git diff` subprocess call, not passed through as a real range - a
   // prompt-derived "-O/etc/passwd..HEAD" value would otherwise be
-  // consumed by git as a flag and could report a fabricated `diff_lines:
-  // 0` instead of a miss. Confirmed failing pre-fix (Mutation E: deleting
-  // the `if (rangeArg.startsWith('-')) return ...` guard) reproduces
-  // exactly that: {"diffLines":0,"diffLinesNote":null} - a fabricated
-  // zero with no note.
+  // consumed by git as a flag and could report a fabricated `diff_lines`
+  // value instead of a miss. The fixture MUST be a real git repo with a
+  // commit (round-5 fix, M2): in a non-git cwd, `git diff` itself fails
+  // ("not a git repository") and the pre-existing no-range-resolved path
+  // already returns a miss, which made the guard-deletion mutation
+  // indistinguishable from a correctly-guarded run - both produced
+  // `diff_lines === undefined`. In a real repo, `git diff --shortstat
+  // "-O/etc/passwd..HEAD"` exits 0 with EMPTY output (git accepts the
+  // value as a (harmless, unset) `-O` option and `..HEAD` resolves against
+  // itself), which parses as `insertions=0 deletions=0` - a genuine
+  // fabricated zero. Confirmed failing pre-fix against this fixture
+  // (Mutation E: deleting the `if (rangeArg.startsWith('-')) return ...`
+  // guard) reproduces exactly that: `{"diffLines":0,"diffLinesNote":
+  // null}` - a fabricated zero with no note. See M2 in the round-5
+  // Skeptic report.
   const cwd = makeTmpDir('ae-calib-test-');
   const configDir = makeTmpDir('ae-calib-config-');
   const sessionId = 'sess-cal-026';
   const agentId = 'agentcal026';
+  initGitRepo(cwd);
+  gitCommit(cwd, 'file.txt', 'line1\n', 'initial');
   writeSidecar(configDir, cwd, sessionId, agentId, {
     agentType: 'skeptic', toolUseId: 'toolu_cal_026', description: 'x', spawnDepth: 1,
   });

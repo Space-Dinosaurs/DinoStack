@@ -807,6 +807,15 @@ const _DIFF_UNDER_REVIEW_JS_RE = /^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}D
 // option-shape guard below or execFileSync (no shell, so `~`/`^` carry no
 // injection meaning) would mishandle - re-verified by the option-shape
 // and injection probes in the m1 regression test after this change.
+// Round-5 fix (M3): the round-4 widening above had desynchronized this
+// regex from the round-cap hook's `_DIFF_RANGE_RE`, which was left at its
+// pre-widened character class - a `<sha>~1..<sha>` field-6 value then
+// resolved a real `diff_lines` measurement here while gaining no
+// round-stability benefit from `_normalize_diff_identity()` on the
+// round-cap side. `_DIFF_RANGE_RE` is now widened identically; a 14-shape
+// differential (branch-relative, bare-SHA, tilde/caret-suffixed, prose,
+// option-shaped, backticked forms) against both regexes found 0
+// divergences.
 const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/^~-]+)/i;
 const _SHORTSTAT_INSERTIONS_RE = /(\d+) insertion/;
 const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;
