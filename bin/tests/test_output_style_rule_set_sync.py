@@ -6,9 +6,19 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift.
          rule topics - status-only, volume, answer relevance,
          self-narrating candor, editorial addenda - and that set is
          RESTATED, by name, at ten other sites with no mechanical check
-         tying them together (see `Upstream deps` below). A stale
-         cross-file assertion nothing pins is the defect class this spec
-         exists to close.
+         tying them together (see `Upstream deps` below). Of those ten,
+         eight are full-text sites that must restate every current topic
+         verbatim (`docs/index.html`, `README.md`,
+         `hooks/enforce-turn-shape.py`,
+         `content/references/conductor-turn-format.md`,
+         `content/references/risk-config-and-tiers.md` (canonical),
+         `docs/configuration-reference.md`, `docs/safe-configuration.md`,
+         `docs/components.md`), and two are CONTENT sites deduped to a
+         canonical-plus-pointer shape (`content/references/conventions-detail.md`,
+         `content/commands/ds-init-project.md`) that pass on either the full
+         text or an explicit pointer to the canonical CONTENT site (see
+         "Canonical-plus-pointer" below). A stale cross-file assertion
+         nothing pins is the defect class this spec exists to close.
 
          The derived source of truth is the style file itself: its YAML
          frontmatter `description:` field states the rule set as a
@@ -352,15 +362,22 @@ def _assert_full_text_or_canonical_pointer(
     site_path: Path, site_text: str, topics: list[str]
 ) -> None:
     """A deduped CONTENT site must carry EITHER the full topic-bearing text
-    (in which case it is also held to the no-stale-topics invariant, same as
-    a canonical site) OR an explicit pointer to the canonical CONTENT site.
-    Neither present means the site was gutted without leaving a trail to the
-    real definition - fails loudly rather than silently passing on an absent
-    paragraph."""
+    OR an explicit pointer to the canonical CONTENT site. Neither present
+    means the site was gutted without leaving a trail to the real
+    definition - fails loudly rather than silently passing on an absent
+    paragraph.
+
+    The no-stale-topics invariant runs on BOTH branches, not just the
+    full-text one: a summary that carries a valid pointer can still name a
+    topic the style has since retired (a summary is hand-written prose, not
+    a verbatim copy, so it can drift independently). Running the check only
+    on the full-text branch let a retired topic sit beside a valid pointer
+    and pass - see the site-level tests' comments for the constructed
+    reviewer case this closes."""
+    _assert_no_stale_topics(site_path, site_text, topics)
     normalized_site = _normalize(site_text)
     missing = [t for t in topics if not _topic_pattern(t).search(normalized_site)]
     if not missing:
-        _assert_no_stale_topics(site_path, site_text, topics)
         return
     assert CANONICAL_CONTENT_POINTER in site_text, (
         f"{site_path} carries neither the full rule-set text (missing topic(s) "

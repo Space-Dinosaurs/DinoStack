@@ -49,7 +49,11 @@ Covers:
   - Phase 11's `pipeline_order` bullet states the arity is 4 tokens and no
     longer claims a stale 3-element arity.
   - The `pending_merge_sweep` toggle DESCRIPTION names the dev-complete
-    transition at all 6 prose sites plus docs/index.html's own sentence.
+    transition at all 6 prose sites (4 full-text: README.md,
+    docs/configuration-reference.md, docs/components.md, and the canonical
+    content/references/risk-config-and-tiers.md; 2 canonical-plus-pointer:
+    content/references/conventions-detail.md, content/commands/ds-init-project.md)
+    plus docs/index.html's own sentence.
   - An enumeration audit: every "N of the M `TRACKER_STATE_*` values"-shaped
     sentence bumped from 5 to 6, with the stale 5-value phrasing at zero
     occurrences everywhere it used to appear.
@@ -555,7 +559,8 @@ def test_phase_11_pipeline_order_bullet_states_four_token_arity():
 
 
 # ---------------------------------------------------------------------------
-# pending_merge_sweep description - 6 prose sites plus docs/index.html.
+# pending_merge_sweep description - 6 prose sites (4 full-text, 2
+# canonical-plus-pointer) plus docs/index.html's own sentence.
 # ---------------------------------------------------------------------------
 
 # Canonical-plus-pointer (operator decision 2026-08-20): PUBLIC-doc sites
