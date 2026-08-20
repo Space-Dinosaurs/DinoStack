@@ -5,15 +5,17 @@ Purpose: Defines the evidence-on-disk spill/sketch/rehydrate protocol for
          in-context sketch lines with node IDs and rehydrate raw text on
          demand.
 
-Public API: `bin/ds-evidence` is parked (2026-08-20, operator decision, zero
-            recorded usage) - the standing "Context economy" step that
-            unconditionally referenced this protocol from every
-            content/agents/engineer.md spawn was removed so the CLI costs
-            zero always-loaded context; this reference stays trigger-loaded
-            only, reachable via content/SKILL.md's reference index or a
-            direct read/invocation. The sketch line format is a shared
-            binding contract with bin/ds-evidence - the worked example
-            below must match the CLI's emitted sketch lines byte-for-byte.
+Status: parked (invoke-only) - fully functional, parked 2026-08-20 by
+        operator decision (zero recorded usage); the standing "Context
+        economy" step that unconditionally referenced this protocol from
+        every content/agents/engineer.md spawn was removed so the CLI
+        costs zero always-loaded context. This reference stays
+        trigger-loaded only, reachable via content/SKILL.md's reference
+        index or a direct read/invocation.
+
+Public API: The sketch line format is a shared binding contract with
+            bin/ds-evidence - the worked example below must match the
+            CLI's emitted sketch lines byte-for-byte.
 
 Upstream deps: bin/ds-evidence (spill/sketch/get/prune CLI). Correctness
                of the CLI is gated by bin/tests/test_agentic_evidence.py
