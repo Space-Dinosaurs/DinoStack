@@ -21,6 +21,21 @@
  *          Bounded (SAMPLE_LIMIT sidecars, directory-walk order) - not a
  *          full sweep of an unbounded, ever-growing directory.
  *
+ *          Round-3 fix (M1): the sandbox now ALSO seeds a decoy
+ *          `spawn_start` in the fresh `events.jsonl` before invoking the
+ *          hook, carrying a deliberately wrong `agent` label
+ *          (DECOY_WRONG_AGENT) and, when the sidecar itself carries a
+ *          `toolUseId`, the SAME `tool_use_id` (so the decoy wins an exact
+ *          pairing match rather than merely sitting in the FIFO queue).
+ *          Without this decoy, the sidecar was the ONLY possible label
+ *          source in the sandbox by construction, so an inverted
+ *          precedence (paired spawn_start wins over sidecar) could never
+ *          be caught - PASS: 60, MISMATCH: 0 either way. With the decoy
+ *          present, correct precedence (sidecar wins) still emits the
+ *          oracle's real agentType; inverted precedence emits
+ *          DECOY_WRONG_AGENT, which mismatches the oracle on every
+ *          checked sidecar.
+ *
  * Public API: CLI only - `node scripts/verify-spawn-attribution-contract.js
  *             [--limit N]`. Prints a PASS/FAIL count per sidecar and a
  *             summary line; exits 1 if any sidecar with a real `agentType`
@@ -31,10 +46,15 @@
  *                sidecar CONTENT from the real config dir this resolves
  *                to on this machine, but never writes there.
  *
- * Downstream consumers: None (manual/CI-optional verification tool, not
- *                        wired into any workflow - the sidecar oracle only
+ * Downstream consumers: `content/references/events-log.md`'s "Hook-emitted
+ *                        calibration fields (DS-178 unit A)" bullet names
+ *                        this script and states when to run it live
+ *                        (before any change to findMatch()'s pairing
+ *                        precedence or the sidecar-vs-paired-start label
+ *                        precedence in hooks/subagent-stop-spawn-emit.js).
+ *                        Not wired into CI - the sidecar oracle only
  *                        exists on a machine with real prior sessions, so
- *                        this cannot run in a fresh CI checkout).
+ *                        this cannot run in a fresh CI checkout.
  *
  * Failure modes: A sidecar with no `agentType` (or unreadable/malformed)
  *                is SKIPPED, not counted as a failure - it carries no
@@ -56,6 +76,10 @@ const { spawnSync } = require('child_process');
 const { resolveClaudeConfigDir } = require('../hooks/lib/config-dir.js');
 
 const hookPath = path.resolve(__dirname, '..', 'hooks', 'subagent-stop-spawn-emit.js');
+
+// Round-3 fix (M1): deliberately wrong label seeded into the decoy
+// spawn_start so a mismatch is unambiguous (never a real agent name).
+const DECOY_WRONG_AGENT = 'decoy-wrong-agent-DO-NOT-MATCH';
 
 function parseArgs(argv) {
   let limit = 500;
@@ -113,7 +137,8 @@ function readSidecarRaw(sidecarPath) {
     const obj = JSON.parse(raw);
     if (!obj || typeof obj !== 'object') return null;
     const agentType = typeof obj.agentType === 'string' && obj.agentType.trim() ? obj.agentType.trim() : null;
-    return { raw, agentType };
+    const toolUseId = typeof obj.toolUseId === 'string' && obj.toolUseId.trim() ? obj.toolUseId.trim() : null;
+    return { raw, agentType, toolUseId };
   } catch (_) {
     return null;
   }
@@ -122,8 +147,19 @@ function readSidecarRaw(sidecarPath) {
 /** Run the REAL hook against a FRESH throwaway sandbox carrying a copy of
  * *sidecarRaw*'s content at the exact path the hook's own
  * `resolveSubagentFile()` expects, and return the emitted `spawn_complete`
- * event (or null). */
-function runHookAgainstFreshSidecar(sidecarRaw) {
+ * event (or null).
+ *
+ * Round-3 fix (M1): also seeds a decoy `spawn_start` (agent =
+ * DECOY_WRONG_AGENT) into the sandbox's own `.agentic/events.jsonl` before
+ * the hook runs, so the sandbox actually discriminates between "sidecar
+ * wins" and "paired spawn_start wins" instead of the sidecar being the
+ * only possible label source. When *sidecarToolUseId* is present the decoy
+ * carries the SAME `tool_use_id`, so it wins findMatch()'s exact-match tier
+ * rather than merely sitting in the FIFO queue - the worst case for
+ * catching an inverted precedence. When absent, the decoy has no
+ * `tool_use_id` and is picked up by the FIFO fallback instead (still
+ * discriminating, since it remains the only spawn_start candidate). */
+function runHookAgainstFreshSidecar(sidecarRaw, sidecarToolUseId) {
   const sandboxCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ds178-contract-cwd-'));
   const sandboxConfigDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ds178-contract-config-'));
   const sessionId = 'contract-session';
@@ -132,6 +168,23 @@ function runHookAgainstFreshSidecar(sidecarRaw) {
   const subagentsDir = path.join(sandboxConfigDir, 'projects', projectHash, sessionId, 'subagents');
   fs.mkdirSync(subagentsDir, { recursive: true });
   fs.writeFileSync(path.join(subagentsDir, `agent-${agentId}.meta.json`), sidecarRaw);
+
+  const agenticDir = path.join(sandboxCwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  const decoySpawnStart = {
+    ts: new Date(Date.now() - 60000).toISOString(),
+    phase: 'hook',
+    event: 'spawn_start',
+    agent: DECOY_WRONG_AGENT,
+    task_id: null,
+    data: {
+      source: 'hook',
+      session_uuid: sessionId,
+      spawn_id: 'ds178-contract-decoy-spawn',
+      ...(sidecarToolUseId ? { tool_use_id: sidecarToolUseId } : {}),
+    },
+  };
+  fs.writeFileSync(path.join(agenticDir, 'events.jsonl'), JSON.stringify(decoySpawnStart) + '\n');
 
   const payload = {
     cwd: sandboxCwd,
@@ -176,7 +229,7 @@ function main() {
       continue;
     }
     checked++;
-    const complete = runHookAgainstFreshSidecar(sidecar.raw);
+    const complete = runHookAgainstFreshSidecar(sidecar.raw, sidecar.toolUseId);
     if (!complete) {
       errored++;
       console.error(`ERROR: no spawn_complete emitted re-running ${sidecarPath}`);
