@@ -250,15 +250,50 @@ def test_discovery_specs_point_at_tracked_files():
             )
 
 
+def _looks_like_root_entry_skill_spec(spec: DiscoverySpec) -> bool:
+    """Structural signature of a "root/entry skill body" DiscoverySpec: a
+    single per-adapter `skills/dinostack/SKILL.md` entry point, or the
+    generated `.codex/skills/*/SKILL.md` native-skills glob. Used (M3, DS-185
+    round 6) to make _ROOT_ENTRY_SKILL_LABELS membership bidirectional -
+    detecting the OTHER direction of staleness from the `missing` check
+    above: a NEW root/entry spec added to DISCOVERY_SPECS without also being
+    registered in _ROOT_ENTRY_SKILL_LABELS. A one-directional containment
+    check (every labeled spec exists) previously caught removal but silently
+    passed on this class of addition."""
+    return spec.glob.endswith("skills/dinostack/SKILL.md") or "skills/*/SKILL.md" in spec.glob
+
+
+def _docstring_root_entry_count() -> int:
+    """Parses the module docstring's own "... is N root/entry skill bodies
+    total" claim, so the count assertion below compares the derived value
+    against the PROSE ITSELF rather than a second hand-typed literal (Minor,
+    DS-185 round 6) - a bare change to a hardcoded `== 11` here, with no
+    matching docstring edit, would otherwise still pass."""
+    match = re.search(r"is (\d+)\s+root/entry\s+skill bodies total", __doc__ or "")
+    assert match is not None, (
+        "could not find the 'is N root/entry skill bodies total' sentence "
+        "in this module's docstring to parse the expected count from - the "
+        "sentence was reworded without updating this regex."
+    )
+    return int(match.group(1))
+
+
 def test_root_entry_skill_body_count_matches_docstring():
-    """The module docstring's "Entry/root skill bodies ... 11 root/entry
+    """The module docstring's "Entry/root skill bodies ... N root/entry
     skill bodies total" claim is hand-typed prose - and that exact prose
     has gone stale three times in one session (DS-172 twice omitted `.pi/`,
     DS-185 once omitted `.kimi/`) because nothing checked it. Derive the
     count from DISCOVERY_SPECS via _ROOT_ENTRY_SKILL_LABELS instead of
-    trusting the docstring: first assert every labeled spec still exists
-    (a renamed/removed spec would otherwise silently undercount), then
-    assert the summed min_count equals what the docstring states."""
+    trusting the docstring, and check membership in BOTH directions (M3, DS-
+    185 round 6): first assert every labeled spec still exists (a
+    renamed/removed spec would otherwise silently undercount), then assert
+    every DISCOVERY_SPEC that structurally LOOKS like a root/entry skill body
+    is actually registered in _ROOT_ENTRY_SKILL_LABELS (a newly-added
+    root/entry spec that skips registration would otherwise silently pass -
+    the one-directional containment check this replaces could not catch
+    it), then assert the summed min_count equals the docstring's own stated
+    number, parsed from the prose rather than duplicated as a second
+    literal."""
     present_labels = {spec.label for spec in DISCOVERY_SPECS}
     missing = _ROOT_ENTRY_SKILL_LABELS - present_labels
     assert not missing, (
@@ -267,15 +302,28 @@ def test_root_entry_skill_body_count_matches_docstring():
         f"removed without updating this set, which would silently "
         f"undercount rather than fail loud."
     )
+    structurally_root_entry = {
+        spec.label for spec in DISCOVERY_SPECS if _looks_like_root_entry_skill_spec(spec)
+    }
+    extra = structurally_root_entry - _ROOT_ENTRY_SKILL_LABELS
+    assert not extra, (
+        f"DiscoverySpec(s) {sorted(extra)} structurally look like a "
+        f"root/entry skill body (glob ends with 'skills/dinostack/SKILL.md' "
+        f"or is the codex native-skills glob) but are NOT registered in "
+        f"_ROOT_ENTRY_SKILL_LABELS - a new root/entry spec was added without "
+        f"updating that set, which would silently undercount rather than "
+        f"fail loud."
+    )
     derived_count = sum(
         spec.min_count for spec in DISCOVERY_SPECS if spec.label in _ROOT_ENTRY_SKILL_LABELS
     )
-    assert derived_count == 11, (
+    docstring_count = _docstring_root_entry_count()
+    assert derived_count == docstring_count, (
         f"Derived root/entry skill body count is {derived_count}, but the "
-        f"module docstring states 11. Update BOTH the docstring prose and "
-        f"this assertion together - the whole point of deriving the count "
-        f"is that a bare number change here without a matching docstring "
-        f"edit is exactly the staleness this test exists to catch."
+        f"module docstring states {docstring_count}. Update BOTH the "
+        f"docstring prose and _ROOT_ENTRY_SKILL_LABELS together - the whole "
+        f"point of deriving this assertion against the docstring's own text "
+        f"is that the two cannot silently drift apart."
     )
 
 

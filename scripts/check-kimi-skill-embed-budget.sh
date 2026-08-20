@@ -219,23 +219,6 @@ if [ -n "$duplicate_headings" ]; then
   exit 1
 fi
 
-# Over-count advisory (M1, DS-185 round 5): reached only after every found
-# file's heading (expected AND extra) has been confirmed present in
-# SKILL_FILE by _check_embedded_set above, and the duplicate-heading guard
-# has passed - so this marker means "verified complete, pin needs bumping",
-# never "verification aborted early". Still fails the gate (the pinned
-# constant genuinely needs updating), but with a diagnostic that is
-# distinguishable from a real embed-incomplete failure and that
-# .kimi/install.sh's link-health classification depends on to know the
-# skill body itself did not lose content.
-if [ "${#_OVER_COUNT_NOTES[@]}" -gt 0 ]; then
-  echo "check-kimi-skill-embed-budget.sh: embed count pin needs bumping - this is likely intentional." >&2
-  for _note in "${_OVER_COUNT_NOTES[@]}"; do
-    echo "  $_note" >&2
-  done
-  exit 1
-fi
-
 skill_bytes="$(budget_file_bytes "$SKILL_FILE")"
 agents_bytes="$(budget_file_bytes "$AGENTS_FILE")"
 
@@ -310,6 +293,31 @@ if [ "$agents_bytes" -gt "$AGENTS_CEILING" ]; then
   echo "  body fails to build - if that fallback fired unexpectedly, resolve" >&2
   echo "  the underlying build failure it reported)." >&2
   echo "  $agents_burn_line" >&2
+  exit 1
+fi
+
+# Over-count advisory (M1, DS-185 round 5; reordered again in round 6 - see
+# the Minor below): reached only after every found file's heading (expected
+# AND extra) has been confirmed present in SKILL_FILE by _check_embedded_set
+# above, the duplicate-heading guard has passed, AND all three size checks
+# (SKILL.md FLOOR/CEILING, AGENTS.md stub CEILING) above have passed - so
+# this marker means "embed verified complete AND the body is a healthy
+# size, pin needs bumping", never "verification aborted early" and never a
+# claim of completeness the gate has not actually finished establishing.
+# Round-5 placed this block BEFORE the size checks, which meant an
+# over-count paired with a genuinely broken (e.g. below-FLOOR, a "354 B
+# husk") body still printed "is likely intentional." without ever reaching
+# the size checks that would have reported the real failure - diagnostic
+# dishonesty (round-6 Minor), even though .kimi/install.sh's own
+# independent link-health classification degrades correctly either way
+# (its allowlist match is on the literal string, not on which branch
+# produced it). Still fails the gate (the pinned constant genuinely needs
+# updating), but only after every other failure class has had first say.
+if [ "${#_OVER_COUNT_NOTES[@]}" -gt 0 ]; then
+  echo "check-kimi-skill-embed-budget.sh: embed count pin needs bumping - this is likely intentional." >&2
+  for _note in "${_OVER_COUNT_NOTES[@]}"; do
+    echo "  $_note" >&2
+  done
   exit 1
 fi
 

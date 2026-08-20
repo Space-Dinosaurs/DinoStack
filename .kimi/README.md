@@ -99,6 +99,28 @@ bash .kimi/build.sh
 This regenerates the AGENTS.md stub, the skill's `SKILL.md` (embedded methodology body), and
 verifies symlinks. Run this after editing files in `content/`.
 
+## Install-time embed-health degrade path
+
+`.kimi/install.sh` runs `scripts/check-kimi-skill-embed-budget.sh` after every build and
+classifies its result (Minor, DS-185 round 6 - previously undocumented here):
+
+- **Healthy (warn only, `AGENTS.md` stays a lean stub):** the gate reports a benign,
+  already-verified-complete boundary - a `SKILL.md`/`AGENTS.md` size ceiling breach with the
+  embed itself confirmed intact, or a stale `EXPECTED_SECTION_COUNT`/`EXPECTED_RULES_COUNT` pin
+  that just needs bumping. `install.sh` prints an advisory note and leaves `AGENTS.md` untouched.
+- **Degraded (`AGENTS.md` grows to tens of KB):** anything else - a missing or crashed gate
+  script, a genuinely incomplete embed (a dropped source file, a missing/duplicate heading), or a
+  body below the size floor. `install.sh` falls back to appending the full methodology body
+  (delegation, risk classification, the two rules files, etc.) directly onto `.kimi/AGENTS.md`
+  under a `## Fallback: full methodology body` heading, so the session still has the full
+  methodology available even though the trigger-loaded skill couldn't be verified healthy.
+
+If you see a `.kimi/AGENTS.md` far larger than the ~1.5 KB lean stub, this fallback fired -
+re-run `bash .kimi/build.sh` and `bash scripts/check-kimi-skill-embed-budget.sh` directly to see
+the underlying diagnostic, fix it, then re-run `bash .kimi/install.sh` to shrink `AGENTS.md` back
+down. This degrade path is intentional (fail toward more context, not less) and is not itself a
+sign of installer malfunction - only that the health check couldn't yet confirm a clean embed.
+
 ## Limitations
 
 - **No custom slash commands**: Kimi Code CLI does not support user-defined slash commands. Commands are available as individual skills (`/skill:<command-name>`) or via the main skill (`/skill:dinostack <command>`), or through natural language requests.

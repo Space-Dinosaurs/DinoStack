@@ -386,6 +386,44 @@ run_gate() {
   fi
 }
 
+# --- Scenario 12 (M2, DS-185 round 6): over-count whose EXTRA file's ------
+# --- heading is ABSENT from SKILL.md - the discriminating case the M1 -----
+# --- deferral (round 5) exists to catch, uncovered by any prior scenario --
+{
+  root="$(build_fixture over_count_missing_heading)"
+  extra_name="extra-rule.md"
+  {
+    echo "## Extra Rule Missing From Skill"
+    echo ""
+    echo "Unexpected extra rule file whose heading never lands in SKILL.md."
+  } > "$root/content/rules/$extra_name"
+  # write_skill_md's omit param skips exactly one file's heading - the
+  # extra one - so every EXPECTED file's heading is present (an honest
+  # over-count) but the new file's heading is not, which is the real
+  # embed-incomplete condition the deferred marker must not paper over.
+  write_skill_md "$root" "$SKILL_FLOOR" "$extra_name"
+  write_agents_md "$root" 100
+  out="$(run_gate "$root")"
+  rc=$?
+  if [[ $rc -ne 0 ]] && grep -q "missing rules heading from $extra_name" <<<"$out"; then
+    pass "over-count with the extra file's heading missing fails on the real missing-heading diagnostic"
+  else
+    fail "expected a missing-heading failure naming $extra_name, got rc=$rc, output: $out"
+  fi
+  # The discriminating assertion (M2): this exact diagnostic must NEVER
+  # appear here - printing it on a genuinely incomplete embed is exactly
+  # the round-5 M1 defect (over-count treated as unconditionally benign,
+  # heading presence never checked) this scenario exists to catch. A
+  # wholesale revert of the round-5 fix reintroduces the pre-fix ordering,
+  # where the over-count branch exits BEFORE the heading loop ever runs,
+  # so this exact "is likely intentional." marker fires instead.
+  if grep -qF "is likely intentional." <<<"$out"; then
+    fail "over-count with a missing extra-file heading printed the benign 'is likely intentional.' marker - the embed is NOT actually complete, this is the exact defect the round-5 M1 deferral fix exists to prevent"
+  else
+    pass "over-count with a missing extra-file heading never prints the benign 'is likely intentional.' marker"
+  fi
+}
+
 echo ""
 echo "=== $PASS_COUNT passed, $FAIL_COUNT failed ==="
 if [[ $FAIL_COUNT -ne 0 ]]; then
