@@ -234,8 +234,8 @@ DS-178 unit A addition: this hook now also reads the PreToolUse payload's
             `.agentic/skeptic-tuid-index.json` mapping `{tool_use_id:
             {"unit_key": ..., "iteration": ...}}` (via
             `_update_tuid_index()`; round-2 fix, M3 - the round-1 shape was
-            the bare string `{tool_use_id: unit_key}`, and a pre-existing
-            entry in that legacy shape is still tolerated on read - see
+            the bare string `{tool_use_id: unit_key}`; round-3 fix, m2
+            removed the read-side tolerance for that legacy shape - see
             `_valid_index_entry()`). Neither addition can affect the
             allow/deny decision: both run strictly AFTER `_decide()` has
             already produced its verdict, and both are individually
@@ -243,12 +243,13 @@ DS-178 unit A addition: this hook now also reads the PreToolUse payload's
             `hooks/subagent-stop-spawn-emit.js`'s `readRoundState()` can
             resolve a completed Skeptic spawn's `tool_use_id` to its unit
             key AND the round number that spawn was allowed at in O(1) -
-            a single index lookup, with the round-state file itself
-            needed only as a legacy fallback for a pre-round-2 index
-            entry - rather than scanning `.agentic/` for every
-            `skeptic-round-*.json` file on every SubagentStop, and
+            a single index lookup - rather than scanning `.agentic/` for
+            every `skeptic-round-*.json` file on every SubagentStop, and
             without re-reading the unit's LIVE (possibly since-advanced)
             round count for a spawn that may have completed out of order.
+            As of the round-3 m2 fix, a legacy bare-string index entry or
+            a pinned-but-non-positive iteration is treated as a hard miss
+            on read, not a fallback to the round-state file.
             `_load_state`/`_write_state` previously rebuilt/persisted a
             hardcoded 6-key dict, silently dropping any key outside that set
             on the very next persist - `tool_use_ids` had to be added to the

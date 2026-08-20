@@ -799,8 +799,15 @@ function parseSkepticSignoff(transcriptPath) {
 const _DIFF_UNDER_REVIEW_JS_RE = /^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*([^\s*][^\n]*)$/im;
 // Matches a `<ref1>..<ref2>` / `<ref1>...<ref2>` range, with an optional
 // leading "git diff ", anchored at the start of the (already-stripped)
-// value - mirrors the round-cap hook's `_DIFF_RANGE_RE`.
-const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/-]+)/i;
+// value - mirrors the round-cap hook's `_DIFF_RANGE_RE`. Round-4 fix
+// (Minor): the character class now includes `~` and `^`, ordinary git
+// revision-suffix syntax (`<sha>~1..<sha>`, `<sha>^..<sha>`) that this
+// repo's own briefs use - the pre-fix class silently rejected these as
+// NOTE_NO_RANGE. Widening still cannot admit anything the leading-`-`
+// option-shape guard below or execFileSync (no shell, so `~`/`^` carry no
+// injection meaning) would mishandle - re-verified by the option-shape
+// and injection probes in the m1 regression test after this change.
+const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/^~-]+)/i;
 const _SHORTSTAT_INSERTIONS_RE = /(\d+) insertion/;
 const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;
 
@@ -833,6 +840,7 @@ const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;
 function resolveDiffLines(cwd, promptText) {
   const NOTE_NO_PROMPT = 'unavailable (no spawn prompt found in transcript)';
   const NOTE_NO_RANGE = 'unavailable (no diff range found in spawn prompt)';
+  const NOTE_OPTION_SHAPED = 'unavailable (diff range rejected: option-shaped value)';
   const NOTE_GIT_FAILED = 'unavailable (git diff resolution failed)';
 
   if (!promptText) return { diffLines: null, diffLinesNote: NOTE_NO_PROMPT };
@@ -857,8 +865,12 @@ function resolveDiffLines(cwd, promptText) {
   // subprocess call rather than reporting a fabricated 0. No command
   // injection risk either way (execFileSync, no shell), but a
   // fabricated-0 result violates this file's own never-fabricate
-  // discipline.
-  if (rangeArg.startsWith('-')) return { diffLines: null, diffLinesNote: NOTE_NO_RANGE };
+  // discipline. Round-4 fix (M2 Minor): a distinct note, not NOTE_NO_RANGE
+  // - a range WAS found and then rejected as option-shaped, which is a
+  // different miss cause than no range being found at all; conflating the
+  // two made them indistinguishable in calibration_note for any later
+  // analyst, cutting against R6.
+  if (rangeArg.startsWith('-')) return { diffLines: null, diffLinesNote: NOTE_OPTION_SHAPED };
 
   let output;
   try {
