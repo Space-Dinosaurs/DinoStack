@@ -46,9 +46,16 @@ Failure modes:
   as a secondary exact guard. Returns JSON with skipped_reason "duplicate"
   and no write when matched.
 
-Performance: ~15s budget per message. An index-section read (not a full-file
-             read), a small number of targeted single-entry reads for
-             plausible dedup matches, and a small number of append writes.
+Performance: ~15s budget per message on the normal (post-migration) path - an
+             index-section read (not a full-file read), a small number of
+             targeted single-entry reads for plausible dedup matches, and a
+             small number of append writes. The one-time absent-index
+             migration path (Step 0) is a full-file read plus an index
+             rewrite and may exceed the 15s budget on a large pre-Index
+             file; mitigation: migration runs once per file, and the writer
+             may spend the whole message performing the migration alone,
+             deferring the triggering event's own new entry to a follow-up
+             message.
 -->
 
 ## Role
@@ -86,14 +93,14 @@ The conductor sends learning event messages with the following fields:
 
 ### 0. Absent-index migration (one-time, first writer only)
 
-Before Step 1, check whether `.agentic/learnings.md` exists, has one or more `## [ID]` entries under `## Entries`, and has **no** `## Index` section. If so, you are the migration owner - the first writer to touch the file after the Index section was introduced:
+Before Step 1, check whether `.agentic/learnings.md` exists and has no `## Index` section. This trigger is unconditional on entry count - it does not matter whether the file has zero, one, or many `## [ID]` entries under `## Entries`. If the file exists and has no `## Index` section, you are the migration owner - the first writer to touch the file after the Index section was introduced:
 
 - Read the **whole file once**. This is the one sanctioned full-file read; the index-first discipline in Step 1 does not apply yet because there is no index to read.
-- In file order, generate one index line per existing entry (`- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating each entry's title).
-- Insert a `## Index` section (containing those backfilled lines) immediately above `## Entries`. If the file also lacks a `## Entries` heading above its first entry, add that heading too.
+- In file order, generate one index line per existing entry (`- [<ID>] <one-line hook, <=100 chars>`, derived by mechanically truncating each entry's title). A zero-entry file migrates trivially: the scan finds no entries, so this step produces an empty `## Index` section.
+- Insert a `## Index` section (containing those backfilled lines, or empty if there were none) immediately above `## Entries`. If the file also lacks a `## Entries` heading above its first entry, add that heading too.
 - Derive today's LRN/KNW counters from this same full scan (highest existing `XXX` per prefix for today's date, or `001` if none exist for today) - not from an empty index.
 - **Dedup for this one pass uses the full set of entries you just read** (the old whole-file case-insensitive substring procedure on Pattern/Fact), never the index-first shortcut - migration dedup is never weaker than the discipline the Index replaced.
-- Write the backfilled `## Index` section and your own new entry (if any), plus its index line, in the same edit.
+- Write the backfilled `## Index` section and your own new entry (if any), plus its index line, in the same edit. **On a large pre-Index file the full-file read plus index rewrite may exceed this message's budget** - if so, spend the whole message performing the migration alone and defer the triggering event's own new entry to a follow-up message; migration itself still runs only once per file.
 
 After this one-time migration, the index-first flow in Step 1 below is authoritative for every subsequent writer in every subsequent session. A file that already has a `## Index` section never re-triggers migration, even if it is empty - an empty Index on a file with zero entries is the correct starting state, not a migration trigger.
 
@@ -153,9 +160,9 @@ For `tool-failure-workaround`, `architectural-decision`, `cross-component-gotcha
 - **why-it-matters**: The future-token cost this saves. From `resolution`; if omitted by conductor, derive a one-line "saves re-deriving X" statement.
 - **source**: Brief context description (command, path:line, URL, or "session").
 
-### 4. Write to .agentic/learnings.md
+### 4. Write to .agentic/learnings.md (after any needed migration)
 
-Path: `.agentic/learnings.md` at the project root (cwd).
+Path: `.agentic/learnings.md` at the project root (cwd). If Step 0's one-time migration ran, this write follows it in the same edit; otherwise the index-first flow below applies directly.
 
 **File format for LRN entries:**
 

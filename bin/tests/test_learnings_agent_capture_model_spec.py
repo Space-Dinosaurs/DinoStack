@@ -461,10 +461,18 @@ _INDEX_LESS_FIXTURE = """# Learnings
 
 def test_index_completeness_checker_reports_migration_needed_as_all_entries_missing():
     # A legacy file with entries but no '## Index' section at all (predates
-    # the Index section's introduction) must be reported as every one of its
-    # N entries missing from the index - this IS the migration-needed signal
-    # a writer checks for before deciding whether Step 0's one-time migration
-    # applies, rather than a separate detector.
+    # the Index section's introduction) is reported by this checker as every
+    # one of its N entries missing from the index - but this checker is NOT
+    # the migration-needed signal a writer actually uses: the writer's real
+    # trigger (content/agents/learnings-agent.md Step 0 / the migration
+    # paragraph in learning-extractor.md) is the direct, unconditional check
+    # "does the file have a '## Index' heading at all", independent of entry
+    # count. That distinction matters precisely because this checker's
+    # missing-list is empty (not "N missing") for a zero-entry pre-Index
+    # file, which would silently look like nothing-to-migrate if the writer
+    # mistakenly used this checker's output as its trigger instead of the
+    # direct heading-absence check. This test only confirms the checker's own
+    # (secondary, diagnostic) behavior on a non-empty legacy file.
     missing, phantom = learnings_index_completeness(_INDEX_LESS_FIXTURE)
     assert missing == ["KNW-20260601-001", "LRN-20260601-001"], (
         f"expected both pre-Index entries reported missing (migration-needed detection), got {missing}"
@@ -572,6 +580,41 @@ def test_learnings_agent_and_learning_extractor_document_absent_index_migration(
         )
         assert "full-file" in lower or "whole file" in lower, (
             f"{_rel(path)} no longer states migration dedup falls back to a full-file read/compare"
+        )
+
+
+def test_learnings_agent_and_learning_extractor_migration_trigger_is_unconditional_on_index_absence():
+    # [ROUND-2 RELOCATION FIX] Round 1's Critical (migration trigger gated on
+    # a live discretionary-capture-style qualifier) was hand-patched in
+    # round 2 into a NEW, still-broken gate: "has one or more `## [ID]`
+    # entries under `## Entries` ... and has no `## Index` section" - which
+    # left the migration path unreachable for any pre-Index file with zero
+    # entries. The round-2 prose-pin (see the "migration"/"one-time"/
+    # "full-file" test above) passed anyway, because it pinned generic
+    # migration vocabulary, never the trigger CONDITION itself. This test
+    # pins the trigger condition directly: the migration mandate reads "no
+    # `## Index`" (case-insensitive) with NO adjacent entry-count qualifier,
+    # and the file states that a zero-entry pre-Index file also migrates.
+    # [MUTATION] Re-adding "has one or more ... entries under `## Entries`,
+    # and has no `## Index`" back into either file reddens this test - verify
+    # this by temporarily restoring the pre-fix phrasing and re-running.
+    for path in (LEARNINGS_AGENT_MD, LEARNING_EXTRACTOR_MD):
+        text = path.read_text(encoding="utf-8")
+        lower = text.lower()
+        assert "no `## index`" in lower, (
+            f"{_rel(path)} does not state the unconditional trigger 'no `## Index`' - the "
+            "migration mandate must trigger on '## Index' absence alone, adjacent to the "
+            "migration-owner declaration"
+        )
+        assert "has one or more" not in lower, (
+            f"{_rel(path)} still gates the migration trigger on an entry-count qualifier "
+            "('has one or more ... entries') - this is the round-1 Critical relocated, not "
+            "fixed: it makes migration unreachable for a zero-entry pre-Index file. Delete "
+            "the qualifier; the trigger must be unconditional on '## Index' absence alone."
+        )
+        assert "zero-entry" in lower, (
+            f"{_rel(path)} does not state that a zero-entry pre-Index file also migrates "
+            "(trivially, producing an empty '## Index' section)"
         )
 
 
