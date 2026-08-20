@@ -433,18 +433,58 @@ _WHAT_TO_REVIEW_RE = re.compile(r"(?is)what to review:?\**\s*(.*)")
 # "git diff origin/main...feature/foo" or a bare "abc1234..def5678" - used
 # by `_normalize_diff_identity()` below (MAJOR 2). Anchoring at `^`
 # prevents false positives on ordinary prose containing an ellipsis
-# ("...") that happens to sit between two word-like tokens. Round-5 fix
-# (M3): the character class now includes `~` and `^`, mirroring
-# `hooks/subagent-stop-spawn-emit.js`'s `_DIFF_RANGE_JS_RE` (round-4
-# Minor fix there widened it to admit ordinary git revision-suffix syntax
-# like `<sha>~1..<sha>`) - the two regexes had desynchronized, so a
-# tilde/caret-suffixed range resolved a `diff_lines` measurement in the
-# JS emitter but fell through to `_normalize_diff_identity()`'s
-# unrecognized-shape branch (returning the raw text unchanged) here,
-# giving that spawn's round-cap key no round-stability benefit even
-# though the very same value's `diff_lines` was measured correctly.
+# ("...") that happens to sit between two word-like tokens.
+#
+# Deliberately DOES NOT include `~` or `^` (round-6 fix, reverting a
+# round-5 change). `hooks/subagent-stop-spawn-emit.js`'s
+# `_DIFF_RANGE_JS_RE` (round-4 Minor fix) widened its OWN charclass to
+# admit ordinary git revision-suffix syntax like `<sha>~1..<sha>` so that
+# regex could resolve a `diff_lines` measurement. Round-5 M3 widened this
+# regex to match on the strength of a comment claiming the two "mirror"
+# each other - they do not, and never should: that regex feeds
+# `resolveDiffLines()`, a pure line-count measurement with no round-cap
+# consequence, while THIS regex feeds `_normalize_diff_identity()`, which
+# derives the round-cap UNIT KEY. Widening this charclass makes
+# `<x>~n..HEAD` and `<x>^..HEAD` values normalize to the literal token
+# `HEAD` (strategy 1 below: `ref2` is "HEAD", which is not SHA-like, so it
+# is returned verbatim) for ANY `<x>`, collapsing every unit whose
+# "Diff under review" value happens to use `~`/`^`-suffixed HEAD-relative
+# syntax onto ONE shared counter - reproduced (round-6 review): two
+# distinct units both citing `<base>~N..HEAD` collided onto
+# `skeptic-round-HEAD-7138a51661.json`, and unit B's very FIRST spawn was
+# denied because unit A had already spent the shared budget. This is
+# exactly the collision class DS-180's stable-unit-key contract exists to
+# eliminate (see `_extract_stable_unit_key()` above), reintroduced by a
+# regex-vs-regex "mirrors" comparison that never checked decision-level
+# behavior. If a future change needs this regex to admit `~`/`^`, it must
+# be justified with decision-level evidence (two distinct units, several
+# rounds each, proving no collision) - not a claim that another regex
+# with a different consumer was widened for a different reason.
+#
+# `_SHA_LIKE_RE` residual (round-6 Minor): the round-5 widening also
+# desynchronized this regex from `_SHA_LIKE_RE` (unchanged at
+# `^[0-9a-fA-F]{7,40}$`), because a `~`/`^`-suffixed SHA (e.g.
+# "1232779c~1") matched the widened ref charclass but was never
+# recognized by `_SHA_LIKE_RE` as SHA-like - strategy 1's stated
+# rationale ("ref2 is NOT a bare hex SHA, i.e. it looks like a branch
+# name") was then FALSE for that value, and the wrong side of the range
+# could be selected. Reverting the charclass resolves this too, and
+# resolves it completely, not partially: `_DIFF_RANGE_RE` is `^`-anchored
+# and requires `\.{2,3}` immediately after `ref1` with no `~`/`^`
+# permitted inside either ref group, so a `~`/`^`-suffixed range now
+# fails to match `_DIFF_RANGE_RE` AT ALL (no partial match on a bare-SHA
+# prefix) and falls straight through to strategy 4 ("return raw text
+# unchanged") - it never reaches the `ref1_sha`/`ref2_sha` classification
+# in the first place, so `_SHA_LIKE_RE` is never consulted on a
+# `~`/`^`-suffixed value and the desync cannot recur. No residual
+# misclassification remains; the only remaining cost is the pre-existing
+# one strategy 4 already accepted (see its docstring below): a
+# `~`/`^`-suffixed range gets no round-stability benefit at all (a
+# changing head SHA each round mints a fresh key each round), which is
+# unchanged from this hook's behavior before the round-4 JS-side fix ever
+# motivated the (mistaken) round-5 attempt to mirror it here.
 _DIFF_RANGE_RE = re.compile(
-    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/^~-]+)"
+    r"(?i)^(?:git diff[ \t]+)?([A-Za-z0-9._/-]+)[ \t]*\.{2,3}[ \t]*([A-Za-z0-9._/-]+)"
 )
 _SHA_LIKE_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
@@ -940,10 +980,18 @@ def _update_tuid_index(agentic_dir: Path, tool_use_id: str | None, unit_key: str
         later round can complete before an earlier one, or the state can
         simply have advanced by the time SubagentStop fires) - it reports
         the CURRENT round count, not the round this particular spawn was
-        actually allowed at. `readRoundState()` still falls back to the
-        live-read for a pre-existing LEGACY (bare-string) entry, so an
-        old index is not invalidated - it self-heals as spawns complete
-        and write the new shape.
+        actually allowed at. Round-3 fix (m2, `subagent-stop-spawn-emit.js`
+        `readRoundState()`): the live-read fallback for a pre-existing
+        LEGACY (bare-string) entry was REMOVED, not merely narrowed - a
+        legacy entry, or any pinned entry whose `iteration` is missing,
+        non-numeric, zero, or negative, is now treated as an outright miss
+        (returns `null`), never re-read live. This function's own
+        `_valid_index_entry()` filter still ACCEPTS a legacy bare-string
+        entry when merging the on-disk index (so a pre-round-2 entry is
+        not evicted or corrupted on write), but the READER on the JS side
+        never resolves one to a hit - a legacy entry simply sits inert
+        until it ages out of the FIFO cap or is overwritten by a fresh
+        pinned-shape write for the same `tool_use_id`.
       - M4: the read-merge-write sequence below is now guarded by a
         short, best-effort `flock` (POSIX only - see
         `_tuid_index_lock()`), closing the concurrent-write data loss a

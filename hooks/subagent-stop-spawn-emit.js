@@ -799,23 +799,30 @@ function parseSkepticSignoff(transcriptPath) {
 const _DIFF_UNDER_REVIEW_JS_RE = /^[ \t]*(?:[-*][ \t]*)?(?:\d+\.[ \t]*)?\*{0,2}Diff under review\*{0,2}:\*{0,2}[ \t]*([^\s*][^\n]*)$/im;
 // Matches a `<ref1>..<ref2>` / `<ref1>...<ref2>` range, with an optional
 // leading "git diff ", anchored at the start of the (already-stripped)
-// value - mirrors the round-cap hook's `_DIFF_RANGE_RE`. Round-4 fix
-// (Minor): the character class now includes `~` and `^`, ordinary git
-// revision-suffix syntax (`<sha>~1..<sha>`, `<sha>^..<sha>`) that this
-// repo's own briefs use - the pre-fix class silently rejected these as
-// NOTE_NO_RANGE. Widening still cannot admit anything the leading-`-`
-// option-shape guard below or execFileSync (no shell, so `~`/`^` carry no
-// injection meaning) would mishandle - re-verified by the option-shape
-// and injection probes in the m1 regression test after this change.
-// Round-5 fix (M3): the round-4 widening above had desynchronized this
-// regex from the round-cap hook's `_DIFF_RANGE_RE`, which was left at its
-// pre-widened character class - a `<sha>~1..<sha>` field-6 value then
-// resolved a real `diff_lines` measurement here while gaining no
-// round-stability benefit from `_normalize_diff_identity()` on the
-// round-cap side. `_DIFF_RANGE_RE` is now widened identically; a 14-shape
-// differential (branch-relative, bare-SHA, tilde/caret-suffixed, prose,
-// option-shaped, backticked forms) against both regexes found 0
-// divergences.
+// value. Round-4 fix (Minor): the character class includes `~` and `^`,
+// ordinary git revision-suffix syntax (`<sha>~1..<sha>`, `<sha>^..<sha>`)
+// that this repo's own briefs use - the pre-fix class silently rejected
+// these as NOTE_NO_RANGE. Widening still cannot admit anything the
+// leading-`-` option-shape guard below or execFileSync (no shell, so
+// `~`/`^` carry no injection meaning) would mishandle - re-verified by
+// the option-shape and injection probes in the m1 regression test after
+// this change.
+//
+// DELIBERATELY DOES NOT mirror the round-cap hook's `_DIFF_RANGE_RE`
+// (round-6 correction - round-5 M3 claimed the two "mirror" each other
+// and widened the Python regex to match; that claim was false and the
+// widening was reverted). This regex's only consumer is
+// `resolveDiffLines()` below - a pure `diff --shortstat` line-count
+// measurement with no round-cap consequence, so admitting `~`/`^` here
+// is safe. The round-cap hook's `_DIFF_RANGE_RE` feeds
+// `_normalize_diff_identity()`, which derives the round-cap UNIT KEY;
+// admitting `~`/`^` there collapsed every `<x>~n..HEAD` / `<x>^..HEAD`
+// value onto the single literal token "HEAD" regardless of `<x>`,
+// colliding distinct units onto one shared round counter (measured:
+// `skeptic-round-HEAD-7138a51661.json`). The two regexes have different
+// jobs and must be evaluated independently against their own consumer's
+// failure mode - a regex-vs-regex parity claim proves nothing about
+// either consumer's decision-level behavior.
 const _DIFF_RANGE_JS_RE = /^(?:git diff[ \t]+)?([A-Za-z0-9._/^~-]+)[ \t]*(\.{2,3})[ \t]*([A-Za-z0-9._/^~-]+)/i;
 const _SHORTSTAT_INSERTIONS_RE = /(\d+) insertion/;
 const _SHORTSTAT_DELETIONS_RE = /(\d+) deletion/;

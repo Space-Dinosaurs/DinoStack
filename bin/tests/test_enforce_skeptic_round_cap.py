@@ -1557,6 +1557,81 @@ def test_state_file_preserves_unknown_keys_round_trip():
         assert state_after.get("round_count") == 2, state_after
 
 
+# --------------------------------------------------------------------------- #
+# Round-6 (M1/M3) regression: the round-5 widening of `_DIFF_RANGE_RE` to
+# admit `~`/`^` collapsed every `<x>~n..HEAD` / `<x>^..HEAD` "Diff under
+# review" value onto the single literal token "HEAD" (strategy 1 in
+# `_normalize_diff_identity()`: `ref2` is "HEAD", which is not SHA-like,
+# so it is returned verbatim regardless of `<x>`) - two DISTINCT units
+# both using this shape collided onto ONE shared round-cap counter. These
+# tests are DECISION-level (assert on `_is_denied`/state-file identity,
+# not on the regex in isolation) per the round-6 finding: a prior round's
+# "0 divergences" report compared the Python and JS regexes to EACH
+# OTHER, never to actual hook decisions, and missed this collision
+# entirely. Confirmed failing pre-fix (round-6 review): two such units
+# both keyed to `skeptic-round-HEAD-7138a51661.json`, and unit B's first
+# spawn was denied on the strength of unit A's already-spent budget.
+# --------------------------------------------------------------------------- #
+def test_tilde_suffixed_ranges_do_not_collide_across_units():
+    """Two distinct units, each citing a `<unit-specific-base>~N..HEAD`
+    range (no stable-key pipe form - the bare legacy shape), must NOT
+    collide onto a shared round-cap counter. Pre-fix, both normalized to
+    the literal token "HEAD" and shared one counter; post-fix, `~` is
+    outside `_DIFF_RANGE_RE`'s charclass so the value falls through to
+    strategy 4 ("return raw text unchanged") and each round's own
+    (round-varying) text becomes its own key - unstable per round for
+    this unrecognized shape, but never collidable across units, which is
+    the property this test asserts."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(1, 4):
+            line = f"6. Diff under review: git diff 1232779c~{i}..HEAD"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, line, what_to_review=f"unit A worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
+
+        # Unit B's FIRST spawn, using a completely different base SHA but
+        # the same `~N..HEAD` shape, must be a genuine round 1 - not a
+        # round 4 denial inherited from unit A's exhausted budget.
+        line_b = "6. Diff under review: git diff b7a596d9^..HEAD"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, line_b, what_to_review="unit B worker output round 1")
+        )
+        assert not _is_denied(parsed), (
+            f"unit B's first spawn was denied - it collided with unit A's counter: {parsed}"
+        )
+
+        state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
+        assert "skeptic-round-HEAD-7138a51661.json" not in state_files, (
+            f"unit A and unit B collided onto the shared 'HEAD' literal key: {state_files}"
+        )
+
+
+def test_caret_suffixed_range_does_not_reach_round_4_cap_via_shared_head_key():
+    """A single unit using the caret form (`<base>^..HEAD`) across several
+    rounds must never be silently coalesced onto the SAME state file as an
+    unrelated unit using the tilde form (`<other-base>~1..HEAD`) - both
+    forms previously normalized to the bare "HEAD" token regardless of
+    which base SHA was cited. Runs unit A (caret) to its round-3 cap, then
+    proves unit B (tilde) still gets an independent, un-denied first
+    round rather than inheriting unit A's spent budget."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for i in range(1, 4):
+            line = f"6. Diff under review: git diff aaaaaaa^{i}..HEAD"
+            rc, parsed = _run_hook(
+                _raw_payload(tmp, line, what_to_review=f"unit A (caret) worker output round {i}")
+            )
+            assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
+
+        line_b = "6. Diff under review: git diff bbbbbbb~1..HEAD"
+        rc, parsed = _run_hook(
+            _raw_payload(tmp, line_b, what_to_review="unit B (tilde) worker output round 1")
+        )
+        assert not _is_denied(parsed), (
+            f"unit B's first spawn was denied - it inherited unit A's exhausted budget: {parsed}"
+        )
+
+
 if __name__ == "__main__":
     import pytest
 
