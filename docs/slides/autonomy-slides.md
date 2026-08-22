@@ -182,7 +182,7 @@ Act, don't ask. Pick the best default, note the choice, proceed.
 
 - The conductor's default is **to act, not to ask**
 - If a next step is non-destructive and within the conductor's authority, it gets done - no "want me to draft X next?" pause
-- Design-taste calls (naming, style, choice among libraries already in use, "which of several reasonable approaches") are resolved by the conductor, not surfaced to the operator
+- Design-taste calls (naming, style, choice among libraries already in use, "which of several reasonable approaches") are resolved by the conductor via Low-risk confirmation of the six sources - never surfaced to the operator; delegated to the architect first when it is a design/approach question requiring Elevated investigation instead
 - The operator is invoked to complete the goal, not to approve every step
 
 <div class="callout">
@@ -243,7 +243,7 @@ Never overridden by default-and-proceed. A recommended default may be offered, b
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Surface-and-proceed branch</strong><br/>
 Non-irreversible. Used when ALL hold:<br/>
-- No default can be derived from the six sources<br/>
+- No default can be derived from the six sources, and, for a design or approach question, any required architect consultation has already returned its plan<br/>
 - Guessing wrong would waste more than 30 minutes<br/>
 - The question is specific and bounded<br/><br/>
 Surface the question with a recommended default AND proceed with that default in the same turn.
@@ -345,8 +345,8 @@ Design-taste BLOCKED returns are a contract violation. New-dep / major-upgrade B
 <li>Fixing a broken test discovered during work</li>
 <li>Creating an obvious dependency (missing import, type def, upstream endpoint)</li>
 <li>Looking something up</li>
-<li>Design preference, stylistic choice</li>
-<li>Which of several reasonable approaches</li>
+<li>Design preference, stylistic choice (source already answers it)</li>
+<li>Which of several reasonable approaches (source already answers it)</li>
 <li>Choice among libraries already in use at a specific call site</li>
 <li>Next unit of a multi-unit plan</li>
 </ul>
@@ -354,11 +354,10 @@ Design-taste BLOCKED returns are a contract violation. New-dep / major-upgrade B
 <div class="card" style="border-left-color: #E9B521;">
 <strong>Route to specialist</strong>
 <ul>
-<li>Introducing a new runtime dependency</li>
-<li>Major-version upgrade of an existing dependency</li>
+<li>Introducing a new runtime dependency - not conductor-direct, not default-and-proceed; Worker returns BLOCKED, conductor routes to architect + dependency-auditor</li>
+<li>Major-version upgrade of an existing dependency - same routing as above</li>
+<li>A design/approach question needing Elevated investigation instead of Low-risk confirmation - delegate to the architect first, then default-and-proceed resumes</li>
 </ul>
-<br/>
-Not conductor-direct and not default-and-proceed. Worker returns BLOCKED; conductor routes to architect + dependency-auditor per the risk table.
 </div>
 <div class="card" style="border-left-color: #ff5d73;">
 <strong>Stop and ask the user</strong>

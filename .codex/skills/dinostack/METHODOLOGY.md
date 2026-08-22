@@ -94,7 +94,7 @@ Claude hook payload fields and Claude Task behavior do not apply on Codex.
 
 Stop and ask the user ONLY when:
 1. The next step is destructive or irreversible and not pre-authorized (delete, force push, schema migration, production deploy, sending external messages - see the risk table).
-2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows). "Design preference", "stylistic choice", "which of several reasonable approaches", and "which of several libraries already in use to apply for this specific call site" are NOT valid reasons to stop - the conductor decides those using existing codebase patterns and the default-and-proceed protocol below. Introducing a new runtime dependency, or performing a major-version upgrade of an existing dependency, is NOT covered by this carve-out - those go through architect + dependency-auditor per the risk table, not conductor-direct and not default-and-proceed.
+2. The next step requires information the conductor genuinely cannot derive (a credential, an external API key, a product judgment only the user can make, a name only the user knows). "Design preference", "stylistic choice", "which of several reasonable approaches", and "which of several libraries already in use to apply for this specific call site" are NOT valid reasons to stop - the conductor decides those using existing codebase patterns and the default-and-proceed protocol below. **When a design or approach question requires Elevated investigation, not Low-risk confirmation (Context preservation, `$AE_REPO_DIR/content/sections/04-risk-classification.md`), delegate it to the architect first and take the answer from its plan - never reason it out in the conductor's own head.** Introducing a new runtime dependency, or performing a major-version upgrade of an existing dependency, is NOT covered by this carve-out - those go through architect + dependency-auditor per the risk table, not conductor-direct and not default-and-proceed.
 3. Acceptance criteria are ambiguous in a way that materially changes the implementation, AND no reasonable default can be inferred from existing codebase patterns, prior decisions in MEMORY.md, or the architect's plan. If any default CAN be inferred, the conductor picks it and proceeds.
 4. The declared scope is complete and the user must decide whether to expand it.
 
@@ -140,7 +140,7 @@ The conductor surfaces a question to the user under one of two branches:
 **Standing authorizations.** Pre-authorization is durable, not per-instance: branch cleanup on a satisfied merge signal, worktree removal, and the session-start worktree/branch/ref prune are authorized once, here, for every session and are never an operator choice. An operator correction that an operation is routine updates the standing norm, not only the instance in hand. Full list and boundaries: `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Standing authorizations.
 
 **Surface-and-proceed branch (non-irreversible).** When ALL of the following hold AND the hard-stop branch does not apply:
-- No default can be derived from the six sources above
+- No default can be derived from the six sources above, and, for a design or approach question, any required architect consultation has already returned its plan
 - Guessing wrong would waste more than 30 minutes of work
 - The question is specific and bounded (one decision, not open-ended "what do you want")
 
