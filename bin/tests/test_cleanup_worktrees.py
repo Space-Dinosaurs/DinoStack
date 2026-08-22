@@ -2155,3 +2155,183 @@ def test_manifest_test_name_cross_references_exist():
         f"module docstring references test(s) not collected as def test_...(...) in "
         f"test_cleanup_worktrees.py or test_cleanup_worktrees_multi_repo.py: {missing}"
     )
+
+
+# --------------------------------------------------------------------------
+# DS-189 Unit A: `SKIP_LS_REMOTE_ERROR` aggregate NOTE. `SKIP_LS_REMOTE_ERROR`
+# is a Disposition VALUE, not an outcome bucket - `evaluate_entry` folds it
+# into {"outcome": "SKIP_UNPROVEN", "reason": "SKIP_LS_REMOTE_ERROR"}, so
+# the NOTE predicate must scan `results` for that reason, never read an
+# `outcome_counts["SKIP_LS_REMOTE_ERROR"]` bucket (which can never exist -
+# see the regression test below). Corrupting the `origin` remote URL forces
+# a genuine ls-remote error (not merely "not_pushed"), mirroring
+# `test_archive_unproven_never_archives_ls_remote_error_entry` above.
+# --------------------------------------------------------------------------
+
+
+def test_ls_remote_error_note_fires_at_exactly_fifty_percent(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-lsr", "worktree-agent-lsr", push=False)
+    (wt / "extra.txt").write_text("unique unpushed work\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "does-not-exist.git"))
+
+    # Two total entries (SKIP_MAIN + this one SKIP_UNPROVEN/SKIP_LS_REMOTE_ERROR
+    # entry) -> 1/2 == 50%, at the ">= 0.5" threshold exactly.
+    proc = run_reap(repo, dry_run=True, no_gh=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)", result[str(wt)]
+    assert "NOTE: 1 of 2 worktree(s) are SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)" in proc.stdout, proc.stdout
+
+
+def test_ls_remote_error_note_absent_below_fifty_percent(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # One entry that will hit ls-remote error (unpushed, unique commits).
+    wt_err = add_worktree(repo, ".claude/worktrees/agent-lsr2", "worktree-agent-lsr2", push=False)
+    (wt_err / "extra.txt").write_text("unique unpushed work\n")
+    _git(wt_err, "add", "extra.txt")
+    _git(wt_err, "commit", "-q", "-m", "unique commit")
+    # Three zero-unique-commit (ancestor-of-base) entries: `merge_evidence`
+    # resolves "merged" and short-circuits BEFORE the ls-remote leg is
+    # consulted at all (see `_check_merge_evidence`), so these are ELIGIBLE
+    # regardless of the corrupted origin below.
+    for i in range(3):
+        add_worktree(repo, f".claude/worktrees/agent-clean{i}", f"worktree-agent-clean{i}", push=False)
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "does-not-exist.git"))
+
+    # 1 error / 4 total non-main-inclusive... total entries = SKIP_MAIN + 4 = 5;
+    # 1/5 == 20%, well below the 50% threshold.
+    proc = run_reap(repo, dry_run=True, no_gh=False)
+    assert proc.returncode == 0, proc.stderr
+    assert not any("SKIP_LS_REMOTE_ERROR" in line for line in proc.stdout.splitlines() if line.startswith("NOTE:"))
+
+
+def test_ls_remote_error_note_absent_when_zero_errors_no_div_by_zero(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # No other worktrees at all - only the main entry (SKIP_MAIN). Zero
+    # SKIP_LS_REMOTE_ERROR entries; the `ls_remote_error_count and ...`
+    # short-circuit must never attempt a division here.
+    proc = run_reap(repo, dry_run=True, no_gh=True)
+    assert proc.returncode == 0, proc.stderr
+    assert not any("SKIP_LS_REMOTE_ERROR" in line for line in proc.stdout.splitlines() if line.startswith("NOTE:"))
+
+
+def test_ls_remote_error_note_old_bucket_predicate_is_structurally_zero(tmp_path):
+    """Regression test proving the OLD predicate shape
+    (`outcome_counts.get("SKIP_LS_REMOTE_ERROR", 0)`) is structurally
+    ALWAYS 0 against the exact same fixture that makes the real NOTE fire
+    above - `SKIP_LS_REMOTE_ERROR` is never a member of `_ALL_OUTCOMES`
+    (it is a `Disposition` value folded into the `SKIP_UNPROVEN` outcome
+    bucket's `reason` field), so `Counter(r["outcome"] for r in results)`
+    can never produce that key at all. Confirmed failing pre-fix: before
+    this unit, no NOTE printed at all for this fixture (the aggregate
+    signal did not exist), so an `outcome_counts`-style bucket read would
+    have silently reported 0 forever with no visible indication anything
+    was wrong - this test pins that the reason-scan predicate is the only
+    shape that can ever see the real count."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-lsr3", "worktree-agent-lsr3", push=False)
+    (wt / "extra.txt").write_text("unique unpushed work\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(repo, "remote", "set-url", "origin", str(tmp_path / "does-not-exist.git"))
+
+    proc = run_reap(repo, dry_run=True, no_gh=False)
+    assert proc.returncode == 0, proc.stderr
+
+    # The real, ACTUAL outcome bucketing this tool computes internally
+    # (mirroring `Counter(r["outcome"] for r in results)` exactly, built
+    # from the same --explain per-entry output the tool prints) - proves
+    # the old bucket-read shape reads 0 even though a real
+    # SKIP_LS_REMOTE_ERROR entry genuinely exists in this exact run.
+    entry_outcomes = list(outcomes(proc.stdout).values())
+    outcome_counts = {}
+    for full in entry_outcomes:
+        bucket = full.split(" ", 1)[0]  # "SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)" -> "SKIP_UNPROVEN"
+        outcome_counts[bucket] = outcome_counts.get(bucket, 0) + 1
+    assert outcome_counts.get("SKIP_LS_REMOTE_ERROR", 0) == 0  # old predicate: always 0, never sees it
+    assert outcome_counts.get("SKIP_UNPROVEN", 0) == 1  # the real entry, correctly bucketed
+    # And the NOTE fired anyway, via the reason-scan predicate that DOES see it.
+    assert "NOTE: 1 of 2 worktree(s) are SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)" in proc.stdout, proc.stdout
+
+
+# --------------------------------------------------------------------------
+# DS-189 Unit A: `--init-config` scaffolds `~/.agentic/cleanup-worktrees.json`
+# for a first-time `--multi-repo` setup.
+# --------------------------------------------------------------------------
+
+
+def test_init_config_writes_skeleton_on_absent_file(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(ds_cleanup_worktrees, "_MULTI_REPO_CONFIG_PATH", fake_home / ".agentic" / "cleanup-worktrees.json")
+    rc = ds_cleanup_worktrees._init_config()
+    assert rc == 0
+    config_path = fake_home / ".agentic" / "cleanup-worktrees.json"
+    assert config_path.is_file()
+    import json as _json
+
+    assert _json.loads(config_path.read_text()) == {"roots": [], "repos": []}
+
+
+def test_init_config_creates_agentic_dir_when_missing(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home-2"
+    fake_home.mkdir()
+    assert not (fake_home / ".agentic").exists()
+    monkeypatch.setattr(ds_cleanup_worktrees, "_MULTI_REPO_CONFIG_PATH", fake_home / ".agentic" / "cleanup-worktrees.json")
+    rc = ds_cleanup_worktrees._init_config()
+    assert rc == 0
+    assert (fake_home / ".agentic").is_dir()
+
+
+def test_init_config_never_overwrites_existing_file(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home-3"
+    (fake_home / ".agentic").mkdir(parents=True)
+    config_path = fake_home / ".agentic" / "cleanup-worktrees.json"
+    original_content = '{"roots": ["/some/custom/root"], "repos": []}'
+    config_path.write_text(original_content)
+    monkeypatch.setattr(ds_cleanup_worktrees, "_MULTI_REPO_CONFIG_PATH", config_path)
+
+    rc = ds_cleanup_worktrees._init_config()
+    assert rc == 0
+    assert config_path.read_text() == original_content  # byte-identical after a second run
+
+
+def test_init_config_via_cli_rejects_extra_args(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--init-config", "--dry-run"],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, HOME=str(tmp_path)),
+    )
+    assert proc.returncode == 2
+    assert "--init-config cannot be combined with any other flag" in proc.stderr
+
+
+def test_init_config_via_cli_end_to_end(tmp_path):
+    fake_home = tmp_path / "cli-home"
+    fake_home.mkdir()
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "--init-config"],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, HOME=str(fake_home)),
+    )
+    assert proc.returncode == 0, proc.stderr
+    config_path = fake_home / ".agentic" / "cleanup-worktrees.json"
+    assert config_path.is_file()
+    import json as _json
+
+    assert _json.loads(config_path.read_text()) == {"roots": [], "repos": []}
+
+    # Second run: never overwrites, exits 0, reports current contents.
+    proc2 = subprocess.run(
+        [sys.executable, str(SCRIPT), "--init-config"],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, HOME=str(fake_home)),
+    )
+    assert proc2.returncode == 0, proc2.stderr
+    assert "already exists - not overwriting" in proc2.stdout

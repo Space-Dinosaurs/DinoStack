@@ -606,8 +606,9 @@ def test_json_output_shape(tmp_path):
     result = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert set(payload.keys()) == {"tier", "rows"}
+    assert set(payload.keys()) == {"tier", "rows", "truncated"}
     assert payload["tier"] == "fast"
+    assert payload["truncated"] is False
     rows = payload["rows"]
     assert isinstance(rows, list)
     assert len(rows) == 1
@@ -1214,3 +1215,235 @@ def test_resolve_base_branch_with_remote_still_uses_generic_message(tmp_path):
     joined = "\n".join(diagnostics)
     assert "no git remotes configured" not in joined
     assert "every candidate failed" in joined
+
+
+# --------------------------------------------------------------------------
+# 15. DS-189 Unit A: `--max-repos` truncates the discovered-and-deduped
+#     target list AFTER dedup, BEFORE any per-repo evaluation - bounding
+#     git-call cost, not just display. Absent = unbounded (back-compat).
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_truncates_before_evaluation_preserving_order(tmp_path, monkeypatch):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    mod = _load_module_directly()
+    evaluated = []
+    real_fast = mod._fast_report_row
+
+    def counting_fast(repo):
+        evaluated.append(repo)
+        return real_fast(repo)
+
+    monkeypatch.setattr(mod, "_fast_report_row", counting_fast)
+
+    args = mod.parse_args(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "2",
+        ]
+    )
+    rc = mod._run_multi_repo(args)
+    assert rc == 0
+    # Per-repo evaluation cost is bounded to exactly N=2 calls - the 3rd
+    # repo is never evaluated at all, not merely hidden from display.
+    assert len(evaluated) == 2
+    assert evaluated == [str(repo_a.resolve()), str(repo_b.resolve())]
+
+
+def test_max_repos_json_truncated_key_true_when_truncated(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--json",
+            "--max-repos",
+            "2",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is True
+    assert len(payload["rows"]) == 2
+
+
+def test_max_repos_json_truncated_key_false_when_not_exceeded(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--report",
+            "--count-only",
+            "--json",
+            "--max-repos",
+            "5",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False
+    assert len(payload["rows"]) == 2
+
+
+def test_max_repos_absent_is_unbounded(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--json",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False
+    assert len(payload["rows"]) == 3
+
+
+def test_max_repos_without_multi_repo_is_usage_error(tmp_path):
+    result = run_cli(["--max-repos", "2"], cwd=tmp_path)
+    assert result.returncode == 2, result.stderr
+    assert "--max-repos requires --multi-repo" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# 15b. Round-2 Major fix: `--max-repos` must reject 0 and negative values -
+#     `targets[: args.max_repos]` with a negative N silently drops the LAST
+#     entries (not the intended "cap at N") while still reporting
+#     `truncated: true`, and 0 empties the target list, producing the
+#     misleading "no repos discovered" usage error instead of a clear
+#     complaint about the flag itself. Both must exit 2 with a message
+#     naming the constraint, and neither may run any per-repo evaluation.
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_zero_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch, capsys):
+    # In-process call (not run_cli's subprocess) - a subprocess invocation
+    # can never observe a monkeypatch applied to a module object living in
+    # the TEST process, so an "evaluated == []" assertion against it would
+    # be unfalsifiable regardless of whether evaluation actually ran. Call
+    # `mod.main()` directly, mirroring
+    # test_max_repos_truncates_before_evaluation_preserving_order's shape.
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+
+    mod = _load_module_directly()
+    evaluated = []
+    monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
+
+    rc = mod.main(
+        ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "0"]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "--max-repos must be >= 1" in captured.err
+    assert evaluated == []
+
+
+def test_max_repos_negative_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch, capsys):
+    # See test_max_repos_zero_is_usage_error_and_runs_no_evaluation's
+    # docstring-style comment above for why this must be an in-process call.
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+
+    mod = _load_module_directly()
+    evaluated = []
+    monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
+
+    rc = mod.main(
+        ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "-1"]
+    )
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "--max-repos must be >= 1" in captured.err
+    assert evaluated == []
+
+
+# --------------------------------------------------------------------------
+# 15c. Round-2 Minor fix: truncation must be visible on human-readable
+#     output too, not only `--report --json`'s `"truncated"` key - both the
+#     `--report` table and the plain multi-repo sweep path print a NOTE
+#     line naming the cap when truncation actually happened, and print
+#     nothing when it did not.
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_note_appears_on_truncated_human_report(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "2",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "NOTE: repo discovery truncated to first 2 of 3 discovered repos" in result.stdout
+
+
+def test_max_repos_note_absent_when_not_truncated(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "5",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "NOTE: repo discovery truncated" not in result.stdout

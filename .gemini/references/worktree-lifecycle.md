@@ -217,6 +217,14 @@ This repo already solved the identical problem for BRANCHES: `bin/ds-branch-prun
 
 Not every non-`ELIGIBLE` branch-evidence outcome lands in `SKIP_UNPROVEN`, and `--archive-unproven` only ever considers entries that do. A worktree whose `gh pr list` query genuinely FAILED for that one branch (rate limit, auth hiccup, network blip - `gh` itself remains available) resolves to its own `SKIP_PR_QUERY_ERROR` outcome instead, on every run mode, not only under `--archive-unproven` - a query failure is a distinct fact from "no PR exists" and treating it as absence would let a worktree behind a live OPEN PR be silently archived (or, on the lenient MERGED-is-sufficient worktree-removal path, removed outright with no flags at all). See `bin/ds-cleanup-worktrees`'s own module docstring, Removal predicate gate 9, for the full mechanism.
 
+### Advisory: sharing node_modules across worktrees (pnpm)
+
+For JS/Web-UI projects using a worktree-per-feature workflow, per-worktree `node_modules` is the dominant raw-disk driver - roughly 2G per worktree is typical, and that cost multiplies by every open worktree. npm and yarn both install a full independent copy of `node_modules` per worktree, so disk usage scales linearly with worktree count.
+
+pnpm avoids this by installing from a single machine-wide content-addressable store and linking (hard links) each worktree's `node_modules` from it, so N worktrees cost roughly one full copy plus cheap links rather than N full copies.
+
+Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, or simply switching the install command) is a per-project decision and is out of DinoStack's scope to automate - this is advisory only, not an enforced or default behavior. Nothing in the worktree cleanup or prune tooling assumes or requires pnpm.
+
 ## Cross-repo mode: `--multi-repo` and `--report`
 
 `bin/ds-cleanup-worktrees --multi-repo` extends every gate and mechanism documented above (self/age/dirty/locked/protected-content, `SKIP_UNPROVEN`, `--archive-unproven`) to sweep several repos in one call, sequentially, each resolving its OWN base independently (`--base` combined with `--multi-repo` is a usage error - a single global base would silently leak one repo's base into every other repo's evaluation). `--multi-repo --report` (with or without `--count-only`) is the read-only, ranked cross-repo visibility companion - "which project is worst" - and is the recommended first step before a multi-repo sweep; see `content/commands/ds-cleanup-worktrees.md` for the full flag reference and the two cost tiers. The standalone `bin/ds-reap-all` subprocess-per-repo sweep wrapper has been retired - this in-process mode is the sole cross-repo mechanism.

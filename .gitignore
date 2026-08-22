@@ -77,7 +77,10 @@ content/**/.agentic/
 # Local-only scheduling/automation (e.g. DinoStack PR-review launchd job).
 # Machine-specific (resolves local binary paths, pins a GitHub identity) and not
 # part of the shipped methodology — kept local, never committed upstream.
-/automation/
+# Exception: dinostack-worktree-reap is a shipped package (DS-189; macOS launchd).
+/automation/*
+!/automation/dinostack-worktree-reap/
+!/automation/dinostack-worktree-reap/**
 
 # Pi coding agent generated/project-local state (not adapter-owned)
 .pi/taskplane.json
