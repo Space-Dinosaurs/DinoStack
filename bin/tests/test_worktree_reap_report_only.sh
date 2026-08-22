@@ -50,7 +50,10 @@ fi
 # Every line in run.sh that actually EXECUTES ds-cleanup-worktrees (not a
 # line that merely echoes or assigns the variable holding its resolved
 # binary path, $DS_CLEANUP_BIN) - i.e. a line invoking it via $PYTHON_BIN.
-mapfile -t invocations < <(grep -n '"\$PYTHON_BIN" "\$DS_CLEANUP_BIN"' "$RUN_SH")
+invocations=()
+while IFS= read -r line; do
+  invocations+=("$line")
+done < <(grep -n '"\$PYTHON_BIN" "\$DS_CLEANUP_BIN"' "$RUN_SH")
 
 if [[ "${#invocations[@]}" -eq 0 ]]; then
   fail "found zero \$DS_CLEANUP_BIN invocation lines in run.sh - empty discovery is a hard failure, not a vacuous pass"

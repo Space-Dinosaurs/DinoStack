@@ -111,7 +111,7 @@ send_telegram() {
   if [[ -n "${MAX_REPOS:-}" ]]; then
     MAX_REPOS_ARGS=(--max-repos "$MAX_REPOS")
   fi
-  "$PYTHON_BIN" "$DS_CLEANUP_BIN" --multi-repo --report --json "${MAX_REPOS_ARGS[@]}" >"$RAW"
+  "$PYTHON_BIN" "$DS_CLEANUP_BIN" --multi-repo --report --json "${MAX_REPOS_ARGS[@]+"${MAX_REPOS_ARGS[@]}"}" >"$RAW"
   rc=$?
 
   echo "----------------------------------------"
@@ -128,7 +128,13 @@ if [[ "${rc:-2}" -ne 0 && "${rc:-2}" -ne 1 ]] || [[ ! -s "$RAW" ]]; then
   HINT="$(tail -5 "$LOG" 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
   send_telegram "❌ DinoStack worktree-reap report FAILED (exit ${rc:-?}) - no summary this run.
 ${HINT}"
-  exit "${rc:-1}"
+  # This branch is entered only on an already-detected failure (rc outside
+  # {0,1}, or an empty RAW file even when rc=0) - always exit nonzero here so
+  # launchd never records a FAILED-alerted run as a success.
+  if [[ "${rc:-1}" -eq 0 ]]; then
+    exit 1
+  fi
+  exit "$rc"
 fi
 
 if [[ "$rc" -eq 1 ]]; then
