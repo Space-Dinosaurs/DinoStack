@@ -3533,7 +3533,7 @@ Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings (
 
 **Soft round cap.** Two full re-derivation passes of one decision with no new input is tripwire-adjacent: take the terminal action rather than starting a third.
 
-**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the six-source derived default (falling to source 6's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
+**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the six-source derived default (falling to source 6's most-conservative reading if nothing earlier yields), acts, and notes the choice, unless the fork requires Elevated investigation rather than Low-risk confirmation, in which case it routes to the architect first per the kernel rule (`content/sections/02-delegation.md` §Stop and ask the user ONLY when, criterion 2). "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
 
 **What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the six-source ordering or by reading one more file. Read first.
 
