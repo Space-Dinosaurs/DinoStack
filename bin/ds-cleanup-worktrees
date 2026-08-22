@@ -217,7 +217,8 @@ Public API (CLI):
   ds-cleanup-worktrees [--repo <path>]... [root ...] [--multi-repo] [--depth N]
                     [--report [--json]] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
-                    [--strict-ignored] [--archive-unproven]
+                    [--strict-ignored] [--archive-unproven] [--max-repos N]
+  ds-cleanup-worktrees --init-config
 
   --repo <path>          Repository to operate on. Default: cwd. Repeatable
                           ONLY when `--multi-repo` is also given - a bare
@@ -366,7 +367,7 @@ Public API (CLI):
                           `{"tier": "fast"|"deep", "rows":
                           [{"repo": str, "nonroot_worktrees": int,
                           "oldest_age_hours": float|null, "eligible":
-                          int|null}, ...]}` (round-N Major 5 fix: the
+                          int|null}, ...], "truncated": bool}` (round-N Major 5 fix: the
                           printed table already labels its tier explicitly
                           - see the fast/deep banner lines above - and the
                           top-level `tier` field gives a machine consumer
@@ -380,7 +381,11 @@ Public API (CLI):
                           same `entries[1:]` list it already enumerates for
                           `evaluate_entry`, at no extra subprocess cost) and
                           is `null` only in the genuinely-unreachable
-                          zero-entries case. Never written to `.agentic/hud/*` - that store is
+                          zero-entries case. `truncated` is `true` iff `--max-repos` cut the
+                          discovered-and-deduped set (see `--max-repos` below), `false`
+                          otherwise - `rows` never carries an entry for a truncated-away repo,
+                          so a consumer must check this key before treating `rows`' length as
+                          the true discovered count. Never written to `.agentic/hud/*` - that store is
                           per-worker orchestration telemetry with a
                           different consumer and lifecycle than an
                           operator-invoked report.
@@ -482,6 +487,33 @@ Public API (CLI):
                           `SKIP_PR_QUERY_ERROR` before this whitelist check
                           ever runs (Removal predicate gate 9), so it is
                           never `SKIP_UNPROVEN` in the first place.
+  --max-repos N            (DS-189 Unit A, requires `--multi-repo`) Caps the
+                          discovered-and-deduped target list to the first N
+                          entries (discovery order preserved, no re-sort) -
+                          applied AFTER dedup, BEFORE any per-repo
+                          evaluation, so it bounds git-call COST rather than
+                          just display: an over-limit run pays for exactly
+                          N repos' worth of `git`/`gh` calls, never more.
+                          Default: unset (unbounded, byte-identical to
+                          pre-DS-189 behavior). Under `--report --json`,
+                          sets the top-level `"truncated"` key to `true` iff
+                          the discovered-and-deduped count exceeded N;
+                          `false` when unset or the count did not exceed N.
+  --init-config            Standalone action, mutually exclusive with every
+                          other flag (usage error, exit 2, if combined with
+                          anything else). Scaffolds
+                          `~/.agentic/cleanup-worktrees.json` for a
+                          first-time `--multi-repo` setup: if the file
+                          already exists, prints its current contents and a
+                          "not overwriting" line and exits 0 - NEVER
+                          overwrites; if absent, creates `~/.agentic/` if
+                          needed and writes an EMPTY
+                          `{"roots": [], "repos": []}` skeleton atomically
+                          (temp file + `os.replace`), printing instructions
+                          that the SessionStart machine-wide check will not
+                          activate until at least one root or repo entry is
+                          added (e.g. `"roots":
+                          ["~/Documents/Development"]`).
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -505,7 +537,7 @@ unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
 BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
 independent, additive protections.
 
-Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, re, shutil,
+Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                subprocess, sys, time, pathlib, collections, typing). `git`
                (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
                degrades gracefully when absent or unauthenticated).
@@ -539,7 +571,13 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       --count-only nudge line when the non-root worktree
                       count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
-                      anything from that call site).
+                      anything from that call site);
+                      automation/dinostack-worktree-reap/run.sh (DS-189, a
+                      sibling unit of this same PR - a scheduled,
+                      report-only automation package that consumes
+                      `--multi-repo --report --json` for its ranked-repo
+                      signal and `--init-config` for first-run setup;
+                      structurally read-only, same as `--report` itself).
                       CI: bin/tests/test_cleanup_worktrees.py (single-repo
                       surface, pytest, auto-collected by `python3 -m
                       pytest bin/tests/`) and
@@ -639,6 +677,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -1674,6 +1713,46 @@ _MULTI_REPO_CONFIG_PATH = Path("~/.agentic/cleanup-worktrees.json").expanduser()
 _MULTI_REPO_MAX_DEPTH = 3
 
 
+def _init_config() -> int:
+    """`--init-config`: scaffolds `~/.agentic/cleanup-worktrees.json` for a
+    first-time `--multi-repo` setup. NEVER overwrites an existing file -
+    prints its current contents and exits 0 instead, so a re-run is always
+    safe. On an absent file, creates `~/.agentic/` (parents, exist_ok) and
+    writes an EMPTY `{"roots": [], "repos": []}` skeleton atomically (a
+    `.tmp` sibling then `os.replace`, so a failure mid-write can never leave
+    a truncated/partial config on disk). The printed instructions are
+    explicit that this SessionStart machine-wide check will not actually
+    activate until the operator adds at least one root or repo - an empty
+    skeleton alone changes nothing.
+    """
+    if _MULTI_REPO_CONFIG_PATH.is_file():
+        try:
+            current = _MULTI_REPO_CONFIG_PATH.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"ds-cleanup-worktrees: could not read {_MULTI_REPO_CONFIG_PATH}: {exc}", file=sys.stderr)
+            return 1
+        print(f"ds-cleanup-worktrees: {_MULTI_REPO_CONFIG_PATH} already exists - not overwriting. Current contents:")
+        print(current)
+        return 0
+
+    try:
+        _MULTI_REPO_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = _MULTI_REPO_CONFIG_PATH.with_suffix(_MULTI_REPO_CONFIG_PATH.suffix + ".tmp")
+        tmp_path.write_text(json.dumps({"roots": [], "repos": []}, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp_path, _MULTI_REPO_CONFIG_PATH)
+    except OSError as exc:
+        print(f"ds-cleanup-worktrees: could not write {_MULTI_REPO_CONFIG_PATH}: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"ds-cleanup-worktrees: created {_MULTI_REPO_CONFIG_PATH} (empty).")
+    print(
+        'Add at least one "roots" or "repos" entry before this config does anything - the '
+        "SessionStart machine-wide check will not activate on an empty skeleton. Example:"
+    )
+    print('  { "roots": ["~/Documents/Development"], "repos": [] }')
+    return 0
+
+
 class RepoTarget:
     """One repo the multi-repo sweep/report will attempt (or has already
     rejected at discovery time). `canonical` is the RESOLVED GIT TOPLEVEL
@@ -1944,7 +2023,9 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     }, None
 
 
-def _run_report(targets: List[RepoTarget], root_errors: List[str], args: argparse.Namespace) -> int:
+def _run_report(
+    targets: List[RepoTarget], root_errors: List[str], args: argparse.Namespace, truncated: bool = False
+) -> int:
     rows: List[Dict] = []
     errored = False
 
@@ -2003,7 +2084,7 @@ def _run_report(targets: List[RepoTarget], root_errors: List[str], args: argpars
         # separately tracking which flags produced it. Wrap the rows in an
         # object carrying an explicit `tier` field so JSON and table agree.
         tier = "fast" if args.count_only else "deep"
-        print(json.dumps({"tier": tier, "rows": rows}))
+        print(json.dumps({"tier": tier, "rows": rows, "truncated": truncated}))
     else:
         if args.count_only:
             print(
@@ -2053,6 +2134,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--min-age-hours", type=float, default=24.0)
     p.add_argument("--strict-ignored", action="store_true")
     p.add_argument("--archive-unproven", action="store_true")
+    p.add_argument("--init-config", dest="init_config", action="store_true")
+    p.add_argument("--max-repos", type=int, default=None)
     return p.parse_args(argv)
 
 
@@ -2076,6 +2159,8 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
         return "--report is incompatible with --archive-unproven (report mode is structurally read-only)"
     if args.json and not args.report:
         return "--json requires --report"
+    if args.max_repos is not None and not args.multi_repo:
+        return "--max-repos requires --multi-repo"
     return None
 
 
@@ -2436,6 +2521,28 @@ def _run_repo(
             "SKIP_PR_QUERY_ERROR, never archived or removed."
         )
 
+    # DS-189 Unit A: `SKIP_LS_REMOTE_ERROR` is a Disposition VALUE, not an
+    # outcome bucket - `evaluate_entry` folds it into
+    # {"outcome": "SKIP_UNPROVEN", "reason": disposition.value}, so it
+    # cannot be read off `outcome_counts` (which only has outcome-bucket
+    # keys). Scan `results` for SKIP_UNPROVEN entries whose reason is
+    # SKIP_LS_REMOTE_ERROR instead. A high fraction of these means the
+    # `git ls-remote` leg couldn't reach origin for most entries (network/
+    # auth), which can look identical to a clean, fully-resolved sweep -
+    # surface it whenever at least half of all entries hit it.
+    ls_remote_error_count = sum(
+        1 for r in results if r["outcome"] == "SKIP_UNPROVEN" and r.get("reason") == "SKIP_LS_REMOTE_ERROR"
+    )
+    if ls_remote_error_count and len(results) and ls_remote_error_count / len(results) >= 0.5:
+        print(
+            f"NOTE: {ls_remote_error_count} of {len(results)} worktree(s) are SKIP_UNPROVEN "
+            "(SKIP_LS_REMOTE_ERROR) - a `git ls-remote` failure reaching origin (network/auth, "
+            "distinct from `gh` being unavailable), not proof the branch is unmerged. This can "
+            "look like a clean tree while the branch-existence check could not actually run for "
+            "most entries. Check network/auth to origin before trusting a low `removed` count "
+            "from this run."
+        )
+
     # Round-2 rework (Skeptic Major 1): an operator running this right after
     # a merge, at the default 24h age floor, sees `removed=0` in the summary
     # line above with no obvious explanation - the age floor is buried in
@@ -2489,6 +2596,17 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     targets, skipped_not_git, root_errors = discover_repos_multi(list(args.repo), list(args.roots), depth)
     targets = dedupe(targets)
 
+    # DS-189 Unit A: `--max-repos` bounds git-call COST (per-repo
+    # discovery/evaluation), not display - applied AFTER dedup so it is
+    # counted against the true discovered set, and BEFORE any per-repo
+    # evaluation so an over-limit sweep or report never pays for the repos
+    # it drops. Preserves discovery order (no re-sort). Absent = unbounded,
+    # byte-identical to pre-DS-189 behavior.
+    truncated = False
+    if args.max_repos is not None and len(targets) > args.max_repos:
+        truncated = True
+        targets = targets[: args.max_repos]
+
     for err in root_errors:
         print(f"ds-cleanup-worktrees: {err}", file=sys.stderr)
 
@@ -2502,7 +2620,7 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
         return 2
 
     if args.report:
-        return _run_report(targets, root_errors, args)
+        return _run_report(targets, root_errors, args, truncated)
 
     repos_swept = 0
     repos_errored = 0
@@ -2565,6 +2683,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         pass
 
     args = parse_args(argv)
+
+    if args.init_config:
+        # `--init-config` is a standalone scaffolding action, mutually
+        # exclusive with every other flag - compare every OTHER field
+        # against a fresh no-args default namespace rather than
+        # hand-maintaining a second flag list that could drift from
+        # `parse_args` above.
+        defaults = parse_args([])
+        other_fields_changed = any(
+            getattr(args, field) != getattr(defaults, field) for field in vars(args) if field != "init_config"
+        )
+        if other_fields_changed:
+            print("ds-cleanup-worktrees: --init-config cannot be combined with any other flag", file=sys.stderr)
+            return 2
+        return _init_config()
 
     usage_error = _validate_args(args)
     if usage_error is not None:

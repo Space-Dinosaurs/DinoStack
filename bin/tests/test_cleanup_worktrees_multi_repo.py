@@ -606,8 +606,9 @@ def test_json_output_shape(tmp_path):
     result = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    assert set(payload.keys()) == {"tier", "rows"}
+    assert set(payload.keys()) == {"tier", "rows", "truncated"}
     assert payload["tier"] == "fast"
+    assert payload["truncated"] is False
     rows = payload["rows"]
     assert isinstance(rows, list)
     assert len(rows) == 1
@@ -1214,3 +1215,130 @@ def test_resolve_base_branch_with_remote_still_uses_generic_message(tmp_path):
     joined = "\n".join(diagnostics)
     assert "no git remotes configured" not in joined
     assert "every candidate failed" in joined
+
+
+# --------------------------------------------------------------------------
+# 15. DS-189 Unit A: `--max-repos` truncates the discovered-and-deduped
+#     target list AFTER dedup, BEFORE any per-repo evaluation - bounding
+#     git-call cost, not just display. Absent = unbounded (back-compat).
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_truncates_before_evaluation_preserving_order(tmp_path, monkeypatch):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    mod = _load_module_directly()
+    evaluated = []
+    real_fast = mod._fast_report_row
+
+    def counting_fast(repo):
+        evaluated.append(repo)
+        return real_fast(repo)
+
+    monkeypatch.setattr(mod, "_fast_report_row", counting_fast)
+
+    args = mod.parse_args(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "2",
+        ]
+    )
+    rc = mod._run_multi_repo(args)
+    assert rc == 0
+    # Per-repo evaluation cost is bounded to exactly N=2 calls - the 3rd
+    # repo is never evaluated at all, not merely hidden from display.
+    assert len(evaluated) == 2
+    assert evaluated == [str(repo_a.resolve()), str(repo_b.resolve())]
+
+
+def test_max_repos_json_truncated_key_true_when_truncated(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--json",
+            "--max-repos",
+            "2",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is True
+    assert len(payload["rows"]) == 2
+
+
+def test_max_repos_json_truncated_key_false_when_not_exceeded(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--report",
+            "--count-only",
+            "--json",
+            "--max-repos",
+            "5",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False
+    assert len(payload["rows"]) == 2
+
+
+def test_max_repos_absent_is_unbounded(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--json",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False
+    assert len(payload["rows"]) == 3
+
+
+def test_max_repos_without_multi_repo_is_usage_error(tmp_path):
+    result = run_cli(["--max-repos", "2"], cwd=tmp_path)
+    assert result.returncode == 2, result.stderr
+    assert "--max-repos requires --multi-repo" in result.stderr
