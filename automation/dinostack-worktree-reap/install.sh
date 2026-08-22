@@ -1,22 +1,49 @@
 #!/bin/bash
-# One-time installer for the scheduled DinoStack worktree-reap report (macOS launchd).
-# Run this ON YOUR MAC from the repo:  bash install.sh
 #
-# This job NEVER removes anything. It runs `ds-cleanup-worktrees --multi-repo
-# --report --json` (structurally read-only) against every repo your
-# ~/.agentic/cleanup-worktrees.json config already names, and pushes a
-# worst-repos summary via macOS notification + Telegram. It exists to catch
-# machine-wide worktree accumulation between whatever nudges already fire
-# inside individual sessions (see README "Retirement condition").
+# Purpose: One-time installer for the scheduled DinoStack worktree-reap
+#          report (macOS launchd). Run ON YOUR MAC from the repo:
+#          `bash install.sh`. This job NEVER removes anything - it runs
+#          `ds-cleanup-worktrees --multi-repo --report --json`
+#          (structurally read-only) against every repo the operator's
+#          ~/.agentic/cleanup-worktrees.json already names, and pushes a
+#          worst-repos summary via macOS notification + Telegram. It exists
+#          to catch machine-wide worktree accumulation between whatever
+#          nudges already fire inside individual sessions (see README
+#          "Retirement condition").
 #
-# To avoid macOS privacy protection (TCC) on ~/Documents, the job does NOT
-# run from the repo. This installer copies the two files it needs (the
-# `ds-cleanup-worktrees` tool plus its `worktree_model` import, in their
-# original relative layout) into ~/.dinostack-worktree-reap/bin/, and the
-# launchd job runs entirely from there. No Full Disk Access required, and
-# no target repo's own files are ever copied (this tool is read-only against
-# real repo paths - unlike the pr-review package, which does copy its own
-# PROJECT_DIR).
+# Public API: none (not sourced or imported; run standalone as `bash
+#             install.sh`).
+#
+# Upstream deps: python3 (required); gh (optional, for a launchd-safe PATH);
+#                bin/ds-cleanup-worktrees + bin/tests/worktree_model.py from
+#                this repo checkout (copied into the run root, original
+#                relative layout preserved - load-bearing, see run.sh);
+#                run.sh and com.spacedinosaurs.dinostack-worktree-reap.plist.template
+#                (this directory); ~/.agentic/cleanup-worktrees.json (read,
+#                never invented - the installer refuses to proceed if it's
+#                missing/empty and the operator declines to scaffold it);
+#                launchctl (bootstrap/load the LaunchAgent).
+#
+# Downstream consumers: a human running it manually, once per machine (and
+#                        again after any local change to
+#                        bin/ds-cleanup-worktrees/worktree_model.py, since the
+#                        deployed copy is a install-time snapshot - see
+#                        README's "Trade-off" note).
+#
+# Failure modes: to avoid macOS privacy protection (TCC) on ~/Documents, the
+#                job does NOT run from the repo - this installer copies the
+#                two files it needs into ~/.dinostack-worktree-reap/bin/, and
+#                the launchd job runs entirely from there. No Full Disk
+#                Access required, and no target repo's own files are ever
+#                copied (this tool is read-only against real repo paths -
+#                unlike the pr-review package, which does copy its own
+#                PROJECT_DIR). Refuses to install the LaunchAgent against a
+#                missing/unreadable/empty cleanup-worktrees.json - fails loud
+#                rather than scheduling a job with nothing to sweep.
+#
+# Performance: one-time setup cost (a few file copies, a config write, a
+#              launchctl bootstrap call); negligible.
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

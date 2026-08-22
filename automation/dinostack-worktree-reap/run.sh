@@ -13,8 +13,10 @@
 # Public API: none (not sourced or imported; invoked as a standalone script
 #             by launchd or manually via `bash run.sh`).
 #
-# Upstream deps: config.env (DS_CLEANUP_BIN, PYTHON_BIN, LOG_DIR, EXTRA_PATH -
-#                written by install.sh); optional telegram.env
+# Upstream deps: config.env (DS_CLEANUP_BIN, PYTHON_BIN, LOG_DIR, EXTRA_PATH,
+#                optional MAX_REPOS - written by install.sh, MAX_REPOS is
+#                hand-added by an operator who wants repo discovery bounded);
+#                optional telegram.env
 #                (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID - same variable names
 #                as dinostack-pr-review's telegram.env, copy or symlink it);
 #                $DS_CLEANUP_BIN, itself a two-file copy of
@@ -30,11 +32,18 @@
 #                        (com.spacedinosaurs.dinostack-worktree-reap); a
 #                        human running it manually to test the pipeline.
 #
-# Failure modes: a failed ds-cleanup-worktrees invocation (nonzero exit or
-#                unparseable JSON) sends a distinct failure alert (never
-#                silence) and skips the worst-repos summary - stale summary
-#                state is never notified as if it were current. Every run is
-#                logged to logs/run-<timestamp>.log regardless of outcome.
+# Failure modes: rc is a tri-state, not boolean - ds-cleanup-worktrees itself
+#                uses rc=1 for "some repos in a scanned root had per-repo
+#                errors, but the rows that DID resolve are still populated
+#                and trustworthy" (same contract Unit B's hook applies to
+#                this tool), so rc=1 with non-empty, parseable rows proceeds
+#                to the worst-repos summary with an added one-line note,
+#                rather than being treated as total failure. Only rc values
+#                outside {0,1}, an empty RAW file, or unparseable/rows-empty
+#                JSON send the distinct failure alert (never silence) and
+#                skip the summary - stale summary state is never notified as
+#                if it were current. Every run is logged to
+#                logs/run-<timestamp>.log regardless of outcome.
 #                Telegram/osascript failures are swallowed (best-effort,
 #                never fail the run over a notification channel).
 #
@@ -95,20 +104,58 @@ send_telegram() {
 
   # DEEP tier, JSON - MANDATORY: never a bare sweep, never --archive-unproven.
   # --report is structurally read-only; this invocation never mutates any
-  # target repo.
-  "$PYTHON_BIN" "$DS_CLEANUP_BIN" --multi-repo --report --json >"$RAW"
+  # target repo. MAX_REPOS is optional (unset by default; hand-add to
+  # config.env to bound discovery cost / exercise the `truncated` summary
+  # line below).
+  MAX_REPOS_ARGS=()
+  if [[ -n "${MAX_REPOS:-}" ]]; then
+    MAX_REPOS_ARGS=(--max-repos "$MAX_REPOS")
+  fi
+  "$PYTHON_BIN" "$DS_CLEANUP_BIN" --multi-repo --report --json "${MAX_REPOS_ARGS[@]}" >"$RAW"
   rc=$?
 
   echo "----------------------------------------"
   echo "=== ds-cleanup-worktrees exit code: $rc ==="
 } >>"$LOG" 2>&1
 
-if [[ "${rc:-1}" -ne 0 || ! -s "$RAW" ]]; then
+# rc is a tri-state: 0 (clean), 1 (some repos in a scanned root had
+# per-repo errors, but rows still populated for the rest), or anything else
+# (total failure). Only rc values outside {0,1}, an empty RAW file, or
+# unparseable/rows-empty JSON count as a failed run.
+RC_NOTE=""
+if [[ "${rc:-2}" -ne 0 && "${rc:-2}" -ne 1 ]] || [[ ! -s "$RAW" ]]; then
   echo "run failed (rc=${rc:-?}) - skipping worst-repos summary; state may be stale" >>"$LOG"
   HINT="$(tail -5 "$LOG" 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
   send_telegram "❌ DinoStack worktree-reap report FAILED (exit ${rc:-?}) - no summary this run.
 ${HINT}"
   exit "${rc:-1}"
+fi
+
+if [[ "$rc" -eq 1 ]]; then
+  # rc=1 only proceeds when the rows the tool DID emit are present and
+  # parseable - an rc=1 run with empty/unparseable rows carries no usable
+  # signal and is still a failed run.
+  ROWS_COUNT="$("$PYTHON_BIN" - "$RAW" <<'PYEOF'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    print("unparseable")
+    sys.exit(0)
+rows = data.get("rows")
+print(len(rows) if isinstance(rows, list) else "unparseable")
+PYEOF
+)"
+  if [[ "$ROWS_COUNT" == "unparseable" || "$ROWS_COUNT" -eq 0 ]]; then
+    echo "run failed (rc=1, rows=$ROWS_COUNT) - skipping worst-repos summary; state may be stale" >>"$LOG"
+    HINT="$(tail -5 "$LOG" 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
+    send_telegram "❌ DinoStack worktree-reap report FAILED (exit 1, unparseable/empty rows) - no summary this run.
+${HINT}"
+    exit 1
+  fi
+  RC_NOTE="(note: some repos had per-repo errors (rc=1))"
+  echo "NOTE: ds-cleanup-worktrees exited 1 (per-repo errors) but rows are populated ($ROWS_COUNT row(s)) - proceeding with summary." >>"$LOG"
 fi
 
 # --- Build the worst-N-repos summary from the JSON --------------------------
@@ -151,6 +198,9 @@ PYEOF
 
 echo "worst-repos summary:" >>"$LOG"
 echo "$SUMMARY" >>"$LOG"
+if [[ -n "$RC_NOTE" ]]; then
+  echo "$RC_NOTE" >>"$LOG"
+fi
 
 # (1) Local macOS banner - best-effort; macOS often suppresses launchd-posted
 #     notifications, so this is a nicety, not the primary channel.
@@ -164,6 +214,10 @@ fi
 # (2) Telegram push - reliable, reaches your phone.
 TG_TEXT="🦕 DinoStack worktree-reap - worst repos:
 ${SUMMARY}"
+if [[ -n "$RC_NOTE" ]]; then
+  TG_TEXT="${TG_TEXT}
+${RC_NOTE}"
+fi
 send_telegram "$TG_TEXT"
 echo "notified: worst-repos summary sent" >>"$LOG"
 

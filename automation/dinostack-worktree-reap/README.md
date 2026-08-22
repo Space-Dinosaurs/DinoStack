@@ -128,6 +128,17 @@ Terminal), grant Full Disk Access to `/bin/bash` (or your shell) in System Setti
 Security → Full Disk Access, exactly as documented in `dinostack-pr-review`'s README for the
 equivalent case.
 
+## Platform and notification scope
+
+This package is **macOS-launchd-only** - `install.sh`/`uninstall.sh` call `launchctl`
+directly and the plist template targets `com.spacedinosaurs.dinostack-worktree-reap` under
+`~/Library/LaunchAgents`. There is no Linux/systemd or Windows equivalent shipped here.
+Notifications are Telegram-optional: the macOS banner (`osascript`) is best-effort and macOS
+frequently suppresses it, and Telegram push is skipped entirely (log-only) whenever
+`telegram.env` is absent or its two variables are unset - the job still runs and logs
+normally with zero notification channels configured, which works on any machine `launchd`
+runs on.
+
 ## Uninstall
 
 ```bash

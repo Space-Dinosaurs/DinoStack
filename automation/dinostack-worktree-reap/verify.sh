@@ -1,8 +1,31 @@
 #!/bin/bash
-# Read-only preflight/health-check for the scheduled DinoStack worktree-reap
-# report. Confirms the LaunchAgent is loaded, the repo-discovery config is
-# non-empty, and the last run (if any) happened recently. Posts NOTHING,
-# removes NOTHING, runs no report.
+#
+# Purpose: Read-only preflight/health-check for the scheduled DinoStack
+#          worktree-reap report. Confirms the LaunchAgent is loaded, the
+#          repo-discovery config is non-empty, and the last run (if any)
+#          happened recently. Posts NOTHING, removes NOTHING, runs no
+#          report. Usage (on your Mac): `bash verify.sh`.
+#
+# Public API: none (not sourced or imported; run standalone as `bash
+#             verify.sh`).
+#
+# Upstream deps: python3 (config JSON parse); launchctl (plist load check);
+#                ~/.dinostack-worktree-reap (run root - copied tool, logs,
+#                config, deployed by install.sh); ~/Library/LaunchAgents
+#                plist; ~/.agentic/cleanup-worktrees.json.
+#
+# Downstream consumers: a human confirming the install is healthy, at any
+#                        time; the README's "Test immediately" section.
+#
+# Failure modes: exits 1 via `fail()` on the first unmet precondition (run
+#                root missing, copied tool missing, config missing/empty,
+#                plist missing, launchd job not loaded) - never silently
+#                partial. A stale (>48h) last-run log is a WARN, not a
+#                failure - the job may simply not have fired yet on a fresh
+#                install.
+#
+# Performance: a handful of file-existence checks plus one launchctl call;
+#              negligible.
 #
 # Usage (on your Mac):  bash verify.sh
 set -u
