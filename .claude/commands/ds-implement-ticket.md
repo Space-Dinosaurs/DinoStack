@@ -3211,7 +3211,7 @@ wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticke
 
 1. Stat `[cwd]/MEMORY.md` (skip if absent) and read `[cwd]/.agentic/compression-state.json` if present.
 2. Apply `/ds-wrap` Part E's gate (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds).
-3. On trip, spawn the `/ds-wrap` Part E curation Worker (Part E step 1) as a background subagent and proceed to Phase 12. The conductor owns the rest of the chain exactly as Part E's "Async-path amendment" defines - Skeptic spawn on Worker completion, conductor-performed step 4 on sign-off, lock acquisition, the staleness guard, and session-end-before-completion behavior are all canonical there, not restated here.
+3. On trip, spawn the `/ds-wrap` Part E curation Worker (Part E step 1) as a background subagent and proceed to Phase 12. The conductor owns the rest of the chain exactly as Part E's "Async-path amendment" defines - Skeptic spawn on Worker completion, conductor-performed step 4 on sign-off, lock acquisition, the staleness guard, and session-end-before-completion behavior are all canonical there, not restated here. **On this async path, ANY failure anywhere in the chain (lock unavailable at write time, staleness mismatch, spawn failure, Skeptic format-escalation, re-route cap exhaustion) is silently swallowed - no operator-facing output, no user escalation, no `/ds-wrap` Step 6 logging, overriding those sync-path behaviors from Part E steps 3-4; the gate simply re-trips on a later PR.**
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 

@@ -13497,7 +13497,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 #### MEMORY.md (max 3 entries)
 
 - Path: project-root `MEMORY.md`. Create if absent.
-- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory` or `bin/agentic-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
+- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
 - **Format (pointer, not paragraph).** When a qualifying candidate derives from a `.agentic/learnings.md` entry matched in Step 2/3 (an LRN or KNW id), write a pointer, never a restated paragraph:
   ```
   - **YYYY-MM-DD:** [KNW-YYYYMMDD-XXX or LRN-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (ticket: TICKET_ID)
@@ -18785,7 +18785,7 @@ wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticke
 
 1. Stat `[cwd]/MEMORY.md` (skip if absent) and read `[cwd]/.agentic/compression-state.json` if present.
 2. Apply `/ds-wrap` Part E's gate (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds).
-3. On trip, spawn the `/ds-wrap` Part E curation Worker (Part E step 1) as a background subagent and proceed to Phase 12. The conductor owns the rest of the chain exactly as Part E's "Async-path amendment" defines - Skeptic spawn on Worker completion, conductor-performed step 4 on sign-off, lock acquisition, the staleness guard, and session-end-before-completion behavior are all canonical there, not restated here.
+3. On trip, spawn the `/ds-wrap` Part E curation Worker (Part E step 1) as a background subagent and proceed to Phase 12. The conductor owns the rest of the chain exactly as Part E's "Async-path amendment" defines - Skeptic spawn on Worker completion, conductor-performed step 4 on sign-off, lock acquisition, the staleness guard, and session-end-before-completion behavior are all canonical there, not restated here. **On this async path, ANY failure anywhere in the chain (lock unavailable at write time, staleness mismatch, spawn failure, Skeptic format-escalation, re-route cap exhaustion) is silently swallowed - no operator-facing output, no user escalation, no `/ds-wrap` Step 6 logging, overriding those sync-path behaviors from Part E steps 3-4; the gate simply re-trips on a later PR.**
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
