@@ -102,15 +102,16 @@ from pathlib import Path
 
 
 ADVISORY_TEMPLATE = (
-    "Spawn is being issued from a session whose cwd is itself inside a git "
-    "worktree, not the primary checkout. Per METHODOLOGY §Worktree "
-    "Lifecycle, worktrees are reserved for isolated subagents; a "
-    "conductor should drive spawns from the primary checkout. Confirm "
+    "Spawn is being issued from a session whose cwd ({cwd}) is itself "
+    "inside a git worktree, not the primary checkout. Per METHODOLOGY "
+    "§Worktree Lifecycle, worktrees are reserved for isolated subagents; "
+    "a conductor should drive spawns from the primary checkout. Confirm "
     "this is intentional (e.g. a session deliberately reopened inside a "
     "feature worktree) before continuing to spawn from here - "
     "conductor-driving from inside a worktree was present during the "
     "2026-08-22 ~144G worktree-accumulation incident (DS-190). This "
-    "warning fires once per session."
+    "warning fires once per session per worktree (best-effort: if "
+    "session state cannot be persisted it may repeat)."
 )
 
 
@@ -242,7 +243,14 @@ def main() -> None:
             # advisory below.
             pass
 
-        _emit(data, ADVISORY_TEMPLATE.format(cwd=cwd), "allow_advisory")
+        try:
+            reason = ADVISORY_TEMPLATE.format(cwd=cwd)
+        except Exception:
+            # A formatting error must never suppress the advisory - fall
+            # back to the unformatted template.
+            reason = ADVISORY_TEMPLATE
+
+        _emit(data, reason, "allow_advisory")
         sys.exit(0)
 
     except Exception:

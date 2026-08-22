@@ -19,8 +19,10 @@ the ticket calls for exercising the genuine git-worktree shape end to end.
 
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,6 +30,19 @@ import tempfile
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-nested-worktree-spawn.py"
 )
+
+_CLEANUP_ROOTS: list = []
+
+
+def _cleanup_fixtures() -> None:
+    for root in _CLEANUP_ROOTS:
+        try:
+            shutil.rmtree(root, ignore_errors=True)
+        except Exception:
+            pass
+
+
+atexit.register(_cleanup_fixtures)
 
 
 def _run_git(args: list, cwd: str) -> None:
@@ -65,7 +80,21 @@ def make_primary_and_real_worktree():
         cwd=primary,
     )
 
+    _CLEANUP_ROOTS.append(primary)
     return primary, worktree
+
+
+def add_worktree(primary: str, name: str) -> str:
+    """Add a further REAL linked worktree off the same primary checkout
+    (nested under primary, so it is cleaned up transitively when the
+    primary root is removed - no separate cleanup entry needed)."""
+    worktree = os.path.join(primary, ".claude", "worktrees", name)
+    os.makedirs(os.path.dirname(worktree), exist_ok=True)
+    _run_git(
+        ["worktree", "add", "-q", "-b", f"worktree-{name}", worktree],
+        cwd=primary,
+    )
+    return worktree
 
 
 def run_hook(
@@ -277,6 +306,53 @@ check_silent(
     "session_id blank string -> silent",
     make_payload("Task", WORKTREE, session_id=""),
     cwd=WORKTREE,
+)
+
+# ---------------------------------------------------------------------------
+# 10. mkdir/stat I/O failure path fails open TOWARD emitting. `.agentic` is
+#     created as a FILE (not a directory) so
+#     `Path(cwd, ".agentic").mkdir(parents=True, exist_ok=True)` raises
+#     (a file already occupies that path) - the exception must be swallowed
+#     and the hook must still proceed to emit the advisory.
+# ---------------------------------------------------------------------------
+print("-- .agentic path occupied by a file (mkdir fails) -> ADVISORY still fires --")
+_wt_io_fail = add_worktree(PRIMARY, "agent-io-fail")
+_agentic_blocker = os.path.join(_wt_io_fail, ".agentic")
+with open(_agentic_blocker, "w", encoding="utf-8") as f:
+    f.write("not a directory\n")
+assert os.path.isfile(_agentic_blocker), (
+    "fixture precondition violated: .agentic must be a file, not a dir"
+)
+_reason_io = check_advisory(
+    "Task spawn where .agentic mkdir fails (blocked by a file) -> advisory still fires",
+    make_payload("Task", _wt_io_fail, session_id="sess-io-fail"),
+    cwd=_wt_io_fail,
+)
+assert "DS-190" in _reason_io, (
+    f"advisory reason missing DS-190 reference: {_reason_io!r}"
+)
+total += 1
+_ok_no_state = os.path.isfile(_agentic_blocker) and not os.path.isdir(
+    _agentic_blocker
+)
+status = "PASS" if _ok_no_state else "FAIL"
+if not _ok_no_state:
+    failed += 1
+print(f"  [{status}] mkdir failure leaves .agentic as the pre-existing file (no persistence)")
+
+# ---------------------------------------------------------------------------
+# 11. Same session_id, DIFFERENT worktree cwd -> re-fires (dedup key is
+#     per-worktree, keyed on cwd, not solely on session_id).
+# ---------------------------------------------------------------------------
+print("-- same session_id, different worktree cwd -> ADVISORY re-fires --")
+_wt_second = add_worktree(PRIMARY, "agent-2")
+_reason_dedup = check_advisory(
+    "Task spawn from a SECOND worktree, same session_id already used on the first -> advisory",
+    make_payload("Task", _wt_second, session_id="sess-1"),
+    cwd=_wt_second,
+)
+assert "DS-190" in _reason_dedup, (
+    f"advisory reason missing DS-190 reference: {_reason_dedup!r}"
 )
 
 print()
