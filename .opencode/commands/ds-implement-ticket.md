@@ -3174,7 +3174,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 **Failure semantics:**
 
 - `wrap-ticket` failure NEVER blocks Phase 12 cleanup or PR completion. Soft-fail with a warning line printed to the operator.
-- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user. If `size_advisory` is non-null, print it as a separate line.
+- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user.
 - If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
@@ -3200,6 +3200,16 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 ```
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
+
+**Post-return Part E curation gate check (conductor-side, runs AFTER lock release, soft-fail, no operator-facing output):**
+
+wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so the conductor runs this itself, after wrap-ticket returns (or is skipped) and after lock release, whenever Phase 9 opened a PR - prior-session drift alone can trip it.
+
+**Skip entirely** if wrap-ticket's return carried `skipped_reason: "wrap-lock-contention"`, or a READ-ONLY existence check of `.agentic/wrap/lock` (no acquire/release) shows it present - write-time acquisition is authoritative (see `content/commands/ds-wrap.md` Part E's "Async-path amendment"), not this probe.
+
+1. Stat `[cwd]/MEMORY.md` (skip if absent) and read `[cwd]/.agentic/compression-state.json` if present.
+2. Apply `/ds-wrap` Part E's gate (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds).
+3. On trip, spawn the `/ds-wrap` Part E curation Worker (Part E step 1) as a background subagent and proceed to Phase 12. The conductor owns the rest of the chain exactly as Part E's "Async-path amendment" defines - Skeptic spawn on Worker completion, conductor-performed step 4 on sign-off, lock acquisition, the staleness guard, and session-end-before-completion behavior are all canonical there, not restated here. **On this async path, ANY failure anywhere in the chain (lock unavailable at write time, staleness mismatch, spawn failure, Skeptic format-escalation, re-route cap exhaustion) is silently swallowed - no operator-facing output, no user escalation, no `/ds-wrap` Step 6 logging, overriding those sync-path behaviors from Part E steps 3-4; the gate simply re-trips on a later PR.**
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 

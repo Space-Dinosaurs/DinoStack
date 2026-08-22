@@ -1,5 +1,5 @@
 ---
-description: "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
+description: "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the \"Post-return Part E curation gate check\" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
 mode: subagent
 permission:
   edit: allow
@@ -20,7 +20,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory,
+            skipped_reason,
             cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
             present; empty array when nothing qualifies or skill_candidate_detection
             is off),
@@ -42,7 +42,12 @@ Downstream consumers: /ds-implement-ticket Phase 11b (the conductor reads the JS
                       cluster_results and calls
                       hooks/lib/skill-candidate-deep-cluster.js for any qualifying
                       clusters, never blocks Phase 12 cleanup on wrap-ticket
-                      failure).
+                      failure; also runs the post-return Part E curation-gate
+                      check on root MEMORY.md - conductor-side, not run by this
+                      agent - which is gated OFF entirely when this agent's
+                      return carries skipped_reason: "wrap-lock-contention" or
+                      when the wrap lock is otherwise found held, see "Post-return
+                      Part E curation gate check" below).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -120,7 +125,6 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
   "operator_summary": "Phase 11b skipped: wrap-lock-contention (likely /ds-wrap running concurrently).",
   "writer_actions": [],
   "skipped_reason": "wrap-lock-contention",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
@@ -150,7 +154,7 @@ Each entry shape:
 - `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
 - `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
 
-Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
+Store the result as `cluster_results` for inclusion in the Step 7 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
 
 ### 3. Extract candidate facts
 
@@ -185,7 +189,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 #### MEMORY.md (max 3 entries)
 
 - Path: project-root `MEMORY.md`. Create if absent.
-- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory` or `bin/agentic-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
+- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
 - **Format (pointer, not paragraph).** When a qualifying candidate derives from a `.agentic/learnings.md` entry matched in Step 2/3 (an LRN or KNW id), write a pointer, never a restated paragraph:
   ```
   - **YYYY-MM-DD:** [KNW-YYYYMMDD-XXX or LRN-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (ticket: TICKET_ID)
@@ -201,7 +205,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 #### decisions.md (max 2 entries)
 
-- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 8 return.
+- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 7 return.
 - Format per entry (heading-block):
   ```markdown
   ## YYYY-MM-DD — TICKET_ID — <decision title>
@@ -224,21 +228,11 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Cap at 1 paragraph per run.**
 - **Dedup:** if any existing paragraph in `## Recent Focus` already contains `[Ticket TICKET_ID]` for this same ticket id, skip the append (the same ticket should not produce two paragraphs).
 
-### 6. MEMORY.md size advisory
-
-After writing, stat MEMORY.md. If its byte size exceeds 50 KB (51200 bytes), populate `size_advisory` in the return JSON with:
-
-```
-"MEMORY.md exceeds 50 KB (current size: <N> bytes); consider /wrap-driven consolidation."
-```
-
-Otherwise leave `size_advisory: null`.
-
-### 7. Release the lock
+### 6. Release the lock
 
 The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
-### 8. Return
+### 7. Return
 
 Return the JSON object below as the agent's output. The conductor parses it and prints `operator_summary` to the user.
 
@@ -250,7 +244,6 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["capped at 6 items: '<file path>: appended <N> entries'", ...],
   "skipped_reason": null | "zero-substance" | "wrap-lock-contention",
-  "size_advisory": "<one-line advisory text, or null>",
   "cluster_results": ["capped at 5 items: {domain: <slug>, exampleNote: <one-line sentence>}", ...],
   "resolved_paths": {
     "memory_md": <path, or null>
@@ -263,6 +256,8 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
+**MEMORY.md size is no longer surfaced as an operator-facing advisory.** The old `size_advisory` field (a "consider /wrap-driven consolidation" nudge above 50 KB) is retired - it was an operator-attention tax for a problem the curation mechanism below now handles invisibly. See "Post-return Part E curation gate check" below.
+
 If nothing was captured because the ticket produced no stable facts, return:
 
 ```json
@@ -273,11 +268,14 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
+
+## Post-return Part E curation gate check (conductor-side, not run by wrap-ticket)
+
+wrap-ticket itself never performs this check - it holds no Bash tool and is a leaf agent (see Rules below: "No subagent spawning"). Instead, after wrap-ticket returns (or is skipped) and after lock release, the CONDUCTOR performs a cheap, invisible gate check exactly as documented in `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check" step and `content/commands/ds-wrap.md` Part E's "Async-path amendment" - both canonical, not restated here. Skip condition, gate thresholds, Worker/Skeptic/write sequencing, lock acquisition at write time, and the staleness guard all live there.
 
 ## Forbidden writes
 

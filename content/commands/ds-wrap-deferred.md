@@ -64,7 +64,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | Part B target | `.agentic/memory.md` (staging), NOT root `MEMORY.md` - no Skeptic and no Part E on this path |
 | Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
 | Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
-| Part E compression | omitted |
+| Part E compression | omitted - `.agentic/memory.md`, the one Part E target this daemon path writes, is picked up and curated by the next synchronous `/ds-wrap` Part E gate check (`wrap-ticket`'s own gate check only covers root `MEMORY.md`, a file this daemon path never writes), never curated in-daemon here |
 | `gh pr` open-PR enumeration | omitted |
 | staging-overflow signal | when `.agentic/memory.md` holds more than 9 entries (3 x the drain cap, `bin/tests/drain_model.py` `CAP = 3`) at the end of Step 3, emit a `_wrap.md` "Watch Out For" bullet: "staging holds <N> entries - run /ds-wrap to drain them into MEMORY.md." This is the only human-reaching signal for a daemon-only project, which never runs a synchronous wrap. |
 | Step 5 `/ds-cleanup-worktrees` | omitted |

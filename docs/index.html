@@ -2042,7 +2042,7 @@
           <li>Worker drafts all 3 outputs from raw session data</li>
           <li>Skeptic reviews for accuracy and completeness</li>
           <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for MEMORY.md - draining any pending <code>.agentic/memory.md</code> staging first) - subagents cannot reliably get write permissions</li>
-          <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
+          <li>Compresses and curates always-loaded memory files when they grow past a size threshold - token-density compression plus entry-level dedup, stale-claim verification, and pointer-compression of learnings-backed entries, invisible to the operator (Worker + Skeptic loop guards against fact loss and unsafe deletion, with rolling backups as a safety net)</li>
           <li>Cleans up stale worktrees as final step - backed by the <code>/ds-cleanup-worktrees</code> skill</li>
           <li>Commits and pushes any changed knowledge files to a fresh branch (Part G, soft-fail, outside the wrap lock) - closing the gap where conductor-authored MEMORY.md/decisions.md/learnings.md edits previously stranded on the base branch with no shippable commit; for ticket sessions, <code>/ds-implement-ticket</code> Phase 11e commits that knowledge onto the PR branch itself, and Part G skips a file Phase 11e already captured</li>
         </ul>
