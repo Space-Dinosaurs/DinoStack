@@ -606,7 +606,9 @@ rm -f "$FEEDBACK_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `ds-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
 
-**Part E — Compress always-loaded memory files**
+**Part E — Curate and compress always-loaded memory files**
+
+Part E does two things in one pass: token-density compression (unchanged from prior behavior) AND entry-level curation - deduplication, stale-claim verification, and pointer-compression of learnings-backed entries. Curation is invisible to the operator: it runs inside the same Worker+Skeptic+backup machinery below, gated by the same size gate, with no separate operator-facing output.
 
 Skip Part E only if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates) **AND no target below is over its size gate** - citing `bin/tests/reach_model.py` invariant R2: a target that crossed its gate from prior-session drift, with no Part B/C change this session, must still be compressed. Part A always writes `_wrap.md` and is not a signal of session-meaningful change (and `_wrap.md` is not a Part E target - see below).
 
@@ -625,7 +627,10 @@ Skip any target that does not exist.
           "last_compressed_size_bytes": <int>,
           "last_compressed_at": "<YYYY-MM-DD>",
           "original_backup_path": "<absolute path to FILE.original.md>",
-          "rolling_snapshots": ["<absolute path to FILE.pre-YYYY-MM-DD-HHMMSS.md>", ...]
+          "rolling_snapshots": ["<absolute path to FILE.pre-YYYY-MM-DD-HHMMSS.md>", ...],
+          "entries_deleted_last_run": <int, optional - absent or 0 when never curated>,
+          "entries_merged_last_run": <int, optional - absent or 0 when never curated>,
+          "entries_converted_to_pointer_last_run": <int, optional - absent or 0 when never curated>
         }
       }
     }
@@ -640,37 +645,55 @@ Otherwise skip that target silently.
 
 **For each target that passes the gate:**
 
-1. Spawn a dedicated background Worker (general-purpose) with this brief verbatim:
+1. Spawn a dedicated background curation Worker (general-purpose) with this brief verbatim:
 
-   > You are a compression Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start. Hard constraints, no exceptions:
+   > You are a curation Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start, AND curate its entries per the classification rules below. Hard constraints, no exceptions:
    > - Preserve every technical fact, decision, gotcha, and rationale. If you are not certain a phrase is filler, keep it.
    > - Never alter: file paths, absolute or relative; shell commands; environment variable names; version numbers; dates; URLs; project names; person names; flag names; function/identifier names; quoted strings; code blocks; markdown links.
    > - **Self-policy exception:** when the target file is `content/commands/ds-wrap.md` itself, never alter this command's own routing statements (trigger criteria, skip tests, gate conditions, route/procedure names) - a scoped exception applies only to correcting a numeric figure the Worker can independently verify (e.g. a stale byte count), never to rewording a conditional.
-   > - Never merge or collapse two bullet entries that have distinct dates, distinct timestamps, or distinct dated headings - even if their text appears similar. Each dated entry is a separate fact and must remain its own bullet.
+   > - Entries may be merged ONLY when classified TRUE_DUPLICATE (a near-identical restatement of the same fact, confirmed by semantic read, not substring match) or when a later entry's own prose supersedes, extends, or corrects an earlier one. A merged entry MUST retain every distinct date from both originals and MUST NOT drop any fact unique to either original. A merge that would drop a distinguishing fact is forbidden - fall back to AMBIGUOUS (no action) instead.
    > - You may: drop articles (a/an/the), drop hedging (just/really/basically), collapse multi-sentence prose into fragments, replace verbose connectors with punctuation, merge bullet sub-points when the meaning is identical AND neither bullet carries a date or timestamp.
    > - You must: keep the markdown structure intact (headings, list nesting, code fences). Keep section headings byte-identical so future readers can locate facts.
    > - Output the rewritten file content only. No commentary.
    >
+   > **Curation inputs (in addition to the target file content below):** the content of `.agentic/learnings.md` (or targeted grep results against it if the full file is large), plus live-tree Read/Grep/Bash re-verification for any entry carrying a temporal or live-state claim (cues: "currently", "now", "as of", "is broken/fixed/pending", "TODO", or an unqualified present-tense claim about repo state).
+   >
+   > **Per-entry classification.** For every entry you act on (merge, rewrite, or delete), classify it as exactly one of:
+   > - `CONDUCTOR_BEHAVIORAL` - keep, compress-only, no other action.
+   > - `LEARNINGS_BACKED` - rewrite to a one-line pointer in the form `- **YYYY-MM-DD:** [<id>] <one-line hook>`.
+   > - `STALE_VERIFIED_FALSE` - delete ONLY if a sole-copy grep against `.agentic/learnings.md` plus tracked `AGENTS.md` files finds a counterpart (i.e. the fact is preserved elsewhere). If the entry is the SOLE copy of the fact anywhere, do NOT delete it - instead rewrite it in place to a one-line RESOLVED tombstone: `- **YYYY-MM-DD RESOLVED <today>:** <original one-line summary> - <what changed, cite file/PR if found>`.
+   > - `TRUE_DUPLICATE` - merge into the earliest entry, list all dates, delete the redundant later copy.
+   > - `AMBIGUOUS` - leave untouched. This is the conservative default: when in doubt, classify AMBIGUOUS and take no action.
+   >
+   > **Deletion citation requirement.** No deletion without a cited negative-match result: for every entry you delete (only possible under `STALE_VERIFIED_FALSE` with a found counterpart, or the redundant copy under `TRUE_DUPLICATE`), your return must cite the exact grep/read command you ran and its result establishing the fact is preserved elsewhere (for `STALE_VERIFIED_FALSE`) or is a true duplicate (for `TRUE_DUPLICATE`).
+   >
+   > Report, for every entry you acted on: its classification label, the action taken, and (for deletions) the citation above.
+   >
    > File content:
    > [paste full file content]
 
-2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the original file content and the compressed draft:
+2. When the curation Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed/curated draft plus the Worker's per-entry classification report; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the original file content and the compressed/curated draft:
 
-   > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
+   > You are reviewing a memory-file compression and curation pass for fact loss and unsafe deletion. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
    >
    > Walk the original file section by section. For each fact, locate it in the compressed file. Classify any discrepancy:
    > - Critical: a path/command/date/version/URL/identifier was altered, dropped, or invented.
    > - Critical: a decision, gotcha, or rationale was dropped or its meaning changed.
+   > - Critical: an entry was deleted or merged without a cited, independently re-run sole-copy grep result.
+   > - Critical: a `STALE_VERIFIED_FALSE` claim was acted on without you independently re-opening the same file/line the Worker cited.
    > - Major: structural - a heading was renamed or a section was merged in a way that obscures lookup.
+   > - Major: an `AMBIGUOUS`-classified entry was acted on (merged, rewritten, or deleted) rather than left untouched.
    > - Minor: stylistic regressions only.
    >
-   > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
+   > You may overrule any DELETE or MERGE action back to keep-as-is or keep-as-pointer. The default on any doubt is keep - never delete.
+   >
+   > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output, and independently re-ran every cited sole-copy grep for deleted or merged entries."
    >
    > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted."
 
 3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
-   If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
+   If Critical or Major findings remain: spawn a new curation Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression/curation for that target this session and log the failure in Step 6.
 
 4. On sign-off, the main agent (not a subagent - same rationale as the rest of Step 4) writes in this order:
    - **Backup location.** A repo-root target (`[cwd]/MEMORY.md`, `[cwd]/CLAUDE.md`) never backs up beside itself - a `MEMORY.original.md` sitting next to a committed `MEMORY.md` is itself a new committed-looking file nobody asked for. Repo-root targets back up to `<cwd>/.agentic/wrap/memory-backups/` instead (`mkdir -p` first). Backup filenames are stem-based: `MEMORY.md` -> `MEMORY.original.md`, `MEMORY.md` -> `MEMORY.pre-YYYY-MM-DD-HHMMSS.md` for rolling snapshots, same for `CLAUDE.md`. A non-root target (`.agentic/memory.md`) keeps backing up beside itself as before (already gitignored, no committed-file risk).
@@ -679,7 +702,7 @@ Otherwise skip that target silently.
    - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content, per Atomic write discipline <!-- aw-site: rolling-snapshot --> (unconditional publish). Always write; never skip.
    - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
    - (d) Overwrite `FILE.md` with the compressed content, per Atomic write discipline <!-- aw-site: compressed-overwrite --> (unconditional publish).
-   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
+   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target, and `entries_deleted_last_run`, `entries_merged_last_run`, `entries_converted_to_pointer_last_run` set to the counts of `STALE_VERIFIED_FALSE`-with-counterpart deletions, `TRUE_DUPLICATE` merges, and `LEARNINGS_BACKED` pointer-rewrites respectively from the sign-off round's final classification report (0 when the curation Worker acted on no entries of that kind this run). Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
 
 **Step 5 — Worktree cleanup.**
 

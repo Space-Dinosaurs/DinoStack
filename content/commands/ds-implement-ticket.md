@@ -3170,7 +3170,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 **Failure semantics:**
 
 - `wrap-ticket` failure NEVER blocks Phase 12 cleanup or PR completion. Soft-fail with a warning line printed to the operator.
-- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user. If `size_advisory` is non-null, print it as a separate line.
+- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user.
 - If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
@@ -3196,6 +3196,17 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 ```
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
+
+**Post-return Part E curation gate check (conductor-side, runs AFTER lock release, soft-fail, no operator-facing output):**
+
+wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so it cannot itself stat files or spawn the curation Worker/Skeptic pair. The conductor performs this cheap gate check instead, after wrap-ticket has returned (or been skipped) and after lock release - regardless of whether wrap-ticket itself appended anything this run (prior-session drift alone can trip the gate, matching `/ds-wrap` Part E's own "must still compress" rule):
+
+1. Stat `[cwd]/MEMORY.md` (skip this whole step silently if it does not exist) and read `[cwd]/.agentic/compression-state.json` if present.
+2. Apply the SAME gate `/ds-wrap` Part E uses (`content/commands/ds-wrap.md` Part E "Gate"): trip if (a) no prior entry exists for this target AND current size > 2000 bytes, or (b) a prior entry exists AND current size >= 1.5 * `last_compressed_size_bytes`.
+3. If the gate does not trip, do nothing - no output, no spawn.
+4. If the gate trips, fire-and-forget spawn the `/ds-wrap` Part E curation Worker -> Skeptic chain (`content/commands/ds-wrap.md` Part E steps 1-4, target = `[cwd]/MEMORY.md`) as background subagents. Do NOT wait for their result before proceeding to Phase 12. Any failure anywhere in this chain (spawn failure, Skeptic escalation, re-route cap reached) is silently swallowed - this step NEVER blocks or delays Phase 12, and produces no operator-facing output on success or failure.
+
+This step is entirely independent of wrap-ticket's own return value and runs even when wrap-ticket returned `skipped_reason` populated or timed out, as long as Phase 9 opened a PR (i.e. Phase 11b was not skipped outright by its own skip conditions).
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 

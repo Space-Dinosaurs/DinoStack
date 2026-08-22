@@ -1,7 +1,7 @@
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md and fire-and-forget spawns the /ds-wrap Part E curation Worker -> Skeptic chain when the gate trips (invisible, no operator-facing output) - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -22,7 +22,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory,
+            skipped_reason,
             cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
             present; empty array when nothing qualifies or skill_candidate_detection
             is off),
@@ -122,7 +122,6 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
   "operator_summary": "Phase 11b skipped: wrap-lock-contention (likely /ds-wrap running concurrently).",
   "writer_actions": [],
   "skipped_reason": "wrap-lock-contention",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
@@ -226,21 +225,11 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Cap at 1 paragraph per run.**
 - **Dedup:** if any existing paragraph in `## Recent Focus` already contains `[Ticket TICKET_ID]` for this same ticket id, skip the append (the same ticket should not produce two paragraphs).
 
-### 6. MEMORY.md size advisory
-
-After writing, stat MEMORY.md. If its byte size exceeds 50 KB (51200 bytes), populate `size_advisory` in the return JSON with:
-
-```
-"MEMORY.md exceeds 50 KB (current size: <N> bytes); consider /wrap-driven consolidation."
-```
-
-Otherwise leave `size_advisory: null`.
-
-### 7. Release the lock
+### 6. Release the lock
 
 The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
-### 8. Return
+### 7. Return
 
 Return the JSON object below as the agent's output. The conductor parses it and prints `operator_summary` to the user.
 
@@ -252,7 +241,6 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["capped at 6 items: '<file path>: appended <N> entries'", ...],
   "skipped_reason": null | "zero-substance" | "wrap-lock-contention",
-  "size_advisory": "<one-line advisory text, or null>",
   "cluster_results": ["capped at 5 items: {domain: <slug>, exampleNote: <one-line sentence>}", ...],
   "resolved_paths": {
     "memory_md": <path, or null>
@@ -265,6 +253,8 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
+**MEMORY.md size is no longer surfaced as an operator-facing advisory.** The old `size_advisory` field (a "consider /wrap-driven consolidation" nudge above 50 KB) is retired - it was an operator-attention tax for a problem the curation mechanism below now handles invisibly. See "Post-return Part E curation gate check" below.
+
 If nothing was captured because the ticket produced no stable facts, return:
 
 ```json
@@ -275,11 +265,14 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
+
+## Post-return Part E curation gate check (conductor-side, not run by wrap-ticket)
+
+wrap-ticket itself never performs this check - it holds no Bash tool and is a leaf agent (see Rules below: "No subagent spawning"). Instead, after wrap-ticket returns (or is skipped) and after lock release, the CONDUCTOR performs a cheap, invisible gate check as documented in `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check" step: it stats root `MEMORY.md` and reads `.agentic/compression-state.json`, and if the SAME gate `/ds-wrap` Part E uses trips (no prior entry AND size > 2000 bytes, or size >= 1.5x `last_compressed_size_bytes`), it fire-and-forget spawns the `/ds-wrap` Part E curation Worker -> Skeptic chain (`content/commands/ds-wrap.md` Part E steps 1-4) as a background subagent chain. This is soft-fail and never blocks wrap-ticket's return or PR completion - same failure-semantics contract as wrap-ticket's other writes - and produces no operator-facing output.
 
 ## Forbidden writes
 
