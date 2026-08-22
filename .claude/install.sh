@@ -960,6 +960,14 @@ ENFORCE_SKEPTIC_ROUND_CAP_CMD = (
     f"test -f {hooks_root}/hooks/enforce-skeptic-round-cap.py && "
     f"python3 {hooks_root}/hooks/enforce-skeptic-round-cap.py || exit 0"
 )
+# Guarded form (never bare `python3 {path}`): `python3 <missing>.py` exits 2,
+# which is BLOCKING on PreToolUse - a registration that outlives this script
+# would deny every Task/Agent spawn in every session. See hooks/AGENTS.md
+# §Registering a new enforce-*.py hook.
+ENFORCE_NESTED_WORKTREE_SPAWN_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-nested-worktree-spawn.py && "
+    f"python3 {hooks_root}/hooks/enforce-nested-worktree-spawn.py || exit 0"
+)
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -982,6 +990,18 @@ for spawn_matcher in ("Task", "Agent"):
         "enforce-background-spawn.py",
         {"type": "command", "command": ENFORCE_BG_CMD, "timeout": 5},
         f"PreToolUse({spawn_matcher}) background-spawn enforcement hook",
+    )
+
+    # DS-190: ADVISORY-ONLY (never denies) - warns once per session when a
+    # Task/Agent spawn is issued from a conductor session whose own cwd is
+    # itself inside a git worktree rather than the primary checkout. To
+    # disable: set AE_NESTED_WORKTREE_GUARD_DISABLE=1 in the environment
+    # that launches Claude Code, then restart.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-nested-worktree-spawn.py",
+        {"type": "command", "command": ENFORCE_NESTED_WORKTREE_SPAWN_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) nested-worktree-spawn advisory hook",
     )
 
     # Denies spawns issued from inside a subagent context (detected via the

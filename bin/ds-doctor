@@ -173,6 +173,7 @@ BIN_TOOL_PREFIXES: tuple[str, ...] = ("agentic-", "ds-")
 MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-askuserquestion-default.py",
     "enforce-background-spawn.py",
+    "enforce-nested-worktree-spawn.py",
     "enforce-orchestrator-singularity.py",
     "enforce-shippable-edit.py",
     "enforce-skeptic-round-cap.py",
