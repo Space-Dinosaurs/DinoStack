@@ -244,7 +244,7 @@ No Severity field. Used for env facts, dead-ends, architectural rationale, tool-
 </div>
 </div>
 
-LRN and KNW maintain **independent per-day counters**. learnings-agent may also append at most one entry directly to `MEMORY.md`, in the same invocation, for project-affecting events.
+LRN and KNW maintain **independent per-day counters**. learnings-agent may also append at most one pointer entry directly to `MEMORY.md`, in the same invocation, for conductor-behavioral events.
 
 ---
 
@@ -318,7 +318,7 @@ Four distinct knowledge stores - each with a different writer and lifecycle:
 
 - **`~/.agentic/learnings-shards/`** - in-flight capture buffer, external to the repo. Written by `ds-learning-shard append` from the four capture roles the moment a learning occurs. Never committed itself; drained at `/ds-implement-ticket` Phase 11e and by the activation-preflight rollup.
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
-- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. Written by `learnings-agent` (at most one entry per invocation, when the event is project-affecting - not a later promotion) and, as of DS-90, by `/ds-wrap` Part B (staging-drain promotion, capped 3/run).
+- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. Written by `learnings-agent` (at most one entry per invocation, when the event is conductor-behavioral - not a later promotion) and, as of DS-90, by `/ds-wrap` Part B (staging-drain promotion, capped 3/run).
 - **`.agentic/memory.md`** - deferred-wrap daemon staging only, written exclusively by `/ds-wrap-deferred`. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`; drained into it by the next synchronous `/ds-wrap`.
 
 ```
@@ -326,7 +326,7 @@ ds-learning-shard (4 roles) ──> shard entry ──> ~/.agentic/learnings-sha
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> KNW/LRN entry ──> .agentic/learnings.md (always)
-learnings-agent    ──> project-affecting? ──> MEMORY.md (same invocation, at most 1 entry)
+learnings-agent    ──> conductor-behavioral? ──> MEMORY.md (same invocation, at most 1 entry)
 ```
 
 <div class="callout">

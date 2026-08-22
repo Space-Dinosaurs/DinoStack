@@ -11121,12 +11121,19 @@ then append the entry beneath `## Entries`.
 
 ### 5. Optionally append to MEMORY.md
 
-After writing to `.agentic/learnings.md`, assess whether the event is **project-affecting**:
+After writing to `.agentic/learnings.md`, assess whether the event is **conductor-behavioral**:
 
-- Project-affecting = a decision, gotcha, configuration choice, or pattern that will affect future work in this project and is not already captured in MEMORY.md.
-- KNW entries from `architectural-decision` or `cross-component-gotcha` are strong candidates.
+- Conductor-behavioral = a rule or constraint the main session must apply regardless of which task is active - a delegation/git-workflow guardrail, a standing operator decision, an always-on convention. Not already captured in MEMORY.md.
+- A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify, even if it is generalizable enough to have earned a `.agentic/learnings.md` entry in Step 4. It stays in `.agentic/learnings.md` only, retrieved on demand by the agent doing that task.
+- KNW entries from `architectural-decision` are candidates when the decision binds the conductor's own behavior across tasks; `cross-component-gotcha` and `tool-failure-workaround` entries are almost always task-triggered, not conductor-behavioral.
 
-If yes, append **at most 1 entry per event** to the project-root `MEMORY.md`:
+If yes, append **at most 1 entry per event** to the project-root `MEMORY.md`, as a pointer, not a restated paragraph:
+
+```
+- **YYYY-MM-DD:** [LRN-YYYYMMDD-XXX or KNW-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (session)
+```
+
+Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing operator decision written directly from the event, with no matching entry from Step 4) may the MEMORY.md line carry its content inline, still as a single concise bullet:
 
 ```
 - **YYYY-MM-DD:** [fact and why, one sentence] (session)
@@ -13483,7 +13490,12 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 #### MEMORY.md (max 3 entries)
 
 - Path: project-root `MEMORY.md`. Create if absent.
-- Format per entry:
+- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory` or `bin/agentic-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
+- **Format (pointer, not paragraph).** When a qualifying candidate derives from a `.agentic/learnings.md` entry matched in Step 2/3 (an LRN or KNW id), write a pointer, never a restated paragraph:
+  ```
+  - **YYYY-MM-DD:** [KNW-YYYYMMDD-XXX or LRN-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (ticket: TICKET_ID)
+  ```
+  Only a candidate with no `.agentic/learnings.md` counterpart (e.g. a standing operator decision captured directly) may carry its content inline, still as a single concise bullet:
   ```
   - **YYYY-MM-DD:** [fact and why, one sentence] (ticket: TICKET_ID)
   ```

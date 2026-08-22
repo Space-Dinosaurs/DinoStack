@@ -203,12 +203,19 @@ then append the entry beneath `## Entries`.
 
 ### 5. Optionally append to MEMORY.md
 
-After writing to `.agentic/learnings.md`, assess whether the event is **project-affecting**:
+After writing to `.agentic/learnings.md`, assess whether the event is **conductor-behavioral**:
 
-- Project-affecting = a decision, gotcha, configuration choice, or pattern that will affect future work in this project and is not already captured in MEMORY.md.
-- KNW entries from `architectural-decision` or `cross-component-gotcha` are strong candidates.
+- Conductor-behavioral = a rule or constraint the main session must apply regardless of which task is active - a delegation/git-workflow guardrail, a standing operator decision, an always-on convention. Not already captured in MEMORY.md.
+- A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify, even if it is generalizable enough to have earned a `.agentic/learnings.md` entry in Step 4. It stays in `.agentic/learnings.md` only, retrieved on demand by the agent doing that task.
+- KNW entries from `architectural-decision` are candidates when the decision binds the conductor's own behavior across tasks; `cross-component-gotcha` and `tool-failure-workaround` entries are almost always task-triggered, not conductor-behavioral.
 
-If yes, append **at most 1 entry per event** to the project-root `MEMORY.md`:
+If yes, append **at most 1 entry per event** to the project-root `MEMORY.md`, as a pointer, not a restated paragraph:
+
+```
+- **YYYY-MM-DD:** [LRN-YYYYMMDD-XXX or KNW-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (session)
+```
+
+Only when the event has no `.agentic/learnings.md` counterpart (e.g. a standing operator decision written directly from the event, with no matching entry from Step 4) may the MEMORY.md line carry its content inline, still as a single concise bullet:
 
 ```
 - **YYYY-MM-DD:** [fact and why, one sentence] (session)

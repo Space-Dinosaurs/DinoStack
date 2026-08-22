@@ -187,7 +187,12 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 #### MEMORY.md (max 3 entries)
 
 - Path: project-root `MEMORY.md`. Create if absent.
-- Format per entry:
+- **Eligibility (conductor-behavioral only).** A candidate qualifies for MEMORY.md only if it is a rule or constraint the main session must apply regardless of which task is active - delegation/git-workflow guardrails, standing operator decisions, always-on conventions. A task-triggered fact (needed only when a specific activity happens - editing hooks, a particular CLI's gotchas, a specific gate's mechanics) does NOT qualify: it belongs in `.agentic/learnings.md` only, where the agent doing that task retrieves it on demand via `bin/ds-memory` or `bin/agentic-memory`. Drop non-qualifying candidates before applying the cap below; this narrows what reaches the cap, it does not replace it.
+- **Format (pointer, not paragraph).** When a qualifying candidate derives from a `.agentic/learnings.md` entry matched in Step 2/3 (an LRN or KNW id), write a pointer, never a restated paragraph:
+  ```
+  - **YYYY-MM-DD:** [KNW-YYYYMMDD-XXX or LRN-YYYYMMDD-XXX] <one-line hook stating the rule, <=200 chars> (ticket: TICKET_ID)
+  ```
+  Only a candidate with no `.agentic/learnings.md` counterpart (e.g. a standing operator decision captured directly) may carry its content inline, still as a single concise bullet:
   ```
   - **YYYY-MM-DD:** [fact and why, one sentence] (ticket: TICKET_ID)
   ```

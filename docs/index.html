@@ -896,7 +896,7 @@
   <div class="side-nav-brand">
     <img class="side-nav-logo" src="images/dinostack-logo.svg" alt="DinoStack" />
   </div>
-  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Aug 12, 2026
+  <div style="font-size:0.65em; color:var(--text-muted); margin:-4px 20px 6px;">Last updated: Aug 21, 2026
   <hr class="side-nav-divider">
   <a href="#install"><span class="nav-dot" style="background: var(--cyan);"></span> Install</a>
   <a href="#updating"><span class="nav-dot" style="background: var(--cyan);"></span> Updating</a>
@@ -1702,8 +1702,8 @@
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
           <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
           <li><strong>goal-condition-evaluator</strong> - cheap Tier-1 stop-condition check for open-goal loops; gates continuation only, never correctness/safety.</li>
-          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/_wrap.md</code> (Recent Focus only). Constrained automated subset of <code>/ds-wrap</code>; soft-fail only.</li>
-          <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
+          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends conductor-behavioral pointer entries to MEMORY.md and durable learnings to decisions.md and <code>.agentic/_wrap.md</code> (Recent Focus only). Constrained automated subset of <code>/ds-wrap</code>; soft-fail only.</li>
+          <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md pointer append for conductor-behavioral facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>
       </div>
     </div>
