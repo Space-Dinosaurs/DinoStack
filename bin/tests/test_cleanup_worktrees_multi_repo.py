@@ -1342,3 +1342,98 @@ def test_max_repos_without_multi_repo_is_usage_error(tmp_path):
     result = run_cli(["--max-repos", "2"], cwd=tmp_path)
     assert result.returncode == 2, result.stderr
     assert "--max-repos requires --multi-repo" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# 15b. Round-2 Major fix: `--max-repos` must reject 0 and negative values -
+#     `targets[: args.max_repos]` with a negative N silently drops the LAST
+#     entries (not the intended "cap at N") while still reporting
+#     `truncated: true`, and 0 empties the target list, producing the
+#     misleading "no repos discovered" usage error instead of a clear
+#     complaint about the flag itself. Both must exit 2 with a message
+#     naming the constraint, and neither may run any per-repo evaluation.
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_zero_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+
+    mod = _load_module_directly()
+    evaluated = []
+    monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
+
+    result = run_cli(
+        ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "0"]
+    )
+    assert result.returncode == 2, result.stderr
+    assert "--max-repos must be >= 1" in result.stderr
+    assert evaluated == []
+
+
+def test_max_repos_negative_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+
+    mod = _load_module_directly()
+    evaluated = []
+    monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
+
+    result = run_cli(
+        ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "-1"]
+    )
+    assert result.returncode == 2, result.stderr
+    assert "--max-repos must be >= 1" in result.stderr
+    assert evaluated == []
+
+
+# --------------------------------------------------------------------------
+# 15c. Round-2 Minor fix: truncation must be visible on human-readable
+#     output too, not only `--report --json`'s `"truncated"` key - both the
+#     `--report` table and the plain multi-repo sweep path print a NOTE
+#     line naming the cap when truncation actually happened, and print
+#     nothing when it did not.
+# --------------------------------------------------------------------------
+
+
+def test_max_repos_note_appears_on_truncated_human_report(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+    repo_c = init_repo_with_origin(tmp_path, "repo-c")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--repo",
+            str(repo_c),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "2",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "NOTE: repo discovery truncated to first 2 of 3 discovered repos" in result.stdout
+
+
+def test_max_repos_note_absent_when_not_truncated(tmp_path):
+    repo_a = init_repo_with_origin(tmp_path, "repo-a")
+    repo_b = init_repo_with_origin(tmp_path, "repo-b")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--report",
+            "--count-only",
+            "--max-repos",
+            "5",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "NOTE: repo discovery truncated" not in result.stdout

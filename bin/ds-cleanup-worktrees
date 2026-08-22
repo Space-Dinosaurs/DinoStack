@@ -499,9 +499,17 @@ Public API (CLI):
                           sets the top-level `"truncated"` key to `true` iff
                           the discovered-and-deduped count exceeded N;
                           `false` when unset or the count did not exceed N.
-  --init-config            Standalone action, mutually exclusive with every
-                          other flag (usage error, exit 2, if combined with
-                          anything else). Scaffolds
+  --init-config            Standalone action: usage error, exit 2, when
+                          combined with any OTHER flag set to a
+                          non-default value. An explicitly-passed value
+                          that happens to equal that flag's own default
+                          (e.g. `--init-config --min-age-hours 24` when 24
+                          is already the default) is indistinguishable
+                          from having not passed that flag at all - the
+                          comparison in `main()` diffs `args` against a
+                          fresh no-args `Namespace` field-by-field, which
+                          cannot see how a value arrived, only what it is
+                          - and is tolerated rather than rejected. Scaffolds
                           `~/.agentic/cleanup-worktrees.json` for a
                           first-time `--multi-repo` setup: if the file
                           already exists, prints its current contents and a
@@ -2024,7 +2032,11 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
 
 
 def _run_report(
-    targets: List[RepoTarget], root_errors: List[str], args: argparse.Namespace, truncated: bool = False
+    targets: List[RepoTarget],
+    root_errors: List[str],
+    args: argparse.Namespace,
+    truncated: bool = False,
+    discovered_count: Optional[int] = None,
 ) -> int:
     rows: List[Dict] = []
     errored = False
@@ -2106,6 +2118,17 @@ def _run_report(
                 print(f"{r['repo']:<60} {r['nonroot_worktrees']:>7} {age:>15}")
             else:
                 print(f"{r['repo']:<60} {r['nonroot_worktrees']:>7} {r['eligible']:>9}")
+        # Round-2 Minor fix: truncation was previously visible only via the
+        # `--report --json` `"truncated"` key - the human-readable table
+        # printed nothing, so an operator reading raw `--report` output had
+        # no signal that repos beyond --max-repos were never evaluated.
+        if truncated:
+            total = discovered_count if discovered_count is not None else len(rows)
+            print(
+                f"NOTE: repo discovery truncated to first {args.max_repos} of "
+                f"{total} discovered repos (--max-repos {args.max_repos}) - "
+                "unlisted repos were not evaluated."
+            )
 
     return 1 if (errored or root_errors) else 0
 
@@ -2161,6 +2184,14 @@ def _validate_args(args: argparse.Namespace) -> Optional[str]:
         return "--json requires --report"
     if args.max_repos is not None and not args.multi_repo:
         return "--max-repos requires --multi-repo"
+    # Round-2 Major fix: a 0 or negative --max-repos silently mis-slices
+    # `targets[: args.max_repos]` (negative drops the LAST N entries and
+    # still reports `truncated: true`; 0 empties the list, producing the
+    # misleading "no repos discovered" usage error instead of a clear
+    # complaint about the flag itself). Reject both before any discovery
+    # or evaluation work happens.
+    if args.max_repos is not None and args.max_repos < 1:
+        return "--max-repos must be >= 1"
     return None
 
 
@@ -2603,6 +2634,7 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     # it drops. Preserves discovery order (no re-sort). Absent = unbounded,
     # byte-identical to pre-DS-189 behavior.
     truncated = False
+    discovered_count = len(targets)
     if args.max_repos is not None and len(targets) > args.max_repos:
         truncated = True
         targets = targets[: args.max_repos]
@@ -2620,7 +2652,20 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
         return 2
 
     if args.report:
-        return _run_report(targets, root_errors, args, truncated)
+        return _run_report(targets, root_errors, args, truncated, discovered_count)
+
+    # Round-2 Minor fix: the sweep path (no --report) previously left
+    # truncation invisible too - only `--report --json`'s `"truncated"` key
+    # surfaced it. Print the same NOTE style used elsewhere in this file
+    # before the per-repo sweep begins, so an operator scrolling sweep
+    # output sees it up front rather than having to infer it from a repo
+    # count that looks smaller than expected.
+    if truncated:
+        print(
+            f"NOTE: repo discovery truncated to first {args.max_repos} of "
+            f"{discovered_count} discovered repos (--max-repos {args.max_repos}) - "
+            "unlisted repos were not evaluated."
+        )
 
     repos_swept = 0
     repos_errored = 0
@@ -2690,6 +2735,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         # against a fresh no-args default namespace rather than
         # hand-maintaining a second flag list that could drift from
         # `parse_args` above.
+        #
+        # LIMITATION (round-2 Minor fix, matches the `--init-config` Public
+        # API doc above): this value-equality comparison cannot detect an
+        # explicitly-passed flag whose value happens to match that flag's
+        # own default - e.g. `--init-config --min-age-hours 24` exits 0 and
+        # writes, even though `--min-age-hours` was technically combined
+        # with `--init-config`. A second hand-maintained "was this field
+        # explicitly passed" list would drift from `parse_args` exactly
+        # like the flag list this comment already avoids re-introducing,
+        # so this is accepted as the documented contract rather than
+        # "fixed" with more bookkeeping.
         defaults = parse_args([])
         other_fields_changed = any(
             getattr(args, field) != getattr(defaults, field) for field in vars(args) if field != "init_config"
