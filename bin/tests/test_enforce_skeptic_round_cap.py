@@ -151,6 +151,25 @@ Test groups:
                                                          updated (not merely appended) across rounds of the same
                                                          unit, and correctly separates two distinct units'
                                                          tool_use_ids in the same index file.
+ 36. test_tuid_index_concurrent_writes_not_lost         - M4 (round-3) regression: 40 parallel hook invocations
+                                                         for the same unit all get a distinct
+                                                         skeptic-tuid-index.json entry - `_update_tuid_index()`'s
+                                                         read-merge-write is guarded by a best-effort flock so
+                                                         concurrent writers never clobber each other's entries.
+ 37. test_state_file_preserves_unknown_keys_round_trip  - m4 regression: a genuinely unknown top-level key on a
+                                                         hand-edited state file (e.g. `extra_key`, a `nested`
+                                                         object) survives a load-then-write round trip via
+                                                         `_load_state`/`_write_state`'s `_extra` passthrough
+                                                         bucket, while the active schema still advances normally.
+ 38. test_tilde_suffixed_ranges_do_not_collide_across_units - round-6 (M1/M3) regression: two distinct units each
+                                                         citing a `<base>~N..HEAD` range must not collide onto a
+                                                         shared round-cap counter, even though both forms
+                                                         previously normalized to the bare literal token "HEAD".
+ 39. test_caret_suffixed_range_does_not_reach_round_4_cap_via_shared_head_key - round-6 (M1/M3) regression: a
+                                                         unit using the caret form (`<base>^..HEAD`) run to its
+                                                         round-3 cap must never share a state file with an
+                                                         unrelated unit using the tilde form - both forms
+                                                         previously collided onto the same literal "HEAD" key.
 
 Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
        or: python3 bin/tests/test_enforce_skeptic_round_cap.py
@@ -166,6 +185,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 _HOOK_PATH = Path(__file__).parent.parent.parent / "hooks" / "enforce-skeptic-round-cap.py"
 _KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
@@ -268,12 +289,21 @@ def _skeptic_payload(
     return payload
 
 
-def _run_hook(payload: dict) -> tuple[int, dict | None]:
+def _run_hook(payload: dict, run_cwd: str | None = None) -> tuple[int, dict | None]:
+    """Invoke the hook as a subprocess. *run_cwd* pins the SUBPROCESS's own
+    OS-level cwd - distinct from payload["cwd"], the JSON field the hook's
+    own logic reads. Default None preserves prior behavior (inherits the
+    ambient test-runner cwd) for every existing call site. Any test
+    exercising a payload-cwd-missing/fallback path MUST pin this on every
+    invocation - an unpinned call under a `cwd = cwd or os.getcwd()`-style
+    mutation would otherwise write a real state file into whatever this
+    process's own cwd happens to be (see test_missing_cwd_failopen)."""
     result = subprocess.run(
         [sys.executable, str(_HOOK_PATH)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
+        cwd=run_cwd,
     )
     out = result.stdout.strip()
     parsed = json.loads(out) if out else None
@@ -616,6 +646,26 @@ def test_non_agent_tool_passthrough():
         assert rc == 0
         assert not _is_denied(parsed)
 
+    with tempfile.TemporaryDirectory() as tmp2:
+        # DS-181 AC4 repair: the case above is vacuous against its own
+        # named gate (`if tool_name not in ("Task", "Agent"): sys.exit(0)`)
+        # - removing that gate entirely still reddens 0 tests, because
+        # tool_input={"file_path": "/x"} has no subagent_type, so the very
+        # next gate independently produces the same exit-0/no-deny
+        # outcome. This second sub-case uses a subagent-shaped tool_input
+        # with tool_name deliberately overridden to "Read" so ONLY the
+        # tool_name gate can be what stops it.
+        unit = "feature/round-cap-test"
+        payload2 = _skeptic_payload(tmp2, unit, what_to_review="x")
+        payload2["tool_name"] = "Read"
+        rc2, parsed2 = _run_hook(payload2)
+        assert rc2 == 0
+        assert not _is_denied(parsed2)
+        assert not _state_path(tmp2, unit).exists(), (
+            "a Read tool_name must never be treated as an Agent/Task "
+            "skeptic spawn even when tool_input looks like one"
+        )
+
 
 # --------------------------------------------------------------------------- #
 # 13/14/15/16/17. Fail-open cases
@@ -632,17 +682,35 @@ def test_malformed_stdin_failopen():
 
 
 def test_missing_cwd_failopen():
+    """DS-181 repair: a bare no-cwd payload run WITHOUT pinning run_cwd
+    would inherit the test-runner's own OS-level cwd - masking the
+    `cwd = data.get("cwd")` gate via `_state_path`'s independent fail-open
+    on any real repo it happens to run inside. Both sub-cases below pin
+    run_cwd to a throwaway TemporaryDirectory so neither can ever write
+    into this repo's own live .agentic/ (see Constraints in the DS-181
+    plan - an unpinned first call in an earlier draft did exactly that)."""
     payload = {
         "tool_name": "Agent",
         "tool_input": {"subagent_type": "skeptic", "prompt": _prompt("x")},
     }
-    rc, parsed = _run_hook(payload)
-    assert rc == 0
-    assert not _is_denied(parsed)
+    with tempfile.TemporaryDirectory() as bare:
+        rc, parsed = _run_hook(payload, run_cwd=bare)
+        assert rc == 0
+        assert not _is_denied(parsed)
+    with tempfile.TemporaryDirectory() as controlled:
+        _ensure_git_marker(controlled)
+        rc2, parsed2 = _run_hook(payload, run_cwd=controlled)
+        assert rc2 == 0
+        assert not _is_denied(parsed2)
+        assert not (Path(controlled) / ".agentic").exists(), (
+            "a missing payload cwd must never fall back to the hook "
+            "process's own OS-level working directory"
+        )
 
 
 def test_unextractable_identity_failopen():
     with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
         payload = {
             "tool_name": "Agent",
             "cwd": tmp,
@@ -706,6 +774,21 @@ def test_state_resolution_fails_open_with_no_git_ancestor():
 
 
 def test_nonexistent_cwd_failopen_no_crash():
+    """Round-2 review fix (Major 2): the mutation that reddens this is a
+    4-part combination, not the 3-part one originally recorded - (1) drop
+    the `found_git_ancestor` gate in `_state_path` (treat it as always
+    True), (2) strip `_write_state`'s own internal `try/except: pass`
+    guard, (3) drop `parents=True` from its `mkdir` call, AND (4) remove
+    `main()`'s outer `except Exception: sys.exit(0)` catch-all. Parts
+    (1)-(3) alone still redden nothing in *this* test, because `main()`'s
+    outer catch-all swallows whatever exception (1)-(3) cause and still
+    exits 0 - part (4) is required for the resulting exception to actually
+    propagate past `main()` as a nonzero process exit code. (Part (1) alone
+    does redden a different test, `test_state_resolution_fails_open_with_no_git_ancestor`
+    - not via a nonzero exit code, but because dropping the
+    `found_git_ancestor` gate makes `_state_path` write a state file that
+    test's own assertion requires to be absent.) Confirmed failing pre-fix
+    (i.e. with the mutation applied): rc == 1, not 0."""
     tmp = tempfile.mkdtemp()
     nonexistent = str(Path(tmp) / "does" / "not" / "exist")
     unit = "feature/round-cap-test"
@@ -719,12 +802,21 @@ def test_nonexistent_cwd_failopen_no_crash():
 #     payloads - hook must never assume either shape)
 # --------------------------------------------------------------------------- #
 def test_main_session_and_subagent_payload_shapes():
+    """DS-181 AC4 strengthening: the original version of this test only
+    asserted rc==0/not-denied for both shapes, which is vacuous against
+    what it names - a hook branching on `"agent_id" in data` to skip
+    state-write for the main-session shape only would still pass both of
+    those weak assertions (a skipped write is not a deny). Strengthened
+    to assert the state file was actually written with round_count == 1
+    for BOTH shapes, so a shape-conditional write-skip is caught."""
     with tempfile.TemporaryDirectory() as tmp:
         # Main-session shape: no agent_id/agent_type keys at all.
         main_payload = _skeptic_payload(tmp, "unit-main", what_to_review="x")
         rc1, parsed1 = _run_hook(main_payload)
         assert rc1 == 0
         assert not _is_denied(parsed1)
+        assert _state_path(tmp, "unit-main").exists()
+        assert _read_state(tmp, "unit-main")["round_count"] == 1
 
     with tempfile.TemporaryDirectory() as tmp2:
         # Subagent shape: agent_id/agent_type present (should behave the same -
@@ -735,6 +827,8 @@ def test_main_session_and_subagent_payload_shapes():
         rc2, parsed2 = _run_hook(sub_payload)
         assert rc2 == 0
         assert not _is_denied(parsed2)
+        assert _state_path(tmp2, "unit-sub").exists()
+        assert _read_state(tmp2, "unit-sub")["round_count"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -758,6 +852,18 @@ def test_corrupt_state_file_treated_as_round_zero():
 # 20. State write failure (read-only .agentic/) still fails open
 # --------------------------------------------------------------------------- #
 def test_read_only_agentic_dir_failopen():
+    """Round-2 review fix (Major 3): the mutation that reddens this is a
+    2-part combination - (1) strip `_write_state`'s own internal
+    `try/except: pass` guard, so the real `PermissionError` raised by
+    `mkdir`/`os.replace` against the chmod'd read-only `.agentic/` dir
+    propagates out of the function instead of being swallowed, AND (2)
+    remove `main()`'s outer `except Exception: sys.exit(0)` catch-all, so
+    that propagated error is not re-swallowed one level up. A
+    call-site-only deny-wrapper (raising unconditionally where
+    `_write_state` is invoked, without also removing part (2)) reddens
+    nothing - `main()`'s outer catch-all still swallows it and the
+    process still exits 0. Confirmed failing pre-fix with parts (1)+(2)
+    together: rc == 1, not 0."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
         agentic_dir = Path(tmp) / ".agentic"
@@ -1029,43 +1135,58 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
         assert _is_denied(parsed), "round 4 of a genuinely-advancing unit must be denied at the cap"
 
 
-def test_diff_under_review_edge_cases_failopen():
+# DS-181 (M1/M2 correction): a plain `for label, prompt_text in
+# cases.items(): ... assert ...` loop can only ever report the FIRST
+# failing case in dict-insertion order - pytest aborts the whole test at
+# the first assertion failure, so which case's name is ever reported
+# depends on dict position, not on which cases are actually broken. This
+# was measured to mask a second broken case (`reflowed_across_lines`)
+# behind whichever case sits earlier in the dict. Rewritten as a
+# parametrize so each case gets its own independent pytest node -
+# ordering can never mask a second broken case again. No case was added
+# or removed relative to the pre-rewrite dict (still exactly 5).
+_DIFF_UNDER_REVIEW_EDGE_CASES = {
+    "absent_field": "no structured fields here, just prose about the change",
+    "malformed_missing_colon": "6. Diff under review git diff origin/main...feature/x",
+    "field_present_twice_differing_values": (
+        "6. Diff under review: git diff origin/main...feature/a\n"
+        "6. Diff under review: git diff origin/main...feature/b"
+    ),
+    "empty_value_then_blank_line_then_prose": (
+        "6. Diff under review:\n\n**What to review:** <worker output round 1>"
+    ),
+    "reflowed_across_lines": "6. Diff under review:\ngit diff origin/main...feature/x",
+}
+
+
+@pytest.mark.parametrize(
+    "label,prompt_text", list(_DIFF_UNDER_REVIEW_EDGE_CASES.items())
+)
+def test_diff_under_review_edge_cases_failopen(label, prompt_text):
     """MAJOR 1 + MAJOR 3 combined fail-open matrix: an absent field, a
     malformed field (missing colon), a field carrying two DIFFERING
     values, an empty value followed by a blank line then other prose (the
     literal MAJOR 3 defect - the old `\\s*` crossed the newline and
     captured the Worker output as the identity), and a value reflowed
     onto the next line must all allow and write NO state at all."""
-    cases = {
-        "absent_field": "no structured fields here, just prose about the change",
-        "malformed_missing_colon": "6. Diff under review git diff origin/main...feature/x",
-        "field_present_twice_differing_values": (
-            "6. Diff under review: git diff origin/main...feature/a\n"
-            "6. Diff under review: git diff origin/main...feature/b"
-        ),
-        "empty_value_then_blank_line_then_prose": (
-            "6. Diff under review:\n\n**What to review:** <worker output round 1>"
-        ),
-        "reflowed_across_lines": "6. Diff under review:\ngit diff origin/main...feature/x",
-    }
-    for label, prompt_text in cases.items():
-        with tempfile.TemporaryDirectory() as tmp:
-            payload = {
-                "tool_name": "Agent",
-                "cwd": tmp,
-                "tool_input": {
-                    "subagent_type": "skeptic",
-                    "description": "review",
-                    "prompt": prompt_text,
-                },
-            }
-            rc, parsed = _run_hook(payload)
-            assert rc == 0
-            assert not _is_denied(parsed), f"{label} must allow: {parsed}"
-            assert not (Path(tmp) / ".agentic").exists(), (
-                f"{label} must fail open with NO state written at all, but "
-                f".agentic/ was created"
-            )
+    with tempfile.TemporaryDirectory() as tmp:
+        _ensure_git_marker(tmp)
+        payload = {
+            "tool_name": "Agent",
+            "cwd": tmp,
+            "tool_input": {
+                "subagent_type": "skeptic",
+                "description": "review",
+                "prompt": prompt_text,
+            },
+        }
+        rc, parsed = _run_hook(payload)
+        assert rc == 0
+        assert not _is_denied(parsed), f"{label} must allow: {parsed}"
+        assert not (Path(tmp) / ".agentic").exists(), (
+            f"{label} must fail open with NO state written at all, but "
+            f".agentic/ was created"
+        )
 
 
 def test_stable_key_survives_rolling_sha_ranges():

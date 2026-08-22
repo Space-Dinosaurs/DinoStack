@@ -313,9 +313,12 @@ Failure modes:
       directory path (e.g. `LICENSE | a.py`, `.gitignore | a.sh`,
       `content/references/ | a.py`) - still passes the shape gate and
       becomes a wrong-but-stable key shared with any other unit whose
-      first path is identical. This degrades to the pre-DS-180 behaviour
-      rather than introducing a new collision, and is judged acceptable
-      for the same reason as the SHA-range residual above.
+      first path is identical. This IS a new collision relative to
+      pre-DS-180 behaviour, not a degradation to it - `LICENSE | a.py`
+      and `LICENSE | b.md` share this key while the pre-DS-180 fallback
+      keys off the whole (differing) string and would not collide them.
+      It is judged acceptable for the same reason as the SHA-range
+      residual above.
     - Known residual, not a fail-open case: two DIFFERENT units both
       expressed as `git diff <same-base-sha>..<hex-head-sha>` - a bare
       SHA range with no branch or PR token anywhere in the value - key
