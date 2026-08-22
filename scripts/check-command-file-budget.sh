@@ -105,7 +105,8 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # commit as any deliberate compression of the file. See the header comment
 # above before raising it - raising it to accommodate un-triaged growth
 # defeats the purpose of this gate.
-THRESHOLD_BYTES=371000
+# Raised for DS-188 Phase 11b curation trigger (deliberate, triaged growth).
+THRESHOLD_BYTES=372500
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the
