@@ -366,13 +366,14 @@ Report is automatic; removal is not. The backstop closes the "I forgot" gap with
 
 Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. Left alone, these never resolve.
 
-`bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-cleanup-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
+A 2026-08-11 manual one-off operator sweep already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153; `bin/ds-branch-prune` itself does not call `git bundle`). `ds-cleanup-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
 
 - Only two dispositions qualify - `SKIP_NOT_PUSHED` and `SKIP_AMBIGUOUS_NO_PR` - an explicit whitelist, never the whole `SKIP_UNPROVEN` bucket: `SKIP_PR_OPEN` (a hard safety override) and `SKIP_LS_REMOTE_ERROR` (a transient failure) are NEVER archived, even with the flag set
 - Refuses to run at all in degraded gh mode (`--no-gh`, or `gh` unavailable/unauthenticated) - without PR evidence it can't tell a genuinely-unprovable branch from one behind an open PR
-- `git bundle create` captures the FULL branch, then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
+- `git bundle create` captures the FULL branch (every commit unique to it), then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
+- **Compact by default (DS-191):** objects already reachable from the resolved base are excluded when doing so still yields a non-empty bundle - a small bundle plus a recorded prerequisite commit, the actual full-disk reclaim path this exists for. Falls back to full-history (with a `NOTE:` on stderr) when the base can't be verified or shares no history with the branch
 - Removes the WORKTREE only, never the branch - `bin/ds-branch-prune` still owns branch deletion
-- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"`
+- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"` - a compact bundle's restore additionally requires the prerequisite base commit to still be present locally
 - `.agentic/worktree-archive/` is gitignored and grows unbounded - pruning it is the operator's job, same as `.agentic/branch-archive/`
 
 <div class="callout">

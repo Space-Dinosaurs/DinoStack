@@ -1478,13 +1478,14 @@ hr {
 <h2 id="the-unproven-class-archive-dont-accumulate">The unproven class: archive, don't accumulate</h2>
 
 <p>Even a worktree that passes every gate can still be stuck <code>SKIP_UNPROVEN</code>: a real, unmerged, never-pushed branch with no matching PR - <code>disposition_for</code> correctly refuses to guess. Left alone, these never resolve.</p>
-<p><code>bin/ds-branch-prune</code> already solved this for BRANCHES: archive into a verified <code>git bundle</code>, prove the restore path, then delete (<code>.agentic/branch-archive/</code>, DS-153). <code>ds-cleanup-worktrees --archive-unproven</code> - OPT-IN, never the default - extends that exact pattern to WORKTREES:</p>
+<p>A 2026-08-11 manual one-off operator sweep already solved this for BRANCHES: archive into a verified <code>git bundle</code>, prove the restore path, then delete (<code>.agentic/branch-archive/</code>, DS-153; <code>bin/ds-branch-prune</code> itself does not call <code>git bundle</code>). <code>ds-cleanup-worktrees --archive-unproven</code> - OPT-IN, never the default - extends that exact pattern to WORKTREES:</p>
 <ul>
 <li>Only two dispositions qualify - <code>SKIP_NOT_PUSHED</code> and <code>SKIP_AMBIGUOUS_NO_PR</code> - an explicit whitelist, never the whole <code>SKIP_UNPROVEN</code> bucket: <code>SKIP_PR_OPEN</code> (a hard safety override) and <code>SKIP_LS_REMOTE_ERROR</code> (a transient failure) are NEVER archived, even with the flag set</li>
 <li>Refuses to run at all in degraded gh mode (<code>--no-gh</code>, or <code>gh</code> unavailable/unauthenticated) - without PR evidence it can't tell a genuinely-unprovable branch from one behind an open PR</li>
-<li><code>git bundle create</code> captures the FULL branch, then <code>git bundle verify</code> runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard</li>
+<li><code>git bundle create</code> captures the FULL branch (every commit unique to it), then <code>git bundle verify</code> runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard</li>
+<li><strong>Compact by default (DS-191):</strong> objects already reachable from the resolved base are excluded when doing so still yields a non-empty bundle - a small bundle plus a recorded prerequisite commit, the actual full-disk reclaim path this exists for. Falls back to full-history (with a <code>NOTE:</code> on stderr) when the base can't be verified or shares no history with the branch</li>
 <li>Removes the WORKTREE only, never the branch - <code>bin/ds-branch-prune</code> still owns branch deletion</li>
-<li>Prints the exact (braced) restore command: <code>git fetch &lt;bundle&gt; &quot;refs/heads/${BRANCH}:refs/heads/${BRANCH}&quot;</code></li>
+<li>Prints the exact (braced) restore command: <code>git fetch &lt;bundle&gt; &quot;refs/heads/${BRANCH}:refs/heads/${BRANCH}&quot;</code> - a compact bundle's restore additionally requires the prerequisite base commit to still be present locally</li>
 <li><code>.agentic/worktree-archive/</code> is gitignored and grows unbounded - pruning it is the operator's job, same as <code>.agentic/branch-archive/</code></li>
 </ul>
 <div class="callout">

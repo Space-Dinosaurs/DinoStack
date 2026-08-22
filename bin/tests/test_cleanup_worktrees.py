@@ -1413,13 +1413,14 @@ def test_archive_bundle_verify_failure_blocks_archival():
 
         mod._run = fake_run
         try:
-            ok, detail, bundle_path = mod._archive_branch_bundle(str(repo), branch)
+            ok, detail, bundle_path, compact = mod._archive_branch_bundle(str(repo), branch, None)
         finally:
             mod._run = real_run
 
         assert ok is False, f"expected verify failure to block archival, got ok={ok} detail={detail!r}"
         assert "verify" in detail.lower()
         assert bundle_path is None
+        assert compact is False
 
 
 # --------------------------------------------------------------------------
@@ -1500,6 +1501,138 @@ def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
     assert restored_sha == original_sha, (
         f"restored SHA {restored_sha} does not match the original {original_sha} - "
         "a bundle file merely existing is not proof of a working restore path"
+    )
+
+
+# --------------------------------------------------------------------------
+# DS-191. A compact bundle excludes objects already reachable from the
+#     resolved base branch, so the bundle is materially smaller than a
+#     full-history bundle of the same branch - the actual acceptance
+#     criterion this ticket asks for, not merely a header-line proxy.
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_excludes_already_on_base_objects(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # Inflate the base branch with a large blob so a compact bundle (which
+    # excludes objects already reachable from resolved_base) is measurably
+    # smaller than a full-history bundle of the same branch - mirrors the
+    # plan's measured git 2.55.0 figures (202,476 B full vs 368 B compact
+    # for a 200 KB base blob + one-commit branch).
+    (repo / "big-base-blob.bin").write_bytes(os.urandom(200_000))
+    _git(repo, "add", "big-base-blob.bin")
+    _git(repo, "commit", "-q", "-m", "large base blob")
+    _git(repo, "push", "-q", "origin", "main")
+
+    branch = "worktree-agent-compact"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-compact", branch)
+
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1
+    compact_bundle = bundles[0]
+    header, _, _ = compact_bundle.read_bytes().partition(b"\n\n")
+    header_lines = header.split(b"\n")
+    assert any(line.startswith(b"-") for line in header_lines), (
+        f"expected a prerequisite (-prefixed) header line in a compact bundle, got: {header_lines!r}"
+    )
+
+    full_bundle_path = tmp_path / "full-comparison.bundle"
+    full_proc = subprocess.run(
+        ["git", "-C", str(repo), "bundle", "create", str(full_bundle_path), branch],
+        capture_output=True,
+        text=True,
+    )
+    assert full_proc.returncode == 0, full_proc.stderr
+
+    compact_size = compact_bundle.stat().st_size
+    full_size = full_bundle_path.stat().st_size
+    assert compact_size < full_size / 10, (
+        f"expected compact bundle ({compact_size} B) to be materially smaller than "
+        f"full-history bundle ({full_size} B)"
+    )
+
+
+# --------------------------------------------------------------------------
+# DS-191. The `unique_count == 0` fallback (a branch fully contained in
+#     `exclude_ref`) is defensive-only - unreachable via the real CLI,
+#     since merge-evidence ancestor testing already routes such a branch
+#     to ELIGIBLE->REMOVE before the archive loop runs. Exercised here via
+#     a direct unit-level call that bypasses disposition routing entirely.
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_defensive_guard_skips_empty_exclusion(tmp_path):
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # `exclude_ref` points at `branch`'s own current tip (main), so
+    # `unique_count` relative to it is 0 - the defensive fallback.
+    branch = "main"
+    exclude_ref = "main"
+
+    captured_argv = []
+    real_run = mod._run
+
+    def fake_run(args, cwd=None, timeout=None):
+        if "bundle" in args and "create" in args:
+            captured_argv.append(list(args))
+        return real_run(args, cwd=cwd, timeout=timeout)
+
+    mod._run = fake_run
+    try:
+        ok, detail, bundle_path, compact = mod._archive_branch_bundle(str(repo), branch, exclude_ref)
+    finally:
+        mod._run = real_run
+
+    assert ok is True, detail
+    assert compact is False
+    assert bundle_path is not None and Path(bundle_path).stat().st_size > 0
+    assert len(captured_argv) == 1, captured_argv
+    assert "--not" not in captured_argv[0], (
+        f"expected no --not exclusion when unique_count == 0, got argv: {captured_argv[0]!r}"
+    )
+
+
+# --------------------------------------------------------------------------
+# DS-191. A bogus explicit --base (unverifiable locally) produces a
+#     full-history bundle plus a trimmed NOTE on stderr, verified via the
+#     real CLI end-to-end - not a direct unit-level call.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_prints_full_history_note_for_unverifiable_base(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-bogus-base"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-bogus-base", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        base="nonexistent-ref",
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert "NOTE:" in proc.stderr
+    assert "full-history" in proc.stderr
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1
+    header, _, _ = bundles[0].read_bytes().partition(b"\n\n")
+    header_lines = header.split(b"\n")
+    assert not any(line.startswith(b"-") for line in header_lines), (
+        f"expected no prerequisite header line for a full-history bundle, got: {header_lines!r}"
     )
 
 
