@@ -780,10 +780,14 @@ def test_nonexistent_cwd_failopen_no_crash():
     True), (2) strip `_write_state`'s own internal `try/except: pass`
     guard, (3) drop `parents=True` from its `mkdir` call, AND (4) remove
     `main()`'s outer `except Exception: sys.exit(0)` catch-all. Parts
-    (1)-(3) alone still redden nothing, because `main()`'s outer catch-all
-    swallows whatever exception (1)-(3) cause and still exits 0 - part (4)
-    is required for the resulting exception to actually propagate past
-    `main()` as a nonzero process exit code. Confirmed failing pre-fix
+    (1)-(3) alone still redden nothing in *this* test, because `main()`'s
+    outer catch-all swallows whatever exception (1)-(3) cause and still
+    exits 0 - part (4) is required for the resulting exception to actually
+    propagate past `main()` as a nonzero process exit code. (Part (1) alone
+    does redden a different test, `test_state_resolution_fails_open_with_no_git_ancestor`
+    - not via a nonzero exit code, but because dropping the
+    `found_git_ancestor` gate makes `_state_path` write a state file that
+    test's own assertion requires to be absent.) Confirmed failing pre-fix
     (i.e. with the mutation applied): rc == 1, not 0."""
     tmp = tempfile.mkdtemp()
     nonexistent = str(Path(tmp) / "does" / "not" / "exist")
