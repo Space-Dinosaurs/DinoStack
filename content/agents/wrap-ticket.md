@@ -1,7 +1,7 @@
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md and fire-and-forget spawns the /ds-wrap Part E curation Worker -> Skeptic chain when the gate trips (invisible, no operator-facing output) - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and fire-and-forget spawns the /ds-wrap Part E curation Worker -> Skeptic -> applier chain when the gate trips (invisible, no operator-facing output; the applier acquires the wrap lock itself before writing, or skips) - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -44,7 +44,12 @@ Downstream consumers: /ds-implement-ticket Phase 11b (the conductor reads the JS
                       cluster_results and calls
                       hooks/lib/skill-candidate-deep-cluster.js for any qualifying
                       clusters, never blocks Phase 12 cleanup on wrap-ticket
-                      failure).
+                      failure; also runs the post-return Part E curation-gate
+                      check on root MEMORY.md - conductor-side, not run by this
+                      agent - which is gated OFF entirely when this agent's
+                      return carries skipped_reason: "wrap-lock-contention" or
+                      when the wrap lock is otherwise found held, see "Post-return
+                      Part E curation gate check" below).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -151,7 +156,7 @@ Each entry shape:
 - `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
 - `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
 
-Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
+Store the result as `cluster_results` for inclusion in the Step 7 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
 
 ### 3. Extract candidate facts
 
@@ -202,7 +207,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 #### decisions.md (max 2 entries)
 
-- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 8 return.
+- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 7 return.
 - Format per entry (heading-block):
   ```markdown
   ## YYYY-MM-DD — TICKET_ID — <decision title>
@@ -272,7 +277,9 @@ If nothing was captured because the ticket produced no stable facts, return:
 
 ## Post-return Part E curation gate check (conductor-side, not run by wrap-ticket)
 
-wrap-ticket itself never performs this check - it holds no Bash tool and is a leaf agent (see Rules below: "No subagent spawning"). Instead, after wrap-ticket returns (or is skipped) and after lock release, the CONDUCTOR performs a cheap, invisible gate check as documented in `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check" step: it stats root `MEMORY.md` and reads `.agentic/compression-state.json`, and if the SAME gate `/ds-wrap` Part E uses trips (no prior entry AND size > 2000 bytes, or size >= 1.5x `last_compressed_size_bytes`), it fire-and-forget spawns the `/ds-wrap` Part E curation Worker -> Skeptic chain (`content/commands/ds-wrap.md` Part E steps 1-4) as a background subagent chain. This is soft-fail and never blocks wrap-ticket's return or PR completion - same failure-semantics contract as wrap-ticket's other writes - and produces no operator-facing output.
+wrap-ticket itself never performs this check - it holds no Bash tool and is a leaf agent (see Rules below: "No subagent spawning"). Instead, after wrap-ticket returns (or is skipped) and after lock release, the CONDUCTOR performs a cheap, invisible gate check as documented in `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check" step: it stats root `MEMORY.md` and reads `.agentic/compression-state.json`, and if the gate `/ds-wrap` Part E defines trips (canonical thresholds live there, not restated here), it fire-and-forget spawns the `/ds-wrap` Part E curation Worker -> Skeptic -> applier chain (`content/commands/ds-wrap.md` Part E steps 1-4, including the async-path amendment to step 4) as a background subagent chain. This is soft-fail and never blocks wrap-ticket's return or PR completion - same failure-semantics contract as wrap-ticket's other writes - and produces no operator-facing output.
+
+**Lock safety (Critical fix).** This check is gated OFF entirely - never spawns anything - when wrap-ticket's own return carried `skipped_reason: "wrap-lock-contention"`, or when a quick non-blocking probe shows `.agentic/wrap/lock` currently held by another session. This prevents the async curation chain from ever racing `/ds-wrap` Part B/E, a concurrent ticket's own `wrap-ticket` writer, or Phase 11e's knowledge-commit step. Even when the gate check itself decides to spawn, the write is not guaranteed: the async chain's applier agent (see `content/commands/ds-wrap.md` Part E step 4's async-path amendment) must itself acquire `.agentic/wrap/lock` immediately before backup/overwrite/state-write, and skips the write entirely (soft-fail) if it cannot - the gate simply re-trips on a later PR, since nothing was written this time.
 
 ## Forbidden writes
 

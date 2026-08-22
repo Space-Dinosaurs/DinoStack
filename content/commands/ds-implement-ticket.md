@@ -3199,14 +3199,20 @@ Where `$REPO_CWD` is the absolute project root and the `cluster_results` value f
 
 **Post-return Part E curation gate check (conductor-side, runs AFTER lock release, soft-fail, no operator-facing output):**
 
-wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so it cannot itself stat files or spawn the curation Worker/Skeptic pair. The conductor performs this cheap gate check instead, after wrap-ticket has returned (or been skipped) and after lock release - regardless of whether wrap-ticket itself appended anything this run (prior-session drift alone can trip the gate, matching `/ds-wrap` Part E's own "must still compress" rule):
+wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so it cannot itself stat files or spawn the curation Worker/Skeptic pair. The conductor performs this cheap gate check instead, after wrap-ticket has returned (or been skipped) and after lock release - regardless of whether wrap-ticket itself appended anything this run (prior-session drift alone can trip the gate, matching `/ds-wrap` Part E's own "must still compress" rule).
+
+**Lock-safety preconditions (Critical - checked BEFORE any stat/spawn work below).** Do NOT run this gate check at all - skip silently, no stat, no spawn - if EITHER holds:
+- wrap-ticket's own return this run carried `skipped_reason: "wrap-lock-contention"` (the lock was already known contended a moment ago; spawning now would race whoever holds it).
+- A quick non-blocking probe of `.agentic/wrap/lock` (e.g. `ds-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`, immediately letting go of it again if the probe itself succeeded, or an equivalent lock-file existence check) shows the lock currently held by another session.
+
+These preconditions only reduce the RACE WINDOW - they do not replace the async chain's own lock acquisition at write time (see below); a lock that becomes free after this check but busy again by write time is still handled safely there.
 
 1. Stat `[cwd]/MEMORY.md` (skip this whole step silently if it does not exist) and read `[cwd]/.agentic/compression-state.json` if present.
-2. Apply the SAME gate `/ds-wrap` Part E uses (`content/commands/ds-wrap.md` Part E "Gate"): trip if (a) no prior entry exists for this target AND current size > 2000 bytes, or (b) a prior entry exists AND current size >= 1.5 * `last_compressed_size_bytes`.
+2. Apply the gate `/ds-wrap` Part E defines (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds live there, not restated here).
 3. If the gate does not trip, do nothing - no output, no spawn.
-4. If the gate trips, fire-and-forget spawn the `/ds-wrap` Part E curation Worker -> Skeptic chain (`content/commands/ds-wrap.md` Part E steps 1-4, target = `[cwd]/MEMORY.md`) as background subagents. Do NOT wait for their result before proceeding to Phase 12. Any failure anywhere in this chain (spawn failure, Skeptic escalation, re-route cap reached) is silently swallowed - this step NEVER blocks or delays Phase 12, and produces no operator-facing output on success or failure.
+4. If the gate trips, fire-and-forget spawn the `/ds-wrap` Part E curation Worker -> Skeptic -> applier chain (`content/commands/ds-wrap.md` Part E steps 1-4, target = `[cwd]/MEMORY.md`, including the async-path amendment to step 4 - the applier agent, not the conductor, performs the backup/overwrite/state-write sequence, and acquires `.agentic/wrap/lock` itself immediately beforehand, skipping the write entirely if it cannot acquire it) as background subagents. Do NOT wait for their result before proceeding to Phase 12. Any failure anywhere in this chain (lock unavailable at write time, spawn failure, Skeptic escalation, re-route cap reached) is silently swallowed - this step NEVER blocks or delays Phase 12, and produces no operator-facing output on success or failure. A skipped write here is not a permanent loss: the gate re-trips on a later PR since the file's on-disk state and `compression-state.json` are unchanged.
 
-This step is entirely independent of wrap-ticket's own return value and runs even when wrap-ticket returned `skipped_reason` populated or timed out, as long as Phase 9 opened a PR (i.e. Phase 11b was not skipped outright by its own skip conditions).
+This step is entirely independent of wrap-ticket's own return value (other than the wrap-lock-contention precondition above) and runs even when wrap-ticket returned some other `skipped_reason` or timed out, as long as Phase 9 opened a PR (i.e. Phase 11b was not skipped outright by its own skip conditions).
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
