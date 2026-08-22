@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Claude Code SessionStart wrapper for the deferred-wrap feature. It
-#          composes SEVEN concerns into a single fail-open SessionStart hook:
+#          composes EIGHT concerns into a single fail-open SessionStart hook:
 #          (a) the "newer version available" notice (delegated to the existing
 #          version-check wrapper); (b) a one-line auth-failed notice when the
 #          daemon previously could not authenticate; (c) a one-time migration of
@@ -13,10 +13,16 @@
 #          across adapters, or has moved since the last snapshot sync;
 #          (f) a deferred-work open-count nudge (bin/ds-defer count) for the
 #          Follow-up Ticket Creation Discipline's sink
-#          (.agentic/deferred-work.jsonl); and (g) a worktree-accumulation
+#          (.agentic/deferred-work.jsonl); (g) a worktree-accumulation
 #          nudge (bin/ds-cleanup-worktrees --count-only) when the current
 #          project's non-root worktree count is at or above a small
-#          threshold - REPORT ONLY, this call site never removes a worktree.
+#          threshold - REPORT ONLY, this call site never removes a worktree;
+#          and (h, DS-189 Unit B) an OPT-IN machine-wide worst-project nudge
+#          (bin/ds-cleanup-worktrees --multi-repo --report --count-only
+#          --json --max-repos 20), gated on the presence of
+#          ~/.agentic/cleanup-worktrees.json, that names the single worst
+#          project for stale worktrees across every configured repo when it
+#          differs from the current one and clears the same threshold.
 #          It is the FIRST and only SessionStart registration install.sh
 #          makes; the version-check script is no longer wired directly - it
 #          is invoked from here.
@@ -64,14 +70,30 @@
 #                is likewise fail-open: an unresolvable bin/ds-defer, a
 #                nonzero exit, or non-numeric output all degrade silently to
 #                an empty message piece (`2>/dev/null || true`), never a
-#                blocked session. The worktree-accumulation nudge is likewise
-#                fail-open: an unresolvable bin/ds-cleanup-worktrees, a nonzero
-#                exit, unparsable summary output, or a non-git `cwd` all
-#                degrade silently to an empty message piece, never a blocked
-#                session - and this call site NEVER removes a worktree
-#                regardless of the count (report-only; removal remains
-#                operator-invoked via `/ds-cleanup-worktrees` or a bare
-#                `ds-cleanup-worktrees` with no --dry-run).
+#                blocked session. The worktree-accumulation nudge (DS-189
+#                Unit B: two failure classes, deliberately NOT symmetric)
+#                degrades SILENTLY when DS_CLEANUP_BIN is unresolved (very
+#                common in the deployed hooks-snapshot layout, per the
+#                Upstream deps note below - no error, this is steady state)
+#                or when `cwd` is not inside a git work tree (nothing to
+#                report on). It surfaces a VISIBLE message naming the exit
+#                code ONLY when the binary IS resolved, `cwd` IS a git work
+#                tree, and the subprocess itself genuinely fails - that
+#                combination is an actionable signal, not noise. This call
+#                site NEVER removes a worktree regardless of the count
+#                (report-only; removal remains operator-invoked via
+#                `/ds-cleanup-worktrees` or a bare `ds-cleanup-worktrees`
+#                with no --dry-run). The machine-wide worst-project nudge
+#                (DS-189 Unit B, opt-in) is fully fail-open on every path:
+#                absent ~/.agentic/cleanup-worktrees.json, unresolved
+#                DS_CLEANUP_BIN, exit code outside {0,1} (this includes the
+#                usage-error exit 2 a freshly-scaffolded EMPTY --init-config
+#                skeleton produces - by design, so an empty config yields
+#                silence rather than a failing call every session), a
+#                timeout, or unparsable JSON output all degrade silently to
+#                no message piece - never a blocked session, and never a
+#                mutation (the entire call chain is --count-only/--report,
+#                structurally read-only).
 #                There is NO stale-sweep (CRITICAL-A): this script never
 #                promotes a marker, it only relocates old-layout artifacts once
 #                per project, self-heals the sentinel, and conditionally launches
@@ -97,8 +119,17 @@
 #              --repo <repo> --count-only` - see bin/ds-cleanup-worktrees's own
 #              `--count-only` flag description for the mechanism), runs on
 #              EVERY session start for EVERY project, same cadence as the
-#              deferred-work nudge, and at most one detached daemon spawn
-#              that the hook never waits on.
+#              deferred-work nudge, plus (DS-189 Unit B) at most one
+#              additional `--multi-repo --report --count-only --json
+#              --max-repos 20` subprocess for the machine-wide nudge -
+#              OPT-IN (skipped entirely when ~/.agentic/cleanup-worktrees.json
+#              is absent, the common case), and bounded even when it does
+#              run: `--max-repos 20` caps per-repo git-call cost regardless
+#              of config size, and a `timeout`/`gtimeout` 5s wrapper bounds
+#              wall-clock when coreutils timeout is available (degrades to
+#              the --max-repos bound alone, no wall-clock cap, on stock
+#              macOS without Homebrew) - and at most one detached daemon
+#              spawn that the hook never waits on.
 
 set -euo pipefail
 
@@ -344,6 +375,27 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # NOT include the rest of bin/, so DS_CLEANUP_BIN is very commonly absent
   # there and this nudge silently degrades to empty, same as ds-defer's own
   # `command -v ds-defer` fallback comment explains above.
+  #
+  # DS-189 Unit B: two-failure-class handling, decided (do not deviate):
+  #   - DS_CLEANUP_BIN unresolved (the common case per the comment above,
+  #     since the deployed hooks-snapshot layout omits the rest of bin/) ->
+  #     SILENT. Not an error - it's the expected steady state on most
+  #     machines and install.sh never mentions this binary.
+  #   - $cwd is not inside a git work tree -> SILENT. Not an error either -
+  #     nothing worktree-shaped exists to report on.
+  #   - DS_CLEANUP_BIN resolved AND $cwd is a git work tree AND the
+  #     subprocess itself genuinely fails (nonzero exit, or output that
+  #     doesn't parse) -> VISIBLE, names the exit code, points at the
+  #     direct command to diagnose. This is the only branch that was
+  #     silent before DS-189 and is now surfaced, since a resolved binary
+  #     failing inside a real repo is an actionable signal, not noise.
+  #
+  # Every command substitution below follows `rc=0; out="$(cmd)" || rc=$?`
+  # rather than a bare `var="$(cmd)"` - this hook runs under `set -euo
+  # pipefail` (see the header contract near the top of this file) and is
+  # fail-open by design; a bare substitution would abort the whole hook on
+  # any nonzero exit, and a `$?` check on the FOLLOWING line is unreachable
+  # once `set -e` has already exited the script on the substitution itself.
   worktree_msg=""
   WORKTREE_NUDGE_THRESHOLD=5
   if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-cleanup-worktrees" ]]; then
@@ -353,20 +405,88 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
     DS_CLEANUP_BIN="$(command -v ds-cleanup-worktrees)"
   fi
   if [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
-    # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
-    # is needed here (N includes the main worktree, so the non-root count
-    # is N-1) - zero network calls, zero per-entry `git` calls beyond the
-    # single `git worktree list --porcelain` --count-only itself needs.
-    # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
-    # the live checkout because --no-gh suppressed `gh` but NOT `git
-    # ls-remote`, one network round-trip per entry - this call site never
-    # needed anything beyond a count, so it never needed that cost.
-    cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null || true)"
-    if [[ "$cleanup_summary" =~ entries=([0-9]+) ]]; then
-      total_entries="${BASH_REMATCH[1]}"
-      nonroot_count=$((total_entries - 1))
-      if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
-        worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
+    if git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      # `--count-only` (round-2 Skeptic Major 4): only the `entries=N` count
+      # is needed here (N includes the main worktree, so the non-root count
+      # is N-1) - zero network calls, zero per-entry `git` calls beyond the
+      # single `git worktree list --porcelain` --count-only itself needs.
+      # v1's `--dry-run --no-gh` full-mode invocation measured 14.94s against
+      # the live checkout because --no-gh suppressed `gh` but NOT `git
+      # ls-remote`, one network round-trip per entry - this call site never
+      # needed anything beyond a count, so it never needed that cost.
+      cleanup_rc=0
+      cleanup_summary="$(python3 "$DS_CLEANUP_BIN" --repo "$cwd" --count-only 2>/dev/null)" || cleanup_rc=$?
+      if [[ $cleanup_rc -ne 0 ]] || [[ ! "$cleanup_summary" =~ entries=([0-9]+) ]]; then
+        worktree_msg="worktree-count check failed unexpectedly (ds-cleanup-worktrees exited ${cleanup_rc}) - see \`ds-cleanup-worktrees --repo . --count-only\` directly to diagnose."
+      else
+        total_entries="${BASH_REMATCH[1]}"
+        nonroot_count=$((total_entries - 1))
+        if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
+          worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
+        fi
+      fi
+    fi
+    # else: cwd is not inside a git work tree - silently skip, not an error.
+  fi
+
+  # --- Machine-wide worst-project nudge (6th contributor, DS-189 Unit B).
+  # Opt-in: gated on the PRESENCE of ~/.agentic/cleanup-worktrees.json
+  # (scaffolded by `ds-cleanup-worktrees --init-config`, Unit A) - an
+  # operator who has never run --init-config gets nothing extra here, same
+  # silence as before this unit shipped. Bounded cost when it does run:
+  # `--max-repos 20` (Unit A) caps per-repo git-call cost regardless of how
+  # many repos the config lists, and a 5s `timeout`/`gtimeout` wrapper
+  # bounds wall-clock when coreutils timeout is available; stock macOS
+  # (no Homebrew) has neither binary, so this degrades to running the same
+  # bounded (--max-repos 20) call WITHOUT a wall-clock cap rather than
+  # disabling the nudge outright - --max-repos already bounds subprocess
+  # count on that path, just not wall-clock per call.
+  #
+  # Exit-code gate accepts rc 0 or 1 only (0 = clean report, 1 = some
+  # per-repo errors but rows still populated - see `_run_report`'s return
+  # value). rc=2 is the usage-error/no-repos-discovered code, which is ALSO
+  # what an operator gets from a freshly-scaffolded EMPTY `--init-config`
+  # skeleton (`{"roots": [], "repos": []}`, empty stdout) - this is the
+  # intended resolution for the empty-config deadlock: silence on an
+  # unpopulated config, not a failing call every session. rc=124 (timeout),
+  # 126/127 (python3 missing) also go silent by construction under this
+  # same rc-0-or-1 gate.
+  machine_worktree_msg=""
+  if [[ -f "$HOME/.agentic/cleanup-worktrees.json" ]] && [[ -n "${DS_CLEANUP_BIN:-}" ]]; then
+    TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+    multi_rc=0
+    if [[ -n "$TIMEOUT_BIN" ]]; then
+      multi_summary="$("$TIMEOUT_BIN" 5 python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
+    else
+      # No coreutils timeout (stock macOS): degrade to --max-repos-only cost
+      # bounding rather than disabling the machine-wide nudge (works without
+      # Homebrew).
+      multi_summary="$(python3 "$DS_CLEANUP_BIN" --multi-repo --report --count-only --json --max-repos 20 2>/dev/null)" || multi_rc=$?
+    fi
+    if [[ $multi_rc -eq 0 || $multi_rc -eq 1 ]] && [[ -n "$multi_summary" ]]; then
+      worst_repo_rc=0
+      worst_repo_line="$(python3 -c "
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except (ValueError, TypeError):
+    sys.exit(0)
+rows = d.get('rows') or []
+if rows:
+    print(f\"{rows[0]['repo']}|{rows[0]['nonroot_worktrees']}|{1 if d.get('truncated') else 0}\")
+" "$multi_summary" 2>/dev/null)" || worst_repo_rc=$?
+      if [[ $worst_repo_rc -eq 0 ]] && [[ -n "$worst_repo_line" ]]; then
+        worst_repo_path="$(cut -d'|' -f1 <<<"$worst_repo_line")"
+        worst_repo_count="$(cut -d'|' -f2 <<<"$worst_repo_line")"
+        worst_repo_truncated="$(cut -d'|' -f3 <<<"$worst_repo_line")"
+        cwd_toplevel="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+        if [[ "$worst_repo_count" =~ ^[0-9]+$ ]] && [[ "$worst_repo_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]] && [[ "$worst_repo_path" != "$cwd_toplevel" ]]; then
+          if [[ "$worst_repo_truncated" == "1" ]]; then
+            machine_worktree_msg="Largest stale-worktree count among the first 20 scanned repos (config lists more than 20 - machine-wide worst may be higher): ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
+          else
+            machine_worktree_msg="Worst project for stale worktrees machine-wide: ${worst_repo_path} (${worst_repo_count} non-root worktrees) - run \`ds-cleanup-worktrees --repo '${worst_repo_path}' --dry-run --explain\` there."
+          fi
+        fi
       fi
     fi
   fi
@@ -377,6 +497,7 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   [[ -n "$staleness_msg" ]] && parts+=("$staleness_msg")
   [[ -n "$defer_msg" ]] && parts+=("$defer_msg")
   [[ -n "$worktree_msg" ]] && parts+=("$worktree_msg")
+  [[ -n "$machine_worktree_msg" ]] && parts+=("$machine_worktree_msg")
   if [[ ${#parts[@]} -gt 0 ]]; then
     sep=""
     for part in "${parts[@]}"; do
