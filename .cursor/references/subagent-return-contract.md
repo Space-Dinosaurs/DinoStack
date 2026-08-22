@@ -324,12 +324,15 @@ summary:
   block - only the FIRST fenced return block in the `### N. Return`
   section is checked, so the second ("if nothing was captured") block
   keeps its concrete illustrative form unchanged. `wrap-ticket.md` (final
-  unit) closed all eight gaps the same way: `memory_md_appends`
+  unit) closed all seven gaps the same way: `memory_md_appends`
   (`capped at 3 items`), `decisions_md_appends` (`capped at 2 items`),
   `writer_actions` (`capped at 6 items`), and `cluster_results`
   (`capped at 5 items`) each carry an inline numeric cap;
-  `context_md_recent_focus_addition` and `size_advisory` each carry an
-  explicit `capped at 500 chars`/one-line-marker bound;
+  `context_md_recent_focus_addition` carries an
+  explicit `capped at 500 chars` bound (the field count dropped from
+  eight to seven when `size_advisory` was later retired - DS-188, see
+  `content/commands/ds-wrap.md` Part E's entry-level curation, which
+  replaced the size-advisory nudge);
   `skipped_reason` declares `null | "zero-substance" |
   "wrap-lock-contention"` as its own value (the three reasons the agent
   itself emits - `"trivial-no-brief"` is set by the conductor before

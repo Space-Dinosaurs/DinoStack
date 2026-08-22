@@ -7942,12 +7942,15 @@ summary:
   block - only the FIRST fenced return block in the `### N. Return`
   section is checked, so the second ("if nothing was captured") block
   keeps its concrete illustrative form unchanged. `wrap-ticket.md` (final
-  unit) closed all eight gaps the same way: `memory_md_appends`
+  unit) closed all seven gaps the same way: `memory_md_appends`
   (`capped at 3 items`), `decisions_md_appends` (`capped at 2 items`),
   `writer_actions` (`capped at 6 items`), and `cluster_results`
   (`capped at 5 items`) each carry an inline numeric cap;
-  `context_md_recent_focus_addition` and `size_advisory` each carry an
-  explicit `capped at 500 chars`/one-line-marker bound;
+  `context_md_recent_focus_addition` carries an
+  explicit `capped at 500 chars` bound (the field count dropped from
+  eight to seven when `size_advisory` was later retired - DS-188, see
+  `content/commands/ds-wrap.md` Part E's entry-level curation, which
+  replaced the size-advisory nudge);
   `skipped_reason` declares `null | "zero-substance" |
   "wrap-lock-contention"` as its own value (the three reasons the agent
   itself emits - `"trivial-no-brief"` is set by the conductor before
@@ -13307,7 +13310,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). After it returns, the conductor runs a cheap Part E curation-gate check on root MEMORY.md - skipped entirely on a wrap-lock-contention skipped_reason or a held wrap lock - and spawns the /ds-wrap Part E curation Worker when the gate trips (invisible, no operator-facing output); on Worker completion the conductor spawns the Skeptic and, on sign-off, the conductor itself performs the write under the wrap lock, the same as it does on the synchronous /ds-wrap path - see the "Post-return Part E curation gate check" step in content/commands/ds-implement-ticket.md Phase 11b. Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -13325,7 +13328,7 @@ Public API: Spawn brief contract documented in "Reading your spawn prompt" below
             pr_url, conversation_summary, learnings_extracted. Returns a JSON object
             with fields: memory_md_appends[], decisions_md_appends[],
             context_md_recent_focus_addition, operator_summary, writer_actions[],
-            skipped_reason, size_advisory,
+            skipped_reason,
             cluster_results: [{domain, exampleNote, suggestedArtifact?}] (always
             present; empty array when nothing qualifies or skill_candidate_detection
             is off),
@@ -13347,7 +13350,12 @@ Downstream consumers: /ds-implement-ticket Phase 11b (the conductor reads the JS
                       cluster_results and calls
                       hooks/lib/skill-candidate-deep-cluster.js for any qualifying
                       clusters, never blocks Phase 12 cleanup on wrap-ticket
-                      failure).
+                      failure; also runs the post-return Part E curation-gate
+                      check on root MEMORY.md - conductor-side, not run by this
+                      agent - which is gated OFF entirely when this agent's
+                      return carries skipped_reason: "wrap-lock-contention" or
+                      when the wrap lock is otherwise found held, see "Post-return
+                      Part E curation gate check" below).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -13425,7 +13433,6 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
   "operator_summary": "Phase 11b skipped: wrap-lock-contention (likely /ds-wrap running concurrently).",
   "writer_actions": [],
   "skipped_reason": "wrap-lock-contention",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
@@ -13455,7 +13462,7 @@ Each entry shape:
 - `exampleNote` (required): one sentence describing the concrete instance observed in this ticket.
 - `suggestedArtifact` (optional): one of `command|named-agent|preset|lint-rule`.
 
-Store the result as `cluster_results` for inclusion in the Step 8 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
+Store the result as `cluster_results` for inclusion in the Step 7 return JSON. The conductor (which has Bash) picks up `cluster_results` after this agent returns and calls the deep-cluster helper.
 
 ### 3. Extract candidate facts
 
@@ -13506,7 +13513,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 
 #### decisions.md (max 2 entries)
 
-- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 8 return.
+- Path: resolved per Step 4. The resolved path is exposed to the conductor via `resolved_paths.decisions_md` in the Step 7 return.
 - Format per entry (heading-block):
   ```markdown
   ## YYYY-MM-DD — TICKET_ID — <decision title>
@@ -13529,21 +13536,11 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Cap at 1 paragraph per run.**
 - **Dedup:** if any existing paragraph in `## Recent Focus` already contains `[Ticket TICKET_ID]` for this same ticket id, skip the append (the same ticket should not produce two paragraphs).
 
-### 6. MEMORY.md size advisory
-
-After writing, stat MEMORY.md. If its byte size exceeds 50 KB (51200 bytes), populate `size_advisory` in the return JSON with:
-
-```
-"MEMORY.md exceeds 50 KB (current size: <N> bytes); consider /wrap-driven consolidation."
-```
-
-Otherwise leave `size_advisory: null`.
-
-### 7. Release the lock
+### 6. Release the lock
 
 The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
-### 8. Return
+### 7. Return
 
 Return the JSON object below as the agent's output. The conductor parses it and prints `operator_summary` to the user.
 
@@ -13555,7 +13552,6 @@ Return the JSON object below as the agent's output. The conductor parses it and 
   "operator_summary": "<one-line human-readable summary of what was captured>",
   "writer_actions": ["capped at 6 items: '<file path>: appended <N> entries'", ...],
   "skipped_reason": null | "zero-substance" | "wrap-lock-contention",
-  "size_advisory": "<one-line advisory text, or null>",
   "cluster_results": ["capped at 5 items: {domain: <slug>, exampleNote: <one-line sentence>}", ...],
   "resolved_paths": {
     "memory_md": <path, or null>
@@ -13568,6 +13564,8 @@ Return the JSON object below as the agent's output. The conductor parses it and 
 
 `cluster_results` is always present (empty array `[]` when nothing qualifies or the gate is off). The conductor reads this field after wrap-ticket returns and calls the deep-cluster helper with it (Phase 11b post-return step). wrap-ticket itself never calls node or Bash - the field is a pure reasoning output.
 
+**MEMORY.md size is no longer surfaced as an operator-facing advisory.** The old `size_advisory` field (a "consider /wrap-driven consolidation" nudge above 50 KB) is retired - it was an operator-attention tax for a problem the curation mechanism below now handles invisibly. See "Post-return Part E curation gate check" below.
+
 If nothing was captured because the ticket produced no stable facts, return:
 
 ```json
@@ -13578,11 +13576,16 @@ If nothing was captured because the ticket produced no stable facts, return:
   "operator_summary": "No durable learnings captured from this ticket.",
   "writer_actions": [],
   "skipped_reason": "zero-substance",
-  "size_advisory": null,
   "cluster_results": [],
   "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
+
+## Post-return Part E curation gate check (conductor-side, not run by wrap-ticket)
+
+wrap-ticket itself never performs this check - it holds no Bash tool and is a leaf agent (see Rules below: "No subagent spawning"). Instead, after wrap-ticket returns (or is skipped) and after lock release, the CONDUCTOR performs a cheap, invisible gate check as documented in `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check" step: it stats root `MEMORY.md` and reads `.agentic/compression-state.json`, and if the gate `/ds-wrap` Part E defines trips (canonical thresholds live there, not restated here), it spawns the `/ds-wrap` Part E curation Worker (background) and proceeds immediately to Phase 12. **There is no separate agent for the write** - the CONDUCTOR owns the entire chain end to end and is the writer on this path exactly as it is on the synchronous `/ds-wrap` path: on the Worker's completion notification it spawns the Skeptic, and on sign-off (or after the existing re-route loop) the conductor itself performs the write (`content/commands/ds-wrap.md` Part E step 4's async-path amendment). This is soft-fail and never blocks wrap-ticket's return or PR completion - same failure-semantics contract as wrap-ticket's other writes - and produces no operator-facing output.
+
+**Lock safety.** This check is gated OFF entirely - never spawns the Worker - when wrap-ticket's own return carried `skipped_reason: "wrap-lock-contention"`, or when a READ-ONLY existence check of `.agentic/wrap/lock` shows it currently present (no acquire-then-release probe - a race in this cheap check is harmless, since the real, authoritative acquisition happens later at write time; see below). This reduces, but does not need to eliminate, the race window against `/ds-wrap` Part B/E, a concurrent ticket's own `wrap-ticket` writer, or Phase 11e's knowledge-commit step. Even when the gate check decides to spawn, the write is not guaranteed: the conductor must itself acquire `.agentic/wrap/lock` immediately before backup/overwrite/state-write at step 4, and skips the write entirely (soft-fail) if it cannot; it must also re-stat the target file against the Worker's read-time snapshot and discard the draft if the file changed underneath it (the staleness guard - see `content/commands/ds-wrap.md` Part E step 4's async-path amendment). Either way the gate simply re-trips on a later PR, since nothing was written this time.
 
 ## Forbidden writes
 
@@ -18749,7 +18752,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 **Failure semantics:**
 
 - `wrap-ticket` failure NEVER blocks Phase 12 cleanup or PR completion. Soft-fail with a warning line printed to the operator.
-- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user. If `size_advisory` is non-null, print it as a separate line.
+- If `wrap-ticket` returns within 60s with a valid JSON shape: conductor parses the JSON and prints `operator_summary` to the user.
 - If `wrap-ticket` returns within 60s but the output is not parseable as JSON: conductor warns the operator (`"Phase 11b: wrap-ticket return was not valid JSON; proceeding without learnings capture."`) and proceeds.
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
@@ -18775,6 +18778,23 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 ```
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
+
+**Post-return Part E curation gate check (conductor-side, runs AFTER lock release, soft-fail, no operator-facing output):**
+
+wrap-ticket has no Bash tool and is a leaf agent (see `content/agents/wrap-ticket.md` Rules: "No subagent spawning"), so it cannot itself stat files or spawn the curation Worker/Skeptic pair. The conductor performs this cheap gate check instead, after wrap-ticket has returned (or been skipped) and after lock release - regardless of whether wrap-ticket itself appended anything this run (prior-session drift alone can trip the gate, matching `/ds-wrap` Part E's own "must still compress" rule).
+
+**Lock-safety precondition (checked BEFORE any stat/spawn work below).** Do NOT run this gate check at all - skip silently, no stat, no spawn - if EITHER holds:
+- wrap-ticket's own return this run carried `skipped_reason: "wrap-lock-contention"` (the lock was already known contended a moment ago; spawning now would race whoever holds it).
+- A READ-ONLY existence check of `.agentic/wrap/lock` (e.g. `test -d "$REPO/.agentic/wrap/lock"` or equivalent - no acquire, no release) shows the lock directory currently present.
+
+This precondition is a cheap, best-effort narrowing of the race window, not the authoritative safety mechanism - a race here is harmless, because the real, binding lock acquisition happens later, at write time (step 4 below), and that acquisition is what actually prevents a concurrent write. A stale-but-quick existence check is deliberately preferred over an acquire-then-release probe: acquiring a lock this check has no intention of holding just to immediately release it adds a failed-release failure mode for zero additional safety, since write-time acquisition is authoritative regardless.
+
+1. Stat `[cwd]/MEMORY.md` (skip this whole step silently if it does not exist) and read `[cwd]/.agentic/compression-state.json` if present.
+2. Apply the gate `/ds-wrap` Part E defines (`content/commands/ds-wrap.md` Part E "Gate" - canonical thresholds live there, not restated here).
+3. If the gate does not trip, do nothing - no output, no spawn.
+4. If the gate trips, spawn the `/ds-wrap` Part E curation Worker (`content/commands/ds-wrap.md` Part E step 1, target = `[cwd]/MEMORY.md`) as a background subagent, and proceed immediately to Phase 12 without waiting. **The conductor owns the entire async chain end to end - there is no separate agent for the write.** On the Worker's completion notification (whenever it arrives in the session, possibly turns later), the conductor spawns the Part E Skeptic (step 2); on sign-off, or after the existing up-to-3 re-route loop (step 3), the CONDUCTOR ITSELF performs step 4 - backup, overwrite, and the 4(e) `compression-state.json` update - exactly as `content/commands/ds-wrap.md` Part E's "Async-path amendment" describes, including acquiring `.agentic/wrap/lock` immediately beforehand (skipping the entire write if it cannot acquire it) and the staleness guard (discarding the curated draft if the target file's size/mtime no longer matches the Worker's read-time snapshot). Any failure anywhere in this chain (lock unavailable at write time, staleness mismatch, spawn failure, Skeptic escalation, re-route cap reached) is silently swallowed - none of this step ever blocks or delays Phase 12, and it produces no operator-facing output on success or failure. If the session ends before the chain reaches step 4, nothing is written and the gate simply re-trips on a later PR - this is deferred work, not a lost update.
+
+This step is entirely independent of wrap-ticket's own return value (other than the wrap-lock-contention precondition above) and runs even when wrap-ticket returned some other `skipped_reason` or timed out, as long as Phase 9 opened a PR (i.e. Phase 11b was not skipped outright by its own skip conditions).
 
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
@@ -23259,7 +23279,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | Part B target | `.agentic/memory.md` (staging), NOT root `MEMORY.md` - no Skeptic and no Part E on this path |
 | Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
 | Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
-| Part E compression | omitted |
+| Part E compression | omitted - `.agentic/memory.md`, the one Part E target this daemon path writes, is picked up and curated by the next synchronous `/ds-wrap` Part E gate check (`wrap-ticket`'s own gate check only covers root `MEMORY.md`, a file this daemon path never writes), never curated in-daemon here |
 | `gh pr` open-PR enumeration | omitted |
 | staging-overflow signal | when `.agentic/memory.md` holds more than 9 entries (3 x the drain cap, `bin/tests/drain_model.py` `CAP = 3`) at the end of Step 3, emit a `_wrap.md` "Watch Out For" bullet: "staging holds <N> entries - run /ds-wrap to drain them into MEMORY.md." This is the only human-reaching signal for a daemon-only project, which never runs a synchronous wrap. |
 | Step 5 `/ds-cleanup-worktrees` | omitted |
@@ -23879,7 +23899,11 @@ rm -f "$FEEDBACK_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `ds-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
 
-**Part E — Compress always-loaded memory files**
+**Part E — Curate and compress always-loaded memory files**
+
+Part E does two things in one pass: token-density compression (unchanged from prior behavior) AND entry-level curation - deduplication, stale-claim verification, and pointer-compression of learnings-backed entries. Curation is invisible to the operator: it runs inside the same Worker+Skeptic+backup machinery below, gated by the same size gate, with no separate operator-facing output.
+
+**Cost accepted (Pillar 8).** This mechanism adds a 6-label classification taxonomy, a positive-match citation regime for every deletion/merge, a second (async, Phase 11b-triggered) execution path with its own lock-acquisition step, and 3 new `compression-state.json` fields - real machinery, not free. It is accepted against the failure it catches: always-loaded memory files accumulate redundant and stale entries over time, and every byte of that accumulation is per-session resident cost paid by every future session. Retirement condition: if a future memory architecture removes the always-loaded `MEMORY.md` tier entirely, this curation pass retires with it.
 
 Skip Part E only if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates) **AND no target below is over its size gate** - citing `bin/tests/reach_model.py` invariant R2: a target that crossed its gate from prior-session drift, with no Part B/C change this session, must still be compressed. Part A always writes `_wrap.md` and is not a signal of session-meaningful change (and `_wrap.md` is not a Part E target - see below).
 
@@ -23898,7 +23922,10 @@ Skip any target that does not exist.
           "last_compressed_size_bytes": <int>,
           "last_compressed_at": "<YYYY-MM-DD>",
           "original_backup_path": "<absolute path to FILE.original.md>",
-          "rolling_snapshots": ["<absolute path to FILE.pre-YYYY-MM-DD-HHMMSS.md>", ...]
+          "rolling_snapshots": ["<absolute path to FILE.pre-YYYY-MM-DD-HHMMSS.md>", ...],
+          "entries_deleted_last_run": <int, optional - absent or 0 when never curated>,
+          "entries_merged_last_run": <int, optional - absent or 0 when never curated>,
+          "entries_converted_to_pointer_last_run": <int, optional - absent or 0 when never curated>
         }
       }
     }
@@ -23911,48 +23938,79 @@ If the file does not exist, treat all targets as never-compressed.
 
 Otherwise skip that target silently.
 
-**For each target that passes the gate:**
+**For each target that passes the gate:** Steps 1-3 below run identically on both the synchronous `/ds-wrap` path and the async Phase 11b path (`content/agents/wrap-ticket.md` "Post-return Part E curation gate check", `content/commands/ds-implement-ticket.md` Phase 11b). Step 4 diverges - see the "Async-path amendment" inside step 4 below.
 
-1. Spawn a dedicated background Worker (general-purpose) with this brief verbatim:
+1. Spawn a dedicated background curation Worker (general-purpose) with this brief verbatim:
 
-   > You are a compression Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start. Hard constraints, no exceptions:
+   > You are a curation Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start, AND curate its entries per the classification rules below. Hard constraints, no exceptions:
    > - Preserve every technical fact, decision, gotcha, and rationale. If you are not certain a phrase is filler, keep it.
    > - Never alter: file paths, absolute or relative; shell commands; environment variable names; version numbers; dates; URLs; project names; person names; flag names; function/identifier names; quoted strings; code blocks; markdown links.
    > - **Self-policy exception:** when the target file is `content/commands/ds-wrap.md` itself, never alter this command's own routing statements (trigger criteria, skip tests, gate conditions, route/procedure names) - a scoped exception applies only to correcting a numeric figure the Worker can independently verify (e.g. a stale byte count), never to rewording a conditional.
-   > - Never merge or collapse two bullet entries that have distinct dates, distinct timestamps, or distinct dated headings - even if their text appears similar. Each dated entry is a separate fact and must remain its own bullet.
+   > - Entries may be merged ONLY when classified TRUE_DUPLICATE (a near-identical restatement of the same fact, confirmed by semantic read, not substring match) or SUPERSEDED_MERGE (a later entry's own prose supersedes, extends, or corrects an earlier one). A merged entry MUST retain every distinct date from both originals and MUST NOT drop any fact unique to either original. A merge that would drop a distinguishing fact is forbidden - fall back to AMBIGUOUS (no action) instead.
    > - You may: drop articles (a/an/the), drop hedging (just/really/basically), collapse multi-sentence prose into fragments, replace verbose connectors with punctuation, merge bullet sub-points when the meaning is identical AND neither bullet carries a date or timestamp.
    > - You must: keep the markdown structure intact (headings, list nesting, code fences). Keep section headings byte-identical so future readers can locate facts.
-   > - Output the rewritten file content only. No commentary.
+   > - **Output exactly two blocks, nothing else:** (1) the rewritten file content, (2) a structured classification report (label, action, citation - see below) for every entry you acted on. No prose commentary outside those two blocks.
+   >
+   > **Curation inputs (in addition to the target file content below):** the content of `.agentic/learnings.md` (or targeted grep results against it if the full file is large), plus live-tree Read/Grep/Bash re-verification for any entry carrying a temporal or live-state claim (cues: "currently", "now", "as of", "is broken/fixed/pending", "TODO", or an unqualified present-tense claim about repo state).
+   >
+   > **Per-entry classification.** For every entry you act on (merge, rewrite, or delete), classify it as exactly one of:
+   > - `CONDUCTOR_BEHAVIORAL` - keep, compress-only, no other action.
+   > - `LEARNINGS_BACKED` - rewrite to a one-line pointer in the form `- **YYYY-MM-DD:** [<id>] <one-line hook>`.
+   > - `STALE_VERIFIED_FALSE` - the entry's claim is currently false. You MUST cite two things: (1) the exact file/line or command output that PROVES the original claim false (e.g. "read content/foo.md:12, no longer matches" or a command's actual output), and (2) a sole-copy grep against `.agentic/learnings.md` plus tracked `AGENTS.md` files. If that grep FINDS a matching counterpart line (cite it - the exact grep command and the matching line), the fact is preserved elsewhere and you may delete the entry. If the grep finds NOTHING (the entry is the SOLE copy of the fact anywhere), do NOT delete it - instead rewrite it in place to a one-line RESOLVED tombstone: `- **YYYY-MM-DD RESOLVED <today>:** <original one-line summary> - <what changed, cite file/PR if found>`.
+   > - `TRUE_DUPLICATE` - merge into the earliest entry, list all dates, delete the redundant later copy. Cite the exact grep/read command and the matching earlier-entry text establishing the duplication.
+   > - `SUPERSEDED_MERGE` - a later entry's own prose supersedes, extends, or corrects an earlier one; merge into the later entry, list all dates, delete the redundant earlier copy. This label requires a TWO-PART citation to satisfy the POSITIVE-match rule below: (a) the later entry's own superseding language (quote the exact sentence that supersedes/extends/corrects), AND (b) an explicit fact-by-fact mapping showing every unique fact in the removed earlier entry has a destination in the merged result (e.g. "earlier entry's fact X -> now covered by merged sentence Y"). If any unique fact in the earlier entry has no destination in (b), the merge is FORBIDDEN - do not merge; fall back to `AMBIGUOUS` instead.
+   > - `AMBIGUOUS` - leave untouched. This is the conservative default: when in doubt, classify AMBIGUOUS and take no action.
+   >
+   > **Deletion citation requirement - POSITIVE match only.** No deletion without a cited POSITIVE match: for every entry you delete (only possible under `STALE_VERIFIED_FALSE` with a found counterpart, the redundant copy under `TRUE_DUPLICATE`, or the redundant copy under `SUPERSEDED_MERGE`), your return must cite the POSITIVE match required by that entry's label - for `STALE_VERIFIED_FALSE`/`TRUE_DUPLICATE`, the exact grep/read command AND the matching counterpart line or text it found (in `.agentic/learnings.md`, a tracked `AGENTS.md`, or the duplicating entry itself); for `SUPERSEDED_MERGE`, the two-part citation defined under that label above (the superseding language is what satisfies POSITIVE-match here, not a grep - there is no grep for "this entry's own later revision"). An EMPTY or negative grep result is never grounds for deletion under `STALE_VERIFIED_FALSE`/`TRUE_DUPLICATE` - it means sole-copy, and the entry must instead take the `STALE_VERIFIED_FALSE` RESOLVED-tombstone path (rewrite in place, never delete).
+   >
+   > **Classification report block.** List, for every entry you acted on: its classification label, the action taken, and the full citation required above (for `STALE_VERIFIED_FALSE`: both the falsity proof and the positive-match grep result or its absence; for `TRUE_DUPLICATE`: the positive-match citation; for `SUPERSEDED_MERGE`: both parts of its two-part citation - the superseding language AND the fact-by-fact mapping). Also report, once, the exact byte size and mtime of the target file you read at spawn time (the "read-time snapshot"): on the async Phase 11b path, the conductor compares this against the file's state at write time before applying your draft; on the synchronous `/ds-wrap` path nothing currently consumes it. Report it unconditionally either way - this field makes no path-specific claim.
    >
    > File content:
    > [paste full file content]
 
-2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the original file content and the compressed draft:
+2. When the curation Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed/curated draft plus the Worker's per-entry classification report; field 7 (conductor spawn brief) is `n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)`), then the original file content and the compressed/curated draft:
 
-   > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
+   > You are reviewing a memory-file compression and curation pass for fact loss and unsafe deletion. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
    >
    > Walk the original file section by section. For each fact, locate it in the compressed file. Classify any discrepancy:
    > - Critical: a path/command/date/version/URL/identifier was altered, dropped, or invented.
    > - Critical: a decision, gotcha, or rationale was dropped or its meaning changed.
+   > - Critical: an entry was deleted or merged without a cited, independently re-run POSITIVE-match grep result (the exact command AND the matching counterpart line or superseding text it found). An empty/negative grep result never justifies a deletion - a Worker citing one as grounds for deletion is itself a Critical finding.
+   > - Critical: a `STALE_VERIFIED_FALSE` claim was acted on without you independently re-opening the same file/line or re-running the same command the Worker cited as proof the claim is false.
+   > - Critical: a `SUPERSEDED_MERGE` was acted on without independently verifying BOTH parts of its required citation: (1) re-read the later entry and confirm its prose genuinely supersedes/extends/corrects the earlier one as claimed, AND (2) re-check the fact-by-fact mapping - walk every unique fact of the removed earlier entry and confirm each has a real destination in the merged result. Any unmapped fact (a fact the mapping claims is covered but is not actually present in the merged text, or a fact the mapping omits entirely) is a Critical finding - overrule the merge back to keep-as-is.
    > - Major: structural - a heading was renamed or a section was merged in a way that obscures lookup.
+   > - Major: an `AMBIGUOUS`-classified entry was acted on (merged, rewritten, or deleted) rather than left untouched.
    > - Minor: stylistic regressions only.
    >
-   > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
+   > You may overrule any DELETE or MERGE action back to keep-as-is or keep-as-pointer. The default on any doubt is keep - never delete.
+   >
+   > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output, independently re-ran every cited positive-match grep and falsity-proof check for deleted or merged entries, and for every SUPERSEDED_MERGE independently re-read the superseding prose and re-verified the fact-by-fact mapping."
    >
    > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted."
 
 3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
-   If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
+   If Critical or Major findings remain: spawn a new curation Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression/curation for that target this session and log the failure in Step 6.
 
-4. On sign-off, the main agent (not a subagent - same rationale as the rest of Step 4) writes in this order:
+   **Re-route snapshot carry-forward (staleness guard integrity).** The FIRST curation Worker's read-time snapshot (byte size + mtime, from its "Classification report block") is the only one that matters - it reflects what the target file actually looked like when curation began. Every re-spawned Worker in a re-route round is handed that ORIGINAL snapshot alongside the original file content, the prior draft, and the findings, and must report it back unchanged in its own "Classification report block" - a re-route Worker never re-stats the target file itself, since re-stating it would silently reset the staleness guard's baseline to whatever the file looks like mid-review, defeating the guard's purpose. The conductor's write-time re-stat at step 4 always compares against this one original snapshot, regardless of how many re-route rounds occurred.
+
+4. On sign-off, the writer of this step depends on which path triggered Part E - see "Async-path amendment" immediately below for the second case. On the **synchronous `/ds-wrap` path** (this Part E, invoked directly by a running `/ds-wrap`), the main agent (not a subagent - same rationale as the rest of Step 4) writes in this order, already holding `.agentic/wrap/lock` from `/ds-wrap`'s own pre-flight lock acquisition:
    - **Backup location.** A repo-root target (`[cwd]/MEMORY.md`, `[cwd]/CLAUDE.md`) never backs up beside itself - a `MEMORY.original.md` sitting next to a committed `MEMORY.md` is itself a new committed-looking file nobody asked for. Repo-root targets back up to `<cwd>/.agentic/wrap/memory-backups/` instead (`mkdir -p` first). Backup filenames are stem-based: `MEMORY.md` -> `MEMORY.original.md`, `MEMORY.md` -> `MEMORY.pre-YYYY-MM-DD-HHMMSS.md` for rolling snapshots, same for `CLAUDE.md`. A non-root target (`.agentic/memory.md`) keeps backing up beside itself as before (already gitignored, no committed-file risk).
    - **Ignore guard.** Before the FIRST backup write for a repo-root target this run, check `git check-ignore -q .agentic/wrap/memory-backups/`. If the directory is NOT gitignored, skip compression for repo-root targets this run and log why (`.agentic/wrap/memory-backups/ is not gitignored - skipping compression for repo-root targets to avoid staging backup files`). **Do not modify `.gitignore`** - this is a detection guard, not a fix.
    - (a) If `FILE.original.md` does not already exist, create it from the current (pre-compression) file content, per Atomic write discipline <!-- aw-site: original-md --> (conditional publish). Never overwrite an existing `.original.md` - it is the canonical first-ever backup.
    - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content, per Atomic write discipline <!-- aw-site: rolling-snapshot --> (unconditional publish). Always write; never skip.
    - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
    - (d) Overwrite `FILE.md` with the compressed content, per Atomic write discipline <!-- aw-site: compressed-overwrite --> (unconditional publish).
-   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
+   - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target, and `entries_deleted_last_run`, `entries_merged_last_run`, `entries_converted_to_pointer_last_run` set to the counts of `STALE_VERIFIED_FALSE`-with-counterpart deletions, `TRUE_DUPLICATE`+`SUPERSEDED_MERGE` merges, and `LEARNINGS_BACKED` pointer-rewrites respectively from the sign-off round's final classification report (0 when the curation Worker acted on no entries of that kind this run). Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
+
+   **Async-path amendment (deliberate, not a silent exception - the conductor is the writer on BOTH paths, no separate third agent for the write).** On the **async Phase 11b path** - triggered by `content/commands/ds-implement-ticket.md` Phase 11b's "Post-return Part E curation gate check", never by a running `/ds-wrap` session - the CONDUCTOR owns the entire chain end to end, preserving the "main agent (not a subagent)" rationale verbatim: on both paths, the main agent performs the write, never a subagent.
+
+   Sequence: the conductor spawns the curation Worker (step 1) as a background subagent and proceeds immediately to Phase 12 - still non-blocking, still invisible. On the Worker's completion notification - whenever it arrives in the session, possibly turns later, after other work - the conductor spawns the Skeptic (step 2). On sign-off, or after the existing up-to-3 re-route loop (step 3, which the conductor already owns identically on the sync path), the CONDUCTOR ITSELF performs this step 4 sequence - (a) through (e), including the Backup location and Ignore guard sub-steps above - with two additions specific to this path:
+
+   - **Lock.** The conductor acquires `.agentic/wrap/lock` (the same lock `/ds-wrap` and `wrap-ticket` share, via `ds-wrap-acquire-lock`) immediately before the Backup location sub-step, and releases it on every exit path per the existing "Lock release is mandatory on every exit path" discipline above (no new release semantics - the conductor already owns this discipline). If acquisition fails, skip the entire step 4 write - no partial writes, no backup-only-then-abandon - soft-fail, no operator-facing output; the gate simply re-trips on a later PR.
+   - **Staleness guard.** Ordering is pinned: AFTER acquiring the lock (the Lock bullet above), and BEFORE the Backup location sub-step, the conductor re-stats the target file (byte size and mtime). The curation Worker's return (step 1's "Classification report block", carried forward unchanged through any re-route round per the "Re-route snapshot carry-forward" note in step 3) carries the read-time snapshot size+mtime it captured at spawn time. If the current stat differs from that snapshot in either field: RELEASE the lock and DISCARD the curated draft entirely - skip the write, no compare-and-retry, no partial merge, discard-and-defer is the whole rule - the gate re-trips on a later PR. This is what makes the batch-ticket-N+1-races-ticket-N case safe: ticket N+1's own `wrap-ticket` run changes `MEMORY.md`'s size/mtime before ticket N's curation chain reaches this step, so ticket N's stale draft is discarded rather than silently overwriting ticket N+1's write.
+
+   **If the session ends before the chain completes** (Worker still running, or the chain is awaiting Skeptic sign-off, or awaiting the conductor's own turn to reach step 4), nothing is written: no backup, no overwrite, no `compression-state.json` change. The target file and its state entry are exactly as they were before the gate tripped. This is not a lost update - it is deferred work with zero side effect, and the gate re-trips on whichever later PR next crosses the threshold.
 
 **Step 5 — Worktree cleanup.**
 
