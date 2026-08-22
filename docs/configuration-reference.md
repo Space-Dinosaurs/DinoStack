@@ -109,6 +109,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | Variable | Default (unset) | What it disables |
 |---|---|---|
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
+| `AE_NESTED_WORKTREE_GUARD_DISABLE=1` | guard active | Nested-worktree-spawn advisory hook (`hooks/enforce-nested-worktree-spawn.py`) |
 | `AE_PLANNING_GUARD_DISABLE=1` | guard active | Planning-artifact spawn advisory hook (`hooks/enforce-planning-artifact-spawn.py`) |
 | `AE_SHIPPABLE_GUARD_DISABLE=1` | guard active | Shippable-edit guard denying conductor-direct shippable edits (`hooks/enforce-shippable-edit.py`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |

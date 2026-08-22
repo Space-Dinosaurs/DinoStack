@@ -8,7 +8,7 @@ Purpose: Shared fire-logging helper for AE's Python enforce-*.py
          load-bearing one.
 
          TWO CALLER POSTURES, both supported, chosen by the caller:
-           - ACTION-ONLY (eleven of the twelve hooks): call only on a
+           - ACTION-ONLY (twelve of the thirteen hooks): call only on a
              non-passthrough action - a deny, or an allow-with-advisory-
              reason. A silent allow never calls this, so the file stays
              small and cheap to read. This is the right posture for a
@@ -87,10 +87,11 @@ Upstream deps: Python 3 stdlib only (json, os, datetime). Imports the
                only walk, and git_worktree's read of a single `.git` file
                at the walk's resolved root).
 
-Downstream consumers: all twelve enforce-*.py PreToolUse/Stop hooks that
+Downstream consumers: all thirteen enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
                        enforce-askuserquestion-default.py,
                        enforce-background-spawn.py,
+                       enforce-nested-worktree-spawn.py,
                        enforce-no-abdication.py,
                        enforce-orchestrator-singularity.py,
                        enforce-planning-artifact-spawn.py,
@@ -100,7 +101,7 @@ Downstream consumers: all twelve enforce-*.py PreToolUse/Stop hooks that
                        enforce-turn-shape.py, enforce-worktree-read.py,
                        and enforce-worktree-write.py.
                        enforce-turn-shape.py and enforce-no-abdication.py
-                       are the two Stop-event consumers; the other ten are
+                       are the two Stop-event consumers; the other eleven are
                        PreToolUse.
                        enforce-no-abdication.py is the one consumer that
                        ALSO logs plain "allow" rows (every verdict path it
