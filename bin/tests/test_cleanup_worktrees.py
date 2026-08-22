@@ -2597,17 +2597,25 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     produce a full-history (self-contained) bundle - proven here by
     deleting and gc'ing the explicit base branch AFTER archiving and
     showing the restore still succeeds, which a compact bundle against
-    that base would NOT survive."""
+    that base would NOT survive.
+
+    The unproven branch is forked from feat-x's own tip (not from main),
+    so feat-x's tip commit is genuinely the bundle's would-be prerequisite
+    under compaction. The archived branch ref itself is also deleted
+    below, before gc - otherwise it would keep pinning feat-x's tip as an
+    ancestor of its own history, making the branch-and-gc sequence unable
+    to orphan anything regardless of which base the bundle was built
+    against."""
     repo, origin = init_repo_with_origin(tmp_path)
     _git(repo, "checkout", "-q", "-b", "feat-x")
     (repo / "feat-x-file.txt").write_text("feature work\n")
     _git(repo, "add", "feat-x-file.txt")
     _git(repo, "commit", "-q", "-m", "feat-x work")
     _git(repo, "push", "-q", "origin", "feat-x")
-    _git(repo, "checkout", "-q", "main")
 
     branch = "worktree-agent-explicit-base-mismatch"
     wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-explicit-base-mismatch", branch)
+    _git(repo, "checkout", "-q", "main")
 
     proc = run_reap(
         repo,
@@ -2637,12 +2645,25 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     # Delete + gc the explicit base branch everywhere - the exact
     # permanent-loss trigger. A compact bundle against feat-x would now be
     # unrestorable ("Repository lacks these prerequisite commits"); a
-    # full-history bundle has no such dependency.
+    # full-history bundle has no such dependency. The archived branch ref
+    # ITSELF must also be deleted here (this tool never deletes it as
+    # part of --archive-unproven, by design) - otherwise it keeps
+    # feat-x's tip reachable as its own ancestor and gc can never orphan
+    # it, regardless of which base the bundle was built against. HEAD's
+    # own reflog (populated by the `checkout` calls above) ALSO keeps the
+    # deleted commit reachable indefinitely - `git gc --prune=now` on its
+    # own does NOT expire reflog entries (measured: a plain `checkout ->
+    # branch -D -> gc --prune=now` sequence leaves the deleted commit
+    # present), so an explicit `reflog expire` is required first for the
+    # prune to actually happen.
     _git(repo, "push", "-q", "origin", "--delete", "feat-x")
     _git(repo, "branch", "-D", "feat-x")
+    _git(repo, "branch", "-D", branch)
     subprocess.run(["git", "-C", str(origin), "branch", "-D", "feat-x"], capture_output=True, text=True)
     _git(repo, "remote", "prune", "origin")
+    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
     subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], capture_output=True, text=True)
     subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
 
     restore_proc = subprocess.run(

@@ -2643,6 +2643,18 @@ def _run_repo(
                 # also return for its own internal reasons.
                 compaction_base = _archive_compaction_base(repo, resolved_base, base_source)
                 explicit_base_refused = base_source == "explicit" and compaction_base is None
+                # MINOR-2 fix (round-3 review): `explicit_base_refused`
+                # collapses two distinct causes that need different
+                # remediation advice. Re-derive which one applies here
+                # (read-only, does not affect `compaction_base` above) so
+                # the NOTE below never tells an operator to omit --base
+                # when doing so would make this tool print "base could
+                # not be resolved - reap skipped this run" and do nothing
+                # at all, rather than restoring compaction.
+                auto_base_unresolvable = False
+                if explicit_base_refused:
+                    _auto_check, _auto_source_check, _auto_diag_check = resolve_base_branch(repo, None)
+                    auto_base_unresolvable = _auto_check is None
                 archive_ok, archive_detail, bundle_path, compact = _archive_branch_bundle(
                     repo, branch, compaction_base
                 )
@@ -2666,7 +2678,20 @@ def _run_repo(
                     # TOCTOU concurrent-fetch retry path, or a rev-list
                     # count that failed to parse) into the single `compact`
                     # boolean - see content/references/worktree-lifecycle.md.
-                    if explicit_base_refused:
+                    if explicit_base_refused and auto_base_unresolvable:
+                        print(
+                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
+                            f"(base '{resolved_base}' was supplied explicitly via --base, but this "
+                            "tool's own auto-resolution could not resolve ANY durable base for this "
+                            "repo either, so there is nothing to compact against - full-history is "
+                            "the only safe option right now; omitting --base would NOT restore "
+                            "compaction here, it would make this tool skip the run entirely with "
+                            "'base could not be resolved' - a durable base ref (e.g. origin/HEAD, "
+                            "main, or a declared default branch) must exist first) - see "
+                            f"content/references/worktree-lifecycle.md; bundle={bundle_path}",
+                            file=sys.stderr,
+                        )
+                    elif explicit_base_refused:
                         print(
                             f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
                             f"(base '{resolved_base}' was supplied explicitly via --base and does "
