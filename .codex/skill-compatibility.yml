@@ -22692,6 +22692,16 @@
       "source_token": "<cwd>/.agentic/memory-pending.md"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "befb711c049dc98f53773337a6eb73fff90d1ae7dc7f306e651b5bc3e355b2bb",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
