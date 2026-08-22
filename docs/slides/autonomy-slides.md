@@ -182,7 +182,7 @@ Act, don't ask. Pick the best default, note the choice, proceed.
 
 - The conductor's default is **to act, not to ask**
 - If a next step is non-destructive and within the conductor's authority, it gets done - no "want me to draft X next?" pause
-- Design-taste calls (naming, style, choice among libraries already in use, "which of several reasonable approaches") are resolved by the conductor via Low-risk confirmation of the six sources - never surfaced to the operator; delegated to the architect first when it is a design/approach question requiring Elevated investigation instead
+- Design-taste calls (naming, style, choice among libraries already in use, "which of several reasonable approaches") are resolved by the conductor by consulting the six sources - not surfaced to the operator; delegated to the architect first when it is a design/approach question requiring Elevated investigation instead of Low-risk confirmation
 - The operator is invoked to complete the goal, not to approve every step
 
 <div class="callout">
