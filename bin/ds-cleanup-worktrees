@@ -194,7 +194,12 @@ create <repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle
 its tip) - when the resolved base branch's objects can be excluded
 without producing an empty bundle, the exclusion is applied (DS-191),
 yielding a small bundle plus a recorded prerequisite commit rather than
-a full copy of history already present on the base; (2) the bundle is
+a full copy of history already present on the base. An explicit --base
+is only ever eligible for this exclusion when it resolves to the same
+commit this tool's own auto-resolution would have picked (round-N,
+MAJOR-2 fix - see `_archive_compaction_base`'s docstring); an arbitrary
+caller-supplied ref that verifies fine but isn't durable is never
+compacted against, full-history only; (2) the bundle is
 VERIFIED with `git bundle verify` BEFORE any removal - a create failure, a
 missing/empty bundle, or a failed verification leaves the entry
 `SKIP_UNPROVEN`, reported, worktree untouched (same discipline as the
@@ -478,10 +483,18 @@ Public API (CLI):
                           `.agentic/worktree-archive/`, excluding objects
                           already on the resolved base branch when doing
                           so still yields a non-empty bundle (a compact
-                          bundle then requires that base commit to remain
+                          bundle then requires the recorded prerequisite
+                          commit - the fork-point with the base, not
+                          necessarily the base's own tip - to remain
                           present locally to restore; a NOTE is printed
-                          to stderr when compaction was not possible),
-                          salvages telemetry, then removes the worktree.
+                          to stderr when compaction was not possible). An
+                          explicit `--base` is only compacted against
+                          when it resolves to the same commit
+                          auto-resolution would have picked - an
+                          unvalidated caller-supplied ref could otherwise
+                          be deleted later, permanently orphaning the
+                          bundle's prerequisite. Then salvages telemetry,
+                          then removes the worktree.
                           Removes WORKTREES ONLY, never branches
                           (`bin/ds-branch-prune` remains responsible for
                           branch deletion). A
@@ -1512,6 +1525,67 @@ def _restore_command(bundle_path: str, branch: str) -> str:
     return f'git fetch {bundle_path} "refs/heads/{branch}:refs/heads/{branch}"'
 
 
+def _archive_compaction_base(
+    repo: str, resolved_base: str, base_source: str
+) -> Optional[str]:
+    """Round-N (DS-191 MAJOR-2 fix): decides which ref, if any, is safe to
+    pass as `_archive_branch_bundle`'s `exclude_ref`.
+
+    `resolve_base_branch` returns an explicit `--base` COMPLETELY
+    UNVALIDATED (`if explicit_base is not None: return explicit_base,
+    "explicit", diagnostics`) - nothing constrains it to any of the
+    durable candidates the auto-resolution tier order trusts. Compacting
+    against an arbitrary caller-supplied ref unconditionally creates a
+    NEW permanent-loss path this repo's own bundle-then-delete precedent
+    was supposed to avoid: demonstrated end-to-end, `--base
+    origin/feat-x` produces a `compact=True` bundle whose sole
+    prerequisite is the tip of `feat-x` - delete that branch
+    (`git push origin --delete feat-x`) and gc, and the restore then
+    fails irrecoverably (`error: Repository lacks these prerequisite
+    commits`). A full-history bundle has no such dependency and is
+    always safe to produce.
+
+    When `base_source != "explicit"`, `resolved_base` is already one of
+    the trusted auto-resolution tier candidates (origin/HEAD, a
+    declared/develop/development branch, or the main/master fallback) -
+    return it unconditionally, unchanged from pre-fix behavior.
+
+    When `base_source == "explicit"`, compaction is allowed ONLY if the
+    explicit ref happens to resolve to the SAME commit that this same
+    tool's own auto-resolution (the identical tier order used when
+    `--base` is omitted) would have picked for this repo right now. In
+    that case the bundle's prerequisite commit is ALSO reachable via the
+    durable auto-resolved ref (e.g. `origin/main`) - the explicit ref
+    itself being deleted later does not orphan the bundle, since the
+    prerequisite commit persists via the other ref. Any other explicit
+    ref (one that verifies and even shares history with the branch, but
+    resolves to a different commit than auto-resolution would pick) is
+    NOT compacted - full-history only, with a NOTE explaining why (see
+    the sole call site).
+
+    Returns the ref to use as `exclude_ref`, or `None` to force a
+    full-history bundle. Never raises - a `resolve_base_branch` internal
+    failure or an unresolvable auto-candidate here degrades to `None`
+    (full-history), the same fail-safe direction `_archive_branch_bundle`
+    already takes for every other not-compact cause.
+    """
+    if base_source != "explicit":
+        return resolved_base
+    auto_resolved, _auto_source, _diagnostics = resolve_base_branch(repo, None)
+    if auto_resolved is None:
+        return None
+    explicit_sha = _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", resolved_base])
+    auto_sha = _run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", auto_resolved])
+    if (
+        explicit_sha.returncode == 0
+        and auto_sha.returncode == 0
+        and explicit_sha.stdout.strip()
+        and explicit_sha.stdout.strip() == auto_sha.stdout.strip()
+    ):
+        return auto_resolved
+    return None
+
+
 def _archive_branch_bundle(
     repo: str, branch: str, exclude_ref: Optional[str]
 ) -> Tuple[bool, str, Optional[str], bool]:
@@ -1547,10 +1621,15 @@ def _archive_branch_bundle(
     resolved to ELIGIBLE->REMOVE before the archive loop runs, and never
     reaches this function through the real CLI - the `unique_count == 0`
     fallback below is DEFENSIVE-ONLY, exercised only by a direct
-    unit-level call that bypasses disposition routing. Likewise
-    `exclude_ref is None` is dead at the sole production call site
-    (`resolve_base_branch` failing causes an early return before the
-    archive loop is entered) - kept for the same defensive reason.
+    unit-level call that bypasses disposition routing.
+
+    `exclude_ref is None` is NO LONGER dead at the production call site
+    (round-N, DS-191 MAJOR-2 fix): the caller now routes `resolved_base`
+    through `_archive_compaction_base` first, which returns `None`
+    whenever an explicit `--base` does not resolve to the same commit
+    this tool's own auto-resolution would have picked - see that
+    function's docstring for why. That is a REAL, reachable production
+    path, not merely a defensive one.
 
     Before creating the bundle, measures `unique_count = git rev-list
     --count <branch> --not <exclude_ref>` and `total_count = git
@@ -2552,8 +2631,20 @@ def _run_repo(
                     # No branch to bundle (detached HEAD) - nothing this
                     # leg can do; stays SKIP_UNPROVEN, already reported.
                     continue
+                # Round-N (DS-191 MAJOR-2 fix): an explicit --base is
+                # unvalidated by resolve_base_branch - route it through
+                # _archive_compaction_base first so an arbitrary
+                # caller-supplied ref is only compacted against when it
+                # happens to coincide with the durable auto-resolved base
+                # (see that function's docstring). `compaction_base is
+                # None` here is the caller-side signal that compaction was
+                # refused BEFORE even attempting exclusion - distinct from
+                # `compact=False` below, which _archive_branch_bundle can
+                # also return for its own internal reasons.
+                compaction_base = _archive_compaction_base(repo, resolved_base, base_source)
+                explicit_base_refused = base_source == "explicit" and compaction_base is None
                 archive_ok, archive_detail, bundle_path, compact = _archive_branch_bundle(
-                    repo, branch, resolved_base
+                    repo, branch, compaction_base
                 )
                 if not archive_ok:
                     print(
@@ -2563,18 +2654,39 @@ def _run_repo(
                     )
                     continue
                 if not compact:
-                    # Round-N (DS-191): only two reachable causes at this
-                    # call site - the base ref could not be verified (e.g. a
-                    # bad explicit --base), or the branch shares no history
-                    # with it. Either way the bundle is full-history, not a
-                    # defect - see content/references/worktree-lifecycle.md.
-                    print(
-                        f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
-                        f"(base '{resolved_base}' unverifiable or shares no history with "
-                        f"'{branch}') - see content/references/worktree-lifecycle.md; "
-                        f"bundle={bundle_path}",
-                        file=sys.stderr,
-                    )
+                    # Round-N (DS-191, corrected): every reachable
+                    # not-compact cause at this call site is now covered
+                    # below, not just two. `explicit_base_refused` is known
+                    # for certain by the caller (computed above, before
+                    # _archive_branch_bundle even runs) and gets its own,
+                    # more specific message; every other cause funnels
+                    # through _archive_branch_bundle's own return, which
+                    # collapses several distinct internal reasons (base
+                    # unverifiable, branch shares no history with it, the
+                    # TOCTOU concurrent-fetch retry path, or a rev-list
+                    # count that failed to parse) into the single `compact`
+                    # boolean - see content/references/worktree-lifecycle.md.
+                    if explicit_base_refused:
+                        print(
+                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
+                            f"(base '{resolved_base}' was supplied explicitly via --base and does "
+                            "not resolve to the same commit this tool's own auto-resolution would "
+                            "have picked, so it is not guaranteed durable - compaction was skipped; "
+                            "omit --base to let auto-resolution pick a durable base and restore "
+                            "compaction) - see content/references/worktree-lifecycle.md; "
+                            f"bundle={bundle_path}",
+                            file=sys.stderr,
+                        )
+                    else:
+                        print(
+                            f"NOTE: archived {path} (branch={branch}) as a full-history bundle "
+                            f"(base '{resolved_base}' could not be excluded - it may be "
+                            f"unverifiable, share no history with '{branch}', have been advanced "
+                            "past the branch tip by a concurrent fetch during archival, or its "
+                            "rev-list count could not be measured) - see "
+                            f"content/references/worktree-lifecycle.md; bundle={bundle_path}",
+                            file=sys.stderr,
+                        )
                 outcome = _salvage_and_remove(repo, path, branch)
                 if outcome["salvage_failed"]:
                     print(
@@ -2591,8 +2703,11 @@ def _run_repo(
                     r["outcome"] = "ARCHIVED_AND_REMOVED"
                     r["reason"] = f"archived to {bundle_path}"
                     restore_parenthetical = (
-                        f" (requires the commit that was at {resolved_base} when this bundle "
-                        "was created to still be present in this repo's object store)"
+                        " (requires the commit git bundle actually recorded as this bundle's "
+                        f"prerequisite - the boundary/fork-point commit between '{branch}' and "
+                        f"'{resolved_base}' at archive time, NOT necessarily that ref's own tip - "
+                        "to still be present in this repo's object store; run `git bundle verify "
+                        "<bundle>` to see exactly which commit(s))"
                         if compact
                         else ""
                     )

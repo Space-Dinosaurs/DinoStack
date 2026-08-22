@@ -1534,6 +1534,27 @@ def test_archive_bundle_excludes_already_on_base_objects(tmp_path):
     result = outcomes(proc.stdout)
     assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
 
+    # (round-N Minor 6) The printed restore parenthetical is the operator-
+    # facing recovery precondition and previously had ZERO coverage - the
+    # bundle bytes were asserted above but never the printed restore line
+    # itself. Also (round-N Minor 3) the parenthetical must name the
+    # commit git ACTUALLY recorded as the bundle's prerequisite (the
+    # boundary/fork-point with the base), never the base ref's own tip -
+    # those are measurably different commits in general (a prior wording,
+    # "the commit that was at <base> when this bundle was created", was
+    # false as written). Mutation that reddens this block: replacing the
+    # restore_parenthetical f-string in bin/ds-cleanup-worktrees with ""
+    # leaves the rest of this test (and the whole suite) green.
+    restore_lines = [line for line in proc.stdout.splitlines() if line.startswith("ARCHIVED+REMOVED")]
+    assert len(restore_lines) == 1, proc.stdout
+    restore_line = restore_lines[0]
+    assert "prerequisite" in restore_line, restore_line
+    assert "NOT necessarily that ref's own tip" in restore_line, restore_line
+    assert "commit that was at" not in restore_line, (
+        f"restore line still claims the prerequisite IS the base tip, which is false: {restore_line!r}"
+    )
+    assert "git bundle verify" in restore_line, restore_line
+
     archive_dir = repo / ".agentic" / "worktree-archive"
     bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
     assert len(bundles) == 1
@@ -2468,3 +2489,168 @@ def test_init_config_via_cli_end_to_end(tmp_path):
     )
     assert proc2.returncode == 0, proc2.stderr
     assert "already exists - not overwriting" in proc2.stdout
+
+
+# --------------------------------------------------------------------------
+# DS-191 round-N (Skeptic Minor 5). The TOCTOU retry path had zero coverage:
+#     mutating its guard condition to `if False:` left the whole suite at
+#     115 passed. Direct unit test of _archive_branch_bundle, monkeypatching
+#     _run to force the FIRST `git bundle create ... --not <ref>` call to
+#     fail with the EXACT documented race signature (rc=128, "Refusing to
+#     create empty bundle") despite a passing pre-check - a concurrent
+#     fetch advancing exclude_ref past the branch tip between the rev-list
+#     --count measurement and the actual create call.
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_toctou_retry_recovers_from_concurrent_fetch_race(tmp_path):
+    """Mutation that reddens this test: changing the retry guard
+    (`if used_exclusion and proc.returncode == 128 and "Refusing to create
+    empty bundle" in proc.stderr:`) to `if False:` in
+    `_archive_branch_bundle` makes this test fail with `ok=False` - the
+    exact regression this guards against (confirmed by running this
+    assertion shape against that mutant before landing the test: with the
+    mutant in place, `ok` came back `False` and `detail` contained
+    "git bundle create failed" instead of a successful retry)."""
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-toctou"
+    _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-toctou", branch)
+
+    real_run = mod._run
+    calls = {"bundle_create_attempts": 0}
+
+    def fake_run(args, cwd=None, timeout=None):
+        if "bundle" in args and "create" in args:
+            calls["bundle_create_attempts"] += 1
+            if "--not" in args:
+                # Simulate the documented TOCTOU race: exclude_ref
+                # advanced past the branch tip between the rev-list
+                # pre-check and this call, reproducing the exact failure
+                # signature the retry guard keys off.
+                return subprocess.CompletedProcess(
+                    args, returncode=128, stdout="", stderr="fatal: Refusing to create empty bundle."
+                )
+        return real_run(args, cwd=cwd, timeout=timeout)
+
+    mod._run = fake_run
+    try:
+        ok, detail, bundle_path, compact = mod._archive_branch_bundle(str(repo), branch, "main")
+    finally:
+        mod._run = real_run
+
+    assert ok is True, detail
+    assert compact is False, "the retry-without-exclusion path must report compact=False"
+    assert bundle_path is not None and Path(bundle_path).stat().st_size > 0
+    assert calls["bundle_create_attempts"] == 2, (
+        f"expected exactly one failed compact attempt plus one successful retry, got "
+        f"{calls['bundle_create_attempts']} bundle create attempts"
+    )
+
+
+# --------------------------------------------------------------------------
+# DS-191 round-N (Skeptic Major 2). `resolve_base_branch` returns an
+#     explicit --base COMPLETELY UNVALIDATED - nothing constrains it to a
+#     durable ref. Compacting against it unconditionally created a NEW
+#     permanent-loss path: `--base origin/feat-x` (a real, verifiable ref
+#     sharing history with the branch) produced compact=True, and deleting
+#     + gc'ing feat-x afterward made the restore fail irrecoverably
+#     ("Repository lacks these prerequisite commits"). Fix: compaction is
+#     only allowed for an explicit --base when it resolves to the SAME
+#     commit this tool's own auto-resolution would have picked.
+# --------------------------------------------------------------------------
+
+
+def test_archive_compaction_base_skips_when_explicit_base_mismatches_auto_resolution(tmp_path):
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat-x")
+    (repo / "feat-x-file.txt").write_text("feature work\n")
+    _git(repo, "add", "feat-x-file.txt")
+    _git(repo, "commit", "-q", "-m", "feat-x work")
+    _git(repo, "push", "-q", "origin", "feat-x")
+    _git(repo, "checkout", "-q", "main")
+
+    result = mod._archive_compaction_base(str(repo), "origin/feat-x", "explicit")
+    assert result is None, (
+        f"expected compaction to be REFUSED for an explicit base that does not match "
+        f"auto-resolution, got exclude_ref={result!r}"
+    )
+
+    # Sanity: the SAME ref, when base_source is NOT "explicit" (i.e. it
+    # came from auto-resolution itself), passes through unchanged - the
+    # gate is keyed on base_source, not on the ref's identity.
+    result_auto = mod._archive_compaction_base(str(repo), "origin/feat-x", "main-fallback")
+    assert result_auto == "origin/feat-x"
+
+    # An explicit base that DOES resolve to the same commit auto-resolution
+    # would pick (here "main" and "origin/main" are identical) is allowed
+    # through, returned as the durable auto-resolved ref itself.
+    result_match = mod._archive_compaction_base(str(repo), "main", "explicit")
+    assert result_match == "origin/main"
+
+
+def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_end(tmp_path):
+    """End-to-end reproduction of the exact scenario the Skeptic
+    demonstrated pre-fix: an explicit --base that verifies and shares
+    history with the branch, but doesn't match auto-resolution, must
+    produce a full-history (self-contained) bundle - proven here by
+    deleting and gc'ing the explicit base branch AFTER archiving and
+    showing the restore still succeeds, which a compact bundle against
+    that base would NOT survive."""
+    repo, origin = init_repo_with_origin(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat-x")
+    (repo / "feat-x-file.txt").write_text("feature work\n")
+    _git(repo, "add", "feat-x-file.txt")
+    _git(repo, "commit", "-q", "-m", "feat-x work")
+    _git(repo, "push", "-q", "origin", "feat-x")
+    _git(repo, "checkout", "-q", "main")
+
+    branch = "worktree-agent-explicit-base-mismatch"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-explicit-base-mismatch", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        base="origin/feat-x",
+        extra=["--archive-unproven"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert "NOTE:" in proc.stderr
+    assert "explicitly via --base" in proc.stderr
+    assert "not guaranteed durable" in proc.stderr
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1
+    header, _, _ = bundles[0].read_bytes().partition(b"\n\n")
+    header_lines = header.split(b"\n")
+    assert not any(line.startswith(b"-") for line in header_lines), (
+        f"expected NO prerequisite header line (full-history bundle) when the explicit "
+        f"base does not match auto-resolution, got: {header_lines!r}"
+    )
+
+    # Delete + gc the explicit base branch everywhere - the exact
+    # permanent-loss trigger. A compact bundle against feat-x would now be
+    # unrestorable ("Repository lacks these prerequisite commits"); a
+    # full-history bundle has no such dependency.
+    _git(repo, "push", "-q", "origin", "--delete", "feat-x")
+    _git(repo, "branch", "-D", "feat-x")
+    subprocess.run(["git", "-C", str(origin), "branch", "-D", "feat-x"], capture_output=True, text=True)
+    _git(repo, "remote", "prune", "origin")
+    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+
+    restore_proc = subprocess.run(
+        ["git", "-C", str(repo), "fetch", str(bundles[0]), f"refs/heads/{branch}:refs/heads/{branch}"],
+        capture_output=True,
+        text=True,
+    )
+    assert restore_proc.returncode == 0, (
+        f"restore must succeed even after the explicit base branch is deleted and gc'd, "
+        f"since compaction was correctly refused: {restore_proc.stderr}"
+    )

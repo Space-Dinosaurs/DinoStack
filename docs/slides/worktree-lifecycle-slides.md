@@ -373,7 +373,8 @@ A 2026-08-11 manual one-off operator sweep already solved this for BRANCHES: arc
 - `git bundle create` captures the FULL branch (every commit unique to it), then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
 - **Compact by default (DS-191):** objects already reachable from the resolved base are excluded when doing so still yields a non-empty bundle - a small bundle plus a recorded prerequisite commit, the actual full-disk reclaim path this exists for. Falls back to full-history (with a `NOTE:` on stderr) when the base can't be verified or shares no history with the branch
 - Removes the WORKTREE only, never the branch - `bin/ds-branch-prune` still owns branch deletion
-- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"` - a compact bundle's restore additionally requires the prerequisite base commit to still be present locally
+- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"` - a compact bundle's restore additionally requires the recorded prerequisite commit (the fork-point with the base, NOT necessarily the base's own tip) to still be present locally
+- An explicit `--base` is only compacted against when it resolves to the same commit auto-resolution would pick - an unvalidated caller-supplied ref could otherwise be deleted later, permanently orphaning the bundle's prerequisite
 - `.agentic/worktree-archive/` is gitignored and grows unbounded - pruning it is the operator's job, same as `.agentic/branch-archive/`
 
 <div class="callout">
