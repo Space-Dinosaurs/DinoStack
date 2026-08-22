@@ -1355,33 +1355,43 @@ def test_max_repos_without_multi_repo_is_usage_error(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def test_max_repos_zero_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch):
+def test_max_repos_zero_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch, capsys):
+    # In-process call (not run_cli's subprocess) - a subprocess invocation
+    # can never observe a monkeypatch applied to a module object living in
+    # the TEST process, so an "evaluated == []" assertion against it would
+    # be unfalsifiable regardless of whether evaluation actually ran. Call
+    # `mod.main()` directly, mirroring
+    # test_max_repos_truncates_before_evaluation_preserving_order's shape.
     repo_a = init_repo_with_origin(tmp_path, "repo-a")
 
     mod = _load_module_directly()
     evaluated = []
     monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
 
-    result = run_cli(
+    rc = mod.main(
         ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "0"]
     )
-    assert result.returncode == 2, result.stderr
-    assert "--max-repos must be >= 1" in result.stderr
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "--max-repos must be >= 1" in captured.err
     assert evaluated == []
 
 
-def test_max_repos_negative_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch):
+def test_max_repos_negative_is_usage_error_and_runs_no_evaluation(tmp_path, monkeypatch, capsys):
+    # See test_max_repos_zero_is_usage_error_and_runs_no_evaluation's
+    # docstring-style comment above for why this must be an in-process call.
     repo_a = init_repo_with_origin(tmp_path, "repo-a")
 
     mod = _load_module_directly()
     evaluated = []
     monkeypatch.setattr(mod, "_fast_report_row", lambda repo: evaluated.append(repo) or (None, None))
 
-    result = run_cli(
+    rc = mod.main(
         ["--multi-repo", "--repo", str(repo_a), "--report", "--count-only", "--max-repos", "-1"]
     )
-    assert result.returncode == 2, result.stderr
-    assert "--max-repos must be >= 1" in result.stderr
+    captured = capsys.readouterr()
+    assert rc == 2, captured.err
+    assert "--max-repos must be >= 1" in captured.err
     assert evaluated == []
 
 

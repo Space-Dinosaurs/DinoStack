@@ -63,7 +63,11 @@ fi
 
 MISSING_REPORT=0
 HAS_ARCHIVE=0
-for line in "${invocations[@]}"; do
+# bash 3.2 (macOS default) treats "${arr[@]}" on an EMPTY array as an
+# unbound-variable error under `set -u`, even after the FAIL line above has
+# already run - the `${arr[@]+...}` guard expands to nothing instead of
+# erroring when the array has zero elements.
+for line in ${invocations[@]+"${invocations[@]}"}; do
   content="${line#*:}"
   if [[ "$content" != *"--report"* ]]; then
     fail "invocation line missing --report: $line"

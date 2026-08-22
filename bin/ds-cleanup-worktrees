@@ -2031,6 +2031,18 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     }, None
 
 
+def _repo_truncation_note(max_repos: int, total: int) -> str:
+    """Shared `--max-repos` truncation NOTE text, printed identically by
+    both `_run_report`'s human-readable table and `_run_multi_repo`'s plain
+    sweep path - a single source instead of two independently-maintained
+    literal copies (DS-189 finalization review debt)."""
+    return (
+        f"NOTE: repo discovery truncated to first {max_repos} of "
+        f"{total} discovered repos (--max-repos {max_repos}) - "
+        "unlisted repos were not evaluated."
+    )
+
+
 def _run_report(
     targets: List[RepoTarget],
     root_errors: List[str],
@@ -2124,11 +2136,7 @@ def _run_report(
         # no signal that repos beyond --max-repos were never evaluated.
         if truncated:
             total = discovered_count if discovered_count is not None else len(rows)
-            print(
-                f"NOTE: repo discovery truncated to first {args.max_repos} of "
-                f"{total} discovered repos (--max-repos {args.max_repos}) - "
-                "unlisted repos were not evaluated."
-            )
+            print(_repo_truncation_note(args.max_repos, total))
 
     return 1 if (errored or root_errors) else 0
 
@@ -2661,11 +2669,7 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     # output sees it up front rather than having to infer it from a repo
     # count that looks smaller than expected.
     if truncated:
-        print(
-            f"NOTE: repo discovery truncated to first {args.max_repos} of "
-            f"{discovered_count} discovered repos (--max-repos {args.max_repos}) - "
-            "unlisted repos were not evaluated."
-        )
+        print(_repo_truncation_note(args.max_repos, discovered_count))
 
     repos_swept = 0
     repos_errored = 0
