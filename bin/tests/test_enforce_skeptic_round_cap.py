@@ -774,6 +774,17 @@ def test_state_resolution_fails_open_with_no_git_ancestor():
 
 
 def test_nonexistent_cwd_failopen_no_crash():
+    """Round-2 review fix (Major 2): the mutation that reddens this is a
+    4-part combination, not the 3-part one originally recorded - (1) drop
+    the `found_git_ancestor` gate in `_state_path` (treat it as always
+    True), (2) strip `_write_state`'s own internal `try/except: pass`
+    guard, (3) drop `parents=True` from its `mkdir` call, AND (4) remove
+    `main()`'s outer `except Exception: sys.exit(0)` catch-all. Parts
+    (1)-(3) alone still redden nothing, because `main()`'s outer catch-all
+    swallows whatever exception (1)-(3) cause and still exits 0 - part (4)
+    is required for the resulting exception to actually propagate past
+    `main()` as a nonzero process exit code. Confirmed failing pre-fix
+    (i.e. with the mutation applied): rc == 1, not 0."""
     tmp = tempfile.mkdtemp()
     nonexistent = str(Path(tmp) / "does" / "not" / "exist")
     unit = "feature/round-cap-test"
@@ -837,6 +848,18 @@ def test_corrupt_state_file_treated_as_round_zero():
 # 20. State write failure (read-only .agentic/) still fails open
 # --------------------------------------------------------------------------- #
 def test_read_only_agentic_dir_failopen():
+    """Round-2 review fix (Major 3): the mutation that reddens this is a
+    2-part combination - (1) strip `_write_state`'s own internal
+    `try/except: pass` guard, so the real `PermissionError` raised by
+    `mkdir`/`os.replace` against the chmod'd read-only `.agentic/` dir
+    propagates out of the function instead of being swallowed, AND (2)
+    remove `main()`'s outer `except Exception: sys.exit(0)` catch-all, so
+    that propagated error is not re-swallowed one level up. A
+    call-site-only deny-wrapper (raising unconditionally where
+    `_write_state` is invoked, without also removing part (2)) reddens
+    nothing - `main()`'s outer catch-all still swallows it and the
+    process still exits 0. Confirmed failing pre-fix with parts (1)+(2)
+    together: rc == 1, not 0."""
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
         agentic_dir = Path(tmp) / ".agentic"
