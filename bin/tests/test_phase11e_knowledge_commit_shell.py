@@ -11,15 +11,16 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 23 parametrized functions x {bash, zsh}
-            = 46 collected IDs, plus 3 static shell-independent assertions =
-            49 - see the collected-count floor in
+Public API: none (pytest test module; 34 parametrized functions x {bash, zsh}
+            = 68 collected IDs, plus 3 static shell-independent assertions =
+            71 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
                shell assignment injection + completion marker),
-               bin/tests/lib/git_fixture.py (the four build_knowledge_*
-               shapes, install_git_stub, install_push_reject_hook),
+               bin/tests/lib/git_fixture.py (the six build_knowledge_*
+               shapes, per that module's own manifest count, plus
+               install_git_stub, install_push_reject_hook),
                content/commands/ds-implement-ticket.md (the blocks under test).
 
                md_shell_extract.render() is deliberately NOT used and MUST NOT
@@ -69,6 +70,8 @@ SHELLS = ["bash", "zsh"]
 MEMORY = "MEMORY.md"
 DECISIONS = "decisions.md"
 LEARNINGS = ".agentic/learnings.md"
+AGENTS = "AGENTS.md"
+TRACKING = ".agentic/tracking.md"
 
 STATE_FILE = ".agentic/knowledge-commit-state.json"
 
@@ -173,9 +176,19 @@ def _origin_tip_body(fixture: git_fixture.Fixture) -> str:
 
 
 def _write_config(fixture: git_fixture.Fixture, payload: dict) -> None:
+    """Read-modify-write (M23): a builder may already have written this
+    fixture's `.agentic/config.json` (e.g. build_knowledge_dinostack_shape's
+    own `knowledge_commit_exclude` seed) - merge onto it rather than
+    clobbering it. Ownership rule: the builder writes first, seeding only the
+    keys it owns; any test-level call after it merges its own keys on top.
+    Call the builder BEFORE this function, never after, when both are needed."""
     config = fixture.repo_dir / ".agentic" / "config.json"
     config.parent.mkdir(parents=True, exist_ok=True)
-    config.write_text(json.dumps(payload), encoding="utf-8")
+    existing: dict = {}
+    if config.exists():
+        existing = json.loads(config.read_text(encoding="utf-8") or "{}")
+    existing.update(payload)
+    config.write_text(json.dumps(existing), encoding="utf-8")
 
 
 def _install_emit_stub(fixture: git_fixture.Fixture) -> Path:
@@ -211,7 +224,7 @@ def _emit_payload(log_path: Path) -> dict:
 _ADD_LINE = (
     'KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_F" 2>&1 >/dev/null)'
 )
-_LOOP_HEADER = "for KC_F in MEMORY.md decisions.md .agentic/learnings.md; do"
+_LOOP_HEADER = "for KC_F in MEMORY.md decisions.md .agentic/learnings.md AGENTS.md .agentic/tracking.md; do"
 
 
 def _mutate_empty_survivor_loop(block: str) -> str:
@@ -264,8 +277,8 @@ def test_all_three_files_stage_without_word_splitting(tmp_path, shell):
         f"expected exactly one new commit on origin/{fixture.branch_name}.\n"
         f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
-    assert _origin_tip_files(fixture) == sorted([MEMORY, DECISIONS, LEARNINGS]), (
-        f"all three knowledge files must be in the commit: {result.stdout}"
+    assert _origin_tip_files(fixture) == sorted([MEMORY, DECISIONS, LEARNINGS, AGENTS, TRACKING]), (
+        f"all five knowledge files must be in the commit: {result.stdout}"
     )
     assert "fatal: pathspec" not in result.stderr, result.stderr
 
@@ -283,7 +296,13 @@ def test_learnings_alone_commits_with_no_agentic_path_floor(tmp_path, shell):
     return value rather than by disk would not see the learnings write at
     all."""
     shell = _shell_or_skip(shell)
-    modes = {MEMORY: "identical", DECISIONS: "identical", LEARNINGS: "modified"}
+    modes = {
+        MEMORY: "identical",
+        DECISIONS: "identical",
+        LEARNINGS: "modified",
+        AGENTS: "identical",
+        TRACKING: "identical",
+    }
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, modes)
     before = _origin_count(fixture)
 
@@ -349,6 +368,51 @@ def test_real_index_is_never_read_or_written(tmp_path, shell):
     assert leftovers == [], f"temporary index files were not cleaned up: {leftovers}"
 
 
+@pytest.mark.parametrize("shell", SHELLS)
+def test_per_file_numstat_leaves_real_index_untouched_under_forced_raciness(tmp_path, shell):
+    """Round-3 Major A follow-up. build_knowledge_stale_real_index_shape
+    forces the exact raciness precondition Major A described: MEMORY.md's
+    content on disk is byte-identical to what the REAL (non-temp) `.git/index`
+    already records for that path, but the mtime is pushed past the index's
+    recorded stat.
+
+    NOT a reddenable regression test: dropping GIT_INDEX_FILE="$KC_IDX" from
+    ONLY the per-file `git diff --numstat "origin/$BRANCH_NAME" -- "$KC_F"`
+    call was measured (git 2.55.0, five independent fixture shapes, plus this
+    one) to leave $REPO/.git/index BYTE-IDENTICAL regardless - confirmed
+    against this exact fixture too. This is provable, not merely
+    unobserved: reaching this line at all requires the per-file diff-index
+    check above to have already established that MEMORY.md's WORKING-TREE
+    content differs from origin/$BRANCH_NAME's blob at that path (or that the
+    path is absent from the tip entirely). `diff.autoRefreshIndex` only
+    rewrites a real index entry when refresh CONFIRMS the working file is
+    unchanged relative to what is being reported - which this call's own
+    reachability precondition rules out for the treeish it actually diffs
+    against (origin/$BRANCH_NAME, never HEAD or any tree that equals the real
+    index at this path). A bare `git diff HEAD -- <path>`, a plain `git
+    status`, or an argument-less `git diff` DOES trigger the real-index
+    write under the same raciness - that is why GIT_INDEX_FILE stays on this
+    line for defense-in-depth and uniformity with the rest of the block, even
+    though this specific invocation cannot exercise the hazard. See the
+    corrected block comment for the full argument."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_stale_real_index_shape(tmp_path)
+    index_path = fixture.repo_dir / ".git" / "index"
+    sha_before = hashlib.sha256(index_path.read_bytes()).hexdigest()
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    sha_after = hashlib.sha256(index_path.read_bytes()).hexdigest()
+    assert sha_after == sha_before, (
+        "$REPO/.git/index was modified under forced raciness - this is the "
+        "state Major A described as reddenable; if this assertion now fails "
+        "the provenance comment above needs re-verifying against the git "
+        "version in use, not silently accepted.\n"
+        f"before={sha_before}\nafter={sha_after}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 4. Suppressed gitignore diagnostic.
 # ---------------------------------------------------------------------------
@@ -361,8 +425,9 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
     not the mutation to test with) or deleting the echo leaves the skip silent,
     which is the exact silent-strand failure this diagnostic exists to prevent.
     Both of those real mutations red the assertions below. This is also the
-    DinoStack shape: all three candidates ignored, so Phase 11e is a deliberate
-    no-op here - but an AUDIBLE one."""
+    DinoStack shape: four of the five candidates ignored (the fifth, AGENTS.md,
+    excluded via knowledge_commit_exclude instead), so Phase 11e is a
+    deliberate no-op here - but an AUDIBLE one."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_dinostack_shape(tmp_path)
     before = _origin_count(fixture)
@@ -371,12 +436,13 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
     _assert_completed(result)
 
     assert _origin_count(fixture) == before, "nothing is committable on the DinoStack shape"
+    gitignored_files = [f for f in git_fixture.KNOWLEDGE_FILES if f != AGENTS]
     diagnostics = [ln for ln in result.stdout.splitlines() if "is gitignored (rule:" in ln]
-    assert len(diagnostics) == 3, (
-        f"expected one visible gitignore diagnostic per candidate, got "
-        f"{diagnostics!r}\nSTDOUT:\n{result.stdout}"
+    assert len(diagnostics) == len(gitignored_files), (
+        f"expected one visible gitignore diagnostic per gitignored candidate, "
+        f"got {diagnostics!r}\nSTDOUT:\n{result.stdout}"
     )
-    for rel_path in git_fixture.KNOWLEDGE_FILES:
+    for rel_path in gitignored_files:
         named = [ln for ln in diagnostics if ln.split(" is gitignored")[0].endswith(rel_path)]
         assert len(named) == 1, f"no diagnostic names {rel_path}: {diagnostics!r}"
         # The MATCHED RULE must actually be quoted. Suppressing `check-ignore
@@ -389,6 +455,13 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
             f"the diagnostic for {rel_path} must quote the matched rule from "
             f"`check-ignore -v`, got {rule!r}"
         )
+    exclude_diagnostics = [
+        ln for ln in result.stdout.splitlines() if "is excluded via knowledge_commit_exclude" in ln
+    ]
+    assert len(exclude_diagnostics) == 1 and AGENTS in exclude_diagnostics[0], (
+        f"AGENTS.md must be excluded via knowledge_commit_exclude on this shape, "
+        f"got {exclude_diagnostics!r}\nSTDOUT:\n{result.stdout}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -398,11 +471,11 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_defeated_negation_is_skipped_loudly_others_still_commit(tmp_path, shell):
-    """The consumer shape has WORKING negations for all three candidates and
-    would otherwise commit all three (see the positive-path tests) - here a
+    """The consumer shape has WORKING negations for all five candidates and
+    would otherwise commit all five (see the positive-path tests) - here a
     PATH-shadowed stub `ds-migrate` reports `.agentic/learnings.md`
     specifically as a DEFEATED negation. That file must be skipped with a
-    visible ERROR naming it, while MEMORY.md and decisions.md - unaffected
+    visible ERROR naming it, while the other four candidates - unaffected
     by the stub - still commit normally: per-file gating, not a whole-sweep
     abort."""
     shell = _shell_or_skip(shell)
@@ -581,10 +654,21 @@ def test_rejected_push_leaves_no_marker_and_reports_the_remote_error(tmp_path, s
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_deleted_lines_warn_and_name_the_real_branch(tmp_path, shell):
-    """The branch name must reach awk via `-v`. An `ENVIRON["BRANCH_NAME"]`
-    lookup resolves EMPTY under both shells (the variable is assigned, not
-    exported - the production shape), which would print `origin/ -` and red
-    this assertion."""
+    """Round-4 correction (DS-170): this test's docstring previously claimed
+    to pin the AGGREGATE guard's `awk -v kc_branch="$BRANCH_NAME"`
+    interpolation. MEASURED (stubbing that awk's printf line entirely, i.e.
+    replacing it with a no-op): stdout and every assertion below are
+    unchanged, because the per-file, pre-staging gate already fires first for
+    this fixture and excludes MEMORY.md from the temp index before the
+    aggregate diff-index ever runs - the aggregate's content-diff branch has
+    nothing left to detect. This matches what
+    test_per_file_gate_warning_fires_regardless_of_auto_merge's docstring
+    already establishes for the sibling case. This test therefore pins the
+    PER-FILE warning only: BRANCH_NAME reaches it via plain, non-exported
+    shell interpolation (`vs origin/$BRANCH_NAME` in the echo itself, not an
+    awk -v pass-through). The aggregate guard's own BRANCH_NAME interpolation
+    is untestable through any realistic (non-error-forcing) fixture under the
+    current per-file/aggregate design and is not covered here."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
     before = _origin_count(fixture)
@@ -596,17 +680,157 @@ def test_deleted_lines_warn_and_name_the_real_branch(tmp_path, shell):
         "with auto-merge off the commit still proceeds; the warning is the "
         f"whole defense.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
-    pattern = r"has [0-9]+ deleted line\(s\) vs origin/" + re.escape(fixture.branch_name)
+    # Anchored to "skipping THIS FILE ONLY" (the per-file message's own
+    # suffix) so this assertion can ONLY be satisfied by the per-file gate -
+    # the aggregate guard's distinct suffix ("this commit may revert content
+    # another session already merged...") cannot match this pattern, so
+    # gutting the aggregate awk (which the previous, unanchored pattern could
+    # not detect) has no bearing on this test either way.
+    pattern = (
+        r"has [0-9]+ deleted line\(s\) vs origin/"
+        + re.escape(fixture.branch_name)
+        + r" - skipping THIS FILE ONLY"
+    )
     assert re.search(pattern, result.stdout), (
-        f"expected a deleted-line warning naming origin/{fixture.branch_name}.\n"
+        f"expected the PER-FILE deleted-line warning naming origin/{fixture.branch_name}.\n"
         f"STDOUT:\n{result.stdout}"
     )
 
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_revert_risk_is_skipped_under_auto_merge(tmp_path, shell):
+    """C4 (round 6): the per-file, pre-staging design skips ONLY the file with
+    deletions - the other four still commit and push. This is the OPPOSITE of
+    the pre-per-file-gate behavior (whole-batch skip), which this test
+    asserted until round 6."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    _write_config(fixture, {"auto_merge_on_ci_green": True})
+    log_path = _install_emit_stub(fixture)
+    before = _origin_count(fixture)
+    # Captured BEFORE the run, from the origin's own pre-push tip - this is
+    # what MEMORY.md's blob must still equal after the run if it was correctly
+    # skipped pre-staging rather than staged-then-unstaged.
+    tip_blob_before = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1, (
+        "the per-file gate skips only the one file with deletions - the "
+        f"commit for the other four must still be pushed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert payload["status"] not in ("revert-risk-skipped", "no-changes"), payload
+    assert MEMORY in payload["files_skipped_ignored"], payload
+    assert MEMORY not in payload["files_committed"], payload
+    for f in (DECISIONS, LEARNINGS, AGENTS, TRACKING):
+        assert f in payload["files_committed"], payload
+    # Tree-content assertion (C1 regression guard): the skipped file's blob in
+    # the resulting (pushed) commit must be UNCHANGED from origin/<branch>'s
+    # own PRE-RUN tip blob, not absent - proving it was never staged, rather
+    # than staged then `git rm --cached`-unstaged (which would DELETE it from
+    # the commit entirely).
+    tip_blob_after = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+    assert tip_blob_after == tip_blob_before, (
+        "MEMORY.md must be present and unchanged in the pushed commit"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_revert_risk_skipped_under_shipped_default_config(tmp_path, shell):
+    """DS-170 round 2 Critical: the per-file revert-risk gate must not be
+    scoped to `auto_merge_on_ci_green: true`. Under the SHIPPED DEFAULT
+    (`auto_merge_on_ci_green` absent, i.e. false), a candidate whose copy
+    deletes lines relative to the branch tip must still be skipped - the
+    conductor's stale local copy must never silently overwrite an engineer's
+    newer content on the branch, whether or not the run auto-merges. Mirrors
+    test_revert_risk_is_skipped_under_auto_merge exactly but with no
+    auto_merge_on_ci_green config written at all (the real shipped default),
+    proving the gate no longer depends on that toggle."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    log_path = _install_emit_stub(fixture)
+    before = _origin_count(fixture)
+    tip_blob_before = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1, (
+        "the per-file gate skips only the one file with deletions - the "
+        f"commit for the other four must still be pushed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert MEMORY in payload["files_skipped_ignored"], payload
+    assert MEMORY not in payload["files_committed"], payload
+    for f in (DECISIONS, LEARNINGS, AGENTS, TRACKING):
+        assert f in payload["files_committed"], payload
+    tip_blob_after = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+    assert tip_blob_after == tip_blob_before, (
+        "MEMORY.md must be present and unchanged in the pushed commit under "
+        "the shipped default config - the branch tip's blob must survive"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_per_file_gate_warning_fires_regardless_of_auto_merge(tmp_path, shell):
+    """Round-3 Major C correction. The previous version of this test
+    (test_revert_risk_non_automerge_path_unaffected) claimed to prove the
+    AGGREGATE guard's own content-diff branch (the "this commit may revert
+    content another session already merged" message) fires under
+    auto_merge_on_ci_green=false. Measured: it does not. Since the per-file
+    gate now runs unconditionally and pre-staging (DS-170 round 2), any
+    candidate with real deletions is excluded from $KC_IDX before the
+    aggregate diff-index ever runs, and its entry is reset to the tip's exact
+    blob - so the aggregate's own content-diff branch has nothing left to
+    detect. Only the PER-FILE warning ("skipping THIS FILE ONLY") is ever
+    produced for this fixture, under either value of auto_merge_on_ci_green;
+    the aggregate guard's content branch is reachable only through its two
+    documented fail-closed paths (an unevaluable diff-index, or a
+    non-numeric awk result), not through a real per-candidate deletion. This
+    test instead pins the TRUE invariant: the per-file gate's own warning is
+    identical whether or not auto_merge_on_ci_green is set, since the gate
+    itself is unconditional."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1
+    assert "skipping THIS FILE ONLY" in result.stdout, (
+        "the per-file revert-risk gate must warn and skip MEMORY.md "
+        f"regardless of auto_merge_on_ci_green.\nSTDOUT:\n{result.stdout}"
+    )
+    assert "this commit may revert content another session already merged" not in result.stdout, (
+        "the aggregate guard's content-diff branch has nothing left to "
+        "detect once the per-file gate already excluded the only candidate "
+        f"with deletions - if this now fires, the per-file/aggregate "
+        f"relationship described above has changed and this test's "
+        f"docstring needs re-verifying, not silently accepted.\n"
+        f"STDOUT:\n{result.stdout}"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_all_candidates_skipped_reports_revert_risk_not_no_changes(tmp_path, shell):
+    """M24: when the per-file gate filters EVERY surviving candidate under
+    auto-merge, KC_N never leaves 0. Without the KC_REVERT_SKIP_COUNT branch
+    this would silently report status=no-changes/deleted_lines:0 instead of
+    revert-risk-skipped with the true count."""
+    shell = _shell_or_skip(shell)
+    modes = {f: "fewer_lines" for f in git_fixture.KNOWLEDGE_FILES}
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, modes)
     _write_config(fixture, {"auto_merge_on_ci_green": True})
     log_path = _install_emit_stub(fixture)
     before = _origin_count(fixture)
@@ -614,11 +838,116 @@ def test_revert_risk_is_skipped_under_auto_merge(tmp_path, shell):
     result = _run(fixture, shell)
     _assert_completed(result)
 
-    assert _origin_count(fixture) == before, (
-        "under auto-merge nobody reads the PR diff, so a revert-risk commit "
-        f"must not be pushed.\nSTDOUT:\n{result.stdout}"
+    assert _origin_count(fixture) == before, "no candidate survives - no commit must be pushed"
+    payload = _emit_payload(log_path)
+    assert payload["status"] == "revert-risk-skipped", payload
+    assert payload["deleted_lines"] != 0, (
+        "deleted_lines must reflect the true summed per-file count, not the "
+        f"no-changes-path default of 0: {payload}"
     )
-    assert _emit_payload(log_path)["status"] == "revert-risk-skipped"
+    for f in git_fixture.KNOWLEDGE_FILES:
+        assert f in payload["files_skipped_ignored"], payload
+
+
+# ---------------------------------------------------------------------------
+# 11. knowledge_commit_exclude config toggle.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_knowledge_commit_exclude_skips_only_that_file(tmp_path, shell):
+    """QA scenario 2: a consumer-shaped fixture with knowledge_commit_exclude
+    set via config alone (no gitignore involved) skips only the named file
+    and commits the other four."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_exclude_shape(tmp_path, exclude=[AGENTS])
+    log_path = _install_emit_stub(fixture)
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1
+    payload = _emit_payload(log_path)
+    assert AGENTS in payload["files_skipped_ignored"], payload
+    assert AGENTS not in payload["files_committed"], payload
+    for f in (MEMORY, DECISIONS, LEARNINGS, TRACKING):
+        assert f in payload["files_committed"], payload
+    excluded_line = [
+        ln for ln in result.stdout.splitlines() if "is excluded via knowledge_commit_exclude" in ln
+    ]
+    assert len(excluded_line) == 1 and AGENTS in excluded_line[0], result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_knowledge_commit_exclude_unset_behaves_as_empty(tmp_path, shell):
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1
+    assert _origin_tip_files(fixture) == sorted([MEMORY, DECISIONS, LEARNINGS, AGENTS, TRACKING])
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_excluded_nonexistent_file_produces_no_fabricated_skip_record(tmp_path, shell):
+    """The exclude check runs AFTER the file-existence gate, not before -
+    round 3's ordering would have produced a fabricated files_skipped_ignored
+    entry (and diagnostic) for a file that does not exist on disk at all."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {AGENTS: "absent"})
+    # AGENTS.md was never seeded/written locally at all for this fixture mode
+    # ("absent" content still writes SOME local file - remove it outright so
+    # the file genuinely does not exist on disk).
+    (fixture.repo_dir / AGENTS).unlink(missing_ok=True)
+    _write_config(fixture, {"knowledge_commit_exclude": [AGENTS]})
+    log_path = _install_emit_stub(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    payload = _emit_payload(log_path)
+    assert AGENTS not in payload["files_skipped_ignored"], payload
+    assert not any(AGENTS in ln for ln in result.stdout.splitlines()), (
+        f"a nonexistent excluded file must produce zero diagnostic output: {result.stdout}"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_exclude_check_is_exact_string_match_not_substring(tmp_path, shell):
+    """`-x` on `grep -Fxq` is what makes this exact-string, never substring -
+    dropping it would let an unrelated `AGENTS.md.bak`-style entry collide."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    _write_config(fixture, {"knowledge_commit_exclude": ["AGENTS.md.bak"]})
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert AGENTS in _origin_tip_files(fixture), (
+        "an unrelated exclude-list entry must not collide with AGENTS.md via substring match"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_temp_fnumstat_file_cleaned_up_after_automerge_run(tmp_path, shell):
+    """M21: the per-file revert-risk gate writes a second temp file,
+    $KC_IDX.f-numstat, alongside the existing $KC_IDX.numstat. Both must be
+    removed by the existing cleanup line."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    _write_config(fixture, {"auto_merge_on_ci_green": True})
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    leftovers = sorted(
+        p.name for p in (fixture.repo_dir / ".git").glob("knowledge-commit-index-*")
+    )
+    assert leftovers == [], f"temporary index/numstat files were not cleaned up: {leftovers}"
 
 
 @pytest.mark.parametrize("shell", SHELLS)
@@ -642,6 +971,77 @@ def test_revert_guard_fails_closed_when_it_cannot_be_evaluated(tmp_path, shell):
     assert len(failed) == 1 and "AE-GIT-STUB" in failed[0], (
         f"the guard failure must name the underlying error: {result.stdout}"
     )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_per_file_reset_failure_abandons_the_whole_commit(tmp_path, shell):
+    """Round-3 Major D. When a revert-risk-skipped candidate's temp-index
+    entry cannot be reset back to origin/<branch>'s exact blob (here: `git
+    ls-tree` fails), $KC_IDX may still carry that candidate's stale
+    working-tree content even though it is reported skipped - the round-1
+    Critical recurring silently. The fix must fail CLOSED for the whole run:
+    no write-tree/commit-tree/push, KC_STATUS="commit-failed", and the
+    failure must be visible (never `2>/dev/null`)."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    log_path = _install_emit_stub(fixture)
+    git_fixture.install_git_stub(fixture, fail_subcommand="ls-tree")
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before, (
+        f"a reset failure must abandon the WHOLE commit, not just the one "
+        f"file whose reset failed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert payload["status"] == "commit-failed", payload
+    assert payload["files_committed"] == [], payload
+    failed = [ln for ln in result.stdout.splitlines() if "ls-tree" in ln and "failed" in ln]
+    assert len(failed) == 1, (
+        f"the ls-tree failure must be visible on stdout, never swallowed "
+        f"with 2>/dev/null: {result.stdout}"
+    )
+    assert "AE-GIT-STUB" in result.stderr, (
+        "ls-tree's own stderr must not be redirected to /dev/null - the "
+        f"stub's error text must reach the real stderr.\nSTDERR:\n{result.stderr}"
+    )
+    assert any("Abandoning this knowledge-commit run" in ln for ln in result.stdout.splitlines()), (
+        f"the fail-closed abandonment must be stated explicitly: {result.stdout}"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_reset_failure_dominates_when_every_candidate_is_also_skipped(tmp_path, shell):
+    """Round-4 Minor m3 (DS-170): KC_N == 0 and KC_RESET_FAILED == "yes" can
+    both be true at once - every candidate carries revert risk (KC_N never
+    leaves 0) AND at least one of those per-file resets could not be
+    verified restored (here: `git ls-tree` fails for all of them). Before
+    this fix, the `if KC_N -eq 0` branch was checked FIRST, so this
+    combination reported status=revert-risk-skipped and silently hid the
+    fail-closed integrity concern that a corrupted temp index was never
+    verified safe. The status must be commit-failed regardless of KC_N."""
+    shell = _shell_or_skip(shell)
+    modes = {f: "fewer_lines" for f in git_fixture.KNOWLEDGE_FILES}
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, modes)
+    log_path = _install_emit_stub(fixture)
+    git_fixture.install_git_stub(fixture, fail_subcommand="ls-tree")
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before, (
+        f"no candidate survives and the reset itself failed - no commit "
+        f"must be pushed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert payload["status"] == "commit-failed", (
+        f"a failed per-file reset must dominate the all-skipped "
+        f"revert-risk-skipped report: {payload}"
+    )
+    assert payload["files_committed"] == [], payload
 
 
 # ---------------------------------------------------------------------------
@@ -864,7 +1264,7 @@ def test_stat_dirty_identical_file_is_not_misclassified_as_changed(tmp_path, she
     payload = _emit_payload(log_path)
     assert MEMORY not in payload["files_staged"], payload
     assert MEMORY not in _origin_tip_files(fixture), _origin_tip_files(fixture)
-    assert _origin_tip_files(fixture) == sorted([DECISIONS, LEARNINGS]), (
+    assert _origin_tip_files(fixture) == sorted([DECISIONS, LEARNINGS, AGENTS, TRACKING]), (
         "the genuinely-changed files must still be committed"
     )
 

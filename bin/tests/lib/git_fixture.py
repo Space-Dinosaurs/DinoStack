@@ -8,11 +8,17 @@ Purpose: Builds hermetic, disposable git repo fixtures that reproduce the
          an /ds-init-project-scaffolded consumer repo, a single-engineer
          worktree (WORKTREE_PATH-resolved PR checkout), a fan-out primary
          checkout, an unconfirmed-identity operator, and a confirmed identity
-         with no git user.* config; and (b) four knowledge-commit shapes,
-         which add a real bare `origin` remote plus seeded MEMORY.md /
-         decisions.md / .agentic/learnings.md state so a block that commits
-         and pushes knowledge files onto a PR branch can be exercised end to
-         end (including a push that is rejected by the remote).
+         with no git user.* config; and (b) six knowledge-commit shapes
+         (count derived from the `build_knowledge_*` functions defined below,
+         not hand-incremented), which add a real bare `origin` remote plus
+         seeded MEMORY.md / decisions.md / .agentic/learnings.md / AGENTS.md /
+         .agentic/tracking.md state so a block that commits and pushes
+         knowledge files onto a PR branch can be exercised end to end
+         (including a push that is rejected by the remote, a config-only
+         `knowledge_commit_exclude` exclusion with no gitignore involved, and
+         a real `.git/index` forced racily-clean ahead of the block's own
+         per-file diff to exercise GIT_INDEX_FILE isolation under that
+         condition).
 
 Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
             developer, env, origin_dir)
@@ -28,6 +34,8 @@ Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
             build_knowledge_dinostack_shape(tmp_path) -> Fixture
             build_knowledge_no_remote_shape(tmp_path, modes=None) -> Fixture
             build_knowledge_push_reject_shape(tmp_path, modes=None) -> Fixture
+            build_knowledge_consumer_exclude_shape(tmp_path, exclude=None) -> Fixture
+            build_knowledge_stale_real_index_shape(tmp_path) -> Fixture
             add_bare_origin(fixture) -> Path
             seed_knowledge_baseline(fixture, modes) -> None
             apply_knowledge_local(fixture, modes) -> None
@@ -51,7 +59,8 @@ Upstream deps: stdlib only (subprocess, dataclasses, pathlib, shutil).
 
 Downstream consumers: bin/tests/test_phase8_telemetry_shell.py,
                bin/tests/test_qa_knowledge_capture_shell.py,
-               bin/tests/test_knowledge_harness_smoke.py
+               bin/tests/test_knowledge_harness_smoke.py,
+               bin/tests/test_phase11e_knowledge_commit_shell.py
 
 Failure modes: builders raise via subprocess.CalledProcessError (check=True
                everywhere) if any setup git command fails - a broken fixture
@@ -76,7 +85,7 @@ Performance: standard; each builder does a handful of local git commands
 
 Note on BRANCH_NAME: the six Phase 8 builders export BRANCH_NAME into
              Fixture.env because the Phase 8 harness passes it that way. The
-             four knowledge builders deliberately do NOT - in production
+             five knowledge builders deliberately do NOT - in production
              $BRANCH_NAME in those blocks is a conductor-substituted shell
              ASSIGNMENT, not an exported variable, so exporting it in a
              fixture would make an `awk ENVIRON["BRANCH_NAME"]` lookup resolve
@@ -85,6 +94,7 @@ Note on BRANCH_NAME: the six Phase 8 builders export BRANCH_NAME into
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import stat
@@ -144,17 +154,20 @@ DINOSTACK_GITIGNORE = """\
 /.agentic/*
 """
 
-# The subset of DinoStack's own root `.gitignore` that governs all THREE
-# knowledge files, not just the `.agentic/` umbrella. Verified verbatim
-# against the live root .gitignore of this repo (the un-negated `/.agentic/*`
-# umbrella, the `/decisions.md` rule, and the `/MEMORY.md` rule -
-# interleaving comments omitted, rule ORDER preserved because git ignore
-# matching is last-match-wins).
+# The subset of DinoStack's own root `.gitignore` that governs four of the
+# FIVE knowledge files (AGENTS.md is deliberately excluded from this
+# constant - it is never gitignored, in this repo or any other; DinoStack
+# excludes it via the `knowledge_commit_exclude` config toggle instead, since
+# it must stay tracked and un-ignored), not just the `.agentic/` umbrella.
+# Verified verbatim against the live root .gitignore of this repo (the
+# un-negated `/.agentic/*` umbrella, the `/decisions.md` rule, and the
+# `/MEMORY.md` rule - interleaving comments omitted, rule ORDER preserved
+# because git ignore matching is last-match-wins).
 #
 # Deliberately NOT a reuse of DINOSTACK_GITIGNORE above: that constant covers
 # only `.agentic/`, so under it MEMORY.md and decisions.md would be TRACKABLE
 # and a "DinoStack shape" fixture built from it would silently exercise the
-# consumer path for two of the three knowledge files.
+# consumer path for two of the five knowledge files.
 #
 # This is a hard-copy, not a derivation from the live file - see the note on
 # DINOSTACK_GITIGNORE above; the same staleness risk applies here, and the
@@ -165,9 +178,9 @@ DINOSTACK_KNOWLEDGE_GITIGNORE = """\
 /MEMORY.md
 """
 
-# The three knowledge files a knowledge-commit block operates on, in the order
+# The five knowledge files a knowledge-commit block operates on, in the order
 # the methodology consistently names them.
-KNOWLEDGE_FILES = ("MEMORY.md", "decisions.md", ".agentic/learnings.md")
+KNOWLEDGE_FILES = ("MEMORY.md", "decisions.md", ".agentic/learnings.md", "AGENTS.md", ".agentic/tracking.md")
 
 # Per-file local-state modes accepted by seed_knowledge_baseline() /
 # apply_knowledge_local(). Each is independently selectable per file.
@@ -906,6 +919,24 @@ def install_git_stub(
     return GitStub(bin_dir, log_path, fail_subcommand, fail_exit_code)
 
 
+def _write_config(fixture: Fixture, payload: dict) -> None:
+    """Builder-side `.agentic/config.json` writer. Read-modify-write: if a
+    config file already exists at this path (e.g. a prior builder call, or a
+    test-level `_write_config()` call made before this one), merge `payload`
+    onto it rather than clobbering it - the ownership rule (M23) is that the
+    BUILDER writes first, seeding only the keys it owns, and any test-level
+    write after it merges on top. Callers needing both a builder-supplied
+    exclude AND a test-supplied toggle must call the builder BEFORE any
+    test-level `_write_config()`, never after."""
+    config_path = fixture.repo_dir / ".agentic" / "config.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if config_path.exists():
+        existing = json.loads(config_path.read_text(encoding="utf-8") or "{}")
+    existing.update(payload)
+    config_path.write_text(json.dumps(existing), encoding="utf-8")
+
+
 def _knowledge_env(fixture_env: dict[str, str], repo_dir: Path) -> None:
     """Populate the env a knowledge-commit block reads. BRANCH_NAME is
     deliberately ABSENT - see the module manifest's "Note on BRANCH_NAME"."""
@@ -929,7 +960,7 @@ def _build_knowledge_base(
 def build_knowledge_consumer_shape(
     tmp_path: Path, modes: Optional[dict[str, str]] = None
 ) -> Fixture:
-    """(A) Consumer repo: all three knowledge files are TRACKABLE under the
+    """(A) Consumer repo: all five knowledge files are TRACKABLE under the
     /ds-init-project gitignore, a real bare `origin` exists, and each file is
     seeded at the tip then locally varied per `modes` (default: all
     "modified"). The positive path for a knowledge-commit block."""
@@ -944,20 +975,29 @@ def build_knowledge_consumer_shape(
 
 
 def build_knowledge_dinostack_shape(tmp_path: Path) -> Fixture:
-    """(B) DinoStack itself: all three knowledge files exist on disk and ALL
-    THREE are gitignored, so nothing is committable. Uses
-    DINOSTACK_KNOWLEDGE_GITIGNORE, not DINOSTACK_GITIGNORE - the latter
-    ignores only `.agentic/`, which would leave MEMORY.md and decisions.md
-    trackable and silently make this the consumer shape for two of three."""
+    """(B) DinoStack itself: four of the five knowledge files exist on disk
+    and are gitignored under DINOSTACK_KNOWLEDGE_GITIGNORE, so nothing is
+    committable for them; the fifth, AGENTS.md, is tracked and changed (never
+    gitignored, in this repo or any other) and is instead excluded via a
+    fixture-local `.agentic/config.json` setting `knowledge_commit_exclude`
+    to `["AGENTS.md"]` - the real mechanism this repo uses (see the 2026-08-11
+    operator decision). Uses DINOSTACK_KNOWLEDGE_GITIGNORE, not
+    DINOSTACK_GITIGNORE - the latter ignores only `.agentic/`, which would
+    leave MEMORY.md and decisions.md trackable and silently make this the
+    consumer shape for two of the five."""
     fixture = _build_knowledge_base(
         tmp_path,
         "feature/harness-knowledge-b",
         "dev-knowledge-dinostack",
         DINOSTACK_KNOWLEDGE_GITIGNORE,
     )
+    gitignored_files = [f for f in KNOWLEDGE_FILES if f != "AGENTS.md"]
+    modes = {f: "absent" for f in gitignored_files}
+    modes["AGENTS.md"] = "modified"
+    seed_knowledge_baseline(fixture, modes)
     add_bare_origin(fixture)
-    for rel_path in KNOWLEDGE_FILES:
-        _write_file(fixture.repo_dir, rel_path, _knowledge_local(rel_path, "absent"))
+    apply_knowledge_local(fixture, modes)
+    for rel_path in gitignored_files:
         result = subprocess.run(
             ["git", "-C", str(fixture.repo_dir), "check-ignore", "-q", "--", rel_path],
             env=fixture.env,
@@ -970,8 +1010,30 @@ def build_knowledge_dinostack_shape(tmp_path: Path) -> Fixture:
             raise AssertionError(
                 f"fixture invariant violated: {rel_path} is NOT ignored under "
                 f"DINOSTACK_KNOWLEDGE_GITIGNORE (git check-ignore rc="
-                f"{result.returncode}) - this shape requires all three ignored"
+                f"{result.returncode}) - this shape requires all four of the "
+                f"gitignore-excluded files ignored"
             )
+    _write_config(fixture, {"knowledge_commit_exclude": ["AGENTS.md"]})
+    return fixture
+
+
+def build_knowledge_consumer_exclude_shape(
+    tmp_path: Path, exclude: Optional[list[str]] = None
+) -> Fixture:
+    """(E) Consumer repo where all five knowledge files are TRACKABLE under
+    the /ds-init-project gitignore (same as build_knowledge_consumer_shape),
+    all five are seeded and locally changed, but a subset is additionally
+    excluded via a fixture-local `.agentic/config.json` setting
+    `knowledge_commit_exclude` (default `["AGENTS.md"]`) - proving the
+    config-exclude path fires with no gitignore involvement at all."""
+    exclude = ["AGENTS.md"] if exclude is None else exclude
+    fixture = _build_knowledge_base(
+        tmp_path, "feature/harness-knowledge-e", "dev-knowledge-exclude", CONSUMER_GITIGNORE
+    )
+    seed_knowledge_baseline(fixture)
+    add_bare_origin(fixture)
+    apply_knowledge_local(fixture)
+    _write_config(fixture, {"knowledge_commit_exclude": exclude})
     return fixture
 
 
@@ -1011,4 +1073,51 @@ def build_knowledge_push_reject_shape(
     add_bare_origin(fixture)
     install_push_reject_hook(fixture)
     apply_knowledge_local(fixture, resolved)
+    return fixture
+
+
+def build_knowledge_stale_real_index_shape(tmp_path: Path) -> Fixture:
+    """(F) MEMORY.md's content on disk is IDENTICAL to what the REAL,
+    non-temp `.git/index` already records for that path, but its mtime is
+    pushed past the index's recorded stat - the exact raciness precondition
+    for `diff.autoRefreshIndex` to rewrite `$REPO/.git/index` during a bare
+    `git diff <treeish> -- <path>` that omits GIT_INDEX_FILE.
+
+    Built by committing the "modified" local variant to the LOCAL branch
+    (never pushed, so origin/<branch>'s tip stays at the baseline) and then
+    re-skewing the mtime with no further content change. Content still
+    differs from origin/<branch>'s tip, so the per-file revert-risk gate's
+    `git diff --numstat` is reached rather than short-circuited by the
+    earlier `diff-index --quiet` skip check - unlike the KNOWLEDGE_MODES
+    "identical" mode, which is identical to the TIP and never reaches that
+    numstat call at all.
+
+    The other four candidates are "absent" (untracked at HEAD, no real index
+    entry to be stale) so the only path through the per-file numstat call in
+    this fixture is MEMORY.md's."""
+    fixture = _build_knowledge_base(
+        tmp_path,
+        "feature/harness-knowledge-f",
+        "dev-knowledge-stale-index",
+        CONSUMER_GITIGNORE,
+    )
+    modes = {rel: "absent" for rel in KNOWLEDGE_FILES if rel != "MEMORY.md"}
+    modes["MEMORY.md"] = "modified"
+    seed_knowledge_baseline(fixture, modes)
+    add_bare_origin(fixture)
+    apply_knowledge_local(fixture, modes)
+    # Advance the LOCAL branch only (never pushed) so the real index/HEAD
+    # record the "modified" content that is already on disk.
+    _run(["git", "add", "--", "MEMORY.md"], cwd=fixture.repo_dir, env=fixture.env)
+    _run(
+        ["git", "commit", "-q", "-m", "local-only advance past origin tip"],
+        cwd=fixture.repo_dir,
+        env=_commit_env(fixture.env),
+    )
+    # Re-skew the mtime with NO further content change: content now matches
+    # the just-committed real index entry exactly, but the stat is stale
+    # relative to it - the raciness precondition itself.
+    path = fixture.repo_dir / "MEMORY.md"
+    stamp = path.stat().st_mtime + _STAT_DIRTY_SKEW_SECONDS
+    os.utime(path, (stamp, stamp))
     return fixture

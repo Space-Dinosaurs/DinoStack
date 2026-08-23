@@ -2,8 +2,9 @@
 # Purpose: Pin the ds-wrap-knowledge-commit refactor (DS-108-adjacent, the
 #          "commit knowledge files from /ds-wrap instead of a never-firing
 #          Phase 11c bridge" change): /ds-wrap gains a Part G that commits
-#          root MEMORY.md, decisions.md, and .agentic/learnings.md verbatim
-#          to a fresh chore/knowledge-<date>-<hex> branch; the dead
+#          root MEMORY.md, decisions.md, .agentic/learnings.md, AGENTS.md,
+#          and .agentic/tracking.md verbatim to a fresh
+#          chore/knowledge-<date>-<hex> branch; the dead
 #          knowledge-file-commit block in /ds-implement-ticket's former
 #          Phase 11c is deleted (it never fired - zero chore(knowledge):
 #          commits in repo history - and could not see learnings-agent /
@@ -241,7 +242,8 @@ fi
 #     clause in the deletion warning was provably dead on origin/main (Part
 #     E's target set - `.agentic/memory.md` + `[cwd]/CLAUDE.md` - and Part
 #     G's candidate set - root `MEMORY.md`, `decisions.md`,
-#     `.agentic/learnings.md` - were disjoint there: Part B wrote
+#     `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md` - were
+#     disjoint there: Part B wrote
 #     `.agentic/memory.md`, not root MEMORY.md, so Part E never touched a
 #     Part G candidate). DS-90 v2 retargets Part B to write root `MEMORY.md`
 #     and ADDS root `MEMORY.md` to Part E's target list (see

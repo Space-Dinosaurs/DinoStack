@@ -44,7 +44,7 @@ else
 fi
 
 STAGED=0
-for f in MEMORY.md decisions.md .agentic/learnings.md; do
+for f in MEMORY.md decisions.md .agentic/learnings.md AGENTS.md .agentic/tracking.md; do
   if [ ! -f "$REPO/$f" ]; then
     echo "SMOKE_FILE $f=missing"
     continue
