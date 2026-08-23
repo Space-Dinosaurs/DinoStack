@@ -3500,15 +3500,21 @@ else
               # branch getting silently overwritten by the conductor's stale
               # local copy) is present on every green PR, not only the
               # auto-merge path. This is ADDITIVE to the aggregate diff-index
-              # guard below (:3606-3642), NOT a replacement for it (C2): the
-              # aggregate guard's own two fail-closed branches (an
-              # unevaluable diff-index, or a non-numeric awk result) cover a
-              # batch-level failure this per-file, working-tree-only check
-              # cannot see. The aggregate guard's own skip-on-revert-risk
-              # (:3630) remains gated on auto_merge_on_ci_green, since a
-              # green-but-not-auto-merging PR still gets human review before
-              # merge - the per-file gate above is the one that had no
-              # reviewer standing between a stale write and a merge.
+              # guard below (the "--- Revert guard: ONE diff-index run
+              # against the TEMP index ---" comment block), NOT a replacement
+              # for it (C2): the aggregate guard's own two fail-closed
+              # branches (an unevaluable diff-index, or a non-numeric awk
+              # result) cover a batch-level failure this per-file,
+              # working-tree-only check cannot see. The aggregate guard's own
+              # skip-on-revert-risk branch (its `KC_STATUS="revert-risk-skipped"`
+              # assignment, gated on `[ "$KC_REVERT_RISK" = "yes" ] && [
+              # "$KC_AUTOMERGE" = "true" ]`) remains gated on
+              # auto_merge_on_ci_green, since a green-but-not-auto-merging PR
+              # still gets human review before merge - the per-file gate
+              # above is the one that had no reviewer standing between a
+              # stale write and a merge. (Cited by anchor text, not line
+              # number - a line-number citation here has gone stale twice
+              # already across separate rounds.)
               # GIT_INDEX_FILE is set here for consistency with this block's
               # own invariant ("The real $REPO/.git/index is never read for
               # staging and never written"). It is REQUIRED in general: a
@@ -3618,15 +3624,18 @@ else
         fi
       done
 
-      if [ "$KC_N" -eq 0 ]; then
-        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
-          KC_STATUS="revert-risk-skipped"
-          KC_DELETED=$KC_REVERT_SKIP_DELETED
-        else
-          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
-        fi
-      elif [ "$KC_RESET_FAILED" = "yes" ]; then
+      if [ "$KC_RESET_FAILED" = "yes" ]; then
+        # Checked BEFORE the KC_N == 0 branch below, deliberately: KC_N == 0
+        # and KC_RESET_FAILED == "yes" can both be true at once (every
+        # candidate carried revert risk AND at least one of those per-file
+        # resets could not be verified restored) - the fail-closed integrity
+        # concern here is strictly worse than "nothing was staged" and must
+        # dominate regardless of KC_N, or that combination would report
+        # revert-risk-skipped and hide that $KC_IDX may still carry stale
+        # content that was never verified safe (telemetry-only either way,
+        # since KC_N == 0 means nothing gets written/pushed in this run, but
+        # the reported status must still name the more severe condition).
+        #
         # Fail-closed per the per-file reset block above: at least one
         # revert-risk-skipped file's temp-index entry could not be verified
         # restored to the tip's exact blob, so $KC_IDX may still carry stale
@@ -3634,6 +3643,14 @@ else
         # write-tree/commit-tree/push a temp index that cannot be trusted.
         echo "WARNING: [phase: knowledge-commit] a per-file temp-index reset could not be verified safe earlier in this run - abandoning the knowledge commit entirely rather than risk shipping stale content from a corrupted temp index (fail-closed)."
         KC_STATUS="commit-failed"
+      elif [ "$KC_N" -eq 0 ]; then
+        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
+          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          KC_STATUS="revert-risk-skipped"
+          KC_DELETED=$KC_REVERT_SKIP_DELETED
+        else
+          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+        fi
       else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.

@@ -122,7 +122,13 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # operator approved raising this threshold in round 2 (DS-170 spawn
 # brief); the round-3 re-derivation is this PR's own, following the same
 # ~2% convention.
-THRESHOLD_BYTES=394000
+# Raised again for DS-170 round 4 (two Minor fixes: the KC_RESET_FAILED /
+# KC_N == 0 precedence reorder plus its explanatory comment, and the
+# aggregate-guard cross-reference switched from line-number citations -
+# which had gone stale twice across separate rounds - to anchor-text
+# citations). Measured post-edit size is 387,197 B; 387197 * 1.02 =
+# 394,940.94, rounded to 395,000, following the same ~2% convention.
+THRESHOLD_BYTES=395000
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

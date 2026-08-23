@@ -18,8 +18,9 @@ Public API: none (pytest test module; 33 parametrized functions x {bash, zsh}
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
                shell assignment injection + completion marker),
-               bin/tests/lib/git_fixture.py (the five build_knowledge_*
-               shapes, install_git_stub, install_push_reject_hook),
+               bin/tests/lib/git_fixture.py (the six build_knowledge_*
+               shapes, per that module's own manifest count, plus
+               install_git_stub, install_push_reject_hook),
                content/commands/ds-implement-ticket.md (the blocks under test).
 
                md_shell_extract.render() is deliberately NOT used and MUST NOT
@@ -653,10 +654,21 @@ def test_rejected_push_leaves_no_marker_and_reports_the_remote_error(tmp_path, s
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_deleted_lines_warn_and_name_the_real_branch(tmp_path, shell):
-    """The branch name must reach awk via `-v`. An `ENVIRON["BRANCH_NAME"]`
-    lookup resolves EMPTY under both shells (the variable is assigned, not
-    exported - the production shape), which would print `origin/ -` and red
-    this assertion."""
+    """Round-4 correction (DS-170): this test's docstring previously claimed
+    to pin the AGGREGATE guard's `awk -v kc_branch="$BRANCH_NAME"`
+    interpolation. MEASURED (stubbing that awk's printf line entirely, i.e.
+    replacing it with a no-op): stdout and every assertion below are
+    unchanged, because the per-file, pre-staging gate already fires first for
+    this fixture and excludes MEMORY.md from the temp index before the
+    aggregate diff-index ever runs - the aggregate's content-diff branch has
+    nothing left to detect. This matches what
+    test_per_file_gate_warning_fires_regardless_of_auto_merge's docstring
+    already establishes for the sibling case. This test therefore pins the
+    PER-FILE warning only: BRANCH_NAME reaches it via plain, non-exported
+    shell interpolation (`vs origin/$BRANCH_NAME` in the echo itself, not an
+    awk -v pass-through). The aggregate guard's own BRANCH_NAME interpolation
+    is untestable through any realistic (non-error-forcing) fixture under the
+    current per-file/aggregate design and is not covered here."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
     before = _origin_count(fixture)
@@ -668,9 +680,19 @@ def test_deleted_lines_warn_and_name_the_real_branch(tmp_path, shell):
         "with auto-merge off the commit still proceeds; the warning is the "
         f"whole defense.\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
-    pattern = r"has [0-9]+ deleted line\(s\) vs origin/" + re.escape(fixture.branch_name)
+    # Anchored to "skipping THIS FILE ONLY" (the per-file message's own
+    # suffix) so this assertion can ONLY be satisfied by the per-file gate -
+    # the aggregate guard's distinct suffix ("this commit may revert content
+    # another session already merged...") cannot match this pattern, so
+    # gutting the aggregate awk (which the previous, unanchored pattern could
+    # not detect) has no bearing on this test either way.
+    pattern = (
+        r"has [0-9]+ deleted line\(s\) vs origin/"
+        + re.escape(fixture.branch_name)
+        + r" - skipping THIS FILE ONLY"
+    )
     assert re.search(pattern, result.stdout), (
-        f"expected a deleted-line warning naming origin/{fixture.branch_name}.\n"
+        f"expected the PER-FILE deleted-line warning naming origin/{fixture.branch_name}.\n"
         f"STDOUT:\n{result.stdout}"
     )
 
@@ -988,6 +1010,38 @@ def test_per_file_reset_failure_abandons_the_whole_commit(tmp_path, shell):
     assert any("Abandoning this knowledge-commit run" in ln for ln in result.stdout.splitlines()), (
         f"the fail-closed abandonment must be stated explicitly: {result.stdout}"
     )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_reset_failure_dominates_when_every_candidate_is_also_skipped(tmp_path, shell):
+    """Round-4 Minor m3 (DS-170): KC_N == 0 and KC_RESET_FAILED == "yes" can
+    both be true at once - every candidate carries revert risk (KC_N never
+    leaves 0) AND at least one of those per-file resets could not be
+    verified restored (here: `git ls-tree` fails for all of them). Before
+    this fix, the `if KC_N -eq 0` branch was checked FIRST, so this
+    combination reported status=revert-risk-skipped and silently hid the
+    fail-closed integrity concern that a corrupted temp index was never
+    verified safe. The status must be commit-failed regardless of KC_N."""
+    shell = _shell_or_skip(shell)
+    modes = {f: "fewer_lines" for f in git_fixture.KNOWLEDGE_FILES}
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, modes)
+    log_path = _install_emit_stub(fixture)
+    git_fixture.install_git_stub(fixture, fail_subcommand="ls-tree")
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before, (
+        f"no candidate survives and the reset itself failed - no commit "
+        f"must be pushed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert payload["status"] == "commit-failed", (
+        f"a failed per-file reset must dominate the all-skipped "
+        f"revert-risk-skipped report: {payload}"
+    )
+    assert payload["files_committed"] == [], payload
 
 
 # ---------------------------------------------------------------------------

@@ -19107,15 +19107,21 @@ else
               # branch getting silently overwritten by the conductor's stale
               # local copy) is present on every green PR, not only the
               # auto-merge path. This is ADDITIVE to the aggregate diff-index
-              # guard below (:3606-3642), NOT a replacement for it (C2): the
-              # aggregate guard's own two fail-closed branches (an
-              # unevaluable diff-index, or a non-numeric awk result) cover a
-              # batch-level failure this per-file, working-tree-only check
-              # cannot see. The aggregate guard's own skip-on-revert-risk
-              # (:3630) remains gated on auto_merge_on_ci_green, since a
-              # green-but-not-auto-merging PR still gets human review before
-              # merge - the per-file gate above is the one that had no
-              # reviewer standing between a stale write and a merge.
+              # guard below (the "--- Revert guard: ONE diff-index run
+              # against the TEMP index ---" comment block), NOT a replacement
+              # for it (C2): the aggregate guard's own two fail-closed
+              # branches (an unevaluable diff-index, or a non-numeric awk
+              # result) cover a batch-level failure this per-file,
+              # working-tree-only check cannot see. The aggregate guard's own
+              # skip-on-revert-risk branch (its `KC_STATUS="revert-risk-skipped"`
+              # assignment, gated on `[ "$KC_REVERT_RISK" = "yes" ] && [
+              # "$KC_AUTOMERGE" = "true" ]`) remains gated on
+              # auto_merge_on_ci_green, since a green-but-not-auto-merging PR
+              # still gets human review before merge - the per-file gate
+              # above is the one that had no reviewer standing between a
+              # stale write and a merge. (Cited by anchor text, not line
+              # number - a line-number citation here has gone stale twice
+              # already across separate rounds.)
               # GIT_INDEX_FILE is set here for consistency with this block's
               # own invariant ("The real $REPO/.git/index is never read for
               # staging and never written"). It is REQUIRED in general: a
@@ -19225,15 +19231,18 @@ else
         fi
       done
 
-      if [ "$KC_N" -eq 0 ]; then
-        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
-          KC_STATUS="revert-risk-skipped"
-          KC_DELETED=$KC_REVERT_SKIP_DELETED
-        else
-          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
-        fi
-      elif [ "$KC_RESET_FAILED" = "yes" ]; then
+      if [ "$KC_RESET_FAILED" = "yes" ]; then
+        # Checked BEFORE the KC_N == 0 branch below, deliberately: KC_N == 0
+        # and KC_RESET_FAILED == "yes" can both be true at once (every
+        # candidate carried revert risk AND at least one of those per-file
+        # resets could not be verified restored) - the fail-closed integrity
+        # concern here is strictly worse than "nothing was staged" and must
+        # dominate regardless of KC_N, or that combination would report
+        # revert-risk-skipped and hide that $KC_IDX may still carry stale
+        # content that was never verified safe (telemetry-only either way,
+        # since KC_N == 0 means nothing gets written/pushed in this run, but
+        # the reported status must still name the more severe condition).
+        #
         # Fail-closed per the per-file reset block above: at least one
         # revert-risk-skipped file's temp-index entry could not be verified
         # restored to the tip's exact blob, so $KC_IDX may still carry stale
@@ -19241,6 +19250,14 @@ else
         # write-tree/commit-tree/push a temp index that cannot be trusted.
         echo "WARNING: [phase: knowledge-commit] a per-file temp-index reset could not be verified safe earlier in this run - abandoning the knowledge commit entirely rather than risk shipping stale content from a corrupted temp index (fail-closed)."
         KC_STATUS="commit-failed"
+      elif [ "$KC_N" -eq 0 ]; then
+        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
+          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          KC_STATUS="revert-risk-skipped"
+          KC_DELETED=$KC_REVERT_SKIP_DELETED
+        else
+          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+        fi
       else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.
@@ -24290,7 +24307,7 @@ If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` b
 7. Push the branch: `git -C <worktree> push -u origin <branch-name>`. **Do NOT run `gh pr create`.** On push failure (network, auth, remote rejected): soft-fail per the absolute contract - log `[wrap: Part G] push failed: <error>` and skip to step 9 (worktree cleanup); do not retry.
 8. On push success, print the branch name plus a ready-to-paste PR-open command: `gh pr create --base <BASE_BRANCH> --head <branch-name>`. This is a printed affordance only, not an auto-executed action and not a prompt awaiting a reply - `/ds-wrap` summarizes a session, it does not ship on the operator's behalf, so it must never open an outward-facing PR unprompted.
 9. **Remove the ephemeral worktree on every exit path from this subsection where one was created** - success, the steps-1-3 setup-failure soft-fail (when the worktree exists), the step-4 missing-git-config soft-fail, the step-6 commit-failure soft-fail, and the step-7 push-failure soft-fail all reach this cleanup (`git worktree remove` the ephemeral worktree; a leaked worktree is not an acceptable outcome of a soft failure).
-10. Emit one `ds-emit` event describing the outcome: `ds-emit knowledge_commit - - '<json>'` (see `bin/ds-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed` - `failed` denotes the step-4 missing-git-config soft-fail specifically, and `setup-failed` denotes a steps-1-3 worktree-creation/copy/stage soft-fail), `files_committed` (array of basenames actually committed), `files_skipped_ignored` (array of basenames skipped by the gitignore gate or the `knowledge_commit_exclude` config toggle - the field does not distinguish which of the two fired for a given file; the printed diagnostic line is the only place that distinction is visible), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - the no-op path (`status: "no-changes"`), the setup-failure soft-fail (`status: "setup-failed"`), the missing-git-config soft-fail (`status: "failed"`), the commit-failure soft-fail (`status: "commit-failed"`), and the push-failure soft-fail (`status: "push-failed"`) - not only on success. There is no `skipped-ignored` status: a file skipped by the gitignore gate is recorded in `files_skipped_ignored` regardless of the overall outcome, and the overall `status` is driven only by whether the run produced a commit, not by which files were gitignored along the way. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact. The `knowledge_commit` event is now emitted from two sites, so the payload also carries `site` - one of `wrap-part-g` or `phase-11e` - plus `files_staged`, the list of files staged before the commit attempt; `files_committed` keeps the same meaning at both sites (files ACTUALLY committed), which means it is empty on every non-success status; and Phase 11e's `status` enum omits `setup-failed` (worktree-specific, with no analogue in a checkout-free commit) while adding `revert-risk-skipped`, `disabled`, and `no-branch` (the PR branch ref did not resolve - distinct from `no-changes`, because the ref-absence warning is printed to stdout and would otherwise leave no durable record of which of the two occurred).
+10. Emit one `ds-emit` event describing the outcome: `ds-emit knowledge_commit - - '<json>'` (see `bin/ds-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed` - `failed` denotes the step-4 missing-git-config soft-fail specifically, and `setup-failed` denotes a steps-1-3 worktree-creation/copy/stage soft-fail), `files_committed` (array of the candidate-set entries actually committed, exactly as listed above - e.g. `.agentic/learnings.md`, not `learnings.md` - not basenames), `files_skipped_ignored` (array of candidate-set entries, same non-basename form, skipped by the gitignore gate or the `knowledge_commit_exclude` config toggle - the field does not distinguish which of the two fired for a given file; the printed diagnostic line is the only place that distinction is visible), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - the no-op path (`status: "no-changes"`), the setup-failure soft-fail (`status: "setup-failed"`), the missing-git-config soft-fail (`status: "failed"`), the commit-failure soft-fail (`status: "commit-failed"`), and the push-failure soft-fail (`status: "push-failed"`) - not only on success. There is no `skipped-ignored` status: a file skipped by the gitignore gate is recorded in `files_skipped_ignored` regardless of the overall outcome, and the overall `status` is driven only by whether the run produced a commit, not by which files were gitignored along the way. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact. The `knowledge_commit` event is now emitted from two sites, so the payload also carries `site` - one of `wrap-part-g` or `phase-11e` - plus `files_staged`, the list of files staged before the commit attempt; `files_committed` keeps the same meaning at both sites (files ACTUALLY committed), which means it is empty on every non-success status; and Phase 11e's `status` enum omits `setup-failed` (worktree-specific, with no analogue in a checkout-free commit) while adding `revert-risk-skipped`, `disabled`, and `no-branch` (the PR branch ref did not resolve - distinct from `no-changes`, because the ref-absence warning is printed to stdout and would otherwise leave no durable record of which of the two occurred).
 
 **Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
 

@@ -8,13 +8,17 @@ Purpose: Builds hermetic, disposable git repo fixtures that reproduce the
          an /ds-init-project-scaffolded consumer repo, a single-engineer
          worktree (WORKTREE_PATH-resolved PR checkout), a fan-out primary
          checkout, an unconfirmed-identity operator, and a confirmed identity
-         with no git user.* config; and (b) five knowledge-commit shapes,
-         which add a real bare `origin` remote plus seeded MEMORY.md /
-         decisions.md / .agentic/learnings.md / AGENTS.md / .agentic/tracking.md
-         state so a block that commits and pushes knowledge files onto a PR
-         branch can be exercised end to end (including a push that is
-         rejected by the remote, and a config-only `knowledge_commit_exclude`
-         exclusion with no gitignore involved).
+         with no git user.* config; and (b) six knowledge-commit shapes
+         (count derived from the `build_knowledge_*` functions defined below,
+         not hand-incremented), which add a real bare `origin` remote plus
+         seeded MEMORY.md / decisions.md / .agentic/learnings.md / AGENTS.md /
+         .agentic/tracking.md state so a block that commits and pushes
+         knowledge files onto a PR branch can be exercised end to end
+         (including a push that is rejected by the remote, a config-only
+         `knowledge_commit_exclude` exclusion with no gitignore involved, and
+         a real `.git/index` forced racily-clean ahead of the block's own
+         per-file diff to exercise GIT_INDEX_FILE isolation under that
+         condition).
 
 Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
             developer, env, origin_dir)
@@ -31,6 +35,7 @@ Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
             build_knowledge_no_remote_shape(tmp_path, modes=None) -> Fixture
             build_knowledge_push_reject_shape(tmp_path, modes=None) -> Fixture
             build_knowledge_consumer_exclude_shape(tmp_path, exclude=None) -> Fixture
+            build_knowledge_stale_real_index_shape(tmp_path) -> Fixture
             add_bare_origin(fixture) -> Path
             seed_knowledge_baseline(fixture, modes) -> None
             apply_knowledge_local(fixture, modes) -> None
