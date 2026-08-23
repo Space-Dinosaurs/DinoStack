@@ -305,18 +305,18 @@ payload with no `run_in_background` key is denied), and it predates this
 exception's evidence requirement - no per-`tool_name` capture exists
 proving `Task` omits `run_in_background` only when unset (as opposed to
 stripping it unconditionally). Treat it as grandfathered debt, not as
-compliant precedent: do not cite it to justify a new unverified deny-on-
-absent gate, and do not assume its `Task` behavior is safe without
-obtaining the capture. A future engineer extending this exception to a
-new field or hook must obtain and cite an equally real capture, scoped to
-the exact `tool_name` being gated - never generalize a capture from one
-`tool_name` to a "related" one, and never point to `enforce-background-
-spawn.py` (grandfathered debt, not compliant precedent) as evidence the
-bar has already been met.
+compliant precedent: do not cite it to justify a new unverified
+deny-on-absent gate, and do not assume its `Task` behavior is safe
+without obtaining the capture. A future engineer extending this
+exception to a new field or hook must obtain and cite an equally real
+capture, scoped to the exact `tool_name` being gated - never generalize
+a capture from one `tool_name` to a "related" one, and never point to
+`enforce-background-spawn.py` (grandfathered debt, not compliant
+precedent) as evidence the bar has already been met.
 
-An exception satisfied by a capture showing only one shape (present-when-
-set alone, or omitted-when-unset alone), or by prose alone, does not meet
-the bar above. At minimum: both the present-when-explicitly-set and
+An exception satisfied by a capture showing only one shape
+(present-when-set alone, or omitted-when-unset alone), or by prose
+alone, does not meet the bar above. At minimum: both the present-when-explicitly-set and
 omitted-when-unset shapes must actually have been
 observed for the exact `tool_name` being gated (not inferred from a
 schema or from a different `tool_name`); the observed `tool_input` key
@@ -332,18 +332,23 @@ payload entirely WHEN THE SPAWNER LEAVES IT UNSET (confirmed by live
 payload capture, 2026-08-23: `tool_input` keys for an unset-isolation,
 unset-`run_in_background` `Agent` spawn were exactly `['description',
 'prompt', 'subagent_type']`) - `Agent` is background-by-default at the
-harness level, so an unset field simply never arrives. This is present-
-when-explicitly-passed, omitted-when-unset, the SAME shape as `isolation`
+harness level, so an unset field simply never arrives. This is
+present-when-explicitly-passed, omitted-when-unset, the SAME shape as `isolation`
 (§Spawn payload mechanics below) - it is NOT stripped from the `Agent`
 payload unconditionally; a spawn that explicitly passes
 `run_in_background: false` DOES carry the key (a real `Agent` spawn with
 `run_in_background: false` was denied by this hook in-session, which is
 only possible if the key was present in that payload). The hook denied
-every `Agent` spawn missing the field until this was found and fixed;
-enforcement was scoped back to the legacy `Task` tool only. Whether
-`Task` genuinely omits the field only when unset (as opposed to
-stripping it unconditionally) has never been captured - see the
-grandfathered-debt paragraph above.
+every `Agent` spawn missing the field until this was found and fixed; the
+fix did not exempt `Agent` from enforcement - it changed the gating
+predicate to match the field's actual per-tool shape. `Agent` remains
+enforced today with an asymmetric rule: deny ONLY when
+`run_in_background` is explicitly `False` (an absent field allows, since
+`Agent` backgrounds by default at the harness level); `Task` (legacy)
+keeps the stricter deny-unless-exactly-`True` rule. Whether `Task`
+genuinely omits the field only when unset (as opposed to stripping it
+unconditionally) has never been captured - see the grandfathered-debt
+paragraph above.
 
 **Discipline before gating on a field:** capture or obtain one real
 `PreToolUse` payload for the guarded `tool_name` and confirm the field is

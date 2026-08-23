@@ -1014,7 +1014,7 @@ for spawn_matcher in ("Task", "Agent"):
 
     # Denies an engineer/qa-engineer/release-orchestrator spawn missing
     # isolation: "worktree" (content/sections/02-delegation.md's no-exception
-    # worktree-isolation mandate). Round-3: reinstated a kill-switch (the
+    # worktree-isolation mandate). The hook carries a kill-switch (the
     # mandate is absolute, but its enforcement mechanism must stay
     # recoverable - see hooks/AGENTS.md §No gating on inferred session
     # capability and the hook's own module docstring). To disable: set

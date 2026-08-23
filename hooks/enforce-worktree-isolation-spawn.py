@@ -102,9 +102,8 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task
                       hooks/AGENTS.md §Entry points.
 
 Failure modes: Fail-open on every uncertain or malformed case - a broken
-               hook must never brick every spawn. Round-3 fix pass:
-               REINSTATES a kill-switch env var, reversing round-2's
-               removal. The governing mandate (`content/sections/
+               hook must never brick every spawn. The hook carries a
+               kill-switch env var. The governing mandate (`content/sections/
                02-delegation.md`) states "with no exception," but that is a
                statement about the METHODOLOGY rule, not a requirement that
                its ENFORCEMENT MECHANISM be irrecoverable - and two live
@@ -159,7 +158,7 @@ Failure modes: Fail-open on every uncertain or malformed case - a broken
 Performance: < 5 ms per call (in-memory JSON parse only, no file I/O on the
              allow path, no network I/O).
 
-Exemption-list decision (round-3 fix pass): unlike the two sibling worktree
+Exemption-list decision: unlike the two sibling worktree
 guards (`enforce-worktree-read.py`/`enforce-worktree-write.py`), this hook
 ships ONLY the env-var kill-switch, no `worktree_isolation_guard_exemptions`
 config-driven exemption list. The siblings' exemption lists are path
@@ -187,9 +186,8 @@ import os
 import sys
 from pathlib import Path
 
-# Kill-switch + recovery (reinstated round-3; see module docstring
-# "Exemption-list decision" for why no config exemption list accompanies
-# it):
+# Kill-switch + recovery (see module docstring "Exemption-list decision"
+# for why no config exemption list accompanies it):
 #   To temporarily disable this guard:
 #     1. Set AE_WORKTREE_ISOLATION_GUARD_DISABLE=1 in your environment, then
 #        restart Claude Code so the hook process inherits the variable.
@@ -281,9 +279,9 @@ def main() -> None:
         if not isinstance(raw_tinput, dict):
             sys.exit(0)
 
-        # No isinstance(role, str) guard here: measured by mutation test
-        # (round-3 fix pass) that adding one is unfalsifiable-by-construction
-        # for every input shape reachable from JSON. A non-string, non-
+        # No isinstance(role, str) guard here: measured by mutation test that
+        # adding one is unfalsifiable-by-construction for every input shape
+        # reachable from JSON. A non-string, non-
         # hashable role (e.g. a list) raises TypeError inside `in
         # MANDATED_ROLES`, caught by the outer `except Exception` below and
         # exiting 0 (ALLOW) - the exact same externally observable outcome

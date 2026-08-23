@@ -284,7 +284,7 @@ check(
 #    `role not in MANDATED_ROLES` membership test with a non-string,
 #    hashable value - it does NOT test an isinstance guard on `role`. An
 #    earlier version of this hook had one (`not isinstance(role, str) or
-#    role not in MANDATED_ROLES`); round-3 mutation testing found it
+#    role not in MANDATED_ROLES`); mutation testing found it
 #    unfalsifiable-by-construction (a non-hashable role like a list raises
 #    inside the membership test and is caught by the outer exception
 #    handler, landing on the identical ALLOW a short-circuit would produce
@@ -360,7 +360,7 @@ check(
 
 # ---------------------------------------------------------------------------
 # 9. Kill-switch: AE_WORKTREE_ISOLATION_GUARD_DISABLE=1 fails open even on a
-#    payload that would otherwise deny (round-3 reinstatement).
+#    payload that would otherwise deny.
 #    Mutation that would redden: removing the
 #    `os.environ.get("AE_WORKTREE_ISOLATION_GUARD_DISABLE") == "1"` check (or
 #    its early sys.exit(0)) in main() would flip this to DENY.
