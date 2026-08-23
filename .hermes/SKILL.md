@@ -18925,7 +18925,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
 
-**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or the per-file revert-risk gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). The per-file revert-risk gate runs unconditionally, regardless of `auto_merge_on_ci_green`: a file it excludes is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of the candidate-set entries exactly as listed above - e.g. `.agentic/learnings.md`, not `learnings.md` - skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or the per-file revert-risk gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). The per-file revert-risk gate runs unconditionally, regardless of `auto_merge_on_ci_green`: a file it excludes is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
 ### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
 
@@ -18976,8 +18976,8 @@ The conductor then classifies each entry in that array per `content/references/c
 # match any". Measured, not theoretical.
 #
 # DIAGNOSTIC / FAIL-CLOSED: no `2>/dev/null` on check-ignore, read-tree,
-# update-index, add, push, or diff-index. Any guard failure or unparseable
-# guard result counts as RISK PRESENT, never as risk absent.
+# update-index, add, push, diff-index, or ls-tree. Any guard failure or
+# unparseable guard result counts as RISK PRESENT, never as risk absent.
 #
 # INDEX: every index operation targets $KC_IDX. The real $REPO/.git/index is
 # never read for staging and never written - including by update-index.
@@ -18994,6 +18994,9 @@ KC_REVERT_RISK="no"
 KC_N=0
 KC_REVERT_SKIP_COUNT=0
 KC_REVERT_SKIP_DELETED=0
+KC_RESET_FAILED="no"  # set "yes" if a per-file temp-index reset (after a
+                      # revert-risk skip) cannot be verified safe; see the
+                      # fail-closed check before write-tree below.
 
 KC_ENABLED=$(python3 -c "
 import json
@@ -19104,24 +19107,41 @@ else
               # branch getting silently overwritten by the conductor's stale
               # local copy) is present on every green PR, not only the
               # auto-merge path. This is ADDITIVE to the aggregate diff-index
-              # guard below (:3485-3518), NOT a replacement for it (C2): the
+              # guard below (:3606-3642), NOT a replacement for it (C2): the
               # aggregate guard's own two fail-closed branches (an
               # unevaluable diff-index, or a non-numeric awk result) cover a
               # batch-level failure this per-file, working-tree-only check
               # cannot see. The aggregate guard's own skip-on-revert-risk
-              # (:3612) remains gated on auto_merge_on_ci_green, since a
+              # (:3630) remains gated on auto_merge_on_ci_green, since a
               # green-but-not-auto-merging PR still gets human review before
               # merge - the per-file gate above is the one that had no
               # reviewer standing between a stale write and a merge.
               # GIT_INDEX_FILE is set here for consistency with this block's
               # own invariant ("The real $REPO/.git/index is never read for
-              # staging and never written"), even though direct measurement
-              # (DS-170 round 2) found that a `git diff <treeish> -- <path>`
-              # invocation - unlike a bare, argument-less `git diff` - does
-              # not write $REPO/.git/index via diff.autoRefreshIndex under
-              # any raciness/staleness configuration tried, regardless of
-              # GIT_INDEX_FILE; the numstat result is also identical either
-              # way. Keeping the assignment costs nothing and holds the line
+              # staging and never written"). It is REQUIRED in general: a
+              # bare `git diff HEAD -- <path>`, a plain `git status`, or an
+              # argument-less `git diff` DOES rewrite $REPO/.git/index via
+              # diff.autoRefreshIndex whenever the real index's entry for a
+              # path is content-identical to the working file but stat-dirty
+              # (measured, git 2.55.0) - this is exactly the kind of write
+              # the block's invariant forbids, and dropping GIT_INDEX_FILE
+              # anywhere else in this block reproduces it (see
+              # test_real_index_is_never_read_or_written). For THIS
+              # particular call the hazard is provably unreachable rather
+              # than merely unobserved: this line only runs once $KC_SKIP_THIS
+              # is "no", which the check above it already established by
+              # finding that $KC_F's WORKING-TREE content differs from
+              # origin/$BRANCH_NAME's blob at this path (or that the path is
+              # absent from the tip). diff.autoRefreshIndex only rewrites an
+              # entry when refresh CONFIRMS the working file is unchanged
+              # relative to what is being diffed against - which this call's
+              # own precondition rules out for the treeish it actually uses
+              # (origin/$BRANCH_NAME, never HEAD or any tree that matches the
+              # real index at this path). Confirmed empirically across five
+              # independent fixture shapes, including one built specifically
+              # to force the raciness (DS-170 round 3;
+              # test_per_file_numstat_leaves_real_index_untouched_under_forced_raciness).
+              # Keeping the assignment costs nothing and holds the line
               # uniform with every other index operation in this block.
               KC_F_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff --numstat "origin/$BRANCH_NAME" -- "$KC_F" 2>&1 >"$KC_IDX.f-numstat")
               if [ $? -ne 0 ]; then
@@ -19150,11 +19170,32 @@ else
                 # about to be skipped. Reset the temp index entry back to the
                 # origin tip's exact blob/mode so a file skipped here is
                 # PROVABLY untouched in $KC_IDX, not staged-then-never-added.
-                KC_TIP_ENTRY=$(git -C "$REPO" ls-tree "origin/$BRANCH_NAME" -- "$KC_F" 2>/dev/null)
-                if [ -n "$KC_TIP_ENTRY" ]; then
+                #
+                # DIAGNOSTIC / FAIL-CLOSED, same contract as the rest of this
+                # block: no `2>/dev/null` on ls-tree, and a failed
+                # update-index reset is never swallowed with `|| true`. If
+                # either step cannot be verified to have restored the tip's
+                # exact blob, $KC_IDX may still carry this file's stale
+                # working-tree content even though it is reported as
+                # SKIPPED - the round-1 Critical recurring silently. Treat
+                # that as RISK PRESENT for the WHOLE run: KC_RESET_FAILED
+                # forces the write-tree/commit-tree/push sequence below to be
+                # skipped entirely, so a corrupted temp index is discarded
+                # (by the unconditional `rm -f "$KC_IDX"` at the end of this
+                # block) rather than ever written or pushed.
+                KC_TIP_ENTRY=$(git -C "$REPO" ls-tree "origin/$BRANCH_NAME" -- "$KC_F")
+                KC_LSTREE_RC=$?
+                if [ "$KC_LSTREE_RC" -ne 0 ] || [ -z "$KC_TIP_ENTRY" ]; then
+                  echo "WARNING: [phase: knowledge-commit] ls-tree origin/$BRANCH_NAME -- $KC_F failed while resetting the temp index after a revert-risk skip - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
+                  KC_RESET_FAILED="yes"
+                else
                   KC_TIP_MODE=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $1}')
                   KC_TIP_SHA=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $3}')
-                  GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" >/dev/null 2>&1 || true
+                  KC_CACHEINFO_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" 2>&1 >/dev/null)
+                  if [ $? -ne 0 ]; then
+                    echo "WARNING: [phase: knowledge-commit] update-index --add --cacheinfo failed while resetting $KC_F's temp index entry after a revert-risk skip: $KC_CACHEINFO_ERR - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
+                    KC_RESET_FAILED="yes"
+                  fi
                 fi
                 # Track the all-candidates-skipped case so a KC_N == 0 run
                 # still reports revert-risk-skipped with the
@@ -19192,6 +19233,14 @@ else
         else
           echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
         fi
+      elif [ "$KC_RESET_FAILED" = "yes" ]; then
+        # Fail-closed per the per-file reset block above: at least one
+        # revert-risk-skipped file's temp-index entry could not be verified
+        # restored to the tip's exact blob, so $KC_IDX may still carry stale
+        # working-tree content for it. Abandon the WHOLE commit rather than
+        # write-tree/commit-tree/push a temp index that cannot be trusted.
+        echo "WARNING: [phase: knowledge-commit] a per-file temp-index reset could not be verified safe earlier in this run - abandoning the knowledge commit entirely rather than risk shipping stale content from a corrupted temp index (fail-closed)."
+        KC_STATUS="commit-failed"
       else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.

@@ -1069,3 +1069,50 @@ def build_knowledge_push_reject_shape(
     install_push_reject_hook(fixture)
     apply_knowledge_local(fixture, resolved)
     return fixture
+
+
+def build_knowledge_stale_real_index_shape(tmp_path: Path) -> Fixture:
+    """(F) MEMORY.md's content on disk is IDENTICAL to what the REAL,
+    non-temp `.git/index` already records for that path, but its mtime is
+    pushed past the index's recorded stat - the exact raciness precondition
+    for `diff.autoRefreshIndex` to rewrite `$REPO/.git/index` during a bare
+    `git diff <treeish> -- <path>` that omits GIT_INDEX_FILE.
+
+    Built by committing the "modified" local variant to the LOCAL branch
+    (never pushed, so origin/<branch>'s tip stays at the baseline) and then
+    re-skewing the mtime with no further content change. Content still
+    differs from origin/<branch>'s tip, so the per-file revert-risk gate's
+    `git diff --numstat` is reached rather than short-circuited by the
+    earlier `diff-index --quiet` skip check - unlike the KNOWLEDGE_MODES
+    "identical" mode, which is identical to the TIP and never reaches that
+    numstat call at all.
+
+    The other four candidates are "absent" (untracked at HEAD, no real index
+    entry to be stale) so the only path through the per-file numstat call in
+    this fixture is MEMORY.md's."""
+    fixture = _build_knowledge_base(
+        tmp_path,
+        "feature/harness-knowledge-f",
+        "dev-knowledge-stale-index",
+        CONSUMER_GITIGNORE,
+    )
+    modes = {rel: "absent" for rel in KNOWLEDGE_FILES if rel != "MEMORY.md"}
+    modes["MEMORY.md"] = "modified"
+    seed_knowledge_baseline(fixture, modes)
+    add_bare_origin(fixture)
+    apply_knowledge_local(fixture, modes)
+    # Advance the LOCAL branch only (never pushed) so the real index/HEAD
+    # record the "modified" content that is already on disk.
+    _run(["git", "add", "--", "MEMORY.md"], cwd=fixture.repo_dir, env=fixture.env)
+    _run(
+        ["git", "commit", "-q", "-m", "local-only advance past origin tip"],
+        cwd=fixture.repo_dir,
+        env=_commit_env(fixture.env),
+    )
+    # Re-skew the mtime with NO further content change: content now matches
+    # the just-committed real index entry exactly, but the stat is stale
+    # relative to it - the raciness precondition itself.
+    path = fixture.repo_dir / "MEMORY.md"
+    stamp = path.stat().st_mtime + _STAT_DIRTY_SKEW_SECONDS
+    os.utime(path, (stamp, stamp))
+    return fixture

@@ -11,9 +11,9 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 31 parametrized functions x {bash, zsh}
-            = 62 collected IDs, plus 3 static shell-independent assertions =
-            65 - see the collected-count floor in
+Public API: none (pytest test module; 33 parametrized functions x {bash, zsh}
+            = 66 collected IDs, plus 3 static shell-independent assertions =
+            69 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
@@ -367,6 +367,51 @@ def test_real_index_is_never_read_or_written(tmp_path, shell):
     assert leftovers == [], f"temporary index files were not cleaned up: {leftovers}"
 
 
+@pytest.mark.parametrize("shell", SHELLS)
+def test_per_file_numstat_leaves_real_index_untouched_under_forced_raciness(tmp_path, shell):
+    """Round-3 Major A follow-up. build_knowledge_stale_real_index_shape
+    forces the exact raciness precondition Major A described: MEMORY.md's
+    content on disk is byte-identical to what the REAL (non-temp) `.git/index`
+    already records for that path, but the mtime is pushed past the index's
+    recorded stat.
+
+    NOT a reddenable regression test: dropping GIT_INDEX_FILE="$KC_IDX" from
+    ONLY the per-file `git diff --numstat "origin/$BRANCH_NAME" -- "$KC_F"`
+    call was measured (git 2.55.0, five independent fixture shapes, plus this
+    one) to leave $REPO/.git/index BYTE-IDENTICAL regardless - confirmed
+    against this exact fixture too. This is provable, not merely
+    unobserved: reaching this line at all requires the per-file diff-index
+    check above to have already established that MEMORY.md's WORKING-TREE
+    content differs from origin/$BRANCH_NAME's blob at that path (or that the
+    path is absent from the tip entirely). `diff.autoRefreshIndex` only
+    rewrites a real index entry when refresh CONFIRMS the working file is
+    unchanged relative to what is being reported - which this call's own
+    reachability precondition rules out for the treeish it actually diffs
+    against (origin/$BRANCH_NAME, never HEAD or any tree that equals the real
+    index at this path). A bare `git diff HEAD -- <path>`, a plain `git
+    status`, or an argument-less `git diff` DOES trigger the real-index
+    write under the same raciness - that is why GIT_INDEX_FILE stays on this
+    line for defense-in-depth and uniformity with the rest of the block, even
+    though this specific invocation cannot exercise the hazard. See the
+    corrected block comment for the full argument."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_stale_real_index_shape(tmp_path)
+    index_path = fixture.repo_dir / ".git" / "index"
+    sha_before = hashlib.sha256(index_path.read_bytes()).hexdigest()
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    sha_after = hashlib.sha256(index_path.read_bytes()).hexdigest()
+    assert sha_after == sha_before, (
+        "$REPO/.git/index was modified under forced raciness - this is the "
+        "state Major A described as reddenable; if this assertion now fails "
+        "the provenance comment above needs re-verifying against the git "
+        "version in use, not silently accepted.\n"
+        f"before={sha_before}\nafter={sha_after}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 4. Suppressed gitignore diagnostic.
 # ---------------------------------------------------------------------------
@@ -425,11 +470,11 @@ def test_gitignored_files_are_skipped_audibly(tmp_path, shell):
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_defeated_negation_is_skipped_loudly_others_still_commit(tmp_path, shell):
-    """The consumer shape has WORKING negations for all three candidates and
-    would otherwise commit all three (see the positive-path tests) - here a
+    """The consumer shape has WORKING negations for all five candidates and
+    would otherwise commit all five (see the positive-path tests) - here a
     PATH-shadowed stub `ds-migrate` reports `.agentic/learnings.md`
     specifically as a DEFEATED negation. That file must be skipped with a
-    visible ERROR naming it, while MEMORY.md and decisions.md - unaffected
+    visible ERROR naming it, while the other four candidates - unaffected
     by the stub - still commit normally: per-file gating, not a whole-sweep
     abort."""
     shell = _shell_or_skip(shell)
@@ -715,10 +760,24 @@ def test_revert_risk_skipped_under_shipped_default_config(tmp_path, shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_revert_risk_non_automerge_path_unaffected(tmp_path, shell):
-    """C2 resolution, second assertion: with auto_merge_on_ci_green false, the
-    same fixture still produces the aggregate human-facing WARNING naming the
-    file with deletions - the per-file gate is additive, not a replacement."""
+def test_per_file_gate_warning_fires_regardless_of_auto_merge(tmp_path, shell):
+    """Round-3 Major C correction. The previous version of this test
+    (test_revert_risk_non_automerge_path_unaffected) claimed to prove the
+    AGGREGATE guard's own content-diff branch (the "this commit may revert
+    content another session already merged" message) fires under
+    auto_merge_on_ci_green=false. Measured: it does not. Since the per-file
+    gate now runs unconditionally and pre-staging (DS-170 round 2), any
+    candidate with real deletions is excluded from $KC_IDX before the
+    aggregate diff-index ever runs, and its entry is reset to the tip's exact
+    blob - so the aggregate's own content-diff branch has nothing left to
+    detect. Only the PER-FILE warning ("skipping THIS FILE ONLY") is ever
+    produced for this fixture, under either value of auto_merge_on_ci_green;
+    the aggregate guard's content branch is reachable only through its two
+    documented fail-closed paths (an unevaluable diff-index, or a
+    non-numeric awk result), not through a real per-candidate deletion. This
+    test instead pins the TRUE invariant: the per-file gate's own warning is
+    identical whether or not auto_merge_on_ci_green is set, since the gate
+    itself is unconditional."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
     before = _origin_count(fixture)
@@ -727,9 +786,16 @@ def test_revert_risk_non_automerge_path_unaffected(tmp_path, shell):
     _assert_completed(result)
 
     assert _origin_count(fixture) == before + 1
-    pattern = r"has [0-9]+ deleted line\(s\) vs origin/" + re.escape(fixture.branch_name)
-    assert re.search(pattern, result.stdout), (
-        f"non-auto-merge path must still emit the aggregate deletion WARNING.\n"
+    assert "skipping THIS FILE ONLY" in result.stdout, (
+        "the per-file revert-risk gate must warn and skip MEMORY.md "
+        f"regardless of auto_merge_on_ci_green.\nSTDOUT:\n{result.stdout}"
+    )
+    assert "this commit may revert content another session already merged" not in result.stdout, (
+        "the aggregate guard's content-diff branch has nothing left to "
+        "detect once the per-file gate already excluded the only candidate "
+        f"with deletions - if this now fires, the per-file/aggregate "
+        f"relationship described above has changed and this test's "
+        f"docstring needs re-verifying, not silently accepted.\n"
         f"STDOUT:\n{result.stdout}"
     )
 
@@ -882,6 +948,45 @@ def test_revert_guard_fails_closed_when_it_cannot_be_evaluated(tmp_path, shell):
     failed = [ln for ln in result.stdout.splitlines() if "diff-index failed" in ln]
     assert len(failed) == 1 and "AE-GIT-STUB" in failed[0], (
         f"the guard failure must name the underlying error: {result.stdout}"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_per_file_reset_failure_abandons_the_whole_commit(tmp_path, shell):
+    """Round-3 Major D. When a revert-risk-skipped candidate's temp-index
+    entry cannot be reset back to origin/<branch>'s exact blob (here: `git
+    ls-tree` fails), $KC_IDX may still carry that candidate's stale
+    working-tree content even though it is reported skipped - the round-1
+    Critical recurring silently. The fix must fail CLOSED for the whole run:
+    no write-tree/commit-tree/push, KC_STATUS="commit-failed", and the
+    failure must be visible (never `2>/dev/null`)."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    log_path = _install_emit_stub(fixture)
+    git_fixture.install_git_stub(fixture, fail_subcommand="ls-tree")
+    before = _origin_count(fixture)
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before, (
+        f"a reset failure must abandon the WHOLE commit, not just the one "
+        f"file whose reset failed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert payload["status"] == "commit-failed", payload
+    assert payload["files_committed"] == [], payload
+    failed = [ln for ln in result.stdout.splitlines() if "ls-tree" in ln and "failed" in ln]
+    assert len(failed) == 1, (
+        f"the ls-tree failure must be visible on stdout, never swallowed "
+        f"with 2>/dev/null: {result.stdout}"
+    )
+    assert "AE-GIT-STUB" in result.stderr, (
+        "ls-tree's own stderr must not be redirected to /dev/null - the "
+        f"stub's error text must reach the real stderr.\nSTDERR:\n{result.stderr}"
+    )
+    assert any("Abandoning this knowledge-commit run" in ln for ln in result.stdout.splitlines()), (
+        f"the fail-closed abandonment must be stated explicitly: {result.stdout}"
     )
 
 
