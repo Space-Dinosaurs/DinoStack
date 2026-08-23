@@ -8937,7 +8937,7 @@ git stash pop
 
 This is a fallback only. Worktree isolation is the primary mechanism; the stash dance exists for the rare case where isolation is genuinely not possible (e.g. the Trivial carve-out interleaving with an unexpected concurrent spawn).
 
-On Claude Code specifically, the kill-switch is `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set before launching Claude Code, then restart), reachable only for the two documented emergency cases where the hook itself would otherwise deadlock the session (§Version floor above; a build where the harness genuinely does not honor `isolation: "worktree"` at all). Do not reach for the kill-switch merely because a spawn is inconvenient to isolate - it disables the enforcement mechanism for the whole session, not just the one spawn, and its use should be rare and short-lived (unset it, or restart without it, as soon as the emergency case is past).
+On Claude Code specifically, the kill-switch is `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set before launching Claude Code, then restart), reachable only for the two documented emergency cases where the hook itself would otherwise deadlock the session (§Version floor above; a build where the harness genuinely does not honor the worktree-isolation spawn parameter at all). Do not reach for the kill-switch merely because a spawn is inconvenient to isolate - it disables the enforcement mechanism for the whole session, not just the one spawn, and its use should be rare and short-lived (unset it, or restart without it, as soon as the emergency case is past).
 
 ---
 
