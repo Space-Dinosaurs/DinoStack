@@ -161,6 +161,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
 
+**A path the brief cites must be readable inside the target worktree, or fabrication follows.** Because the worktree branches from `origin/$BASE_BRANCH`, any path absent from `origin/$BASE_BRANCH`'s tree (see the provenance test's tag (3) in `content/sections/04-risk-classification.md` for the check that establishes this - gitignored/untracked paths are the common case, but the only thing that matters is tree absence) is absent from the worktree too - a subagent that cannot read a cited path and is not told so will sometimes invent the content rather than stop. On Claude Code `hooks/enforce-worktree-read.py` denies a `Read` that reaches back into the primary checkout for such a path. Sanctioned resolutions, mechanics, config key, and kill-switch: `content/references/delegation-detail.md` §Worktree-read hook (DS-150).
+
 Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-spawn stash fallback.
 
 Preamble:
