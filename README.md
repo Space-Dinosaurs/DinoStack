@@ -200,7 +200,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-three methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-four methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -213,7 +213,8 @@ The per-project marker only has effect in combination with the global activation
 - `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
 - `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/ds-init-project`.
 - `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `ds-cost team` aggregation after pull.
-- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` onto the ticket's PR branch (checkout-free, via a temporary index plus `commit-tree`), so a session's durable knowledge ships with the work that produced it. Set to `false` as a kill switch: the phase pushes operator-authored markdown onto a branch whose checks have already passed, which re-runs CI at a point where no phase revisits a red result.
+- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, and `.agentic/tracking.md` onto the ticket's PR branch (checkout-free, via a temporary index plus `commit-tree`), so a session's durable knowledge ships with the work that produced it. Set to `false` as a kill switch: the phase pushes operator-authored markdown onto a branch whose checks have already passed, which re-runs CI at a point where no phase revisits a red result.
+- `knowledge_commit_exclude` - list of strings, default `[]` (empty, no built-in entries). Each entry must EXACTLY match one of the five knowledge-commit candidate-set strings - `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md` - to exclude that file from Phase 11e and `/ds-wrap` Part G commits; an entry that does not match any of the five is a silent no-op. Set by editing `.agentic/config.json` directly - not exposed via `bin/agentic-config` (same as its sibling `knowledge_commit_on_pr`).
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/ds-wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; the shipped template and `/ds-init-project` set it). Stop hook that detects conductor abdication - asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or a co-equal ballot in a prose `## Operator decisions` block - and injects a directive.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
@@ -282,7 +283,7 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-three methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned intent-layer files (`docs/overview/vision.md`) capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. The files are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-four methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned intent-layer files (`docs/overview/vision.md`) capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. The files are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 

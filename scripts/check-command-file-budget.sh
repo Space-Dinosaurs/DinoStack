@@ -106,7 +106,13 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # above before raising it - raising it to accommodate un-triaged growth
 # defeats the purpose of this gate.
 # Raised for DS-188 Phase 11b curation trigger (deliberate, triaged growth).
-THRESHOLD_BYTES=373000
+# Raised for DS-170 (5-file knowledge-commit candidate set: the loop-header
+# extension, the KC_EXCLUDE_LIST config read, the additive per-file
+# pre-staging revert-risk gate, and prose updates). Measured post-edit size
+# was 379,624 B; ceil(379624 * 1.1) = 417,587, per this file's own
+# derivation convention - a deliberate, operator-approved override of the
+# "never raise it" standing convention (DS-170 spawn brief).
+THRESHOLD_BYTES=417587
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

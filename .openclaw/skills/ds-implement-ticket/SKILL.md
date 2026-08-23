@@ -3283,7 +3283,7 @@ fi
 
 ## Phase 11e: Knowledge commit onto the PR branch (soft-fail)
 
-**Purpose.** A ticket session that produced durable knowledge - root `MEMORY.md`, `decisions.md`, `.agentic/learnings.md` - currently leaves it in the operator's local checkout only, where it never rides the PR. The isolation worktree that carried this ticket's code is removed at Phase 8, well before Phase 9 opens the PR, and `wrap-ticket` does not write those files until Phase 11b - so the write can never happen "inside the worktree." Phase 11e moves the **commit** instead of the write: it builds a commit from a temporary index plus `git commit-tree`, then pushes the resulting SHA straight to `refs/heads/$BRANCH_NAME`. No checkout, no worktree, and HEAD is never touched.
+**Purpose.** A ticket session that produced durable knowledge - root `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md` - currently leaves it in the operator's local checkout only, where it never rides the PR. The isolation worktree that carried this ticket's code is removed at Phase 8, well before Phase 9 opens the PR, and `wrap-ticket` does not write those files until Phase 11b - so the write can never happen "inside the worktree." Phase 11e moves the **commit** instead of the write: it builds a commit from a temporary index plus `git commit-tree`, then pushes the resulting SHA straight to `refs/heads/$BRANCH_NAME`. No checkout, no worktree, and HEAD is never touched.
 
 **Trigger.** Runs on every ticket where Phase 9 actually opened a PR. Skip when Phase 9 was skipped for any reason, including the open-goal `dry_run` path (no PR branch exists to commit onto). Skip when `knowledge_commit_on_pr` is `false` in `.agentic/config.json` (boolean, default `true`).
 
@@ -3307,12 +3307,15 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Absolute soft-fail.** Nothing in Phase 11e can block Phase 12 or fail the ticket. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
 
-**Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `.agentic/learnings.md` is a first-class candidate here.
+**Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `.agentic/learnings.md` is a first-class candidate here.
+
+**`knowledge_commit_exclude` gate.** Read from `.agentic/config.json` (array of strings, default `[]`). Each entry is matched by EXACT STRING against the candidate-set entry exactly as listed above (e.g. `.agentic/learnings.md`, not `learnings.md`); an entry that does not match any of the five strings exactly is a silent no-op. This gate runs FIRST inside the file-existence check (after it, not before - an excluded file that does not exist on disk must never produce a fabricated skip record) and skips THAT FILE ONLY, printing a VISIBLE diagnostic. DinoStack's own repo sets this locally (gitignored `.agentic/config.json`, never committed) to `["AGENTS.md"]` to preserve the 2026-08-11 operator decision that session learnings never write to AGENTS.md here.
 
 **Per-file gating.** Each check skips THAT FILE ONLY and never aborts the sweep:
 - File absent from disk -> skip silently.
+- File's entry in the candidate set above is present in `knowledge_commit_exclude` -> skip THIS FILE ONLY, printing the VISIBLE diagnostic above. **Never redirect this to `/dev/null`.**
 - `ds-migrate verify-commit-path <f> --project-root $REPO` exits 1 -> a negation in the live `.gitignore` appears to target `<f>`, but git still reports it ignored (a DEFEATED negation - the point-of-use, exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based sweep, which must synthesize candidate probe paths for the 2 directory-form negations and can miss an unguessed spelling; see `_compute_negations_defeated`'s docstring for that residual). Print a VISIBLE `ERROR:` diagnostic naming `<f>` and skip - this is a loud failure, distinct from the ordinary gitignore skip below. **Never redirect this to `/dev/null`.**
-- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself all three candidates are gitignored with no negation attempted at all, which makes this bullet (not the DEFEATED-negation bullet above, which only fires when a negation was attempted and failed) a deliberate and **audible** no-op in this repo; consumer projects track all three and get the commit.
+- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself four of the five candidates are gitignored with no negation attempted at all, and the fifth (`AGENTS.md`) is excluded via `knowledge_commit_exclude` instead since it must stay tracked and un-ignored in every repo including this one - which makes this bullet (not the DEFEATED-negation bullet above, which only fires when a negation was attempted and failed) a deliberate and **audible** no-op in this repo for the four gitignored files; consumer projects track all five and get the commit.
 - `git cat-file -e origin/$BRANCH_NAME:<f>` fails (the path is absent from the tip) -> the file **survives gating**; it is new content. This probe must run BEFORE the diff, because a path absent from the tip is equally absent from the temp index and `diff-index` would report no difference for it.
 - Path present at the tip -> refresh the temp index for that path, then `git diff-index --quiet`. Identical -> skip. Different -> stage.
 
@@ -3320,7 +3323,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
 
-**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status, and now includes both the ordinary gitignore skip and the DEFEATED-negation skip (the loud one) - the field does not distinguish which of the two fired for a given file; the `ERROR:`-vs-plain-diagnostic distinction in the printed output is the only place that distinction is visible. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or (Phase 11e only) the per-file revert-risk-under-auto-merge gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). Note: under `auto_merge_on_ci_green: true`, a file excluded by the per-file revert-risk gate is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
 ### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
 
@@ -3387,6 +3390,8 @@ KC_SHA=""
 KC_DELETED=0
 KC_REVERT_RISK="no"
 KC_N=0
+KC_REVERT_SKIP_COUNT=0
+KC_REVERT_SKIP_DELETED=0
 
 KC_ENABLED=$(python3 -c "
 import json
@@ -3404,6 +3409,19 @@ try:
   print('true' if cfg.get('auto_merge_on_ci_green', False) else 'false')
 except Exception: print('false')
 " 2>/dev/null || echo 'false')
+
+# A single multi-line string, never a bash array - see the Portability comment
+# above (zsh does not word-split unquoted expansions, so no list is ever built
+# by splitting a variable).
+KC_EXCLUDE_LIST=$(python3 -c "
+import json
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  exc = cfg.get('knowledge_commit_exclude', [])
+  if isinstance(exc, list):
+    print('\n'.join(str(x) for x in exc))
+except Exception: pass
+" 2>/dev/null || true)
 
 if [ "$KC_ENABLED" != "true" ]; then
   KC_STATUS="disabled"
@@ -3434,8 +3452,13 @@ else
       KC_STATUS="commit-failed"
     else
       # Single LITERAL-list loop: gate and stage in one pass (zsh-safe).
-      for KC_F in MEMORY.md decisions.md .agentic/learnings.md; do
+      for KC_F in MEMORY.md decisions.md .agentic/learnings.md AGENTS.md .agentic/tracking.md; do
         if [ -f "$REPO/$KC_F" ]; then
+          if [ -n "$KC_EXCLUDE_LIST" ] && printf '%s\n' "$KC_EXCLUDE_LIST" | grep -Fxq "$KC_F"; then
+            echo "[phase: knowledge-commit] $KC_F is excluded via knowledge_commit_exclude - not committed."
+            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+            continue
+          fi
           # Point-of-use defeated-negation check, BEFORE the ordinary
           # check-ignore gate below. Exit 1 means a negation in the live
           # .gitignore appears to target $KC_F but git still reports it
@@ -3467,6 +3490,71 @@ else
                 KC_SKIP_THIS="yes"
               fi
             fi
+            if [ "$KC_SKIP_THIS" = "no" ] && [ "$KC_AUTOMERGE" = "true" ]; then
+              # Per-file revert guard, run BEFORE staging (C1: unstaging an
+              # already-read-tree'd full-tip index with `git rm --cached`
+              # DELETES the path from the eventual commit rather than
+              # reverting it - so this check must never run after `git add`).
+              # This is ADDITIVE to the aggregate diff-index guard below
+              # (:3485-3518), NOT a replacement for it (C2): the aggregate
+              # guard's own two fail-closed branches (an unevaluable
+              # diff-index, or a non-numeric awk result) cover a batch-level
+              # failure this per-file, working-tree-only check cannot see.
+              # GIT_INDEX_FILE is MANDATORY here, not decoration: `git diff`
+              # porcelain honours diff.autoRefreshIndex (default true), so a
+              # bare `git diff` WRITES $REPO/.git/index whenever the real
+              # index is stat-dirty - which is the normal state at this
+              # point. That violates this block's own invariant ("The real
+              # $REPO/.git/index is never read for staging and never
+              # written"). Pointing it at the temp index prevents the write
+              # and yields byte-identical numstat output (both verified).
+              KC_F_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff --numstat "origin/$BRANCH_NAME" -- "$KC_F" 2>&1 >"$KC_IDX.f-numstat")
+              if [ $? -ne 0 ]; then
+                echo "WARNING: [phase: knowledge-commit] diff --numstat failed for $KC_F: $KC_F_NUMSTAT_ERR - treating this file as REVERT RISK PRESENT (fail-closed)."
+                KC_F_DELETED=-1
+              else
+                KC_F_DELETED=$(awk '{s += $2} END {print s+0}' "$KC_IDX.f-numstat")
+              fi
+              # No `''|*[!0-9]*` arm mirroring the aggregate block's guard is
+              # needed for CORRECTNESS: $((0+"")) and $((0+abc)) both yield 0
+              # under bash 3.2 and zsh, and any garbage value still fails
+              # closed through the `!= "0"` test below (verified). Accepted
+              # residual: a garbage per-file result folded into
+              # KC_REVERT_SKIP_DELETED can make the deleted_lines telemetry
+              # read 0 while the file is still correctly skipped.
+              if [ "$KC_F_DELETED" != "0" ]; then
+                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME and auto_merge_on_ci_green is true - skipping THIS FILE ONLY (revert risk, no human would read the diff before merge)."
+                if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+                KC_SKIP_THIS="yes"
+                # Undo the stat-refresh above: `git update-index -q --refresh`
+                # silently restages a genuinely-differing path's WORKING-TREE
+                # content into the temp index (measured, not documented -
+                # `-q` makes it "continue anyway" rather than merely suppress
+                # the "needs update" message), so by this point $KC_IDX may
+                # already carry this file's local content even though it is
+                # about to be skipped. Reset the temp index entry back to the
+                # origin tip's exact blob/mode so a file skipped here is
+                # PROVABLY untouched in $KC_IDX, not staged-then-never-added.
+                KC_TIP_ENTRY=$(git -C "$REPO" ls-tree "origin/$BRANCH_NAME" -- "$KC_F" 2>/dev/null)
+                if [ -n "$KC_TIP_ENTRY" ]; then
+                  KC_TIP_MODE=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $1}')
+                  KC_TIP_SHA=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $3}')
+                  GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" >/dev/null 2>&1 || true
+                fi
+                # Track the all-candidates-skipped case so a KC_N == 0 run
+                # under auto-merge still reports revert-risk-skipped with the
+                # correct deleted_lines rather than falling through to
+                # no-changes/deleted_lines:0. The -1 fail-closed sentinel
+                # dominates the running total, as it does in the aggregate
+                # block below.
+                KC_REVERT_SKIP_COUNT=$((KC_REVERT_SKIP_COUNT + 1))
+                if [ "$KC_F_DELETED" = "-1" ] || [ "$KC_REVERT_SKIP_DELETED" = "-1" ]; then
+                  KC_REVERT_SKIP_DELETED=-1
+                else
+                  KC_REVERT_SKIP_DELETED=$((KC_REVERT_SKIP_DELETED + KC_F_DELETED))
+                fi
+              fi
+            fi
             if [ "$KC_SKIP_THIS" = "no" ]; then
               KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_F" 2>&1 >/dev/null)
               if [ $? -ne 0 ]; then
@@ -3482,11 +3570,23 @@ else
       done
 
       if [ "$KC_N" -eq 0 ]; then
-        echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+        if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
+          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. No human would read the PR diff before merge. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          KC_STATUS="revert-risk-skipped"
+          KC_DELETED=$KC_REVERT_SKIP_DELETED
+        else
+          echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+        fi
       else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.
-        #     FAILS CLOSED. ---
+        #     FAILS CLOSED. This is the aggregate, batch-level backstop; the
+        #     per-file, pre-staging guard above already ran first for each
+        #     candidate under auto-merge, so under auto-merge this aggregate
+        #     check typically has nothing left to catch for content reasons -
+        #     it remains the ONLY path that fires when the guard itself cannot
+        #     be evaluated (an unevaluable diff-index, or a non-numeric awk
+        #     result), which the per-file check structurally cannot see. ---
         KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
         if [ $? -ne 0 ]; then
           echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."
@@ -3556,7 +3656,7 @@ else
         fi
       fi
     fi
-    rm -f "$KC_IDX" "$KC_IDX.numstat" 2>/dev/null || true
+    rm -f "$KC_IDX" "$KC_IDX.numstat" "$KC_IDX.f-numstat" 2>/dev/null || true
   fi
 fi
 
@@ -3567,7 +3667,7 @@ ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\"
 
 **CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.
 
-**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most three markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
+**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most five markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
 
 **Per-unit attribution is out of reach and is not attempted.** Fan-out unit branches are merged and `git branch -d`'d at the Phase 5/6 boundary, before Phase 6 fires; `findings_log` entries carry no unit tag; and neither `wrap-ticket` nor `learning-extractor` accepts a unit identifier. What Phase 11e delivers is therefore per-**ticket** attribution. The minimal change that would make per-unit attribution possible - propagate the orchestration planner's per-unit slug into each per-unit Skeptic `findings_log` entry as a `unit` field, and add a `unit` key to `learning-extractor`'s LRN schema - is recorded here as a separate ticket's scope, not built as part of this phase.
 
