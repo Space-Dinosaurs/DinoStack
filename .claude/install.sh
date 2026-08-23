@@ -968,6 +968,14 @@ ENFORCE_NESTED_WORKTREE_SPAWN_CMD = (
     f"test -f {hooks_root}/hooks/enforce-nested-worktree-spawn.py && "
     f"python3 {hooks_root}/hooks/enforce-nested-worktree-spawn.py || exit 0"
 )
+# Guarded form (never bare `python3 {path}`): `python3 <missing>.py` exits 2,
+# which is BLOCKING on PreToolUse - a registration that outlives this script
+# would deny every engineer/qa-engineer/release-orchestrator spawn in every
+# session. See hooks/AGENTS.md §Registering a new enforce-*.py hook.
+ENFORCE_WORKTREE_ISOLATION_SPAWN_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-worktree-isolation-spawn.py && "
+    f"python3 {hooks_root}/hooks/enforce-worktree-isolation-spawn.py || exit 0"
+)
 
 ptu_list = hooks.setdefault("PreToolUse", [])
 
@@ -1002,6 +1010,21 @@ for spawn_matcher in ("Task", "Agent"):
         "enforce-nested-worktree-spawn.py",
         {"type": "command", "command": ENFORCE_NESTED_WORKTREE_SPAWN_CMD, "timeout": 5},
         f"PreToolUse({spawn_matcher}) nested-worktree-spawn advisory hook",
+    )
+
+    # Denies an engineer/qa-engineer/release-orchestrator spawn missing
+    # isolation: "worktree" (content/sections/02-delegation.md's no-exception
+    # worktree-isolation mandate). The hook carries a kill-switch (the
+    # mandate is absolute, but its enforcement mechanism must stay
+    # recoverable - see hooks/AGENTS.md §No gating on inferred session
+    # capability and the hook's own module docstring). To disable: set
+    # AE_WORKTREE_ISOLATION_GUARD_DISABLE=1 in the environment that
+    # launches Claude Code, then restart.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-worktree-isolation-spawn.py",
+        {"type": "command", "command": ENFORCE_WORKTREE_ISOLATION_SPAWN_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) worktree-isolation-spawn enforcement hook",
     )
 
     # Denies spawns issued from inside a subagent context (detected via the

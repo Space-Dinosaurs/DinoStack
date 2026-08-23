@@ -1,8 +1,8 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Twenty-three scripts in the table
-below (13 Python PreToolUse/Stop enforcers, 7 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Twenty-four scripts in the table
+below (14 Python PreToolUse/Stop enforcers, 7 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities;
 the repo-root resolver trio specifically (`lib/repo_root.py`/
@@ -14,7 +14,7 @@ lists. Other `lib/` modules have their own, different consumer counts
 script", stale since the trio was added; round-4 rework, Minor 1: the
 "5/1/6" figures scoped this sentence to the trio only, since the same
 sentence used to read as a `lib/`-wide claim and contradicted
-`lib/enforcement_log.py`'s own row, which is consumed by all thirteen
+`lib/enforcement_log.py`'s own row, which is consumed by all fourteen
 enforce-*.py hooks, not five; DS-176 round-2 rework: bumped 7 JS -> 10 JS
 and 1 Bash -> 3 Bash for the 3 new adapter hook consumers added by
 DS-176's stop-context and session-start ports; this trio's 7/5/1/6 counts
@@ -39,7 +39,7 @@ module-group map.
 |---|---|---|---|
 | `conductor-overreach-nudge.js` | Node | Stop | WARN-ONLY: read the real Stop payload (`session_id`, `transcript_path`, `cwd`), compute the conductor-vs-subagent tool-call overreach ratio via `lib/overreach-detector.js`, and on `ratio_trigger` append a `conductor_overreach` event to `.agentic/events.jsonl` plus an advisory `additionalContext` line. Never blocks the stop; no transcript-content suppression logic by design. |
 | `enforce-askuserquestion-default.py` | Python | PreToolUse (AskUserQuestion) | Deny co-equal-ballot `AskUserQuestion` calls lacking a `(Recommended)` label. |
-| `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | (a) Deny `Task` spawns missing `run_in_background: true` (legacy Task tool only - harness strips this field for Agent); (b) sentinel suppression: deny Task/Agent spawns and OMC Skills when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both checks. |
+| `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | (a) Deny `Task` spawns missing `run_in_background: true` (legacy Task tool only - `Agent` uses a separate asymmetric rule: deny only when `run_in_background` is explicitly `False`, since the harness omits the field entirely rather than stripping it when unset); (b) sentinel suppression: deny Task/Agent spawns and OMC Skills when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both checks. |
 | `enforce-nested-worktree-spawn.py` | Python | PreToolUse (Task/Agent) | DS-190: ADVISORY-ONLY (never denies) - warns once per session when a Task/Agent spawn is issued from a conductor session whose own `cwd` is itself inside a git worktree (`lib/git_worktree.py`'s `is_git_worktree()`) rather than the primary checkout. Never fires on a subagent call (`agent_id` present) or when no `.git` worktree is detected. Fail-open, kill-switch `AE_NESTED_WORKTREE_GUARD_DISABLE=1`. |
 | `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives, a stalled surface-and-proceed commitment, OR a prose co-equal ballot (`## Operator decisions` block with 2+ unrecommended items); inject a two-exit directive (proceed now OR explicitly wait for authorization) for the first two, a revise-now directive for the ballot. Logs EVERY verdict path (not only blocks) to `.agentic/.enforcement-fires.jsonl` via `lib/enforcement_log.py`, each row carrying a `detail` object with the gate/classifier state - see the `lib/` table below for why this hook alone takes that posture. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
@@ -49,6 +49,7 @@ module-group map.
 | `enforce-ticket-batching.py` | Python | PreToolUse (`mcp__mcp-atlassian__jira_create_issue`, `mcp__linear__save_issue`, `Bash`) | Mechanically enforces a grace margin under the Follow-up Ticket Creation Discipline's batching rule (`content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): the 1st tracker-ticket creation this session allows silently, the 2nd allows with an advisory, the 3rd and every subsequent one denies. Classifies a creation across `jira_create_issue` (always), `linear__save_issue` (only when no `id` field - an id-bearing call is an update), and a `Bash` direct-API bypass (a Jira REST POST to `/rest/api/<n>/issue` not followed by `/<key>`, or Linear's `issueCreate` GraphQL mutation name). Session-wide exemption when the transcript carries a `/ds-feedback-triage` or `/ds-ticket-triage` command marker. Keyed per `<cwd>/.agentic/.ticket-batch-<session_id>.json`. Fail-open on any error, kill-switch `AE_TICKET_BATCH_GUARD_DISABLE=1`. |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `enforce-turn-shape.py` | Python | Stop | Two checks with different postures (DS-156; DS-171 retired the other two): `_execution_prose_flag` (execution-turn structural shape) is BLOCKING and can block the stop; `_decision_item_sprawl_flag` (operator-decisions per-item shape) remains advisory-only and only logs, via `lib/enforcement_log.py`. `_answer_relevance_flag` (answer-turn opening-preamble/closing-recap phrasing), `_status_only_flag` (zero-warrant turns), and the turn-charge volume check are all DELETED (DS-171) - those rules now live in the `dinostack` Claude Code output style (`content/output-styles/dinostack.md`), not this hook. A two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap, machinery in `lib/loop_guard.py`) bounds how many times either remaining check can re-invoke the model on consecutive non-conforming turns - ONE shared counter/cap governs both. |
+| `enforce-worktree-isolation-spawn.py` | Python | PreToolUse (Task/Agent; enforcement scoped to `tool_name == "Agent"` only - `Task` fails open, unproven predicate) | Deny an `Agent`-spawned `engineer`/`qa-engineer`/`release-orchestrator` whose `isolation` is not exactly `"worktree"` (including an absent key), per `content/sections/02-delegation.md`'s no-exception worktree-isolation mandate. Fail-open on every uncertain input, kill-switch `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (reinstated - the mandate is absolute but its enforcement mechanism must stay recoverable; see §No gating on inferred session capability). No config-driven exemption list, unlike its worktree-read/write siblings - see the hook's own module docstring "Exemption-list decision". |
 | `enforce-worktree-read.py` | Python | PreToolUse (Read) | Deny a worktree-isolated subagent's (`agent_id` present, `cwd` a proper subdirectory of `CLAUDE_PROJECT_DIR` AND a genuine linked git worktree per `lib/git_worktree.py`'s `is_git_worktree()` - not an ordinary subdirectory, submodule, or nested clone) `Read` that resolves inside the primary checkout instead of the agent's own worktree (DS-150). `caller_root` from the payload's `cwd`, `primary_root` from `CLAUDE_PROJECT_DIR`, both `realpath`-normalized before the containment test. Never fires on a main-session call or a non-isolated subagent. Config-driven exemption list (`worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_READ_GUARD_DISABLE=1`. |
 | `enforce-worktree-write.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Write-side companion to `enforce-worktree-read.py`, sharing the same `lib/git_worktree.py::is_git_worktree()` discriminator: deny a worktree-isolated subagent's `Write`/`Edit`/`MultiEdit` that resolves inside the primary checkout instead of the agent's own worktree. Catches the case `enforce-shippable-edit.py` cannot - a subagent that has silently fallen back to the primary checkout still carries a present `agent_id` and passes that guard's agent_id-absence check. Same `caller_root`/`primary_root` derivation and `realpath` normalization as the read guard. SEPARATE config-driven exemption list (`worktree_write_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_WRITE_GUARD_DISABLE=1`. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
@@ -72,7 +73,7 @@ module-group map.
 | `lib/stdin-guard.js` | Shared bounded-stdin reader (`readStdinGuarded`) with a first-byte timeout, a re-armed inactivity timeout, a one-shot absolute deadline, a max-bytes cap, and early-completion-by-parse (gated behind a cheap tail precheck), so a stdin-blocking hook cannot hang a harness's shutdown path when the spawning process never closes stdin; wired into all 10 consumers: `stop-context.js`, `post-tool-use-capture-nudge.js`, `session-end-wrap.js`, `pre-tool-use-spawn-emit.js`, `subagent-stop-spawn-emit.js`, the `.codex/hooks/stop-context-codex.js`, `.gemini/hooks/stop-context-gemini.js`, and `.copilot/hooks/stop-context-copilot.js` ports, the `.cursor/hooks/stop-context-cursor.js` port, plus the generated `.github/hooks/stop-context-copilot.js` mirror. |
 | `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
 | `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
-| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl`. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's logging branch, by all thirteen enforce-*.py hooks. Two caller postures: ACTION-ONLY (twelve hooks) logs only a non-passthrough action - a deny, or an allow-with-advisory-reason - and a silent allow never calls it; EVERY-VERDICT (`enforce-no-abdication.py` alone) also logs plain `"allow"` rows for every verdict path reached after its enablement gate, because action-only logging leaves "this guard never fires" unfalsifiable. The every-verdict posture is safe only for a Stop hook (once per conductor turn); do not copy it to a PreToolUse hook, which runs at tool-call volume. Accepts an optional keyword-only `detail` dict for structured discriminators, omitted from the line entirely when absent so every action-only caller's row stays byte-identical to the canonical 4-field schema. `enforce-no-abdication.py` additionally keeps its own pre-existing `.abdication-guard-fire-count` counter file, which this module never touches. Resolves the write target through `lib/git_worktree.py::resolve_worktree_primary_root()` in addition to `lib/repo_root.py`, so a fire from inside a linked isolation worktree lands in the PRIMARY checkout's fire log, not a discarded worktree-local copy - see "Failure-mode discipline" above. |
+| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl`. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's logging branch, by all fourteen enforce-*.py hooks. Two caller postures: ACTION-ONLY (thirteen hooks) logs only a non-passthrough action - a deny, or an allow-with-advisory-reason - and a silent allow never calls it; EVERY-VERDICT (`enforce-no-abdication.py` alone) also logs plain `"allow"` rows for every verdict path reached after its enablement gate, because action-only logging leaves "this guard never fires" unfalsifiable. The every-verdict posture is safe only for a Stop hook (once per conductor turn); do not copy it to a PreToolUse hook, which runs at tool-call volume. Accepts an optional keyword-only `detail` dict for structured discriminators, omitted from the line entirely when absent so every action-only caller's row stays byte-identical to the canonical 4-field schema. `enforce-no-abdication.py` additionally keeps its own pre-existing `.abdication-guard-fire-count` counter file, which this module never touches. Resolves the write target through `lib/git_worktree.py::resolve_worktree_primary_root()` in addition to `lib/repo_root.py`, so a fire from inside a linked isolation worktree lands in the PRIMARY checkout's fire log, not a discarded worktree-local copy - see "Failure-mode discipline" above. |
 | `lib/git_worktree.py` | Shared `is_git_worktree(caller_root)` discriminator: True only when `caller_root`'s `.git` entry is a FILE whose gitdir pointer contains `/worktrees/` (a genuine linked git worktree), False for an ordinary subdirectory, a submodule (`/modules/` gitdir), an independent nested clone (`.git` as a real directory), or any unparseable/unreadable `.git`. Fails to False on every ambiguity - only ever narrows a caller's deny path, never widens it. Dynamically imported (best-effort, fails open to `False`) by both `enforce-worktree-read.py` and `enforce-worktree-write.py`. Also exposes `resolve_worktree_primary_root(caller_root)`, the same discriminator but returning the PRIMARY checkout root (parsed from the gitdir pointer's `.git/worktrees/<name>` admin-dir path) instead of a bool, or `None` on any non-worktree shape; consumed by `lib/enforcement_log.py` only, to redirect fire-log writes. Not an `enforce-*.py` hook itself - no `main()`, never registered in `~/.claude/settings.json`, not subject to `bin/ds-doctor`'s `MANAGED_HOOK_BASENAMES` or any enforcer subcount. |
 | `lib/repo_root.py` | DS-171: resolves the repo-root directory to anchor `.agentic/` state writes/reads instead of trusting a harness-payload `cwd` verbatim (`.git`-ancestor walk, existence-only, file-or-dir). `resolve_agentic_cwd_with_diagnostics(start_dir)` returns `{root, drift_levels, found_git_ancestor}`; `resolve_agentic_cwd(start_dir)` returns just `root`. Consumed via a lazy `importlib.util` dynamic loader (best-effort, fails open to `None`/raw cwd depending on caller) by all 13 of: 8 Python hooks-side files (`enforce-no-abdication.py`, `enforce-turn-shape.py`, `enforce-skeptic-round-cap.py`, `enforce-planning-artifact-spawn.py`, `enforce-ticket-batching.py`, `enforce-background-spawn.py` (DS-175), `lib/enforcement_log.py`, `lib/loop_guard.py`) and 5 `bin/` scripts (`bin/ds-agentic-repair`, `bin/ds-cost`, `bin/ds-identity`, `bin/ds-status`, `bin/ds-memory`). `enforce-shippable-edit.py` has its own `_resolve_repo_root()` and is NOT a consumer; `bin/ds-codex-dispatch` and `bin/ds-cleanup-worktrees` likewise have their own local `repo_root()`/kwarg and are NOT consumers. Most callers use the plain `.git`-only result and never fall back further; two callers (`enforce-skeptic-round-cap.py`'s round-counter state path and `bin/ds-identity`'s Stop-hook session-log `write-hook`/`resolve-hook`) genuinely SKIP the write/read entirely when `found_git_ancestor` is False, since a write at the wrong location would corrupt cross-session state - see the module's own Failure modes docstring section for the full caller-tier rationale. |
 | `lib/repo-root.js` | Node port of `lib/repo_root.py` (same `.git`-ancestor walk, same `{root, drift_levels, found_git_ancestor}` diagnostics shape). Consumed by 10 JS hooks: `session-end-wrap.js`, `post-tool-use-capture-nudge.js`, `conductor-overreach-nudge.js`, `pre-tool-use-spawn-emit.js`, `subagent-stop-spawn-emit.js`, `stop-context.js`, `wrap-daemon.js`, plus DS-176's `.copilot/hooks/stop-context-copilot.js`, `.github/hooks/stop-context-copilot.js`, and `.cursor/hooks/stop-context-cursor.js` (`.opencode/plugins/session-context.ts` is NOT a consumer - a standalone TS reimplementation, not a `require()` of this file; see this file's own module docstring). |
@@ -82,7 +83,7 @@ module-group map.
 ## Upstream dependencies
 
 - Python hooks: Python 3 stdlib only (`json`, `sys`, `os`, `importlib.util`
-  for all thirteen enforce-*.py hooks' best-effort dynamic import of
+  for all fourteen enforce-*.py hooks' best-effort dynamic import of
   `lib/enforcement_log.py`).
 - Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.
@@ -191,9 +192,9 @@ exit 0 without denying the triggering action. Enforcement gaps are preferable
 to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
-violating tool calls. All thirteen enforce-*.py hooks additionally
+violating tool calls. All fourteen enforce-*.py hooks additionally
 append a fire-log line to `.agentic/.enforcement-fires.jsonl` via
-`lib/enforcement_log.py`: twelve of them on every non-passthrough action only,
+`lib/enforcement_log.py`: thirteen of them on every non-passthrough action only,
 and `enforce-no-abdication.py` on every verdict path it reaches after its
 enablement gate (including plain `"allow"`), so its allow/deny ratio is
 measurable rather than inferred. That hook also keeps its own separate
@@ -276,19 +277,78 @@ A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /
 allow) when that field is entirely ABSENT from the payload for the guarded
 `tool_name` - this is distinct from present-but-false, which MAY deny. A
 field that is present and `false` is a real signal from the harness; a field
-that never appears in the payload at all is not a signal - it means this
-harness/tool-name combination does not emit that field, and denying on its
-absence blocks every call unconditionally.
+that never appears in the payload at all is not a signal by default - it
+usually means this harness/tool-name combination does not emit that field,
+and denying on its absence blocks every call unconditionally.
+
+**Narrow evidence-gated exception:** a hook MAY deny on a field's absence
+ONLY IF a real per-`tool_name` `PreToolUse` payload capture has proven, for
+that exact `tool_name`, that the field is present-when-explicitly-set and
+omitted-when-unset (i.e. the harness genuinely never sends the field until
+the caller sets it, as opposed to stripping or renaming it unconditionally)
+- and the gating hook's own docstring cites that capture at the point where
+it makes the deny decision. Absent that proof, the general prohibition above
+stands unchanged: gating on an unproven absent field is exactly the
+unverified-predicate deny this section exists to prevent, and remains
+prohibited regardless of how confident the guard's author is. This exception
+narrows an established rule with measured evidence; it does not create a
+default, and it must never be read as license to deny on an unverified
+field. `enforce-worktree-isolation-spawn.py`'s `isolation` field on
+`tool_name == "Agent"` is an audited instance of this exception - §Spawn
+payload mechanics below records the capture (2026-08-23) proving
+`isolation` is present-when-set/omitted-when-unset for `Agent`
+specifically - but it is not the only deny-on-absent gate in the repo.
+`enforce-background-spawn.py` also denies a `Task` spawn whose
+`run_in_background` key is entirely absent (verified by execution: a
+`{"tool_name":"Task","tool_input":{"subagent_type":"engineer", ...}}`
+payload with no `run_in_background` key is denied), and it predates this
+exception's evidence requirement - no per-`tool_name` capture exists
+proving `Task` omits `run_in_background` only when unset (as opposed to
+stripping it unconditionally). Treat it as grandfathered debt, not as
+compliant precedent: do not cite it to justify a new unverified
+deny-on-absent gate, and do not assume its `Task` behavior is safe
+without obtaining the capture. A future engineer extending this
+exception to a new field or hook must obtain and cite an equally real
+capture, scoped to the exact `tool_name` being gated - never generalize
+a capture from one `tool_name` to a "related" one, and never point to
+`enforce-background-spawn.py` (grandfathered debt, not compliant
+precedent) as evidence the bar has already been met.
+
+An exception satisfied by a capture showing only one shape
+(present-when-set alone, or omitted-when-unset alone), or by prose
+alone, does not meet the bar above. At minimum: both the present-when-explicitly-set and
+omitted-when-unset shapes must actually have been
+observed for the exact `tool_name` being gated (not inferred from a
+schema or from a different `tool_name`); the observed `tool_input` key
+lists must be transcribed into the gating hook's own docstring, not left
+only in a gitignored capture log a reviewer or worktree-isolated engineer
+cannot read; and the citing text must say explicitly that the capture
+does not generalize to any other `tool_name`.
 
 Cautionary example: `enforce-background-spawn.py` originally denied any
 `Task`/`Agent` spawn missing `run_in_background: true`. The Claude Code
-harness strips `run_in_background` from the `Agent` tool's PreToolUse
-payload entirely (confirmed by live payload capture: `tool_input` keys for
-an `Agent` spawn are exactly `['description', 'prompt', 'subagent_type']`) -
-`Agent` is background-by-default at the harness level and the field simply
-never arrives. The hook denied every `Agent` spawn until this was found and
-fixed; enforcement was scoped back to the legacy `Task` tool only, where the
-field genuinely is present in the payload.
+harness OMITS `run_in_background` from the `Agent` tool's PreToolUse
+payload entirely WHEN THE SPAWNER LEAVES IT UNSET (confirmed by live
+payload capture, 2026-08-23: `tool_input` keys for an unset-isolation,
+unset-`run_in_background` `Agent` spawn were exactly `['description',
+'prompt', 'subagent_type']`) - `Agent` is background-by-default at the
+harness level, so an unset field simply never arrives. This is
+present-when-explicitly-passed, omitted-when-unset, the SAME shape as `isolation`
+(§Spawn payload mechanics below) - it is NOT stripped from the `Agent`
+payload unconditionally; a spawn that explicitly passes
+`run_in_background: false` DOES carry the key (a real `Agent` spawn with
+`run_in_background: false` was denied by this hook in-session, which is
+only possible if the key was present in that payload). The hook denied
+every `Agent` spawn missing the field until this was found and fixed; the
+fix did not exempt `Agent` from enforcement - it changed the gating
+predicate to match the field's actual per-tool shape. `Agent` remains
+enforced today with an asymmetric rule: deny ONLY when
+`run_in_background` is explicitly `False` (an absent field allows, since
+`Agent` backgrounds by default at the harness level); `Task` (legacy)
+keeps the stricter deny-unless-exactly-`True` rule. Whether `Task`
+genuinely omits the field only when unset (as opposed to stripping it
+unconditionally) has never been captured - see the grandfathered-debt
+paragraph above.
 
 **Discipline before gating on a field:** capture or obtain one real
 `PreToolUse` payload for the guarded `tool_name` and confirm the field is
@@ -331,7 +391,7 @@ For a worktree-isolated subagent, `cwd` and `CLAUDE_PROJECT_DIR` name different 
 
 ## Spawn payload mechanics
 
-PreToolUse hook mechanics for Agent/Task spawns: `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, `model` (absent - not null - when the spawner omitted it), `run_in_background`, and `isolation`; there is no env or metadata parameter, so a conductor cannot inject a marker into a subagent's payload. **That parameter list is read from the `Agent` tool's schema, not from a captured payload** - it differs from the live `Agent` capture recorded in KNW-20260707-001 and must be re-verified against a real `Agent`-spawn payload before any hook gates on it.
+PreToolUse hook mechanics for Agent/Task spawns: `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, `model` (absent - not null - when the spawner omitted it), `run_in_background`, and `isolation`; there is no env or metadata parameter, so a conductor cannot inject a marker into a subagent's payload. **That parameter list is read from the `Agent` tool's schema, not from a captured payload** - it differs from the live `Agent` capture recorded in KNW-20260707-001. `isolation` specifically HAS now been re-verified against real `Agent`-spawn payloads (project-scoped capture hook, first captured 2026-08-23; the log grows with every spawn, so the SHAPES below are the load-bearing evidence, not a pinned record count, which goes stale the next time anyone reads the live log): present with the exact string value `"worktree"` when the spawner set it, absent from `tool_input` entirely when unset - never present-with-null. `run_in_background` was absent from every captured record with `isolation` unset, consistent with present-when-set/omitted-when-unset, not evidence it is stripped from the `Agent` payload entirely. `model` and the remaining fields are still schema-derived only and still need their own re-verification before any hook gates on them.
 
 Independent of the tool name, the top-level payload key set is CONDITIONAL on the caller, and the difference is the discriminator. Measured on Claude Code v2.1.220 (4 records, Read and Bash calls, 2 sessions):
 

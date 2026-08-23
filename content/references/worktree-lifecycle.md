@@ -343,7 +343,7 @@ ancestry and upstream-tracking state.
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
-DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. On such a build, `hooks/enforce-worktree-isolation-spawn.py` compounds this into a TOTAL deadlock: it denies a non-isolated spawn of the three mandated roles, and isolation itself deadlocks per the paragraph above, leaving no permitted action. The escape hatch is that hook's kill-switch, `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set in the environment that launches Claude Code, then restart) - not a substitute for the Claude Code fix, only a way to fall back to the pre-spawn stash fallback below while the operator is stuck on a pre-fix build. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
 
 ## Project-override policy
 
@@ -353,7 +353,7 @@ This is a deliberate absence from the small set of items a project MAY declare -
 
 ## Pre-spawn stash fallback
 
-Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
+Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree. On Claude Code, a non-isolated spawn of `engineer`/`qa-engineer`/`release-orchestrator` is mechanically DENIED by `hooks/enforce-worktree-isolation-spawn.py`, so for those three roles this fallback is reachable only via that hook's kill-switch for the two documented emergency cases below. For any other role (e.g. `investigator`, `architect`), a non-isolated spawn is still permitted on Claude Code - and on any other adapter, which has no such hook at all and relies on the prose rule alone (Claude Code's legacy `Task` tool name is also unenforced by this hook - see that hook's own Trigger docstring note) - the fallback below applies directly:
 
 ```bash
 git stash push --include-untracked --keep-index --message 'conductor-scaffolding-pre-spawn'
@@ -362,3 +362,5 @@ git stash pop
 ```
 
 This is a fallback only. Worktree isolation is the primary mechanism; the stash dance exists for the rare case where isolation is genuinely not possible (e.g. the Trivial carve-out interleaving with an unexpected concurrent spawn).
+
+On Claude Code specifically, the kill-switch is `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set before launching Claude Code, then restart), reachable only for the two documented emergency cases where the hook itself would otherwise deadlock the session (§Version floor above; a build where the harness genuinely does not honor the worktree-isolation spawn parameter at all). Do not reach for the kill-switch merely because a spawn is inconvenient to isolate - it disables the enforcement mechanism for the whole session, not just the one spawn, and its use should be rare and short-lived (unset it, or restart without it, as soon as the emergency case is past).

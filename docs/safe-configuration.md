@@ -140,6 +140,13 @@ hook installed separately:
   Write/Edit/MultiEdit when the target resolves inside the primary checkout
   instead of the agent's own worktree; never fires on a conductor
   (main-session) write; disable via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
+- [`enforce-worktree-isolation-spawn.py`](../hooks/enforce-worktree-isolation-spawn.py)
+  - PreToolUse (Task/Agent; enforcement scoped to "Agent"); denies an `Agent` spawn of `engineer`, `qa-engineer`,
+  or `release-orchestrator` when `tool_input.isolation` is not exactly the
+  string `"worktree"`, including when the key is entirely absent; `Task`
+  spawns are not enforced (no real-payload capture exists proving `Task`
+  omits `isolation` the same way `Agent` does); disable via
+  `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 
@@ -162,7 +169,11 @@ parallel Workers from contaminating one shared tree. It scopes **git state**,
 and, as of `enforce-worktree-read.py`/`enforce-worktree-write.py`, a subagent's
 `Read` and `Write`/`Edit`/`MultiEdit` calls - it does not isolate any other
 host filesystem access (e.g. Bash) or the network. Leave isolation on; it is
-mandatory in the methodology and there is no in-place exception.
+mandatory in the methodology and there is no in-place exception. On Claude
+Code, the mandate itself is mechanically backstopped at the spawn call by
+`enforce-worktree-isolation-spawn.py` (see §Hooks above), which denies a
+non-isolated `Agent` spawn of the three mandated roles outright; other
+adapters rely on the prose rule alone.
 
 ## Risk profiles
 
