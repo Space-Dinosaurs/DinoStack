@@ -43,7 +43,7 @@
 #                assertions on the returned dict themselves; this module
 #                does not assert on its own output.
 #
-# Performance: one AST parse per hooks/enforce-*.py file (currently ~12
+# Performance: one AST parse per hooks/enforce-*.py file (currently 14
 #              files, low tens of KB each) - sub-second, no I/O beyond the
 #              initial glob + read.
 

@@ -9,13 +9,16 @@ in stdout, reason names the isolation fix).
 Fixture note: FIXTURE_WITH_ISOLATION and FIXTURE_WITHOUT_ISOLATION below
 are built from a REAL PreToolUse stdin capture obtained this session
 (project-scoped capture hook, 2026-08-23; raw log gitignored, not shipped
-with this repo). Three `tool_name: "Agent"` records were captured: two
-with-isolation spawns, `tool_input` keys `['description', 'isolation',
-'prompt', 'subagent_type']` with `isolation == "worktree"`; and one
-without-isolation spawn, `tool_input` keys `['description', 'prompt',
-'subagent_type']` - no `isolation` key at all. This corroborates
-`hooks/AGENTS.md` §"Spawn payload mechanics"'s schema-derived `isolation` key listing with an
-actual payload capture. There is no capture for `tool_name: "Task"` - see
+with this repo, and still growing as concurrent sessions append to it - the
+SHAPES below are the load-bearing evidence, not a record count, which would
+go stale the next time anyone reads the live log). Both `tool_name: "Agent"`
+shapes were captured: a with-isolation spawn, `tool_input` keys
+`['description', 'isolation', 'prompt', 'subagent_type']` with
+`isolation == "worktree"`; and a without-isolation spawn, `tool_input` keys
+`['description', 'prompt', 'subagent_type']` - no `isolation` key at all.
+This corroborates `hooks/AGENTS.md` §"Spawn payload mechanics"'s
+schema-derived `isolation` key listing with an actual payload capture.
+There is no capture for `tool_name: "Task"` - see
 hooks/enforce-worktree-isolation-spawn.py's Trigger docstring note for why
 enforcement is scoped to "Agent" only and case 6 below asserts ALLOW for
 "Task".
@@ -257,7 +260,7 @@ check(
 #    but not an object" specifically): removing the hook's SOLE
 #    `except Exception: sys.exit(0)` handler (the outer one wrapping
 #    json.load through the deny call) turns the json.load crash into a
-#    nonzero exit rather than an ALLOW - measured: 2/27 tests FAIL when
+#    nonzero exit rather than an ALLOW - measured: 2/29 tests FAIL when
 #    that handler alone is removed. The hook previously had a SECOND,
 #    fully redundant try/except wrapped tightly around just the
 #    json.load call; it was deleted (rather than individually pinned)
@@ -268,8 +271,18 @@ check(
 #    vacuous. See the hook's own `main()` comment at the json.load call.
 #    "tool_input is null" / "tool_input missing entirely" test the
 #    `not isinstance(raw_tinput, dict)` guard, not the exception handler.
-#    "subagent_type is not a string" tests the `not isinstance(role, str)`
-#    guard specifically - see case 8b below for the isinstance guard on
+#    "subagent_type is not a string" (int 5) exercises the plain
+#    `role not in MANDATED_ROLES` membership test with a non-string,
+#    hashable value - it does NOT test an isinstance guard on `role`. An
+#    earlier version of this hook had one (`not isinstance(role, str) or
+#    role not in MANDATED_ROLES`); round-3 mutation testing found it
+#    unfalsifiable-by-construction (a non-hashable role like a list raises
+#    inside the membership test and is caught by the outer exception
+#    handler, landing on the identical ALLOW a short-circuit would produce
+#    - verified: both mutated and unmutated forms print the same (0, '')
+#    for both an int and a list role), so it was deleted per this repo's
+#    standing preference for deletion over a narrowed, unfalsifiable
+#    rewrite. See case 8b below for the SEPARATE isinstance guard on
 #    tool_input itself with a TRUTHY non-dict value (a value that could
 #    survive an `or {}`-style mutation and still reach the role check).
 # ---------------------------------------------------------------------------
@@ -323,6 +336,21 @@ check(
     "tool_input is a truthy list, not a dict",
     json.dumps({"tool_name": "Agent", "tool_input": ["engineer"]}),
     "ALLOW",
+)
+
+# ---------------------------------------------------------------------------
+# 9. Kill-switch: AE_WORKTREE_ISOLATION_GUARD_DISABLE=1 fails open even on a
+#    payload that would otherwise deny (round-3 reinstatement).
+#    Mutation that would redden: removing the
+#    `os.environ.get("AE_WORKTREE_ISOLATION_GUARD_DISABLE") == "1"` check (or
+#    its early sys.exit(0)) in main() would flip this to DENY.
+# ---------------------------------------------------------------------------
+print("-- kill-switch AE_WORKTREE_ISOLATION_GUARD_DISABLE=1 -> ALLOW --")
+check(
+    "engineer spawn, no isolation key, kill-switch set -> allow",
+    _payload("engineer"),
+    "ALLOW",
+    extra_env={"AE_WORKTREE_ISOLATION_GUARD_DISABLE": "1"},
 )
 
 print()

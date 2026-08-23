@@ -49,7 +49,7 @@ module-group map.
 | `enforce-ticket-batching.py` | Python | PreToolUse (`mcp__mcp-atlassian__jira_create_issue`, `mcp__linear__save_issue`, `Bash`) | Mechanically enforces a grace margin under the Follow-up Ticket Creation Discipline's batching rule (`content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline): the 1st tracker-ticket creation this session allows silently, the 2nd allows with an advisory, the 3rd and every subsequent one denies. Classifies a creation across `jira_create_issue` (always), `linear__save_issue` (only when no `id` field - an id-bearing call is an update), and a `Bash` direct-API bypass (a Jira REST POST to `/rest/api/<n>/issue` not followed by `/<key>`, or Linear's `issueCreate` GraphQL mutation name). Session-wide exemption when the transcript carries a `/ds-feedback-triage` or `/ds-ticket-triage` command marker. Keyed per `<cwd>/.agentic/.ticket-batch-<session_id>.json`. Fail-open on any error, kill-switch `AE_TICKET_BATCH_GUARD_DISABLE=1`. |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `enforce-turn-shape.py` | Python | Stop | Two checks with different postures (DS-156; DS-171 retired the other two): `_execution_prose_flag` (execution-turn structural shape) is BLOCKING and can block the stop; `_decision_item_sprawl_flag` (operator-decisions per-item shape) remains advisory-only and only logs, via `lib/enforcement_log.py`. `_answer_relevance_flag` (answer-turn opening-preamble/closing-recap phrasing), `_status_only_flag` (zero-warrant turns), and the turn-charge volume check are all DELETED (DS-171) - those rules now live in the `dinostack` Claude Code output style (`content/output-styles/dinostack.md`), not this hook. A two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap, machinery in `lib/loop_guard.py`) bounds how many times either remaining check can re-invoke the model on consecutive non-conforming turns - ONE shared counter/cap governs both. |
-| `enforce-worktree-isolation-spawn.py` | Python | PreToolUse (Task/Agent; enforcement scoped to `tool_name == "Agent"` only - `Task` fails open, unproven predicate) | Deny an `Agent`-spawned `engineer`/`qa-engineer`/`release-orchestrator` whose `isolation` is not exactly `"worktree"` (including an absent key), per `content/sections/02-delegation.md`'s no-exception worktree-isolation mandate. Fail-open on every uncertain input; no kill-switch (deliberate - the mandate has no exception). |
+| `enforce-worktree-isolation-spawn.py` | Python | PreToolUse (Task/Agent; enforcement scoped to `tool_name == "Agent"` only - `Task` fails open, unproven predicate) | Deny an `Agent`-spawned `engineer`/`qa-engineer`/`release-orchestrator` whose `isolation` is not exactly `"worktree"` (including an absent key), per `content/sections/02-delegation.md`'s no-exception worktree-isolation mandate. Fail-open on every uncertain input, kill-switch `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (reinstated round-3 - the mandate is absolute but its enforcement mechanism must stay recoverable; see §No gating on inferred session capability). No config-driven exemption list, unlike its worktree-read/write siblings - see the hook's own module docstring "Exemption-list decision". |
 | `enforce-worktree-read.py` | Python | PreToolUse (Read) | Deny a worktree-isolated subagent's (`agent_id` present, `cwd` a proper subdirectory of `CLAUDE_PROJECT_DIR` AND a genuine linked git worktree per `lib/git_worktree.py`'s `is_git_worktree()` - not an ordinary subdirectory, submodule, or nested clone) `Read` that resolves inside the primary checkout instead of the agent's own worktree (DS-150). `caller_root` from the payload's `cwd`, `primary_root` from `CLAUDE_PROJECT_DIR`, both `realpath`-normalized before the containment test. Never fires on a main-session call or a non-isolated subagent. Config-driven exemption list (`worktree_read_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_READ_GUARD_DISABLE=1`. |
 | `enforce-worktree-write.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Write-side companion to `enforce-worktree-read.py`, sharing the same `lib/git_worktree.py::is_git_worktree()` discriminator: deny a worktree-isolated subagent's `Write`/`Edit`/`MultiEdit` that resolves inside the primary checkout instead of the agent's own worktree. Catches the case `enforce-shippable-edit.py` cannot - a subagent that has silently fallen back to the primary checkout still carries a present `agent_id` and passes that guard's agent_id-absence check. Same `caller_root`/`primary_root` derivation and `realpath` normalization as the read guard. SEPARATE config-driven exemption list (`worktree_write_guard_exemptions` in `<primary_root>/.agentic/config.json`) ships empty. Fail-open, kill-switch `AE_WORKTREE_WRITE_GUARD_DISABLE=1`. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
@@ -277,9 +277,32 @@ A PreToolUse hook that gates on a `tool_input` field must fail OPEN (exit 0 /
 allow) when that field is entirely ABSENT from the payload for the guarded
 `tool_name` - this is distinct from present-but-false, which MAY deny. A
 field that is present and `false` is a real signal from the harness; a field
-that never appears in the payload at all is not a signal - it means this
-harness/tool-name combination does not emit that field, and denying on its
-absence blocks every call unconditionally.
+that never appears in the payload at all is not a signal by default - it
+usually means this harness/tool-name combination does not emit that field,
+and denying on its absence blocks every call unconditionally.
+
+**Narrow evidence-gated exception:** a hook MAY deny on a field's absence
+ONLY IF a real per-`tool_name` `PreToolUse` payload capture has proven, for
+that exact `tool_name`, that the field is present-when-explicitly-set and
+omitted-when-unset (i.e. the harness genuinely never sends the field until
+the caller sets it, as opposed to stripping or renaming it unconditionally)
+- and the gating hook's own docstring cites that capture at the point where
+it makes the deny decision. Absent that proof, the general prohibition above
+stands unchanged: gating on an unproven absent field is exactly the
+unverified-predicate deny this section exists to prevent, and remains
+prohibited regardless of how confident the guard's author is. This exception
+narrows an established rule with measured evidence; it does not create a
+default, and it must never be read as license to deny on an unverified
+field. `enforce-worktree-isolation-spawn.py`'s `isolation` field on
+`tool_name == "Agent"` is the one instance of this exception in the repo
+today: §Spawn payload mechanics below records the capture (2026-08-23)
+proving `isolation` is present-when-set/omitted-when-unset for
+`Agent` specifically - the SAME field is deliberately NOT enforced on
+`tool_name == "Task"`, since no equivalent capture exists for `Task` (see
+that hook's own Trigger docstring note). A future engineer extending this
+exception to a new field or hook must obtain and cite an equally real
+capture, scoped to the exact `tool_name` being gated - never generalize a
+capture from one `tool_name` to a "related" one.
 
 Cautionary example: `enforce-background-spawn.py` originally denied any
 `Task`/`Agent` spawn missing `run_in_background: true`. The Claude Code
