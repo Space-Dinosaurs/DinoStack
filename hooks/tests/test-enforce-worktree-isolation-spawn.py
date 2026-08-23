@@ -238,11 +238,14 @@ check(
 
 # ---------------------------------------------------------------------------
 # 7. Non-spawn tool_name -> ALLOW (passthrough).
-#    Mutation that would redden: removing the `tool_name not in ("Task",
-#    "Agent")` guard would make this fall through into the role check with
-#    tool_name="Write" - still allowed here, but the guard also protects
-#    against a future change to the deny message's `f"{tool_name} spawn"`
-#    interpolation reaching a non-spawn tool.
+#    Mutation that would redden: removing the hook's actual guard
+#    (`if tool_name != "Agent": sys.exit(0)`) would fall through into the
+#    role check with tool_name="Write" and DENY it (the deny message
+#    interpolates `f"{tool_name} spawn of subagent_type '{role}' blocked"`
+#    with no tool_name check of its own) - measured: neutralizing this
+#    guard fails 2/29 tests, both this case AND case 6 ("Task"), since
+#    both tool_name != "Agent" and end up reaching the role/isolation
+#    checks unguarded.
 # ---------------------------------------------------------------------------
 print("-- non-spawn tool_name -> ALLOW (passthrough) --")
 check(
@@ -307,26 +310,37 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# 8b. tool_input isinstance guard: a TRUTHY non-dict value must still be
-#     rejected, not just a null/missing one. Pins the `isinstance` check
-#     itself rather than the `not raw_tinput` shortcut a weaker guard
-#     (e.g. `data.get("tool_input") or {}`) would also pass.
-#     Mutation that would redden: replacing
-#     `if not isinstance(raw_tinput, dict): sys.exit(0)` with
-#     `raw_tinput = data.get("tool_input") or {}` (dropping the isinstance
-#     check entirely) would let a truthy string/list `tool_input` fall
-#     through to `raw_tinput.get(...)`, raising AttributeError and (with
-#     the single exception handler intact) still exiting 0 - so this
-#     mutation is only reddened by asserting these are non-crashing ALLOWs
-#     under the CURRENT guard, i.e. confirms the isinstance check is what
-#     makes this an explicit, understood ALLOW rather than an
-#     exception-swallowed accidental one. Verified by manual mutation (see
-#     fix summary): both mutated forms still print ALLOW here, since the
-#     lone fail-open handler catches the resulting AttributeError either
-#     way - this test's value is documenting the guard's presence and
-#     intended behavior, not distinguishing it from the fail-open path.
+# 8b. tool_input isinstance guard: documents behavior, does NOT pin the
+#     guard - these are NOT regression tests for the guard's presence.
+#     Measured: removing `if not isinstance(raw_tinput, dict): sys.exit(0)`
+#     entirely (replacing it with `raw_tinput = data.get("tool_input") or
+#     {}`, dropping the isinstance check) leaves both cases below printing
+#     the identical ALLOW - a truthy string/list `tool_input` falls through
+#     to `raw_tinput.get(...)`, raises AttributeError, and the lone
+#     fail-open handler catches it, landing on the same externally
+#     observable outcome as the explicit guard. No test can distinguish
+#     the two forms for any input reachable from JSON, the same
+#     unfalsifiable-by-construction shape as the deleted
+#     `isinstance(role, str)` check documented at case 8 above.
+#
+#     Kept anyway, unlike that deleted check: the role check was a
+#     redundant re-statement of logic `role not in MANDATED_ROLES`
+#     already fully handles on its own (the isinstance clause added no
+#     new code path, only an earlier exit to the same outcome). This
+#     `isinstance(raw_tinput, dict)` guard is different in kind, not
+#     degree - it is the SOLE type gate on the top-level `tool_input`
+#     value before ANY `.get()` call is made on it anywhere in this
+#     function; every subsequent line's use of `raw_tinput`/`tinput`
+#     relies on the dict-shape invariant this line states explicitly.
+#     Removing it would not shorten the logic, it would just delete the
+#     one place that invariant is documented, leaving it implicit and
+#     resting entirely on the outer exception handler. That is a
+#     documentation/architecture argument, not a test-observable one -
+#     per the SCOPE CONSTRAINT on this fix pass (no hook execution-logic
+#     changes), the guard is kept as-is and these tests are relabeled to
+#     stop claiming they pin it.
 # ---------------------------------------------------------------------------
-print("-- tool_input isinstance guard: truthy non-dict values -> ALLOW --")
+print("-- tool_input isinstance guard: truthy non-dict values -> ALLOW (documents behavior, does not pin the guard) --")
 check(
     "tool_input is a truthy string, not a dict",
     json.dumps({"tool_name": "Agent", "tool_input": "engineer"}),

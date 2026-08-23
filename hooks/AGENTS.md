@@ -294,34 +294,54 @@ prohibited regardless of how confident the guard's author is. This exception
 narrows an established rule with measured evidence; it does not create a
 default, and it must never be read as license to deny on an unverified
 field. `enforce-worktree-isolation-spawn.py`'s `isolation` field on
-`tool_name == "Agent"` is the one instance of this exception in the repo
-today: §Spawn payload mechanics below records the capture (2026-08-23)
-proving `isolation` is present-when-set/omitted-when-unset for
-`Agent` specifically - the SAME field is deliberately NOT enforced on
-`tool_name == "Task"`, since no equivalent capture exists for `Task` (see
-that hook's own Trigger docstring note). A future engineer extending this
-exception to a new field or hook must obtain and cite an equally real
-capture, scoped to the exact `tool_name` being gated - never generalize a
-capture from one `tool_name` to a "related" one.
+`tool_name == "Agent"` is an audited instance of this exception - §Spawn
+payload mechanics below records the capture (2026-08-23) proving
+`isolation` is present-when-set/omitted-when-unset for `Agent`
+specifically - but it is not the only deny-on-absent gate in the repo.
+`enforce-background-spawn.py` also denies a `Task` spawn whose
+`run_in_background` key is entirely absent (verified by execution: a
+`{"tool_name":"Task","tool_input":{"subagent_type":"engineer", ...}}`
+payload with no `run_in_background` key is denied), and it predates this
+exception's evidence requirement - no per-`tool_name` capture exists
+proving `Task` omits `run_in_background` only when unset (as opposed to
+stripping it unconditionally). Treat it as grandfathered debt, not as
+compliant precedent: do not cite it to justify a new unverified deny-on-
+absent gate, and do not assume its `Task` behavior is safe without
+obtaining the capture. A future engineer extending this exception to a
+new field or hook must obtain and cite an equally real capture, scoped to
+the exact `tool_name` being gated - never generalize a capture from one
+`tool_name` to a "related" one, and never point to an ungrandfathered gate
+as evidence the bar has already been met.
+
+An exception satisfied by a single self-produced capture, or by prose
+alone, does not meet the bar above. At minimum: both the present-when-
+explicitly-set and omitted-when-unset shapes must actually have been
+observed for the exact `tool_name` being gated (not inferred from a
+schema or from a different `tool_name`); the observed `tool_input` key
+lists must be transcribed into the gating hook's own docstring, not left
+only in a gitignored capture log a reviewer or worktree-isolated engineer
+cannot read; and the citing text must say explicitly that the capture
+does not generalize to any other `tool_name`.
 
 Cautionary example: `enforce-background-spawn.py` originally denied any
 `Task`/`Agent` spawn missing `run_in_background: true`. The Claude Code
 harness OMITS `run_in_background` from the `Agent` tool's PreToolUse
 payload entirely WHEN THE SPAWNER LEAVES IT UNSET (confirmed by live
-payload capture, 2026-08-23, 3 records: `tool_input` keys for an unset-
-isolation, unset-`run_in_background` `Agent` spawn were exactly
-`['description', 'prompt', 'subagent_type']`) - `Agent` is background-by-
-default at the harness level, so an unset field simply never arrives. This
-is present-when-explicitly-passed, omitted-when-unset, the SAME shape as
-`isolation` (§Spawn payload mechanics below) - it is NOT stripped from the
-`Agent` payload unconditionally; a spawn that explicitly passes
+payload capture, 2026-08-23: `tool_input` keys for an unset-isolation,
+unset-`run_in_background` `Agent` spawn were exactly `['description',
+'prompt', 'subagent_type']`) - `Agent` is background-by-default at the
+harness level, so an unset field simply never arrives. This is present-
+when-explicitly-passed, omitted-when-unset, the SAME shape as `isolation`
+(§Spawn payload mechanics below) - it is NOT stripped from the `Agent`
+payload unconditionally; a spawn that explicitly passes
 `run_in_background: false` DOES carry the key (a real `Agent` spawn with
 `run_in_background: false` was denied by this hook in-session, which is
 only possible if the key was present in that payload). The hook denied
 every `Agent` spawn missing the field until this was found and fixed;
-enforcement was scoped back to the legacy `Task` tool only, where the
-field genuinely is present-when-unset too (unverified for `Agent`'s
-present-when-explicitly-set case at the time of that fix).
+enforcement was scoped back to the legacy `Task` tool only. Whether
+`Task` genuinely omits the field only when unset (as opposed to
+stripping it unconditionally) has never been captured - see the
+grandfathered-debt paragraph above.
 
 **Discipline before gating on a field:** capture or obtain one real
 `PreToolUse` payload for the guarded `tool_name` and confirm the field is
@@ -364,7 +384,7 @@ For a worktree-isolated subagent, `cwd` and `CLAUDE_PROJECT_DIR` name different 
 
 ## Spawn payload mechanics
 
-PreToolUse hook mechanics for Agent/Task spawns: `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, `model` (absent - not null - when the spawner omitted it), `run_in_background`, and `isolation`; there is no env or metadata parameter, so a conductor cannot inject a marker into a subagent's payload. **That parameter list is read from the `Agent` tool's schema, not from a captured payload** - it differs from the live `Agent` capture recorded in KNW-20260707-001. `isolation` specifically HAS now been re-verified against a real `Agent`-spawn payload (project-scoped capture hook, 2026-08-23, 3 records): present with the exact string value `"worktree"` when the spawner set it, absent from `tool_input` entirely when unset - never present-with-null. `run_in_background` was absent in all 3 of those records (unset in each), consistent with present-when-set/omitted-when-unset, not evidence it is stripped from the `Agent` payload entirely. `model` and the remaining fields are still schema-derived only and still need their own re-verification before any hook gates on them.
+PreToolUse hook mechanics for Agent/Task spawns: `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, `model` (absent - not null - when the spawner omitted it), `run_in_background`, and `isolation`; there is no env or metadata parameter, so a conductor cannot inject a marker into a subagent's payload. **That parameter list is read from the `Agent` tool's schema, not from a captured payload** - it differs from the live `Agent` capture recorded in KNW-20260707-001. `isolation` specifically HAS now been re-verified against real `Agent`-spawn payloads (project-scoped capture hook, first captured 2026-08-23; the log grows with every spawn, so the SHAPES below are the load-bearing evidence, not a pinned record count, which goes stale the next time anyone reads the live log): present with the exact string value `"worktree"` when the spawner set it, absent from `tool_input` entirely when unset - never present-with-null. `run_in_background` was absent from every captured record with `isolation` unset, consistent with present-when-set/omitted-when-unset, not evidence it is stripped from the `Agent` payload entirely. `model` and the remaining fields are still schema-derived only and still need their own re-verification before any hook gates on them.
 
 Independent of the tool name, the top-level payload key set is CONDITIONAL on the caller, and the difference is the discriminator. Measured on Claude Code v2.1.220 (4 records, Read and Bash calls, 2 sessions):
 

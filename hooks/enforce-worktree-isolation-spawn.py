@@ -298,14 +298,21 @@ def main() -> None:
         if role not in MANDATED_ROLES:
             sys.exit(0)
 
-        # Denying on an absent `isolation` key here is the one instance in
-        # this repo of hooks/AGENTS.md's "Narrow evidence-gated exception"
-        # to §Fail-open on absent tool_input fields: backed by the real
-        # per-tool_name capture cited in the module docstring above and in
+        # Denying on an absent `isolation` key here is an instance of
+        # hooks/AGENTS.md's "Narrow evidence-gated exception" to §Fail-open
+        # on absent tool_input fields: backed by the real per-tool_name
+        # capture cited in the module docstring above and in
         # hooks/AGENTS.md §Spawn payload mechanics (captured 2026-08-23),
         # proving `isolation` is present-when-set/omitted-when-unset for
         # `tool_name == "Agent"` specifically. Do not generalize this to
         # "Task" or any other field without an equally real capture.
+        # NOT the only deny-on-absent gate in the repo: `enforce-
+        # background-spawn.py` also denies a `Task` spawn whose
+        # `run_in_background` key is entirely absent, and predates this
+        # exception's evidence requirement - it has no per-tool_name
+        # capture proving `Task` omits that field only when unset. It is
+        # grandfathered debt, not compliant precedent; see hooks/AGENTS.md
+        # §Fail-open on absent tool_input fields for the accepted framing.
         isolation = raw_tinput.get("isolation")
         if isolation == _REQUIRED_ISOLATION:
             sys.exit(0)

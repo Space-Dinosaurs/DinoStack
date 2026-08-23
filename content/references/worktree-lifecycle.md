@@ -353,7 +353,7 @@ This is a deliberate absence from the small set of items a project MAY declare -
 
 ## Pre-spawn stash fallback
 
-Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
+Pre-spawn safety net (fallback, not a substitute for isolation): on Claude Code, a non-isolated spawn of `engineer`/`qa-engineer`/`release-orchestrator` is mechanically DENIED by `hooks/enforce-worktree-isolation-spawn.py` (round-3 fix), so this fallback is reachable only via that hook's kill-switch for the two documented emergency cases below, or on any other adapter, which has no such hook and relies on the prose rule alone (Claude Code's `Task` tool name is also unenforced - see that hook's own Trigger docstring note). Where it applies, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
 
 ```bash
 git stash push --include-untracked --keep-index --message 'conductor-scaffolding-pre-spawn'
@@ -363,4 +363,4 @@ git stash pop
 
 This is a fallback only. Worktree isolation is the primary mechanism; the stash dance exists for the rare case where isolation is genuinely not possible (e.g. the Trivial carve-out interleaving with an unexpected concurrent spawn).
 
-As of the round-3 fix to `hooks/enforce-worktree-isolation-spawn.py`, a non-isolated spawn of `engineer`/`qa-engineer`/`release-orchestrator` is mechanically DENIED by that hook, not merely discouraged in prose - this fallback path is no longer reachable for those three roles on an unmodified session. It remains reachable only via the hook's own kill-switch (`AE_WORKTREE_ISOLATION_GUARD_DISABLE=1`, set before launching Claude Code, then restart) for the two documented emergency cases where that hook itself would otherwise deadlock the session (§Version floor above; a build where the harness genuinely does not honor `isolation: "worktree"` at all). Do not reach for the kill-switch merely because a spawn is inconvenient to isolate - it disables the enforcement mechanism for the whole session, not just the one spawn, and its use should be rare and short-lived (unset it, or restart without it, as soon as the emergency case is past).
+On Claude Code specifically, the kill-switch is `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set before launching Claude Code, then restart), reachable only for the two documented emergency cases where the hook itself would otherwise deadlock the session (§Version floor above; a build where the harness genuinely does not honor `isolation: "worktree"` at all). Do not reach for the kill-switch merely because a spawn is inconvenient to isolate - it disables the enforcement mechanism for the whole session, not just the one spawn, and its use should be rare and short-lived (unset it, or restart without it, as soon as the emergency case is past).
