@@ -3792,16 +3792,6 @@
       "source_token": "unique"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "0e341879c4c608b4e56f30aae8de71cae63a05893b1e4c8738fdf76efde74951",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
@@ -3860,16 +3850,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
-    },
-    {
-      "expected_target": "echo",
-      "generated_token": "echo",
-      "kind": "operational",
-      "occurrence_hash": "0f134a0b522473aa4dedaae22181e3588008c605d8075cdbbb5ec79a4b260256",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "echo"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -4090,16 +4070,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). Path-aware: fan-out uses `$PR_CHECKOUT=$INTEGRATION_WORKTREE`; single-engineer uses `$WORKTREE_PATH` from the engineer's return, captured before Phase 8 runs. Both copy the file in before staging (git cannot stage outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - a mismatched `$PR_CHECKOUT` skips with a warning, never affecting the feature commit. Fan-out and single-engineer-worktree paths push in the same block; sequential (`$PR_CHECKOUT == $REPO`) is pushed by Phase 8's unconditional push instead. A `git config user.name`/`user.email` guard mirrors the feature commit's own - if either is empty the commit is skipped (unstaged) with a WARNING, never a malformed trailer. **Eventual consistency:** the Phase 8 commit only has sessions that ended before it runs; the current session's line lands in the next ticket's commit - known, not a bug."
-    },
-    {
-      "expected_target": "then",
-      "generated_token": "then",
-      "kind": "operational",
-      "occurrence_hash": "133e25b01c41ad202e4db86ff177051b9beff07394906f54308aa833c5dd193d",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "then"
     },
     {
       "expected_target": "echo",
@@ -5330,16 +5300,6 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
-    },
-    {
-      "expected_target": "if",
-      "generated_token": "if",
-      "kind": "operational",
-      "occurrence_hash": "253a93fb1439f92d0fc3afcf21ce126b1b19fe2b6a8dd6c08ccf1676e6dbfd37",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "if"
     },
     {
       "expected_target": "sed",
@@ -7652,6 +7612,16 @@
       "source_token": "if"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "the",
+      "kind": "display-only",
+      "occurrence_hash": "472abcd6cc5e467756aaee1e22e6282f014364e421982bbdb451d558140fb95c",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "the"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -8210,16 +8180,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/ticket-rework.md"
-    },
-    {
-      "expected_target": "echo",
-      "generated_token": "echo",
-      "kind": "operational",
-      "occurrence_hash": "4fefdce1e8c8634747eca1a7c795a6372b9bfe17a5ca3fa4c8c0152235da8dca",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "echo"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -11402,6 +11362,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": "then",
+      "generated_token": "then",
+      "kind": "operational",
+      "occurrence_hash": "7fd577169ba9c9fb25569256c503d9258a82e518061b643bc69a7d11b04fd0b5",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "then"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "PR_NUMBER",
       "kind": "display-only",
@@ -14492,6 +14462,16 @@
       "source_token": "branch"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "ac6ea9c5cbe5636a287828b31ed239e7738c1ad362e5b5737768e83a5a379b40",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": "print",
       "generated_token": "print",
       "kind": "operational",
@@ -14640,6 +14620,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
+    },
+    {
+      "expected_target": "echo",
+      "generated_token": "echo",
+      "kind": "operational",
+      "occurrence_hash": "ae74b0fe7becfab3331ef171fe3f8bddebb678b7873ebb76da4f5d07ae3fdfe6",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "echo"
     },
     {
       "expected_target": "then",
@@ -15930,6 +15920,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "--base"
+    },
+    {
+      "expected_target": "if",
+      "generated_token": "if",
+      "kind": "operational",
+      "occurrence_hash": "c18e1cc5fd6cd8385e39d3834614b797df271a826e517a7995586683c19c6f24",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "if"
     },
     {
       "expected_target": "if",
@@ -18332,6 +18332,16 @@
       "source_token": ".agentic/"
     },
     {
+      "expected_target": "echo",
+      "generated_token": "echo",
+      "kind": "operational",
+      "occurrence_hash": "e4199cbfab213b4d3ebdced3a53674d8b0bbef17078ffd464de1333ab1342063",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "echo"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -20322,16 +20332,6 @@
       "source_token": ".agentic/agents-md-pending.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "00d95d6bc2df6dd9eb7cafe87e37a3e7c084a2836b27c63fecfb9019d2431245",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": ".agentic/wrap/lock",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/lock",
       "kind": "operational",
@@ -20455,7 +20455,7 @@
       "expected_target": ".agentic/tracking.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracking.md",
       "kind": "operational",
-      "occurrence_hash": "0b46759b6203d20e15639c2b0f168bb9dff896043dcad010520d75ecf0c24993",
+      "occurrence_hash": "0b467a30c0ea1743392db5d909d9e85ce6c957b06cb77ac2ab35918865fd7fe5",
       "resolution_mode": "invoked-project-path",
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
@@ -20785,6 +20785,16 @@
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
+      "occurrence_hash": "21ace12ef005695cf69aeb2f6b6b8d2401b1dd5cc285d9d7c84b6c6255bd1f78",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
       "occurrence_hash": "22cdb281e91847127e2a27d8cd3b58136bfbdcbca11cfbb49d1038ddb5e9915b",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
@@ -21082,6 +21092,16 @@
       "source_token": ".agentic/memory.md"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "2e1575ea114dc49846bd9fbb2f4c1cceea733c36efd47a553bc2b70b980fc447",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/tracker.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
       "kind": "operational",
@@ -21110,6 +21130,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/memory.md"
+    },
+    {
+      "expected_target": ".agentic/wrap/lock",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/lock",
+      "kind": "operational",
+      "occurrence_hash": "313524ba9cbcf26e51c676fefdc5d369de761df8af688692c35103fd51d41407",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/wrap/lock"
     },
     {
       "expected_target": ".agentic/learnings.md",
@@ -21880,16 +21910,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": ".agentic/tracking.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracking.md",
-      "kind": "operational",
-      "occurrence_hash": "5af4a06f0b5c70bd7d1a348dc487446bcfc39a97a975351cb9bb5fbf7e9afb1c",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/tracking.md"
     },
     {
       "expected_target": ".agentic/",
@@ -22812,16 +22832,6 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "94e8ab0e4c978cef98d6d33e17c4260227cd741a5bd9e9bc94886aacb8bfc112",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -22930,16 +22940,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "done"
-    },
-    {
-      "expected_target": ".agentic/wrap/lock",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/lock",
-      "kind": "operational",
-      "occurrence_hash": "9d0e4f27a78226bb815f9d7a0896abc3590d88346c3db08d441afaa37ad45a49",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/wrap/lock"
     },
     {
       "expected_target": "wrap",
@@ -23142,6 +23142,16 @@
       "source_token": "**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files. See the Consumers list under the Atomic write discipline (NORMATIVE) section in content/references/wrap-context-format.md: the 17 sites - 3 in the merge algorithm, 14 in ds-wrap.md. The lock window also covers `.agentic/compression-state.json`, which is outside that Consumers list because it is machine state rather than a human-facing document. It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "aad2efdbb555306c792de931a0ccff99c323c1f486d4828209f870ec8b9f86fa",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -23300,16 +23310,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "bin/ds-tracker",
-      "generated_token": "$AE_REPO_DIR/bin/ds-tracker",
-      "kind": "operational",
-      "occurrence_hash": "b6f489261d920920baba9e7e59daa2af449caa9b63984abca0c836253028a439",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "bin/ds-tracker"
     },
     {
       "expected_target": "cat",
@@ -23480,6 +23480,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.claude/memory.md"
+    },
+    {
+      "expected_target": "bin/ds-tracker",
+      "generated_token": "$AE_REPO_DIR/bin/ds-tracker",
+      "kind": "operational",
+      "occurrence_hash": "bee7d895069ca5e9112df98ccebb71dac8a00723ff36131b20e27d3bf72146a5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "bin/ds-tracker"
     },
     {
       "expected_target": ".agentic/memory-pending.md",
@@ -23692,6 +23702,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": "content/references/conductor-operating-rules.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
+      "kind": "operational",
+      "occurrence_hash": "c92729a2a4cf27b7833cf00547d7c02ec0d622fc90c4c2ed2f53db2cc5bf3ed6",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/conductor-operating-rules.md"
+    },
+    {
       "expected_target": "gh",
       "generated_token": "gh",
       "kind": "operational",
@@ -23710,16 +23730,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Write"
-    },
-    {
-      "expected_target": "content/references/conductor-operating-rules.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
-      "kind": "operational",
-      "occurrence_hash": "ca3b32d593783400d17e90f097a469f14f8469ae9ee93e662926b28dde6e9b64",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/conductor-operating-rules.md"
     },
     {
       "expected_target": ".gitignore",
@@ -24452,16 +24462,6 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "f4b52c226a8983688d17bad7a46f4911425bbde0945bb4aa382eac57d8355419",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": ".agentic/findings.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/findings.md",
       "kind": "operational",
@@ -24520,6 +24520,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/_wrap.md"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "fa8aebadc3022a6cb3f79d6ff0ae8961d894c8e99759a2c1461cf4e6cc1daa58",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".claude/context.md",
@@ -24592,6 +24602,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": ".agentic/tracking.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracking.md",
+      "kind": "operational",
+      "occurrence_hash": "fdb804a75f4be00020ae1bb49673bc100ad729f934d6e6fc0bf195c022f3138f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/tracking.md"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -24600,16 +24620,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "ffc704bf23da866f0473ad4d1db46a346004e36da1a6ca0a2ca70de81e4b6cb8",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".agentic/learnings.md",

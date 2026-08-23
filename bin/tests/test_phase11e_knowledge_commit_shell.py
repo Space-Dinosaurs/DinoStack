@@ -675,6 +675,46 @@ def test_revert_risk_is_skipped_under_auto_merge(tmp_path, shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
+def test_revert_risk_skipped_under_shipped_default_config(tmp_path, shell):
+    """DS-170 round 2 Critical: the per-file revert-risk gate must not be
+    scoped to `auto_merge_on_ci_green: true`. Under the SHIPPED DEFAULT
+    (`auto_merge_on_ci_green` absent, i.e. false), a candidate whose copy
+    deletes lines relative to the branch tip must still be skipped - the
+    conductor's stale local copy must never silently overwrite an engineer's
+    newer content on the branch, whether or not the run auto-merges. Mirrors
+    test_revert_risk_is_skipped_under_auto_merge exactly but with no
+    auto_merge_on_ci_green config written at all (the real shipped default),
+    proving the gate no longer depends on that toggle."""
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
+    log_path = _install_emit_stub(fixture)
+    before = _origin_count(fixture)
+    tip_blob_before = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+
+    result = _run(fixture, shell)
+    _assert_completed(result)
+
+    assert _origin_count(fixture) == before + 1, (
+        "the per-file gate skips only the one file with deletions - the "
+        f"commit for the other four must still be pushed.\nSTDOUT:\n{result.stdout}"
+    )
+    payload = _emit_payload(log_path)
+    assert MEMORY in payload["files_skipped_ignored"], payload
+    assert MEMORY not in payload["files_committed"], payload
+    for f in (DECISIONS, LEARNINGS, AGENTS, TRACKING):
+        assert f in payload["files_committed"], payload
+    tip_blob_after = _git(
+        fixture, "show", f"{fixture.branch_name}:{MEMORY}", cwd=fixture.origin_dir
+    ).stdout
+    assert tip_blob_after == tip_blob_before, (
+        "MEMORY.md must be present and unchanged in the pushed commit under "
+        "the shipped default config - the branch tip's blob must survive"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
 def test_revert_risk_non_automerge_path_unaffected(tmp_path, shell):
     """C2 resolution, second assertion: with auto_merge_on_ci_green false, the
     same fixture still produces the aggregate human-facing WARNING naming the
@@ -719,39 +759,6 @@ def test_all_candidates_skipped_reports_revert_risk_not_no_changes(tmp_path, she
     )
     for f in git_fixture.KNOWLEDGE_FILES:
         assert f in payload["files_skipped_ignored"], payload
-
-
-@pytest.mark.parametrize("shell", SHELLS)
-def test_per_file_revert_risk_gate_needs_git_index_file(tmp_path, shell):
-    """Round-7 Major: the per-file `git diff --numstat` MUST carry
-    GIT_INDEX_FILE="$KC_IDX" - a bare `git diff` honours
-    diff.autoRefreshIndex (default true) and WRITES $REPO/.git/index whenever
-    the real index is stat-dirty, which is the normal state at this point
-    under auto-merge. This extends test_real_index_is_never_read_or_written's
-    invariant to the one path that only executes under auto-merge with at
-    least one candidate carrying working-tree deletions."""
-    shell = _shell_or_skip(shell)
-    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path, {MEMORY: "fewer_lines"})
-    _write_config(fixture, {"auto_merge_on_ci_green": True})
-    index_path = fixture.repo_dir / ".git" / "index"
-
-    status_before = _git(fixture, "status", "--porcelain").stdout
-    sha_before = hashlib.sha256(index_path.read_bytes()).hexdigest()
-
-    result = _run(fixture, shell)
-    _assert_completed(result)
-
-    sha_after = hashlib.sha256(index_path.read_bytes()).hexdigest()
-    status_after = _git(fixture, "status", "--porcelain").stdout
-
-    def _strip_state(text: str) -> list[str]:
-        return [ln for ln in text.splitlines() if "knowledge-commit-state.json" not in ln]
-
-    assert sha_after == sha_before, (
-        "$REPO/.git/index was modified under auto-merge with a revert-risk "
-        "candidate present - the per-file gate is missing GIT_INDEX_FILE"
-    )
-    assert _strip_state(status_after) == _strip_state(status_before)
 
 
 # ---------------------------------------------------------------------------

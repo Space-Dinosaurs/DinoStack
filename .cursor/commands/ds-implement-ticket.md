@@ -3318,7 +3318,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
 
-**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or (Phase 11e only) the per-file revert-risk-under-auto-merge gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). Note: under `auto_merge_on_ci_green: true`, a file excluded by the per-file revert-risk gate is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or the per-file revert-risk gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). The per-file revert-risk gate runs unconditionally, regardless of `auto_merge_on_ci_green`: a file it excludes is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
 ### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
 
@@ -3485,24 +3485,37 @@ else
                 KC_SKIP_THIS="yes"
               fi
             fi
-            if [ "$KC_SKIP_THIS" = "no" ] && [ "$KC_AUTOMERGE" = "true" ]; then
+            if [ "$KC_SKIP_THIS" = "no" ]; then
               # Per-file revert guard, run BEFORE staging (C1: unstaging an
               # already-read-tree'd full-tip index with `git rm --cached`
               # DELETES the path from the eventual commit rather than
               # reverting it - so this check must never run after `git add`).
-              # This is ADDITIVE to the aggregate diff-index guard below
-              # (:3485-3518), NOT a replacement for it (C2): the aggregate
-              # guard's own two fail-closed branches (an unevaluable
-              # diff-index, or a non-numeric awk result) cover a batch-level
-              # failure this per-file, working-tree-only check cannot see.
-              # GIT_INDEX_FILE is MANDATORY here, not decoration: `git diff`
-              # porcelain honours diff.autoRefreshIndex (default true), so a
-              # bare `git diff` WRITES $REPO/.git/index whenever the real
-              # index is stat-dirty - which is the normal state at this
-              # point. That violates this block's own invariant ("The real
-              # $REPO/.git/index is never read for staging and never
-              # written"). Pointing it at the temp index prevents the write
-              # and yields byte-identical numstat output (both verified).
+              # Runs UNCONDITIONALLY, regardless of auto_merge_on_ci_green:
+              # under the shipped default (false) a candidate whose copy
+              # deletes lines relative to the branch tip is still skipped -
+              # the risk this guards against (an engineer's newer file on the
+              # branch getting silently overwritten by the conductor's stale
+              # local copy) is present on every green PR, not only the
+              # auto-merge path. This is ADDITIVE to the aggregate diff-index
+              # guard below (:3485-3518), NOT a replacement for it (C2): the
+              # aggregate guard's own two fail-closed branches (an
+              # unevaluable diff-index, or a non-numeric awk result) cover a
+              # batch-level failure this per-file, working-tree-only check
+              # cannot see. The aggregate guard's own skip-on-revert-risk
+              # (:3612) remains gated on auto_merge_on_ci_green, since a
+              # green-but-not-auto-merging PR still gets human review before
+              # merge - the per-file gate above is the one that had no
+              # reviewer standing between a stale write and a merge.
+              # GIT_INDEX_FILE is set here for consistency with this block's
+              # own invariant ("The real $REPO/.git/index is never read for
+              # staging and never written"), even though direct measurement
+              # (DS-170 round 2) found that a `git diff <treeish> -- <path>`
+              # invocation - unlike a bare, argument-less `git diff` - does
+              # not write $REPO/.git/index via diff.autoRefreshIndex under
+              # any raciness/staleness configuration tried, regardless of
+              # GIT_INDEX_FILE; the numstat result is also identical either
+              # way. Keeping the assignment costs nothing and holds the line
+              # uniform with every other index operation in this block.
               KC_F_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff --numstat "origin/$BRANCH_NAME" -- "$KC_F" 2>&1 >"$KC_IDX.f-numstat")
               if [ $? -ne 0 ]; then
                 echo "WARNING: [phase: knowledge-commit] diff --numstat failed for $KC_F: $KC_F_NUMSTAT_ERR - treating this file as REVERT RISK PRESENT (fail-closed)."
@@ -3518,7 +3531,7 @@ else
               # KC_REVERT_SKIP_DELETED can make the deleted_lines telemetry
               # read 0 while the file is still correctly skipped.
               if [ "$KC_F_DELETED" != "0" ]; then
-                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME and auto_merge_on_ci_green is true - skipping THIS FILE ONLY (revert risk, no human would read the diff before merge)."
+                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME - skipping THIS FILE ONLY (revert risk: this candidate's copy would delete content the branch tip already has)."
                 if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
                 KC_SKIP_THIS="yes"
                 # Undo the stat-refresh above: `git update-index -q --refresh`
@@ -3537,7 +3550,7 @@ else
                   GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" >/dev/null 2>&1 || true
                 fi
                 # Track the all-candidates-skipped case so a KC_N == 0 run
-                # under auto-merge still reports revert-risk-skipped with the
+                # still reports revert-risk-skipped with the
                 # correct deleted_lines rather than falling through to
                 # no-changes/deleted_lines:0. The -1 fail-closed sentinel
                 # dominates the running total, as it does in the aggregate
@@ -3566,7 +3579,7 @@ else
 
       if [ "$KC_N" -eq 0 ]; then
         if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. No human would read the PR diff before merge. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
           KC_STATUS="revert-risk-skipped"
           KC_DELETED=$KC_REVERT_SKIP_DELETED
         else
@@ -3576,12 +3589,17 @@ else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.
         #     FAILS CLOSED. This is the aggregate, batch-level backstop; the
-        #     per-file, pre-staging guard above already ran first for each
-        #     candidate under auto-merge, so under auto-merge this aggregate
-        #     check typically has nothing left to catch for content reasons -
-        #     it remains the ONLY path that fires when the guard itself cannot
-        #     be evaluated (an unevaluable diff-index, or a non-numeric awk
-        #     result), which the per-file check structurally cannot see. ---
+        #     per-file, pre-staging guard above now runs unconditionally for
+        #     every candidate, so this aggregate check typically has nothing
+        #     left to catch for content reasons - it remains the ONLY path
+        #     that fires when the guard itself cannot be evaluated (an
+        #     unevaluable diff-index, or a non-numeric awk result), which the
+        #     per-file check structurally cannot see. Its own skip-on-risk
+        #     branch below stays gated on auto_merge_on_ci_green: under the
+        #     default (false), a green PR still gets a human reading the diff
+        #     before merge, so an unevaluable-guard WARNING here is
+        #     sufficient - the human is the backstop this branch's own skip
+        #     is for under auto-merge, where no human reads the diff. ---
         KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
         if [ $? -ne 0 ]; then
           echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."

@@ -689,7 +689,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:89` - it prints only when a transition actually fires.
 
-**Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same five-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
+**Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same five-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`, honoring `knowledge_commit_exclude` so an operator-excluded file is never surfaced; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -2764,7 +2764,7 @@ A glossary is optional; not every project needs one. But once introduced, it is 
 
 Runs at session start, after the pending-merge sweep (see `content/rules/conventions.md` §Session Context and Memory for the sweep order and the summary notice format). **Read-only** - no worktree, no branch, no git write, and no `git fetch`: resolve `BASE_BRANCH` using the same non-interactive steps 1-3 as **Base branch resolution** (declared in `AGENTS.md`, else local `develop`, else local `development`, falling to `main`/`master` per step 5 without the step-4 prompt - this sweep never asks). Because it must not fetch, `origin/<BASE_BRANCH>` here can be a stale local copy of the remote ref; a stale ref can delay a notice by one session (until the next `git fetch` happens elsewhere), which is an acceptable cost for a non-blocking advisory.
 
-Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same five-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md`): file absent -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged.
+Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same five-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md`): file absent -> skip; file's entry is present in `knowledge_commit_exclude` -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged.
 
 For each file that survives gating, compute a tracker key `<path>:<hash>` where `<hash>` is the first 8 hex characters of the SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>` (the file's own pending diff, not its full contents). If that exact key is not already present in `.agentic/.knowledge-strand-surfaced`, emit at the next user-facing turn boundary:
 
@@ -18925,7 +18925,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
 
-**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or (Phase 11e only) the per-file revert-risk-under-auto-merge gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). Note: under `auto_merge_on_ci_green: true`, a file excluded by the per-file revert-risk gate is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` (array of basenames skipped by the gitignore gate, the `knowledge_commit_exclude` config toggle, or the per-file revert-risk gate - the field name predates all three additional cases and is kept for schema stability; it does not distinguish which skip reason applies for a given file - the printed diagnostic line is the only place that distinction is visible). The per-file revert-risk gate runs unconditionally, regardless of `auto_merge_on_ci_green`: a file it excludes is never staged and therefore never contributes to the separate `deleted_lines` aggregate field, which continues to reflect only whatever ended up staged. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
 ### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
 
@@ -19092,24 +19092,37 @@ else
                 KC_SKIP_THIS="yes"
               fi
             fi
-            if [ "$KC_SKIP_THIS" = "no" ] && [ "$KC_AUTOMERGE" = "true" ]; then
+            if [ "$KC_SKIP_THIS" = "no" ]; then
               # Per-file revert guard, run BEFORE staging (C1: unstaging an
               # already-read-tree'd full-tip index with `git rm --cached`
               # DELETES the path from the eventual commit rather than
               # reverting it - so this check must never run after `git add`).
-              # This is ADDITIVE to the aggregate diff-index guard below
-              # (:3485-3518), NOT a replacement for it (C2): the aggregate
-              # guard's own two fail-closed branches (an unevaluable
-              # diff-index, or a non-numeric awk result) cover a batch-level
-              # failure this per-file, working-tree-only check cannot see.
-              # GIT_INDEX_FILE is MANDATORY here, not decoration: `git diff`
-              # porcelain honours diff.autoRefreshIndex (default true), so a
-              # bare `git diff` WRITES $REPO/.git/index whenever the real
-              # index is stat-dirty - which is the normal state at this
-              # point. That violates this block's own invariant ("The real
-              # $REPO/.git/index is never read for staging and never
-              # written"). Pointing it at the temp index prevents the write
-              # and yields byte-identical numstat output (both verified).
+              # Runs UNCONDITIONALLY, regardless of auto_merge_on_ci_green:
+              # under the shipped default (false) a candidate whose copy
+              # deletes lines relative to the branch tip is still skipped -
+              # the risk this guards against (an engineer's newer file on the
+              # branch getting silently overwritten by the conductor's stale
+              # local copy) is present on every green PR, not only the
+              # auto-merge path. This is ADDITIVE to the aggregate diff-index
+              # guard below (:3485-3518), NOT a replacement for it (C2): the
+              # aggregate guard's own two fail-closed branches (an
+              # unevaluable diff-index, or a non-numeric awk result) cover a
+              # batch-level failure this per-file, working-tree-only check
+              # cannot see. The aggregate guard's own skip-on-revert-risk
+              # (:3612) remains gated on auto_merge_on_ci_green, since a
+              # green-but-not-auto-merging PR still gets human review before
+              # merge - the per-file gate above is the one that had no
+              # reviewer standing between a stale write and a merge.
+              # GIT_INDEX_FILE is set here for consistency with this block's
+              # own invariant ("The real $REPO/.git/index is never read for
+              # staging and never written"), even though direct measurement
+              # (DS-170 round 2) found that a `git diff <treeish> -- <path>`
+              # invocation - unlike a bare, argument-less `git diff` - does
+              # not write $REPO/.git/index via diff.autoRefreshIndex under
+              # any raciness/staleness configuration tried, regardless of
+              # GIT_INDEX_FILE; the numstat result is also identical either
+              # way. Keeping the assignment costs nothing and holds the line
+              # uniform with every other index operation in this block.
               KC_F_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff --numstat "origin/$BRANCH_NAME" -- "$KC_F" 2>&1 >"$KC_IDX.f-numstat")
               if [ $? -ne 0 ]; then
                 echo "WARNING: [phase: knowledge-commit] diff --numstat failed for $KC_F: $KC_F_NUMSTAT_ERR - treating this file as REVERT RISK PRESENT (fail-closed)."
@@ -19125,7 +19138,7 @@ else
               # KC_REVERT_SKIP_DELETED can make the deleted_lines telemetry
               # read 0 while the file is still correctly skipped.
               if [ "$KC_F_DELETED" != "0" ]; then
-                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME and auto_merge_on_ci_green is true - skipping THIS FILE ONLY (revert risk, no human would read the diff before merge)."
+                echo "WARNING: [phase: knowledge-commit] $KC_F has $KC_F_DELETED deleted line(s) vs origin/$BRANCH_NAME - skipping THIS FILE ONLY (revert risk: this candidate's copy would delete content the branch tip already has)."
                 if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
                 KC_SKIP_THIS="yes"
                 # Undo the stat-refresh above: `git update-index -q --refresh`
@@ -19144,7 +19157,7 @@ else
                   GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" >/dev/null 2>&1 || true
                 fi
                 # Track the all-candidates-skipped case so a KC_N == 0 run
-                # under auto-merge still reports revert-risk-skipped with the
+                # still reports revert-risk-skipped with the
                 # correct deleted_lines rather than falling through to
                 # no-changes/deleted_lines:0. The -1 fail-closed sentinel
                 # dominates the running total, as it does in the aggregate
@@ -19173,7 +19186,7 @@ else
 
       if [ "$KC_N" -eq 0 ]; then
         if [ "$KC_REVERT_SKIP_COUNT" -gt 0 ]; then
-          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. No human would read the PR diff before merge. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          echo "WARNING: [phase: knowledge-commit] no candidate could be staged - $KC_REVERT_SKIP_COUNT file(s) carried revert risk (deleted_lines=$KC_REVERT_SKIP_DELETED) - skipping. Run /ds-wrap so Part G ships this content on a reviewable branch."
           KC_STATUS="revert-risk-skipped"
           KC_DELETED=$KC_REVERT_SKIP_DELETED
         else
@@ -19183,12 +19196,17 @@ else
         # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
         #     a file (reused for the per-file warning), stderr to a variable.
         #     FAILS CLOSED. This is the aggregate, batch-level backstop; the
-        #     per-file, pre-staging guard above already ran first for each
-        #     candidate under auto-merge, so under auto-merge this aggregate
-        #     check typically has nothing left to catch for content reasons -
-        #     it remains the ONLY path that fires when the guard itself cannot
-        #     be evaluated (an unevaluable diff-index, or a non-numeric awk
-        #     result), which the per-file check structurally cannot see. ---
+        #     per-file, pre-staging guard above now runs unconditionally for
+        #     every candidate, so this aggregate check typically has nothing
+        #     left to catch for content reasons - it remains the ONLY path
+        #     that fires when the guard itself cannot be evaluated (an
+        #     unevaluable diff-index, or a non-numeric awk result), which the
+        #     per-file check structurally cannot see. Its own skip-on-risk
+        #     branch below stays gated on auto_merge_on_ci_green: under the
+        #     default (false), a green PR still gets a human reading the diff
+        #     before merge, so an unevaluable-guard WARNING here is
+        #     sufficient - the human is the backstop this branch's own skip
+        #     is for under auto-merge, where no human reads the diff. ---
         KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
         if [ $? -ne 0 ]; then
           echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."
@@ -24175,7 +24193,7 @@ Accumulate any `unmatched_state_name` returned by the guard across all detected 
 
 **Part G - Knowledge-file commit.**
 
-Runs OUTSIDE the `wrap/lock` window - strictly AFTER `ds-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` is NOT the ongoing content writer of most of the five files below - root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` are written by `wrap-ticket`, `learnings-agent`, and `learning-extractor` respectively (see `content/references/conductor-operating-rules.md` §"wrap-ticket writer carve-out" for the full writer map; the sole exception is `/ds-wrap`'s own narrow bootstrap stub-seed of root `MEMORY.md`, described in the pre-flight scaffold-accuracy check, item 1, above). `AGENTS.md` and `.agentic/tracking.md` have no single ongoing-writer agent in that map: `AGENTS.md` is edited ad hoc by whichever agent or conductor step touches it, and `.agentic/tracking.md` is written by `bin/ds-tracker`, a CLI, not a subagent - state that distinction rather than force-fitting them into the three-agent map. But this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions), so any conductor-side write to these five files - whichever agent made it - never reaches a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `ds-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` is NOT the ongoing content writer of most of the five files below - root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` are written by `wrap-ticket`, `learnings-agent`, and `learning-extractor` respectively (see `content/references/conductor-operating-rules.md` §"wrap-ticket writer carve-out" for the full writer map; the sole exception is `/ds-wrap`'s own narrow bootstrap stub-seed of root `MEMORY.md`, described in the pre-flight scaffold-accuracy check, item 1, above). `AGENTS.md` and `.agentic/tracking.md` have no single ongoing-writer agent in that map: `AGENTS.md` is edited ad hoc by whichever agent or conductor step touches it, and `.agentic/tracking.md` is written by `bin/ds-tracker`, a CLI, not a subagent. But this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions), so any conductor-side write to these five files - whichever agent made it - never reaches a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
 
 Write-ordering among the five files is not a `/ds-wrap`-internal question, because `/ds-wrap` is not their ongoing writer - Part G only picks up whatever state they are in when it runs. The one real ordering question - whether `learning-extractor`'s write to `.agentic/learnings.md` precedes `wrap-ticket`'s read of it during Phase 11b - has no guarantee: `learning-extractor` is fire-and-forget (`content/commands/ds-implement-ticket.md`, Phase 6 clean exit), and `wrap-ticket` explicitly reads "whatever entries exist ... may be partial or empty. No warning needed" if extraction has not finished by Phase 11b. This is a documented, accepted race with a safe degraded fallback, not an ordering guarantee, and it is entirely outside `/ds-wrap`'s scope.
 
