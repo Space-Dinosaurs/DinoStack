@@ -11,9 +11,9 @@ Purpose: Executes the two shell blocks Phase 11e added to
          fails open, `files_committed` populated on a failure path), and each
          was confirmed to go RED under a mutation of the implementation.
 
-Public API: none (pytest test module; 33 parametrized functions x {bash, zsh}
-            = 66 collected IDs, plus 3 static shell-independent assertions =
-            69 - see the collected-count floor in
+Public API: none (pytest test module; 34 parametrized functions x {bash, zsh}
+            = 68 collected IDs, plus 3 static shell-independent assertions =
+            71 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
