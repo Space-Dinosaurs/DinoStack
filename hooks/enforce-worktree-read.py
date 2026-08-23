@@ -81,8 +81,23 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
 Downstream consumers: Claude Code hook runner (PreToolUse event for Read).
                       Wired via ~/.claude/settings.json by .claude/
                       install.sh (one matcher block: "Read"). Documented
-                      in hooks/AGENTS.md §Entry points and
-                      content/references/delegation-detail.md.
+                      in hooks/AGENTS.md §Entry points,
+                      content/references/delegation-detail.md §Worktree-
+                      read hook (DS-150), and (pointer only, canonical
+                      mechanics stay in delegation-detail.md)
+                      content/sections/02-delegation.md. The
+                      worktree_read_guard_exemptions config key and the
+                      AE_WORKTREE_READ_GUARD_DISABLE kill-switch are not
+                      both documented at every site below - each site
+                      covers only what its own scope calls for: README.md
+                      :226 and docs/configuration-reference.md document
+                      BOTH; content/references/risk-config-and-tiers.md
+                      documents BOTH; docs/safe-configuration.md documents
+                      the kill-switch ONLY; content/references/
+                      conventions-detail.md, docs/components.md, and
+                      content/commands/ds-init-project.md document the
+                      config key ONLY; docs/index.html documents the
+                      kill-switch ONLY.
 
 Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
                resolves to sys.exit(0) with no deny output:

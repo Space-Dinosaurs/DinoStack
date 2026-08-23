@@ -109,7 +109,15 @@ the live checkout surfaces as a SessionStart nudge
 enforce. `enforce-worktree-read.py` specifically is documented in
 `content/references/delegation-detail.md` §Worktree-read hook, alongside
 the singularity and tier-escalation hooks it sits next to. Its write-side
-companion `enforce-worktree-write.py` is documented alongside it.
+companion `enforce-worktree-write.py` is documented alongside it. Its
+config key (`worktree_read_guard_exemptions`) and kill-switch
+(`AE_WORKTREE_READ_GUARD_DISABLE`) are not both documented at every
+additional site - README.md:226 and docs/configuration-reference.md
+document BOTH; content/references/risk-config-and-tiers.md documents
+BOTH; docs/safe-configuration.md documents the kill-switch ONLY;
+content/references/conventions-detail.md, docs/components.md, and
+content/commands/ds-init-project.md document the config key ONLY;
+docs/index.html documents the kill-switch ONLY.
 
 **Merged is not live.** A hook fix merged to `main` does not take effect on
 this machine until an installer re-syncs the snapshot - the SessionStart
