@@ -880,6 +880,7 @@ Seed with these documented defaults exactly:
   "storybook_version": 7,
   "commit_telemetry": true,
   "knowledge_commit_on_pr": true,
+  "knowledge_commit_exclude": [],
   "deferred_wrap_daemon": false,
   "deferred_wrap_idle_minutes": 15,
   "deferred_wrap_heartbeat_seconds": 120,
@@ -912,7 +913,8 @@ Seed with these documented defaults exactly:
 - `motion_aware` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios. Set automatically by Storybook version detection below.
 - `commit_telemetry` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
-- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits changed `MEMORY.md`/`decisions.md`/`.agentic/learnings.md` onto the ticket's PR branch. See `content/rules/conventions.md` §Project Config for semantics.
+- `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits changed `MEMORY.md`/`decisions.md`/`.agentic/learnings.md`/`AGENTS.md`/`.agentic/tracking.md` onto the ticket's PR branch. See `content/rules/conventions.md` §Project Config for semantics.
+- `knowledge_commit_exclude` - list of strings, default `[]` (empty, no built-in entries). Each entry must EXACTLY match one of the five knowledge-commit candidate-set strings - `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`, `AGENTS.md`, `.agentic/tracking.md` - to exclude that file from Phase 11e and `/ds-wrap` Part G commits; an entry that does not match any of the five is a silent no-op. Absent/malformed config is treated as an empty list (nothing excluded). Set by editing `.agentic/config.json` directly - not exposed via the settings CLI (same as its sibling `knowledge_commit_on_pr`).
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/ds-wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/ds-wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; this template sets it). When active, a Stop hook (`hooks/enforce-no-abdication.py`) detects three shapes - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - in the final assistant message and blocks the stop, injecting a directive. Set to `false` to opt out once enabled. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.

@@ -12,6 +12,7 @@
   "storybook_version": 7,
   "commit_telemetry": true,
   "knowledge_commit_on_pr": true,
+  "knowledge_commit_exclude": [],
   "deferred_wrap_daemon": false,
   "deferred_wrap_idle_minutes": 15,
   "deferred_wrap_heartbeat_seconds": 120,

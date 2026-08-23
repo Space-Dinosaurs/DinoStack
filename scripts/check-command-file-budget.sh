@@ -106,7 +106,29 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # above before raising it - raising it to accommodate un-triaged growth
 # defeats the purpose of this gate.
 # Raised for DS-188 Phase 11b curation trigger (deliberate, triaged growth).
-THRESHOLD_BYTES=373000
+# Raised for DS-170 round 2 (5-file knowledge-commit candidate set: the
+# loop-header extension, the KC_EXCLUDE_LIST config read, the additive
+# per-file pre-staging revert-risk gate, the round-2 Critical fix ungating
+# that gate from auto_merge_on_ci_green, and prose updates). Measured
+# post-edit size was 381,978 B; this gate's OWN convention for
+# THRESHOLD_BYTES (the paragraph above) is ~2% deliberate headroom, not
+# the DELTA_LIMIT_BYTES ceil(*1.1) convention below - 381978 * 1.02 =
+# 389,617.56, rounded to 390,000.
+# Raised again for DS-170 round 3 (four Skeptic-finding fixes: the
+# corrected per-file numstat GIT_INDEX_FILE provenance comment, the
+# fail-closed KC_RESET_FAILED gating around the per-file temp-index reset,
+# and their supporting prose/comment corrections). Measured post-edit size
+# is 386,023 B; 386023 * 1.02 = 393,743.46, rounded to 394,000. The
+# operator approved raising this threshold in round 2 (DS-170 spawn
+# brief); the round-3 re-derivation is this PR's own, following the same
+# ~2% convention.
+# Raised again for DS-170 round 4 (two Minor fixes: the KC_RESET_FAILED /
+# KC_N == 0 precedence reorder plus its explanatory comment, and the
+# aggregate-guard cross-reference switched from line-number citations -
+# which had gone stale twice across separate rounds - to anchor-text
+# citations). Measured post-edit size is 387,197 B; 387197 * 1.02 =
+# 394,940.94, rounded to 395,000, following the same ~2% convention.
+THRESHOLD_BYTES=395000
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

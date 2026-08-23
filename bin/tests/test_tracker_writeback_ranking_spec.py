@@ -849,14 +849,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-three methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-three methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-three project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-three-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-three project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-three toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-three methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 23 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-four methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-four methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-four project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-four-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-four project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-four toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-four methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 24 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [
@@ -2201,6 +2201,60 @@ def test_toggle_catalog_has_knowledge_commit_on_pr_entry_in_all_locations():
         assert text.index(entry) > text.index(predecessor), (
             f"{rel}: the `knowledge_commit_on_pr` entry must follow "
             f"`commit_telemetry`, matching its position in every other catalog"
+        )
+
+
+# Same shape as _KNOWLEDGE_TOGGLE_CATALOGS above, for the DS-170
+# `knowledge_commit_exclude` toggle - positioned immediately AFTER its sibling
+# `knowledge_commit_on_pr` in every catalog, per the existing convention.
+_KNOWLEDGE_EXCLUDE_TOGGLE_CATALOGS = [
+    # (path, predecessor anchor, new-toggle anchor)
+    (REPO_ROOT / "README.md", "- `knowledge_commit_on_pr`", "- `knowledge_commit_exclude`"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+     "- `knowledge_commit_on_pr`", "- `knowledge_commit_exclude`"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md",
+     "- `knowledge_commit_on_pr`", "- `knowledge_commit_exclude`"),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     "- `knowledge_commit_on_pr`", "- `knowledge_commit_exclude`"),
+    (REPO_ROOT / "docs" / "components.md",
+     "`knowledge_commit_on_pr` (", "`knowledge_commit_exclude` ("),
+    (REPO_ROOT / "docs" / "configuration-reference.md",
+     "| `knowledge_commit_on_pr` |", "| `knowledge_commit_exclude` |"),
+    (REPO_ROOT / "content" / "templates" / ".agentic" / "config.json",
+     '"knowledge_commit_on_pr": true,', '"knowledge_commit_exclude": [],'),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     '"knowledge_commit_on_pr": true,', '"knowledge_commit_exclude": [],'),
+]
+
+
+def test_toggle_catalog_has_knowledge_commit_exclude_entry_in_all_locations():
+    """Membership + position for `knowledge_commit_exclude` in every catalog
+    the toggle count governs. Same shape as
+    test_toggle_catalog_has_knowledge_commit_on_pr_entry_in_all_locations
+    above."""
+    bullet_paths = {p for p, _, _ in _KNOWLEDGE_EXCLUDE_TOGGLE_CATALOGS}
+    for path in TOGGLE_BULLET_FILES:
+        assert path in bullet_paths, (
+            f"{path.relative_to(REPO_ROOT)} is in TOGGLE_BULLET_FILES but is not "
+            "covered by this membership check"
+        )
+
+    for path, predecessor, entry in _KNOWLEDGE_EXCLUDE_TOGGLE_CATALOGS:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(REPO_ROOT)
+        assert entry in text, (
+            f"{rel}: missing the `knowledge_commit_exclude` entry ({entry!r})."
+        )
+        assert text.count(entry) == 1, (
+            f"{rel}: `knowledge_commit_exclude` entry appears {text.count(entry)} "
+            f"times ({entry!r}); expected exactly 1"
+        )
+        assert predecessor in text, (
+            f"{rel}: predecessor anchor {predecessor!r} not found"
+        )
+        assert text.index(entry) > text.index(predecessor), (
+            f"{rel}: the `knowledge_commit_exclude` entry must follow "
+            f"`knowledge_commit_on_pr`"
         )
 
 

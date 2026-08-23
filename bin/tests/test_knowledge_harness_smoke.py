@@ -57,6 +57,8 @@ SHELLS = ["bash", "zsh"]
 MEMORY = "MEMORY.md"
 DECISIONS = "decisions.md"
 LEARNINGS = ".agentic/learnings.md"
+AGENTS = "AGENTS.md"
+TRACKING = ".agentic/tracking.md"
 
 # Every subprocess in this module is bounded and stdin-closed. A per-call
 # timeout LARGER than the CI step budget can never fire usefully - two 120s
@@ -390,25 +392,37 @@ def test_identical_file_survives_a_stat_dirty_mtime(tmp_path, shell):
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_dinostack_shape_ignores_all_three_knowledge_files(tmp_path, shell):
+def test_dinostack_shape_ignores_gitignored_knowledge_files(tmp_path, shell):
+    """DS-170: DinoStack's own shape now excludes AGENTS.md via the
+    `knowledge_commit_exclude` config toggle, not gitignore - a mechanism this
+    generic smoke stand-in block (no exclude logic at all) does not model. So
+    this test scopes its "ignored" assertions to the four files still excluded
+    by gitignore, and separately confirms AGENTS.md - tracked and locally
+    modified in this fixture - is exactly what a config-unaware stand-in
+    block WOULD stage; the real config-exclude behavior is asserted against
+    the actual Phase 11e block in test_phase11e_knowledge_commit_shell.py."""
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_knowledge_dinostack_shape(tmp_path)
+    gitignored_files = [f for f in git_fixture.KNOWLEDGE_FILES if f != "AGENTS.md"]
 
-    for rel_path in git_fixture.KNOWLEDGE_FILES:
+    for rel_path in gitignored_files:
         assert (fixture.repo_dir / rel_path).exists(), f"{rel_path} must exist on disk"
         assert _git(fixture, "check-ignore", "-q", "--", rel_path).returncode == 0, (
             f"{rel_path} must be ignored under DINOSTACK_KNOWLEDGE_GITIGNORE"
         )
+    assert _git(fixture, "check-ignore", "-q", "--", "AGENTS.md").returncode != 0, (
+        "AGENTS.md must NOT be gitignored - it is excluded via config instead"
+    )
 
-    before = _git(fixture, "rev-parse", "HEAD").stdout.strip()
     result = _run_block(fixture, shell)
     _assert_completed(result)
-    for rel_path in git_fixture.KNOWLEDGE_FILES:
+    for rel_path in gitignored_files:
         assert _file_state(result.stdout, rel_path) == "ignored"
-    assert _plain_field(result.stdout, "SMOKE_STAGED") == "0"
-    assert _git(fixture, "rev-parse", "HEAD").stdout.strip() == before, (
-        "nothing is committable on the DinoStack shape"
-    )
+    # This stand-in block has no knowledge_commit_exclude logic, so it stages
+    # AGENTS.md like any other tracked-and-modified file - a real
+    # config-exclude assertion belongs to the Phase 11e test module.
+    assert _file_state(result.stdout, "AGENTS.md") != "ignored"
+    assert _plain_field(result.stdout, "SMOKE_STAGED") == "1"
 
 
 @pytest.mark.parametrize("shell", SHELLS)
@@ -599,10 +613,19 @@ def test_git_stub_forces_one_subcommand_while_others_still_work(tmp_path, shell)
     alone is forced to exit 1 - while `commit` and `push` in the same block
     still succeed through the real git."""
     shell = _shell_or_skip(shell)
-    # MEMORY.md identical, the other two genuinely modified - so the block has
-    # real work to commit and push in BOTH arms, and the only difference
-    # between them is diff-index's verdict on MEMORY.md.
-    modes = {MEMORY: "identical", DECISIONS: "modified", LEARNINGS: "modified"}
+    # MEMORY.md identical, decisions.md/learnings.md genuinely modified, and
+    # AGENTS.md/tracking.md pinned identical too (DS-170 extended the
+    # candidate set to 5 files - held identical here so this test's counts
+    # stay unaffected by that extension) - so the block has real work to
+    # commit and push in BOTH arms, and the only difference between them is
+    # diff-index's verdict on MEMORY.md.
+    modes = {
+        MEMORY: "identical",
+        DECISIONS: "modified",
+        LEARNINGS: "modified",
+        AGENTS: "identical",
+        TRACKING: "identical",
+    }
 
     control_dir = tmp_path / "control"
     control_dir.mkdir()
@@ -621,7 +644,10 @@ def test_git_stub_forces_one_subcommand_while_others_still_work(tmp_path, shell)
     forced_result = _run_block(forced, shell)
     _assert_completed(forced_result)
     assert _file_state(forced_result.stdout, MEMORY) == "modified +0 -0", forced_result.stdout
-    assert _plain_field(forced_result.stdout, "SMOKE_STAGED") == "3"
+    # diff-index is forced to fail for EVERY file, not just MEMORY.md - so
+    # AGENTS.md/tracking.md (pinned "identical" above) are ALSO misclassified
+    # as modified here, same as MEMORY.md. All five candidates stage.
+    assert _plain_field(forced_result.stdout, "SMOKE_STAGED") == "5"
     assert _plain_field(forced_result.stdout, "SMOKE_COMMIT") == "ok", (
         "commit must still reach the real git - only diff-index is forced"
     )
