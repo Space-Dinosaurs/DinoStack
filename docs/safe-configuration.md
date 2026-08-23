@@ -141,7 +141,7 @@ hook installed separately:
   instead of the agent's own worktree; never fires on a conductor
   (main-session) write; disable via `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
 - [`enforce-worktree-isolation-spawn.py`](../hooks/enforce-worktree-isolation-spawn.py)
-  - PreToolUse (Agent); denies an `Agent` spawn of `engineer`, `qa-engineer`,
+  - PreToolUse (Task/Agent; enforcement scoped to "Agent"); denies an `Agent` spawn of `engineer`, `qa-engineer`,
   or `release-orchestrator` when `tool_input.isolation` is not exactly the
   string `"worktree"`, including when the key is entirely absent; `Task`
   spawns are not enforced (no real-payload capture exists proving `Task`

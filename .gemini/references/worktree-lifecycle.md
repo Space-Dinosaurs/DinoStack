@@ -353,7 +353,7 @@ This is a deliberate absence from the small set of items a project MAY declare -
 
 ## Pre-spawn stash fallback
 
-Pre-spawn safety net (fallback, not a substitute for isolation): on Claude Code, a non-isolated spawn of `engineer`/`qa-engineer`/`release-orchestrator` is mechanically DENIED by `hooks/enforce-worktree-isolation-spawn.py` (round-3 fix), so this fallback is reachable only via that hook's kill-switch for the two documented emergency cases below, or on any other adapter, which has no such hook and relies on the prose rule alone (Claude Code's `Task` tool name is also unenforced - see that hook's own Trigger docstring note). Where it applies, the conductor stashes its scaffolding to keep it out of the subagent's working tree:
+Pre-spawn safety net (fallback, not a substitute for isolation): before any non-isolated spawn that the conductor cannot avoid, the conductor stashes its scaffolding to keep it out of the subagent's working tree. On Claude Code, a non-isolated spawn of `engineer`/`qa-engineer`/`release-orchestrator` is mechanically DENIED by `hooks/enforce-worktree-isolation-spawn.py`, so for those three roles this fallback is reachable only via that hook's kill-switch for the two documented emergency cases below. For any other role (e.g. `investigator`, `architect`) that a non-isolated spawn is still permitted on Claude Code, or on any other adapter, which has no such hook and relies on the prose rule alone (Claude Code's `Task` tool name is also unenforced - see that hook's own Trigger docstring note), the fallback below applies directly:
 
 ```bash
 git stash push --include-untracked --keep-index --message 'conductor-scaffolding-pre-spawn'

@@ -259,8 +259,8 @@ check(
 
 # ---------------------------------------------------------------------------
 # 8. Fail-open: malformed/missing input never denies.
-#    Mutation that would redden ("empty stdin" / "malformed JSON" / "JSON
-#    but not an object" specifically): removing the hook's SOLE
+#    Mutation that would redden ("empty stdin" / "malformed JSON"
+#    specifically): removing the hook's SOLE
 #    `except Exception: sys.exit(0)` handler (the outer one wrapping
 #    json.load through the deny call) turns the json.load crash into a
 #    nonzero exit rather than an ALLOW - measured: 2/29 tests FAIL when
@@ -272,8 +272,14 @@ check(
 #    could make removing ONLY that inner handler observably differ from
 #    removing neither, so no test could pin it individually without being
 #    vacuous. See the hook's own `main()` comment at the json.load call.
-#    "tool_input is null" / "tool_input missing entirely" test the
-#    `not isinstance(raw_tinput, dict)` guard, not the exception handler.
+#    "tool_input is null" / "tool_input missing entirely" document behavior,
+#    they do NOT pin the `not isinstance(raw_tinput, dict)` guard - measured:
+#    replacing the guard with `raw_tinput = data.get("tool_input") or {}`
+#    leaves all 29 tests passing, since a null or missing `tool_input`
+#    collapses to `{}` either way and the two forms are unfalsifiable-by-
+#    construction for these two inputs. See case 8b below for the same
+#    guard's isinstance-specific tests (truthy non-dict values), which ARE
+#    the ones that document the guard without pinning it either.
 #    "subagent_type is not a string" (int 5) exercises the plain
 #    `role not in MANDATED_ROLES` membership test with a non-string,
 #    hashable value - it does NOT test an isinstance guard on `role`. An
