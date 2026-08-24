@@ -1077,3 +1077,210 @@ def test_round2_fix_minor_exact_literal_note_still_strips_correctly():
     trailing_note = template_line[bracket_start:]
     value = f"n/a - Trivial direct edit {trailing_note}"
     assert _mod.field7_violation([value]) is None
+
+
+# =========================================================================== #
+# Round-3 fix regression: Major #1 - field-7 extraction-cap FALSE-POSITIVE
+# deny on a compliant, fully provenance-tagged value whose tag lands beyond
+# the 3-line/1-paragraph extraction window when hard-wrapped.
+#
+# Fixed by `_extract_bounded_region_ex` reporting a `truncated` flag
+# (True when the cap was hit while further non-blank, non-structural-stop
+# content immediately followed) and `main()` downgrading to
+# `_ADVISORY_FIELD7_TRUNCATED` rather than denying whenever truncation
+# occurred - a hook that cannot see the whole field cannot prove it
+# untagged.
+# =========================================================================== #
+_HARD_WRAPPED_TAGGED_FIELD7_PROMPT = (
+    "7. Conductor spawn brief (...): The retry backoff was reviewed line\n"
+    "by line across every touched file in this diff, and the fix aligns\n"
+    "with the documented behavior described in the runbook, matching what\n"
+    "was expected from the original design doc and prior incident review\n"
+    "notes, confirming full coverage of the changed paths end to end\n"
+    "[verified: hooks/retry.py:10-80].\n\n"
+    "## What to review\n"
+)
+
+
+def test_round3_fix_major1_truncated_field7_not_falsely_denied(tmp_path):
+    """Executed end-to-end: a 6-line hard-wrapped field-7 value, fully
+    tagged on its final line, must be ALLOWED (not denied) once the
+    3-line cap truncates the captured fragment before reaching the tag -
+    the hook cannot prove an incomplete fragment untagged, so it must not
+    deny on it."""
+    paras, truncated = _mod.extract_field7_ex(_HARD_WRAPPED_TAGGED_FIELD7_PROMPT)
+    assert truncated is True, "fixture must actually exercise the truncation path"
+    assert paras is not None
+
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), _HARD_WRAPPED_TAGGED_FIELD7_PROMPT))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    fires = _read_fires(str(tmp_path))
+    truncated_fires = [f for f in fires if f["reason"] == _mod._ADVISORY_FIELD7_TRUNCATED]
+    assert len(truncated_fires) == 1
+    assert truncated_fires[0]["decision"] == "allow_advisory"
+
+
+def test_round3_fix_major1_mutation_pre_fix_falsely_denies(tmp_path):
+    """Executed mutation-testing proof, confirmed failing pre-fix: without
+    the truncation-flag downgrade, `field7_violation()` applied directly
+    to the truncated fragment returns a violation (the fragment has no
+    tag of its own - the real tag was cut by the cap), which is exactly
+    what the PRE-FIX `main()` would have denied on."""
+    paras, truncated = _mod.extract_field7_ex(_HARD_WRAPPED_TAGGED_FIELD7_PROMPT)
+    assert truncated is True
+    violation = _mod.field7_violation(paras)
+    assert violation is not None, (
+        "mutation should have reddened: the truncated fragment reads as an "
+        "untagged sentence, which pre-fix code would have denied on"
+    )
+
+
+def test_round3_fix_major1_short_field7_not_flagged_truncated():
+    """Negative control: a field-7 value that fits within the 3-line cap
+    must never report `truncated=True` - the fix must not regress the
+    ordinary, non-truncated case."""
+    prompt = "7. Conductor spawn brief (...): n/a - Trivial direct edit\n\n## What to review\n"
+    paras, truncated = _mod.extract_field7_ex(prompt)
+    assert paras == ["n/a - Trivial direct edit"]
+    assert truncated is False
+
+
+# =========================================================================== #
+# Round-3 fix regression: Major #2 - `_BRIEF_START_RE` was unanchored and
+# took the FIRST match, so a spawn quoting an earlier "Adversarial brief:"
+# mention (e.g. pasted Worker output) shifted the scanned window onto that
+# quoted text instead of the conductor's real, current brief.
+#
+# Fixed by line-anchoring the marker (mirroring `_FIELD7_START_RE`'s own
+# `(?:^|\n)\s*` prefix) and extracting via the LAST occurrence, not the
+# first.
+# =========================================================================== #
+_QUOTED_MENTION_THEN_REAL_BRIEF_PROMPT = (
+    "**What to review:** Below is the Worker's prior return, quoted "
+    "verbatim:\n"
+    "Adversarial brief: (quoted, historical) I suspect the retry path was "
+    "the issue back then.\n\n"
+    "**Adversarial brief:** " + _GOOD_EXAMPLE + "\n\n"
+    "## Global-context inputs\n"
+)
+
+
+def test_round3_fix_major2_quoted_mention_does_not_shift_window():
+    """Executed: extraction must capture the REAL, current brief (the
+    LAST 'Adversarial brief:' marker), not the quoted historical mention
+    that appears earlier in the prompt."""
+    result = _mod.extract_brief(_QUOTED_MENTION_THEN_REAL_BRIEF_PROMPT)
+    assert result == [_GOOD_EXAMPLE]
+    assert "I suspect" not in " ".join(result)
+
+
+def test_round3_fix_major2_end_to_end_not_denied(tmp_path):
+    """A spawn whose real brief is clean but which quotes an earlier
+    'Adversarial brief:' mention ahead of it must not be denied."""
+    rc, parsed, _ = _run_hook(
+        _payload(str(tmp_path), _QUOTED_MENTION_THEN_REAL_BRIEF_PROMPT)
+    )
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+
+
+def test_round3_fix_major2_mutation_unanchored_first_match_reddens():
+    """Executed mutation-testing proof, confirmed failing pre-fix:
+    reverting to the prior unanchored, first-match regex captures the
+    quoted historical steer instead of the real brief, and that captured
+    text contains the banned category-B phrase 'I suspect' - exactly the
+    false-positive deny the real Skeptic session reported."""
+    import re as _re
+
+    old_re = _re.compile(r'\*{0,2}Adversarial brief[^:\n]{0,40}:\*{0,2}', _re.IGNORECASE)
+    mutated_paras, _truncated = _mod._extract_bounded_region_ex(
+        _mod._strip_preflight_block(_QUOTED_MENTION_THEN_REAL_BRIEF_PROMPT),
+        old_re, _mod._BRIEF_MAX_PARAGRAPHS, _mod._MAX_LINES_PER_PARAGRAPH_BRIEF,
+        use_last_match=False,
+    )
+    assert mutated_paras is not None
+    joined = " ".join(mutated_paras)
+    assert "I suspect" in joined, "mutation should have reddened (captured the quoted mention)"
+    assert _GOOD_EXAMPLE not in joined, (
+        "mutation should have captured the WRONG (quoted) region, not the real brief"
+    )
+
+
+# =========================================================================== #
+# Round-3 fix regression: named residual re-verification - the
+# `_PROVENANCE_RE` substring-match false negative is the ONLY disclosed,
+# not-fixed residual as of this round. Directly re-executed (not restated)
+# per the manifest's "EXACTLY ONE disclosed" attestation.
+# =========================================================================== #
+def test_round3_residual_provenance_re_substring_match_false_negative():
+    """A sentence that merely quotes tag syntax as an example (not a
+    genuine trailing tag of its own) is falsely read as exempt - a
+    disclosed, NOT fixed, false-negative bypass."""
+    sentence = (
+        "The plan uses a [verified: file:line] tag form as an example of "
+        "correct syntax."
+    )
+    assert _mod._PROVENANCE_RE.search(sentence) is not None
+    assert _mod.field7_violation([sentence]) is None, (
+        "this residual is disclosed as NOT fixed - if this now denies, the "
+        "manifest's residual count/direction needs re-verification, not "
+        "this assertion silently updated"
+    )
+
+
+# =========================================================================== #
+# Round-3 fix: Minor - punctuation-variant neutrality-note strip (dropped
+# trailing period, smart quotes, em-dash) is no longer left unstripped.
+# =========================================================================== #
+def test_round3_fix_minor_punctuation_variant_note_strips():
+    """A hand-retyped neutrality note differing only in a dropped final
+    period, curly quotes, and an em-dash (not content) must still strip
+    and the underlying compliant n/a value must be allowed."""
+    value = (
+        "n/a - Trivial direct edit [Neutrality: provenance-tagged factual "
+        "claims only — never a conductor hypothesis or suspicion. See "
+        "skeptic-protocol.md Section 7 “Neutrality requirement”]"
+    )
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round3_fix_minor_mutation_pre_fix_punctuation_variant_denies():
+    """Executed mutation-testing proof, confirmed failing pre-fix: the
+    prior exact-literal-only match (no typographic normalization, no
+    optional trailing period) does not match the punctuation variant, so
+    the bracket is left in place and denies via `_NA_WITH_REASON_RE`'s
+    bracket-free requirement on an otherwise-compliant n/a value."""
+    import re as _re
+
+    old_text = (
+        'Neutrality: provenance-tagged factual claims only - never a conductor '
+        'hypothesis or suspicion. See skeptic-protocol.md Section 7 '
+        '"Neutrality requirement".'
+    )
+    old_re = _re.compile(
+        r'\s*\[\s*' + _mod._literal_to_whitespace_tolerant_pattern(old_text) + r'\s*\]\s*$',
+        _re.IGNORECASE,
+    )
+    value = (
+        "n/a - Trivial direct edit [Neutrality: provenance-tagged factual "
+        "claims only — never a conductor hypothesis or suspicion. See "
+        "skeptic-protocol.md Section 7 “Neutrality requirement”]"
+    )
+    stripped = old_re.sub('', value).rstrip()
+    assert stripped == value, "mutation should have reddened (old regex fails to strip the variant)"
+    assert _mod._field7_is_exempt_na(stripped) is False, (
+        "mutation should have reddened (bracket left in place denies the n/a value)"
+    )
+
+
+def test_round3_fix_minor_content_deviation_still_denies():
+    """The normalization/optional-period tolerance must not become a
+    generic escape hatch: a bracket carrying a genuine content deviation
+    (not just punctuation) must still fail to strip and deny normally."""
+    value = (
+        "The retry fix is definitely correct. [Neutrality: some unrelated "
+        "note referencing skeptic-protocol.md Section 7 "
+        "“Neutrality requirement”]"
+    )
+    assert _mod.field7_violation([value]) == value
