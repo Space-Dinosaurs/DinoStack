@@ -480,21 +480,20 @@ Public API (CLI):
                           24.
   --activity-window-hours <float>
                           DS-196: recent-file-activity floor in hours (see
-                          gate 4.5 above). Default 3.0. Pass 0 to narrow the
-                          window to "no non-None activity reading is ever
-                          recent enough to skip" - this does NOT disable the
-                          gate outright: `evaluate_entry` fires on
-                          `activity_hours is None or activity_hours <
-                          window`, and the `None` branch (no file could be
-                          stat'd inside the worktree - see
-                          `_worktree_activity_hours`) still fails CLOSED
-                          (SKIP_RECENT_ACTIVITY) at 0, same as at any other
-                          window value, because the `is None` check short-
-                          circuits the `or` before `<` ever runs against it
+                          gate 4.5 above). Default 3.0. `evaluate_entry`
+                          fires on `activity_hours is None or
+                          activity_hours < window`, so the `None` branch
+                          (no file could be stat'd inside the worktree -
+                          see `_worktree_activity_hours`) still fails
+                          CLOSED (SKIP_RECENT_ACTIVITY) at 0, same as at
+                          any other window value, because the `is None`
+                          check short-circuits the `or` before `<` ever
+                          runs against it
                           (a real `None < 0` comparison raises TypeError in
-                          Python 3, not False) (never used as the default -
-                          only the age floor runs at 0 seconds' notice; this
-                          floor stays a separate, later gate).
+                          Python 3, not False) - never used as the
+                          default; only the age floor runs at 0 seconds'
+                          notice, and this floor stays a separate, later
+                          gate.
   --no-origin-reachable-evidence
                           DS-196: rollback lever - restores pre-DS-196
                           evidence order exactly (passes
@@ -3070,11 +3069,11 @@ def _run_repo(
             f"NOTE: {too_young_count} worktree(s) skipped because they are younger than "
             f"the {args.min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
             "can still belong to a resumable session, so this floor is a safety default, not "
-            "a bug. Pass --min-age-hours 0 to lift this specific floor for them (e.g. right "
-            "after merging a PR); the age floor is only one of several gates, so a worktree "
-            "may still be skipped afterward for another reason (dirty, locked, unproven "
-            "branch, etc.) - this does not guarantee removal, and removes the protection "
-            "against reaping a concurrent session's fresh worktree."
+            "a bug. See --help for --min-age-hours' exact semantics before narrowing it; the "
+            "age floor is only one of several gates, so a worktree may still be skipped "
+            "afterward for another reason (dirty, locked, unproven branch, etc.) - narrowing "
+            "this floor does not guarantee removal, and removes the protection against "
+            "reaping a concurrent session's fresh worktree."
         )
 
     # DS-196: mirrors the SKIP_TOO_YOUNG NOTE above - a worktree with a file
@@ -3086,13 +3085,10 @@ def _run_repo(
             f"NOTE: {recent_activity_count} worktree(s) skipped because a file inside them was "
             f"touched within the {args.activity_window_hours:g}h activity window "
             "(--activity-window-hours) - a resumable, actively-used worktree, so this is a "
-            "safety default, not a bug. Pass --activity-window-hours 0 to narrow this floor to "
-            "'no non-None activity reading is ever recent enough to skip' - this does NOT "
-            "disable the gate outright: a worktree whose activity reading is indeterminate "
-            "(None, e.g. no file could be stat'd) still fails CLOSED (SKIP_RECENT_ACTIVITY) at "
-            "0, same as at any other window value. The activity floor is only one of several "
-            "gates, so a worktree may still be skipped afterward for another reason (dirty, "
-            "locked, unproven branch, etc.) - this does not guarantee removal."
+            "safety default, not a bug. See --help for --activity-window-hours' exact "
+            "semantics before narrowing it; the activity floor is only one of several gates, "
+            "so a worktree may still be skipped afterward for another reason (dirty, locked, "
+            "unproven branch, etc.) - narrowing this floor does not guarantee removal."
         )
 
     if args.dry_run and salvage_would:

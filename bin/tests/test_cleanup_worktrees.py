@@ -1970,7 +1970,13 @@ def test_too_young_note_line_printed_when_nonzero(tmp_path):
     # print `too_young_count + 1` (a deliberately wrong count) still passed
     # every assertion in the pre-fix version of this test.
     assert "NOTE: 1 worktree(s) skipped because they are younger than" in proc.stdout, proc.stdout
-    assert "--min-age-hours 0" in proc.stdout
+    # DS-196 round-4 Minor 3: the prior version of this NOTE claimed
+    # "Pass --min-age-hours 0 to lift this specific floor for them" -
+    # false, since `age_hours is None or age_hours < min_age_hours` still
+    # fails CLOSED on a None reading at min_age_hours=0. The corrected NOTE
+    # points to --help instead of asserting what passing 0 does.
+    assert "--min-age-hours" in proc.stdout
+    assert "See --help for --min-age-hours" in proc.stdout
     assert str(wt) in worktree_paths(repo)
 
 

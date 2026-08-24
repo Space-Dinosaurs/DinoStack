@@ -46,15 +46,20 @@
 #                mutating auto-reap invocation actually exists (derived, not
 #                pinned - a legitimate future removal flips the expected
 #                claim), OR if check_activity_window_prose (round-3 Minor
-#                1/2 regression guard) finds bin/ds-cleanup-worktrees'
-#                --activity-window-hours 0 NOTE/--help text re-drifting to
-#                either pre-fix false claim ("lift this specific floor"
-#                outright disables the gate; "`None < 0` is never true
-#                either way" as the None-branch mechanism). Cleans up its
-#                scratch repo on exit via a trap regardless of outcome.
+#                1/2 regression guard, corrected round-4 Minor 4) finds
+#                bin/ds-cleanup-worktrees' module docstring
+#                (--activity-window-hours entry) or its runtime
+#                --activity-window-hours=0 NOTE re-drifting to any pre-fix
+#                false claim: "lift this specific floor" outright disabling
+#                the gate; "`None < 0` is never true either way" as the
+#                None-branch mechanism; or "no non-None activity reading is
+#                ever recent enough to skip" (false for a negative/
+#                future-mtime reading). Cleans up its scratch repo on exit
+#                via a trap regardless of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
-#              throwaway repo, plus grep passes over two files.
+#              throwaway repo, plus several grep passes over the doc/bin
+#              files named above.
 
 set -uo pipefail
 
@@ -167,6 +172,18 @@ check_prose_wiring() {
 # invocation AND its AE_WORKTREE_REAP_DISABLE kill-switch guard - this is
 # prose that nothing else executes, so a silent deletion of either would
 # otherwise pass every other gate in this repo unnoticed.
+#
+# Round-4 Minor 5: unlike check_manifest_reconciliation below (whose
+# assertions are DERIVED from whether the invocation exists, so a
+# legitimate future removal of the feature flips the expected claim
+# instead of reddening the suite), this guard is DELIBERATELY
+# unconditional - the entire point of "wiring" assertion is that the
+# auto-reap invocation and its kill-switch guard must exist, not merely
+# that other prose agree about whether they exist. A future, deliberate
+# removal of the DS-196 automatic session-start reap feature must edit
+# THIS function (delete or gate its two `grep -qF` assertions) in the same
+# commit that removes the invocation from worktree-lifecycle.md - that is
+# the expected, correct failure mode, not a defect in this guard.
 check_reap_wiring() {
   local doc="$1"
   local ok=0
@@ -267,14 +284,22 @@ check_manifest_reconciliation
 r0c=$?
 echo "manifest-reconciliation exit=$r0c"
 
-# Round-3 Minor 1/2 regression guard: neither the operator-facing
-# --activity-window-hours=0 NOTE nor its --help mechanism explanation may
-# re-drift back to the two pre-fix (false) claims - that passing 0 "lifts
-# this specific floor" outright (it does not: the None branch still fails
-# CLOSED at 0, same as any other window value), and that this is because
-# "`None < 0` is never true either way" (a real `None < 0` comparison raises
-# TypeError in Python 3 - the real mechanism is the `is None` check
-# short-circuiting the `or` before `<` ever runs).
+# Round-3 Minor 1/2 regression guard, corrected round-4 (Minor 4): neither
+# the operator-facing --activity-window-hours=0 NOTE nor the module
+# docstring's --activity-window-hours entry may re-drift back to any of
+# three now-disproven claims: (1) that passing 0 "lifts this specific
+# floor" outright (it does not: the None branch still fails CLOSED at 0,
+# same as any other window value); (2) that "`None < 0` is never true
+# either way" (a real `None < 0` comparison raises TypeError in Python 3 -
+# the real mechanism is the `is None` check short-circuiting the `or`
+# before `<` ever runs); (3) the round-3 replacement claim that "no
+# non-None activity reading is ever recent enough to skip" at window 0 (a
+# NEGATIVE reading - e.g. a future-mtime file - is non-None and still
+# skips at 0, since `activity_hours < 0` is True for it; empirically
+# verified against a future-mtime fixture during the round-4 fix). Rather
+# than restate claim (3) a fourth time, the fix deletes it outright (see
+# the round-4 fix commit); this guard only requires its absence, plus the
+# continued presence of the true `None`-branch/TypeError mechanism text.
 check_activity_window_prose() {
   local ok=0
 
@@ -282,8 +307,12 @@ check_activity_window_prose() {
     echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still carries the stale 'lift this specific floor' claim for --activity-window-hours 0" >&2
     ok=1
   fi
-  if ! grep -qF 'to narrow this floor to' "$CLEANUP_BIN"; then
-    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the corrected --activity-window-hours 0 NOTE disclosure ('narrow this floor to')" >&2
+  if grep -qF 'no non-None activity reading is ever recent enough' "$CLEANUP_BIN"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still carries the false 'no non-None activity reading is ever recent enough to skip' claim (a negative/future-mtime reading is non-None and still skips at window 0)" >&2
+    ok=1
+  fi
+  if grep -qF 'narrow this floor to' "$CLEANUP_BIN" || grep -qF 'narrow the window to' "$CLEANUP_BIN"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still carries a 'narrow ... to' framing of the disproven --activity-window-hours 0 claim" >&2
     ok=1
   fi
 
@@ -299,7 +328,7 @@ check_activity_window_prose() {
   return "$ok"
 }
 
-echo "== Activity-window prose check: $CLEANUP_BIN's --activity-window-hours 0 NOTE and --help text state the real mechanism =="
+echo "== Activity-window prose check: $CLEANUP_BIN's --activity-window-hours 0 NOTE and module docstring state the real mechanism =="
 check_activity_window_prose
 r0d=$?
 echo "activity-window-prose exit=$r0d"
