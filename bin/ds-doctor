@@ -168,16 +168,25 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                value of the wrong type used to collapse via `val is True`
                into "disabled", indistinguishable from a legitimately
                disabled plugin, masking an actually-enabled hazardous
-               plugin as a false OK). A prerequisite the whole scan
-               depends on (settings.json, installed_plugins.json, the
-               top-level plugins map) failing this present-but-wrong-typed
-               check makes the WHOLE check return without a positive
-               claim; a per-plugin or per-entry failure WARNs and the scan
-               continues with the remaining plugins, never aborting the
-               whole check on one bad file - but never yields a bare OK
-               for the run either (see check_foreign_agent_hooks's own
-               docstring for the scan_incomplete mechanism that enforces
-               this second half).
+               plugin as a false OK). One narrow, deliberate exception: a
+               PRESENT `matcher: null` is not treated as this rule's
+               "wrong JSON type" case - it is coerced to the same
+               match-all semantics as a MISSING matcher key (see
+               check_foreign_agent_hooks's own docstring for the
+               rationale), so it can OK or FAIL like any other match-all
+               matcher rather than WARNing as unconfirmable. A prerequisite
+               the whole scan depends on (settings.json,
+               installed_plugins.json, the top-level plugins map) failing
+               this present-but-wrong-typed check makes the WHOLE check
+               return without a positive claim; a per-plugin, per-entry,
+               or per-value failure (round 7, Skeptic Major 1: including a
+               wrong-typed VALUE inside an otherwise well-typed
+               enabledPlugins object) WARNs and the scan continues with
+               the remaining plugins/entries, never aborting the whole
+               check on one bad value - but never yields a bare OK for the
+               run either (see check_foreign_agent_hooks's own docstring
+               for the scan_incomplete/enabled_incomplete mechanisms that
+               enforce this second half).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -1586,38 +1595,57 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     FAIL-only, no-repair convention) - the fix is disabling/uninstalling
     the plugin or confirming its hook cannot mutate tool_input.
 
-    A missing plugins directory is a known clean-machine state, not
-    drift: OK, not FAIL. Every other value this function reads and could
-    not confirm - whether MISSING (installed_plugins.json absent, a
-    plugins-map entry absent) or PRESENT but the wrong JSON type or
-    otherwise unconfirmable (a non-dict settings_data or enabledPlugins,
-    a plugins-map entry that isn't a list, a top-level "hooks" key or
-    PreToolUse value of the wrong type, a matcher of the wrong JSON type,
-    or a matcher that raises when compiled/evaluated as a regex) - is a
-    WARN, never OK and never FAIL: a check that could not confirm a fact
-    must never assert that fact is clean, and "present but wrong-typed"
-    gets the identical treatment as "absent" rather than being silently
-    coerced into whatever falsy default would make it look like the
-    normal empty case (DS-198 round 5, Skeptic Major 1 + Major 2 close
-    this as a class rather than as two newly-enumerated instances - do
-    not extend this docstring with a new named shape each time one is
-    found; the invariant above already covers it). A per-plugin or
-    per-entry WARN lets scanning continue with the remaining plugins; a
-    WARN on a whole-run prerequisite (settings.json, installed_plugins.json,
-    the top-level plugins map) makes the whole check abort without a
-    positive claim - a check that could not run must never report OK. If
-    ANY enabled plugin (or any single entry belonging to it) hits one of
-    those WARN-and-skip
-    branches, the final summary is ALSO a WARN ("could not fully check
-    all of them") for the WHOLE run - not only when every plugin hits
-    one - never the OK("scanned N, none register...") claim that would
-    otherwise contradict the WARN lines immediately above it, even when
-    other plugins in the same run scanned cleanly (DS-198 round 4,
-    Skeptic Minor 6: this docstring previously said "if EVERY enabled
-    plugin hits" one of these branches, which did not match the code -
-    the scan_incomplete flag is set to True on ANY occurrence and is
-    never cleared, so a single WARN anywhere already suppresses the
-    OK claim for the whole run).
+    MISSING is NOT governed by one blanket rule - it varies deliberately
+    by site (DS-198 round 7, Skeptic Major 2: a prior version of this
+    paragraph claimed every MISSING value WARNs, which is false on the
+    three most common paths through this function):
+      - a missing plugins directory, a missing settings.json (or one
+        present without an "enabledPlugins" key), or a plugin with no
+        hooks/hooks.json file at all are each a known-clean "nothing
+        configured here" state -> OK (or, for the per-plugin hooks.json
+        case, silently skipped as clean - no WARN, no FAIL).
+      - a missing installed_plugins.json, a missing plugins-map entry for
+        an enabled plugin, or a missing/invalid installPath are
+        unconfirmable (something IS enabled but this function cannot
+        verify it) -> WARN, never OK.
+      - a missing matcher key on a PreToolUse entry is treated as
+        match-all by design (see the "matcher": null discussion below) -
+        it is confirmed, not unconfirmable, so it can OK or FAIL like any
+        other match-all matcher, never WARN for being missing.
+    By contrast, every value this function reads that is PRESENT but the
+    wrong JSON type or otherwise unconfirmable (a non-dict settings_data
+    or enabledPlugins, an enabledPlugins entry whose value is not a
+    boolean, a plugins-map entry that isn't a list, a top-level "hooks"
+    key or PreToolUse value of the wrong type, a matcher of the wrong
+    JSON type other than null, or a matcher that raises when
+    compiled/evaluated as a regex) IS a single, exceptionless rule: WARN,
+    never OK and never FAIL - a check that could not confirm a fact must
+    never assert that fact is clean, and "present but wrong-typed" gets
+    the identical treatment as "unconfirmably absent" rather than being
+    silently coerced into whatever falsy default would make it look like
+    the normal empty case (DS-198 round 5, Skeptic Major 1 + Major 2;
+    round 6, Skeptic Major 1, extended this from wrong-typed CONTAINERS
+    to a wrong-typed VALUE inside an otherwise well-typed enabledPlugins
+    object - do not extend this docstring with a new named shape each
+    time one is found; the invariant above already covers it). A
+    per-plugin, per-entry, or per-value WARN (including a non-boolean
+    enabledPlugins value, round 7 fix) lets scanning continue with the
+    remaining plugins/entries; a WARN on a whole-run prerequisite
+    (settings.json being unparseable or the wrong JSON type,
+    installed_plugins.json, the top-level plugins map) makes the whole
+    check abort without a positive claim - a check that could not run
+    must never report OK. If ANY enabled plugin, enabledPlugins entry, or
+    any single entry belonging to a plugin hits one of those WARN-and-skip
+    branches, the final summary is ALSO a WARN ("could not confirm ..." /
+    "could not fully check all of them") for the WHOLE run - not only
+    when every plugin hits one - never the OK("scanned N, none
+    register...") claim that would otherwise contradict the WARN lines
+    immediately above it, even when other plugins in the same run scanned
+    cleanly (DS-198 round 4, Skeptic Minor 6: this docstring previously
+    said "if EVERY enabled plugin hits" one of these branches, which did
+    not match the code - the scan_incomplete/enabled_incomplete flags are
+    set to True on ANY occurrence and are never cleared, so a single WARN
+    anywhere already suppresses the OK claim for the whole run).
     """
     plugins_dir = _plugins_dir()
     if not plugins_dir.is_dir():
@@ -1636,6 +1664,7 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     # against a completely different installed_plugins.json.
     settings_path = plugins_dir.parent / "settings.json"
     enabled_plugins: list[str] = []
+    enabled_incomplete = False
     if settings_path.is_file():
         try:
             settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -1670,23 +1699,31 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
             )
             return
         if isinstance(enabled, dict):
-            # DS-198 round 6, Skeptic Major 1: a wrong-typed VALUE inside an
-            # otherwise well-typed enabledPlugins object (e.g. `1`, "true",
-            # a nested object) must not be silently coerced by `val is
-            # True`'s strict identity check into "disabled" - under JS
-            # `if (enabled)` truthiness semantics (which Claude Code's own
-            # settings consumer is far more likely to use than Python's
-            # `is True`), a truthy non-boolean value like `1` or "true"
-            # means ENABLED, so collapsing it to "not True" here would
-            # under-detect an actually-enabled hazardous plugin as a false
-            # OK - the exact class round 5 closed for the CONTAINER
-            # (settings_data, enabledPlugins) but left open for values
-            # inside it. Any non-boolean value is unconfirmable and aborts
-            # the whole check (WARN, never OK), the same treatment as a
-            # non-dict enabledPlugins above - it is not scanned as "one bad
-            # plugin among others" because at this point enabled_plugins
-            # has not been computed yet and there is no partial-list
-            # concept to fall back to.
+            # DS-198 round 6, Skeptic Major 1 (round 7 fix): a wrong-typed
+            # VALUE inside an otherwise well-typed enabledPlugins object
+            # (e.g. `1`, "true", a nested object) must not be silently
+            # coerced by `val is True`'s strict identity check into
+            # "disabled" - under JS `if (enabled)` truthiness semantics
+            # (which Claude Code's own settings consumer is far more likely
+            # to use than Python's `is True`), a truthy non-boolean value
+            # like `1` or "true" means ENABLED, so collapsing it to "not
+            # True" here would under-detect an actually-enabled hazardous
+            # plugin as a false OK - the exact class round 5 closed for the
+            # CONTAINER (settings_data, enabledPlugins) but left open for
+            # values inside it. Each non-boolean entry is individually
+            # unconfirmable and WARNs by name, but - unlike the non-dict
+            # CONTAINER cases above - it is excluded from the scan rather
+            # than aborting the whole check: `enabled_plugins` (the very
+            # next line) IS the partial-list this dict already supports, so
+            # a bad entry for one key must not suppress a FAIL on a
+            # different, well-typed, hazardous key in the same object
+            # (round 6 regressed this: a single non-boolean sibling value
+            # aborted the entire scan, converting a confirmed FAIL on a
+            # genuinely enabled hazardous plugin into an unrelated,
+            # hazard-unnamed WARN - round 7, Skeptic Major 1). Marking
+            # `enabled_incomplete` keeps the never-report-a-false-OK
+            # invariant intact for the case where every remaining entry
+            # turns out boolean-false or absent.
             non_bool_keys = sorted(
                 key for key, val in enabled.items() if not isinstance(val, bool)
             )
@@ -1694,18 +1731,30 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 doc.warn(
                     "foreign_agent_hook",
                     f"{settings_path}: 'enabledPlugins' has non-boolean "
-                    f"value(s) for {', '.join(non_bool_keys)} - could not "
-                    "confirm which plugins are enabled",
+                    f"value(s) for {_truncate_for_message(', '.join(non_bool_keys))} "
+                    "- could not confirm whether they are enabled, excluding "
+                    "them from the scan",
                 )
-                return
-            enabled_plugins = [key for key, val in enabled.items() if val is True]
+                enabled_incomplete = True
+            enabled_plugins = [
+                key
+                for key, val in enabled.items()
+                if isinstance(val, bool) and val is True
+            ]
 
     if not enabled_plugins:
-        doc.ok(
-            "foreign_agent_hook",
-            "no plugins enabled (no enabledPlugins entries in "
-            f"{settings_path}) - nothing to scan",
-        )
+        if enabled_incomplete:
+            doc.warn(
+                "foreign_agent_hook",
+                "could not confirm any plugin's enabled state (see WARN "
+                "lines above) - not a confirmed-clean scan",
+            )
+        else:
+            doc.ok(
+                "foreign_agent_hook",
+                "no plugins enabled (no enabledPlugins entries in "
+                f"{settings_path}) - nothing to scan",
+            )
         return
 
     installed_path = plugins_dir / "installed_plugins.json"
@@ -1732,7 +1781,10 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     # docstring already forbids for the settings.json/enabledPlugins path,
     # just one level down at the per-plugin level (DS-198 round 3, Skeptic
     # Minor 4 - see T21s's fixture).
-    scan_incomplete = False
+    # Carries forward any WARN already raised above for an unconfirmable
+    # enabledPlugins entry (round 7 fix) - a scan that excluded a bad
+    # entry from enabled_plugins must still not summarize as a bare OK.
+    scan_incomplete = enabled_incomplete
     seen_install_paths: set[str] = set()
 
     for key in enabled_plugins:

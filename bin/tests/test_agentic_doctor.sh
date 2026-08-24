@@ -2532,6 +2532,50 @@ else
   _fail "T21y3 foreign_agent_hook: non-boolean enabledPlugins value (1) should WARN naming wrongtypevalue@mkt, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
 fi
 
+# T21y4: a boolean-true, genuinely hazardous plugin sibling alongside a
+# non-boolean enabledPlugins entry must still FAIL, naming the hazardous
+# plugin - the non-boolean sibling entry must WARN and be EXCLUDED from
+# the scan, never abort the whole check (DS-198 round 6, Skeptic Major 1
+# regression closed in round 7: round 6's fix for T21y3 aborted the
+# ENTIRE check on the first non-boolean value, which converted a
+# confirmed FAIL on a real hazardous plugin into an unrelated,
+# hazard-unnamed WARN). Prior to the round-7 fix this printed only the
+# non-boolean WARN and no FAIL at all, with the hazardous plugin fully
+# installed and enabled.
+Y4_HAZ_DIR="$T21_HOME/plugin-installs/y4haz"
+mkdir -p "$Y4_HAZ_DIR/hooks"
+cat > "$Y4_HAZ_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "y4haz@mkt": [{"installPath": "$Y4_HAZ_DIR", "scope": "user"}],
+    "y4other@mkt": [{"installPath": "$Y4_HAZ_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<'EOF'
+{"enabledPlugins": {"y4haz@mkt": true, "y4other@mkt": 1}}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*enabledPlugins.*non-boolean.*y4other@mkt" \
+   && echo "$OUT" | grep -q "^FAIL foreign_agent_hook: plugin 'y4haz@mkt' registers a PreToolUse hook" \
+   && [[ "$RC" == "1" ]]; then
+  _pass "T21y4 foreign_agent_hook: non-boolean sibling entry WARNs and is excluded, hazardous plugin still FAILs"
+else
+  _fail "T21y4 foreign_agent_hook: expected WARN naming y4other@mkt AND FAIL naming y4haz@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
 # T21z: a matcher whose repetition count overflows the regex engine's
 # internal counters (re.compile raises OverflowError, NOT re.error or
 # RecursionError) must not escape check_foreign_agent_hooks and abort
