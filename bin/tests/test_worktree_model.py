@@ -8,6 +8,15 @@ Purpose: pytest suite for bin/tests/worktree_model.py (DS-118). Property/
          closed gate, disposition_for_orphan_branch's WorktreeClass-free
          reduction, and the MERGE_EVIDENCE_ORDER mutation switch.
 
+         DS-196 additions: `_check_origin_reachable`'s pr_state-precondition
+         gate, the structural proof that the STRICT/branch-deletion path is
+         unreachable by origin-reachability evidence (both a dict-membership
+         AND an order-tuple-membership not-in assertion, plus a monkeypatch
+         mutation adding it to BOTH simultaneously that must then flip
+         disposition_for_orphan_branch to an incorrect ELIGIBLE, proving the
+         structural assertions are load-bearing), and the order-tuple/
+         checks-dict key-set consistency assertion (plan step 17).
+
 Public API: none (test module; invoked via `python3 -m pytest`).
 
 Upstream deps: worktree_model.py (module under test).
@@ -31,13 +40,17 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import worktree_model  # noqa: E402
 from worktree_model import (  # noqa: E402
     DEFAULT_BASE_BRANCHES,
     MERGE_EVIDENCE_ORDER,
+    WORKTREE_REMOVAL_EVIDENCE_ORDER,
     Disposition,
     DispositionFacts,
     WorktreeClass,
     WorktreeEntry,
+    _assert_evidence_order_key_consistency,
+    _check_origin_reachable,
     classify_entry,
     disposition_for,
     disposition_for_orphan_branch,
@@ -387,12 +400,28 @@ def _clean_branched_entry(*, locked=False):
 class TestDispositionFailClosed:
     def test_fail_closed_field_omission_raises_typeerror(self):
         with pytest.raises(TypeError):
-            DispositionFacts(  # missing pr_state
+            DispositionFacts(  # missing pr_state AND origin_reachable
                 dirty_status="clean",
                 head_reachable="reachable",
                 ls_remote_status="pushed",
                 merge_evidence="merged",
                 content_subsumption="not_checked",
+            )
+
+    def test_fail_closed_origin_reachable_omission_alone_raises_typeerror(self):
+        # DS-196 (R3-Minor fold): pins origin_reachable's own no-default
+        # status independently of pr_state's - every OTHER field is
+        # present here, isolating the omission to origin_reachable alone,
+        # so a later `origin_reachable: str = "not_checked"` default could
+        # not silently retire this invariant without reddening this test.
+        with pytest.raises(TypeError):
+            DispositionFacts(  # missing origin_reachable only
+                dirty_status="clean",
+                head_reachable="reachable",
+                ls_remote_status="pushed",
+                merge_evidence="merged",
+                content_subsumption="not_checked",
+                pr_state="MERGED",
             )
 
     def test_fail_closed_dirty_not_checked_skips(self):
@@ -403,6 +432,7 @@ class TestDispositionFailClosed:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
         assert result is Disposition.SKIP_DIRTY
@@ -415,6 +445,7 @@ class TestDispositionFailClosed:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
         assert result is not Disposition.ELIGIBLE
@@ -434,6 +465,7 @@ class TestDispositionFailClosed:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(entry, WorktreeClass.ISOLATION, facts)
         assert result is Disposition.SKIP_UNREFERENCED_COMMIT
@@ -446,6 +478,7 @@ class TestDispositionFailClosed:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(_clean_branched_entry(locked=True), WorktreeClass.ISOLATION, facts)
         assert result is Disposition.SKIP_LOCKED
@@ -458,6 +491,7 @@ class TestDispositionFailClosed:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         entry = _clean_branched_entry()
         assert disposition_for(entry, WorktreeClass.MAIN, facts) is Disposition.SKIP_MAIN
@@ -471,6 +505,7 @@ class TestDispositionFailClosed:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
         assert result is Disposition.ELIGIBLE
@@ -493,6 +528,7 @@ class TestDispositionFailClosed:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
         assert result is Disposition.ELIGIBLE
@@ -512,6 +548,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.ELIGIBLE
 
@@ -523,6 +560,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="OPEN",
+            origin_reachable="not_checked",  # DS-196
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.SKIP_PR_OPEN
 
@@ -534,6 +572,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.SKIP_AMBIGUOUS_NO_PR
 
@@ -549,6 +588,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         assert disposition_for_orphan_branch("main", facts) is Disposition.SKIP_BASE_BRANCH
         assert disposition_for_orphan_branch("master", facts) is Disposition.SKIP_BASE_BRANCH
@@ -565,6 +605,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="merged",
             content_subsumption="not_checked",
             pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
         )
         assert disposition_for_orphan_branch("develop", facts) is Disposition.ELIGIBLE
         assert (
@@ -586,6 +627,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for_orphan_branch("some-branch", facts)
         assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
@@ -605,6 +647,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="subsumed",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for_orphan_branch("some-branch", facts)
         assert result is Disposition.ELIGIBLE
@@ -621,6 +664,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for_orphan_branch("some-branch", facts)
         assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
@@ -639,6 +683,7 @@ class TestDispositionForOrphanBranch:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="MERGED",
+            origin_reachable="not_checked",  # DS-196
         )
         result = disposition_for_orphan_branch("some-branch", facts)
         assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
@@ -662,6 +707,12 @@ class TestDispositionForOrphanBranch:
         merge_values = ["merged", "unmerged", "not_checked"]
         subsumption_values = ["subsumed", "not_subsumed", "not_checked"]
         pr_values = ["OPEN", "MERGED", "CLOSED", "NONE", "not_checked"]
+        # DS-196 (R3-MAJOR-3 fold): origin_reachable is a full 3-value
+        # dimension here rather than held fixed at "not_checked" - proving
+        # disposition_for_orphan_branch never produces a worktree-only
+        # disposition regardless of what this new field carries, since
+        # _EVIDENCE_CHECKS_STRICT has no "origin_reachable" key at all.
+        origin_reachable_values = ["reachable", "unreachable", "not_checked"]
         seen = set()
         for d in dirty_values:
             for r in reach_values:
@@ -669,15 +720,17 @@ class TestDispositionForOrphanBranch:
                     for m in merge_values:
                         for cs in subsumption_values:
                             for pr in pr_values:
-                                facts = DispositionFacts(
-                                    dirty_status=d,
-                                    head_reachable=r,
-                                    ls_remote_status=ls,
-                                    merge_evidence=m,
-                                    content_subsumption=cs,
-                                    pr_state=pr,
-                                )
-                                seen.add(disposition_for_orphan_branch("b", facts))
+                                for orig in origin_reachable_values:
+                                    facts = DispositionFacts(
+                                        dirty_status=d,
+                                        head_reachable=r,
+                                        ls_remote_status=ls,
+                                        merge_evidence=m,
+                                        content_subsumption=cs,
+                                        pr_state=pr,
+                                        origin_reachable=orig,
+                                    )
+                                    seen.add(disposition_for_orphan_branch("b", facts))
         assert seen.isdisjoint(unreachable)
 
 
@@ -712,6 +765,7 @@ class TestMergeEvidenceOrdering:
             merge_evidence="not_checked",
             content_subsumption="not_checked",
             pr_state="OPEN",
+            origin_reachable="not_checked",  # DS-196
         )
         normative = disposition_for_orphan_branch("b", facts, merge_evidence_order=MERGE_EVIDENCE_ORDER)
         reversed_order = tuple(reversed(MERGE_EVIDENCE_ORDER))
@@ -720,6 +774,174 @@ class TestMergeEvidenceOrdering:
         assert normative is Disposition.SKIP_PR_OPEN
         assert mutated is Disposition.SKIP_NOT_PUSHED
         assert normative is not mutated
+
+
+# --------------------------------------------------------------------------
+# DS-196: origin_reachable evidence (LENIENT-only, worktree removal)
+# --------------------------------------------------------------------------
+
+
+def _clean_branched_facts(*, pr_state: str, origin_reachable: str) -> DispositionFacts:
+    return DispositionFacts(
+        dirty_status="clean",
+        head_reachable="not_checked",
+        ls_remote_status="not_checked",
+        merge_evidence="not_checked",
+        content_subsumption="not_checked",
+        pr_state=pr_state,
+        origin_reachable=origin_reachable,
+    )
+
+
+class TestCheckOriginReachable:
+    def test_eligible_when_reachable_and_pr_state_resolved(self):
+        facts = _clean_branched_facts(pr_state="NONE", origin_reachable="reachable")
+        assert _check_origin_reachable(facts) is Disposition.ELIGIBLE
+
+    def test_none_when_unreachable(self):
+        facts = _clean_branched_facts(pr_state="NONE", origin_reachable="unreachable")
+        assert _check_origin_reachable(facts) is None
+
+    def test_none_when_pr_state_not_checked_even_if_reachable(self):
+        # DS-196 --no-gh safety property (QA scenario 8): pr_state must
+        # be AFFIRMATIVELY resolved before origin_reachable is trusted -
+        # otherwise a worktree behind a live OPEN PR the query simply
+        # could not see would be indistinguishable from a safely-reapable
+        # one.
+        facts = _clean_branched_facts(pr_state="not_checked", origin_reachable="reachable")
+        assert _check_origin_reachable(facts) is None
+
+    def test_pr_state_precondition_mutation_reddens_to_eligible(self):
+        # Named mutation: removing the pr_state precondition entirely
+        # makes an origin-reachable-but-pr-state-unresolved entry resolve
+        # ELIGIBLE, which is exactly the unsafe behavior the precondition
+        # exists to prevent.
+        def _unsafe_check(facts: DispositionFacts):
+            if facts.origin_reachable == "reachable":
+                return Disposition.ELIGIBLE
+            return None
+
+        facts = _clean_branched_facts(pr_state="not_checked", origin_reachable="reachable")
+        assert _check_origin_reachable(facts) is None
+        assert _unsafe_check(facts) is Disposition.ELIGIBLE
+
+    def test_full_disposition_for_reaches_eligible_via_origin_reachable(self):
+        # QA scenario 1 (worktree_model half): a squash-merged (ancestry
+        # inconclusive), origin-reachable, resolved-non-open-PR entry
+        # reaches ELIGIBLE via WORKTREE_REMOVAL_EVIDENCE_ORDER's new slot.
+        facts = _clean_branched_facts(pr_state="NONE", origin_reachable="reachable")
+        result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
+        assert result is Disposition.ELIGIBLE
+
+    def test_full_disposition_for_stays_ambiguous_when_unreachable(self):
+        facts = _clean_branched_facts(pr_state="NONE", origin_reachable="unreachable")
+        result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
+        assert result is Disposition.SKIP_AMBIGUOUS_NO_PR
+
+    def test_open_pr_wins_over_origin_reachable(self):
+        # QA scenario 7 / Critical-fix regression: pr_state precedes
+        # origin_reachable in WORKTREE_REMOVAL_EVIDENCE_ORDER, so an OPEN
+        # PR's veto can never be shadowed.
+        facts = _clean_branched_facts(pr_state="OPEN", origin_reachable="reachable")
+        result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
+        assert result is Disposition.SKIP_PR_OPEN
+
+    def test_reordering_before_pr_state_reddens_open_pr_to_remove(self):
+        # Named mutation for the above: reordering origin_reachable BEFORE
+        # pr_state in the evidence-order tuple passed explicitly flips the
+        # OPEN-PR-protected entry to ELIGIBLE - proving the shipped order
+        # (pr_state before origin_reachable) is load-bearing.
+        facts = _clean_branched_facts(pr_state="OPEN", origin_reachable="reachable")
+        mutated_order = (
+            "merge_evidence",
+            "content_subsumption",
+            "origin_reachable",
+            "pr_state",
+            "ls_remote_status",
+        )
+        result = disposition_for(
+            _clean_branched_entry(), WorktreeClass.ISOLATION, facts, merge_evidence_order=mutated_order
+        )
+        assert result is Disposition.ELIGIBLE
+
+    def test_no_origin_reachable_evidence_rollback_reproduces_pre_ds196(self):
+        # QA scenario 6: passing MERGE_EVIDENCE_ORDER explicitly (the
+        # --no-origin-reachable-evidence rollback lever's call-site shape)
+        # reproduces pre-DS-196 behavior exactly - no origin-reachable
+        # REMOVE with it set.
+        facts = _clean_branched_facts(pr_state="NONE", origin_reachable="reachable")
+        result = disposition_for(
+            _clean_branched_entry(), WorktreeClass.ISOLATION, facts, merge_evidence_order=MERGE_EVIDENCE_ORDER
+        )
+        assert result is Disposition.SKIP_AMBIGUOUS_NO_PR
+
+
+class TestOriginReachableStrictPathIsolation:
+    """QA scenario 2 (redesigned per R3-MAJOR-3): the STRICT/branch-deletion
+    path must be structurally unreachable by origin-reachability evidence.
+    """
+
+    def test_origin_reachable_absent_from_strict_checks_dict(self):
+        assert "origin_reachable" not in worktree_model._EVIDENCE_CHECKS_STRICT
+
+    def test_origin_reachable_absent_from_module_level_merge_evidence_order(self):
+        assert "origin_reachable" not in MERGE_EVIDENCE_ORDER
+
+    def test_both_conditions_required_monkeypatch_mutation_proves_load_bearing(self, monkeypatch):
+        # R3-MAJOR-3 (binding): the mutation MUST pass
+        # merge_evidence_order=MERGE_EVIDENCE_ORDER + ("origin_reachable",)
+        # EXPLICITLY to disposition_for_orphan_branch alongside
+        # monkeypatch.setitem on _EVIDENCE_CHECKS_STRICT - NEVER a setattr
+        # on the module-level MERGE_EVIDENCE_ORDER tuple, since
+        # disposition_for_orphan_branch's default is a DEF-TIME binding
+        # (a setattr-based mutation is inert and would fail loudly instead
+        # of proving anything).
+        monkeypatch.setitem(
+            worktree_model._EVIDENCE_CHECKS_STRICT, "origin_reachable", worktree_model._check_origin_reachable
+        )
+        mutated_order = MERGE_EVIDENCE_ORDER + ("origin_reachable",)
+
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="not_checked",
+            pr_state="NONE",
+            origin_reachable="reachable",
+        )
+        # Baseline: with the real (unmutated) default order, this same
+        # facts object never reaches ELIGIBLE via origin_reachable.
+        baseline = disposition_for_orphan_branch("some-branch", facts)
+        assert baseline is not Disposition.ELIGIBLE
+
+        mutated = disposition_for_orphan_branch(
+            "some-branch", facts, merge_evidence_order=mutated_order
+        )
+        assert mutated is Disposition.ELIGIBLE
+
+
+class TestEvidenceOrderKeyConsistency:
+    """Plan step 17 / QA scenario 11: order-tuple/checks-dict key-set
+    consistency across every valid (order, strict) pairing this module's
+    public functions can actually produce."""
+
+    def test_assertion_passes_on_live_module_state(self):
+        # Should not raise - already called once at import time; calling
+        # it again here is itself part of the regression coverage (a
+        # future edit that breaks the live pairings breaks this test too,
+        # not just module import).
+        _assert_evidence_order_key_consistency()
+
+    def test_mutation_order_entry_with_no_dict_key_reddens(self, monkeypatch):
+        mutated_order = WORKTREE_REMOVAL_EVIDENCE_ORDER + ("nonexistent_evidence_key",)
+        monkeypatch.setattr(
+            worktree_model,
+            "_VALID_EVIDENCE_ORDER_CHECKS_PAIRINGS",
+            ((mutated_order, worktree_model._EVIDENCE_CHECKS_LENIENT),),
+        )
+        with pytest.raises(AssertionError):
+            worktree_model._assert_evidence_order_key_consistency()
 
 
 if __name__ == "__main__":

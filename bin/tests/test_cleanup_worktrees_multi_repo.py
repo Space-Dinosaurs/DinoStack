@@ -450,12 +450,12 @@ def test_subdirectory_repo_arg_resolves_identically_in_single_and_multi_repo_mod
     sub = repo / "sub"
     sub.mkdir()
 
-    single = run_cli(["--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    single = run_cli(["--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"])
     assert single.returncode == 0, single.stderr
     assert "removed=1" in single.stdout
     assert "skipped-dirty=1" in single.stdout
 
-    multi = run_cli(["--multi-repo", "--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    multi = run_cli(["--multi-repo", "--repo", str(sub), "--dry-run", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"])
     assert multi.returncode == 0, multi.stderr
     assert "removed=1" in multi.stdout
     assert "skipped-dirty=1" in multi.stdout
@@ -492,6 +492,8 @@ def test_per_repo_base_resolution_does_not_leak_across_repos(tmp_path):
             "--no-gh",
             "--min-age-hours",
             "0",
+            "--activity-window-hours",
+            "0",
         ]
     )
     assert result.returncode == 0, result.stderr
@@ -522,7 +524,7 @@ def test_report_never_removes_even_with_eligible_and_dirty_entries(tmp_path):
     (dirty_wt / "uncommitted.txt").write_text("dirty\n")
 
     result = run_cli(
-        ["--multi-repo", "--repo", str(repo), "--report", "--no-gh", "--min-age-hours", "0"]
+        ["--multi-repo", "--repo", str(repo), "--report", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"]
     )
     assert result.returncode == 0, result.stderr
     assert eligible_wt.is_dir()
@@ -587,7 +589,13 @@ def test_deep_tier_evaluates_full_predicate_per_entry(tmp_path):
     mod = _load_module_directly()
     import argparse
 
-    args = argparse.Namespace(no_gh=True, min_age_hours=0.0, strict_ignored=False)
+    args = argparse.Namespace(
+        no_gh=True,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+        no_origin_reachable_evidence=False,
+    )
     row, err = mod._deep_report_row(str(repo), args)
     assert err is None
     assert row["nonroot_worktrees"] == 1
@@ -624,7 +632,7 @@ def test_json_deep_tier_eligible_is_an_int(tmp_path):
     add_worktree(repo, ".claude/worktrees/agent-a", "worktree-agent-a", push=False)
 
     result = run_cli(
-        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
+        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"]
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
@@ -647,7 +655,7 @@ def test_json_tier_marker_present_and_correct_for_both_tiers(tmp_path):
     assert json.loads(fast.stdout)["tier"] == "fast"
 
     deep = run_cli(
-        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
+        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"]
     )
     assert json.loads(deep.stdout)["tier"] == "deep"
 
@@ -673,6 +681,8 @@ def test_mixed_repo_failure_sweep_exits_1(tmp_path):
             "--no-gh",
             "--min-age-hours",
             "0",
+            "--activity-window-hours",
+            "0",
         ]
     )
     assert result.returncode == 1
@@ -694,7 +704,7 @@ def test_mixed_repo_failure_report_exits_1(tmp_path):
 
 def test_all_repos_clean_sweep_exits_0(tmp_path):
     repo = init_repo_with_origin(tmp_path)
-    result = run_cli(["--multi-repo", "--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    result = run_cli(["--multi-repo", "--repo", str(repo), "--dry-run", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"])
     assert result.returncode == 0, result.stderr
 
 
@@ -721,6 +731,8 @@ def test_base_unresolvable_repo_is_skipped_not_swept_and_exits_1(tmp_path):
             "--no-gh",
             "--min-age-hours",
             "0",
+            "--activity-window-hours",
+            "0",
         ]
     )
     assert sweep.returncode == 1, sweep.stderr
@@ -731,7 +743,7 @@ def test_base_unresolvable_repo_is_skipped_not_swept_and_exits_1(tmp_path):
 
     # --report agrees with the sweep on this exact condition (both exit 1).
     report = run_cli(
-        ["--multi-repo", "--repo", str(repo_a), "--repo", str(repo_b), "--report", "--no-gh", "--min-age-hours", "0"]
+        ["--multi-repo", "--repo", str(repo_a), "--repo", str(repo_b), "--report", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"]
     )
     assert report.returncode == 1, report.stderr
 
@@ -747,7 +759,7 @@ def test_one_bad_root_among_good_ones_still_sweeps_the_rest(tmp_path):
     good_repo = init_repo_with_origin(root, name="good-project")
     bad_root = tmp_path / "does-not-exist-at-all"
 
-    result = run_cli(["--multi-repo", str(root), str(bad_root), "--dry-run", "--no-gh", "--min-age-hours", "0"])
+    result = run_cli(["--multi-repo", str(root), str(bad_root), "--dry-run", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"])
 
     assert result.returncode == 1
     summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
@@ -809,6 +821,8 @@ def test_runtime_repo_failure_mid_sweep_continues_and_errors(tmp_path, monkeypat
             "--dry-run",
             "--no-gh",
             "--min-age-hours",
+            "0",
+            "--activity-window-hours",
             "0",
         ]
     )
@@ -919,6 +933,8 @@ def test_deep_tier_ranking_order_reflects_eligible_not_raw_count(tmp_path):
             "--no-gh",
             "--min-age-hours",
             "0",
+            "--activity-window-hours",
+            "0",
         ]
     )
     assert result.returncode == 0, result.stderr
@@ -1027,6 +1043,8 @@ def test_deep_tier_tiebreak_by_oldest_age_desc_on_eligible_tie(tmp_path):
             "--no-gh",
             "--min-age-hours",
             "0",
+            "--activity-window-hours",
+            "0",
         ]
     )
     assert result.returncode == 0, result.stderr
@@ -1094,7 +1112,7 @@ def test_deep_tier_oldest_age_is_max_not_min_across_worktrees(tmp_path):
     _add_three_mixed_age_worktrees(repo)
 
     result = run_cli(
-        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0"]
+        ["--multi-repo", "--repo", str(repo), "--report", "--json", "--no-gh", "--min-age-hours", "0", "--activity-window-hours", "0"]
     )
     assert result.returncode == 0, result.stderr
     rows = json.loads(result.stdout)["rows"]

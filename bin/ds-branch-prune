@@ -561,6 +561,12 @@ def evaluate_branch(
         merge_evidence=merge_evidence,
         content_subsumption="subsumed" if content_subsumed else "not_subsumed",
         pr_state=pr_state,
+        # DS-196: this tool computes no origin-reachability evidence, and
+        # disposition_for_orphan_branch never consults this field (see
+        # worktree_model.py's _check_origin_reachable / MERGE_EVIDENCE_ORDER
+        # docstrings) - the constructor still requires it explicitly, since
+        # DispositionFacts carries no field defaults.
+        origin_reachable="not_checked",
     )
     disposition = disposition_for_orphan_branch(branch, facts, base_branches=tuple(base_branches))
 
