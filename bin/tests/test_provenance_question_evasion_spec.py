@@ -12,6 +12,12 @@ verified input - it launders the belief into the spawn brief unchanged.
 This test pins both deletions and a positive pin on the surrounding text
 that must survive untouched.
 
+Retirement condition: none. This is a permanent floor, not a temporary
+regression guard. The deleted remedy clause could be silently reintroduced
+by any future edit to the same paragraph (e.g. a rewrite that restores a
+question-conversion allowance while touching unrelated text), and nothing
+else in the suite would catch it. Do not retire this test.
+
 Run with:
     python3 -m pytest bin/tests/test_provenance_question_evasion_spec.py -q
 """
@@ -37,7 +43,10 @@ RETAINED_RISK_SENTENCE = (
     "An untagged directive-shaped claim in a spawn brief is a protocol violation."
 )
 RETAINED_RISK_NEIGHBOR_1 = "A verified-by-read tag never downgrades risk classification"
-RETAINED_RISK_NEIGHBOR_2 = "**Exception:** a Skeptic/reviewer brief bars"
+RETAINED_RISK_NEIGHBOR_2 = (
+    "A Skeptic/reviewer brief additionally bars a conductor-composed "
+    "hypothesis or steer"
+)
 RETAINED_SUBAGENT_PHRASE = "attributed to the Skeptic that raised it"
 
 
