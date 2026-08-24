@@ -45,7 +45,8 @@ RETAINED_RISK_SENTENCE = (
 RETAINED_RISK_NEIGHBOR_1 = "A verified-by-read tag never downgrades risk classification"
 RETAINED_RISK_NEIGHBOR_2 = (
     "A Skeptic/reviewer brief additionally bars a conductor-composed "
-    "hypothesis or steer"
+    "hypothesis or steer regardless of whether it is phrased as fact, "
+    "suspicion, or question"
 )
 RETAINED_SUBAGENT_PHRASE = "attributed to the Skeptic that raised it"
 
@@ -88,8 +89,8 @@ def _assert_files_and_content(root: Path) -> None:
         f"'{RETAINED_RISK_NEIGHBOR_1}'"
     )
     assert RETAINED_RISK_NEIGHBOR_2 in risk_text, (
-        f"{risk_path} is missing the retained Exception clause "
-        f"'{RETAINED_RISK_NEIGHBOR_2}'"
+        f"{risk_path} is missing the retained Skeptic/reviewer-brief "
+        f"phrasing-form clause '{RETAINED_RISK_NEIGHBOR_2}'"
     )
     assert RETAINED_SUBAGENT_PHRASE in subagent_text, (
         f"{subagent_path} is missing the replacement phrase "
