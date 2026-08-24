@@ -325,6 +325,7 @@ The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, f
 
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
 - Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own
+- **DS-196:** the preflight also fires an automatic, BACKGROUNDED `ds-cleanup-worktrees` reap (after `git worktree prune`, before branch prune) - the foreground shell returns immediately; output appends to `.agentic/worktree-reap.log` with a per-run header. Suppress with `AE_WORKTREE_REAP_DISABLE=1`; the 30-min-idle re-fire applies here too and is safe by construction (every gate re-checks fresh state)
 
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
@@ -349,9 +350,10 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 - `--count-only` is the mode both passive triggers use automatically - `ds-base-sync`'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single `git worktree list` call, no network, no per-entry evaluation
 - Neither passive trigger ever removes anything - actual removal stays an explicit `/ds-cleanup-worktrees` or a bare `ds-cleanup-worktrees` (no flags) invocation; `--dry-run` computes and reports without removing anything, and `--dry-run --explain` (not `--explain` alone) is the dry-run report form
 - `ds-cleanup-worktrees --multi-repo` sweeps SEVERAL repos in one invocation, in-process - discovers repos via explicit `--repo` xN, positional root-directory scan, or a `~/.agentic/cleanup-worktrees.json` fallback (`--init-config` scaffolds that fallback file for a first-time setup, never overwriting one that already exists), each repo resolving its own base independently; `--max-repos N` caps the discovered-and-deduped list to the first N, bounding git-call cost, not just display; `--multi-repo --report` (optionally `--count-only` for a cheap fast tier, or `--json`) is read-only and ranks repos worst-first - "which project is worst" - the recommended first look before a multi-repo removal run
+- **DS-196:** these `--count-only` passive nudges stay report-only, unchanged. A SEPARATE, genuinely mutating invocation now also runs automatically, backgrounded, from the session-start prune block itself (see previous slide) - the two are not the same mechanism
 
 <div class="callout">
-Report is automatic; removal is not. The backstop closes the "I forgot" gap without silently deleting anything on your behalf.
+The passive nudges are report-only. The session-start reap is the mutating backstop, and it runs unattended - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
 </div>
 
 ---
@@ -364,7 +366,7 @@ Report is automatic; removal is not. The backstop closes the "I forgot" gap with
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. Left alone, these never resolve.
+Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. A branch that is genuinely unpushed with no PR still never resolves this way. **DS-196 qualifies this for the pushed case:** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the new `origin_reachable` evidence source instead (LENIENT-only, evaluated after `pr_state`) - the STRICT branch-deletion path is untouched.
 
 A 2026-08-11 manual one-off operator sweep already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153; `bin/ds-branch-prune` itself does not call `git bundle`). `ds-cleanup-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
 
