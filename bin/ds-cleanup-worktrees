@@ -3069,11 +3069,10 @@ def _run_repo(
             f"NOTE: {too_young_count} worktree(s) skipped because they are younger than "
             f"the {args.min_age_hours:g}h age floor (--min-age-hours) - an unlocked worktree "
             "can still belong to a resumable session, so this floor is a safety default, not "
-            "a bug. See --help for --min-age-hours' exact semantics before narrowing it; the "
-            "age floor is only one of several gates, so a worktree may still be skipped "
-            "afterward for another reason (dirty, locked, unproven branch, etc.) - narrowing "
-            "this floor does not guarantee removal, and removes the protection against "
-            "reaping a concurrent session's fresh worktree."
+            "a bug. The age floor is only one of several gates, so a worktree may still be "
+            "skipped afterward for another reason (dirty, locked, unproven branch, etc.) - "
+            "narrowing this floor does not guarantee removal, and removes the protection "
+            "against reaping a concurrent session's fresh worktree."
         )
 
     # DS-196: mirrors the SKIP_TOO_YOUNG NOTE above - a worktree with a file
@@ -3085,9 +3084,8 @@ def _run_repo(
             f"NOTE: {recent_activity_count} worktree(s) skipped because a file inside them was "
             f"touched within the {args.activity_window_hours:g}h activity window "
             "(--activity-window-hours) - a resumable, actively-used worktree, so this is a "
-            "safety default, not a bug. See --help for --activity-window-hours' exact "
-            "semantics before narrowing it; the activity floor is only one of several gates, "
-            "so a worktree may still be skipped afterward for another reason (dirty, locked, "
+            "safety default, not a bug. The activity floor is only one of several gates, so a "
+            "worktree may still be skipped afterward for another reason (dirty, locked, "
             "unproven branch, etc.) - narrowing this floor does not guarantee removal."
         )
 

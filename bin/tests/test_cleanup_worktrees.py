@@ -1940,10 +1940,40 @@ def test_too_young_note_line_printed_when_nonzero(tmp_path):
     # DS-196 round-4 Minor 3: the prior version of this NOTE claimed
     # "Pass --min-age-hours 0 to lift this specific floor for them" -
     # false, since `age_hours is None or age_hours < min_age_hours` still
-    # fails CLOSED on a None reading at min_age_hours=0. The corrected NOTE
-    # points to --help instead of asserting what passing 0 does.
+    # fails CLOSED on a None reading at min_age_hours=0.
+    # DS-196 round-5 Major 1: round-4's replacement ("See --help for
+    # --min-age-hours' exact semantics") was itself false - `--help` on
+    # this parser carries no `help=` text for any flag, verified by
+    # executing `python3 bin/ds-cleanup-worktrees --help` and finding no
+    # `add_argument` call with a `help=` string. Deleted the pointer
+    # outright rather than supply a third unverified replacement; this
+    # assertion is narrowed to what the NOTE can actually support -
+    # naming the gate as one of several, not a guarantee of removal.
     assert "--min-age-hours" in proc.stdout
-    assert "See --help for --min-age-hours" in proc.stdout
+    assert "only one of several gates" in proc.stdout
+    assert "See --help" not in proc.stdout
+    assert str(wt) in worktree_paths(repo)
+
+
+# DS-196 round-5 Minor 4: the SKIP_TOO_YOUNG NOTE has a positive presence
+# assertion above (test_too_young_note_line_printed_when_nonzero); its
+# sibling SKIP_RECENT_ACTIVITY NOTE had none until now - round-4 converted
+# the activity NOTE's only assertion from a presence check into an absence
+# check (`'to narrow this floor to' not in stdout`), so blanking the NOTE's
+# `print(...)` entirely still passed every assertion touching it. Confirmed
+# failing pre-fix: blanking the NOTE's `print(...)` call to `print("")` in
+# a scratch copy left every existing test at 184 passed, this one included
+# only after being added and asserted to redden against that same mutation.
+def test_recent_activity_note_line_printed_when_nonzero(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-activity-note", "worktree-agent-activity-note", push=False)
+
+    proc = run_reap(repo, dry_run=True, activity_window_hours="1000000")
+    assert proc.returncode == 0, proc.stderr
+    assert "skipped-recent-activity=1" in summary_line(proc.stdout)
+    assert "NOTE:" in proc.stdout and "activity window" in proc.stdout, proc.stdout
+    assert "NOTE: 1 worktree(s) skipped because a file inside them was touched" in proc.stdout, proc.stdout
+    assert "--activity-window-hours" in proc.stdout
     assert str(wt) in worktree_paths(repo)
 
 
