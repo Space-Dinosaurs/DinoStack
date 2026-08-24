@@ -489,10 +489,12 @@ Public API (CLI):
                           stat'd inside the worktree - see
                           `_worktree_activity_hours`) still fails CLOSED
                           (SKIP_RECENT_ACTIVITY) at 0, same as at any other
-                          window value, since `None < 0` is never true either
-                          way (never used as the default - only the age
-                          floor runs at 0 seconds' notice; this floor stays a
-                          separate, later gate).
+                          window value, because the `is None` check short-
+                          circuits the `or` before `<` ever runs against it
+                          (a real `None < 0` comparison raises TypeError in
+                          Python 3, not False) (never used as the default -
+                          only the age floor runs at 0 seconds' notice; this
+                          floor stays a separate, later gate).
   --no-origin-reachable-evidence
                           DS-196: rollback lever - restores pre-DS-196
                           evidence order exactly (passes
@@ -3084,10 +3086,13 @@ def _run_repo(
             f"NOTE: {recent_activity_count} worktree(s) skipped because a file inside them was "
             f"touched within the {args.activity_window_hours:g}h activity window "
             "(--activity-window-hours) - a resumable, actively-used worktree, so this is a "
-            "safety default, not a bug. Pass --activity-window-hours 0 to lift this specific "
-            "floor; the activity floor is only one of several gates, so a worktree may still be "
-            "skipped afterward for another reason (dirty, locked, unproven branch, etc.) - this "
-            "does not guarantee removal."
+            "safety default, not a bug. Pass --activity-window-hours 0 to narrow this floor to "
+            "'no non-None activity reading is ever recent enough to skip' - this does NOT "
+            "disable the gate outright: a worktree whose activity reading is indeterminate "
+            "(None, e.g. no file could be stat'd) still fails CLOSED (SKIP_RECENT_ACTIVITY) at "
+            "0, same as at any other window value. The activity floor is only one of several "
+            "gates, so a worktree may still be skipped afterward for another reason (dirty, "
+            "locked, unproven branch, etc.) - this does not guarantee removal."
         )
 
     if args.dry_run and salvage_would:
