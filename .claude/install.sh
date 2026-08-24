@@ -970,6 +970,14 @@ ENFORCE_NESTED_WORKTREE_SPAWN_CMD = (
 )
 # Guarded form (never bare `python3 {path}`): `python3 <missing>.py` exits 2,
 # which is BLOCKING on PreToolUse - a registration that outlives this script
+# would deny every Skeptic spawn in every session. See hooks/AGENTS.md
+# §Registering a new enforce-*.py hook.
+ENFORCE_SKEPTIC_NEUTRALITY_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-skeptic-neutrality.py && "
+    f"python3 {hooks_root}/hooks/enforce-skeptic-neutrality.py || exit 0"
+)
+# Guarded form (never bare `python3 {path}`): `python3 <missing>.py` exits 2,
+# which is BLOCKING on PreToolUse - a registration that outlives this script
 # would deny every engineer/qa-engineer/release-orchestrator spawn in every
 # session. See hooks/AGENTS.md §Registering a new enforce-*.py hook.
 ENFORCE_WORKTREE_ISOLATION_SPAWN_CMD = (
@@ -1059,6 +1067,21 @@ for spawn_matcher in ("Task", "Agent"):
         "enforce-skeptic-round-cap.py",
         {"type": "command", "command": ENFORCE_SKEPTIC_ROUND_CAP_CMD, "timeout": 5},
         f"PreToolUse({spawn_matcher}) skeptic-round-cap enforcement hook",
+    )
+
+    # Mechanically enforces Skeptic-brief neutrality at spawn time
+    # (content/references/skeptic-protocol.md §7 "Neutrality requirement"):
+    # denies a spawn whose Global-context field 7 contains an untagged
+    # claim-bearing sentence (the primary structural rule), or whose
+    # adversarial brief matches a narrow conductor-composed-steer phrase
+    # (categories B/C only). Fires only on subagent_type == "skeptic";
+    # fail-open on any error. Kill-switch:
+    # AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE=1.
+    upsert_hook(
+        ptu_block["hooks"],
+        "enforce-skeptic-neutrality.py",
+        {"type": "command", "command": ENFORCE_SKEPTIC_NEUTRALITY_CMD, "timeout": 5},
+        f"PreToolUse({spawn_matcher}) skeptic-neutrality enforcement hook",
     )
 
     # Emits a spawn_start telemetry event to .agentic/events.jsonl on every

@@ -1163,7 +1163,7 @@
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Guard kill-switches</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Per-session env vars that disable or narrow individual enforcement hooks or silence activation output.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AE_WORKTREE_READ_GUARD_DISABLE</code> / <code>AE_WORKTREE_WRITE_GUARD_DISABLE</code> / <code>AE_ABDICATION_GUARD_DISABLE</code> / <code>AE_TURN_SHAPE_GUARD_DISABLE</code> / <code>AE_SHIPPABLE_GUARD_DISABLE</code> / <code>AE_PLANNING_GUARD_DISABLE</code> / <code>AE_TEAM_ROUTING_DISABLE</code> / <code>AE_TICKET_BATCH_GUARD_DISABLE</code> / <code>AE_NESTED_WORKTREE_GUARD_DISABLE</code> / <code>AE_WORKTREE_ISOLATION_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Vars:</strong> <code>AE_SINGULARITY_GUARD_DISABLE</code> / <code>AE_TIER_GUARD_DISABLE</code> / <code>AE_WORKTREE_READ_GUARD_DISABLE</code> / <code>AE_WORKTREE_WRITE_GUARD_DISABLE</code> / <code>AE_ABDICATION_GUARD_DISABLE</code> / <code>AE_TURN_SHAPE_GUARD_DISABLE</code> / <code>AE_SHIPPABLE_GUARD_DISABLE</code> / <code>AE_PLANNING_GUARD_DISABLE</code> / <code>AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE</code> / <code>AE_TEAM_ROUTING_DISABLE</code> / <code>AE_TICKET_BATCH_GUARD_DISABLE</code> / <code>AE_NESTED_WORKTREE_GUARD_DISABLE</code> / <code>AE_WORKTREE_ISOLATION_GUARD_DISABLE</code> / <code>AGENTIC_QUIET</code> &nbsp; <strong>Default:</strong> unset</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> in-session - <code>export &lt;VAR&gt;=1</code> before launching</p>
   </div>
 
@@ -1433,6 +1433,7 @@
             <li>Brief is passed to Worker and Skeptic <strong>verbatim</strong> - never softened, summarized, or editorialized</li>
             <li>Brief extension is additive only - domain-specific concerns may be added, existing language never removed or softened</li>
             <li><strong>Neutrality requirement</strong> - the brief and Global-context field 7 carry no conductor-composed hypothesis, suspicion, or attention-steer; completeness and neutrality are independent axes; no carve-out for an "operator-attributed" steer</li>
+            <li><strong>Mechanically enforced</strong> (<code>hooks/enforce-skeptic-neutrality.py</code>, DS-187) - a PreToolUse hook denies a Skeptic spawn whose field 7 contains an untagged claim-bearing sentence (a structural conformance check, not a phrase scan), or whose adversarial brief matches a narrow conductor-composed-steer phrase (categories B/C only)</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
