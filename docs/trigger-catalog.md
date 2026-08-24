@@ -77,7 +77,8 @@ Example: `"zero open Critical findings in content/references/"`.
 - Convergence failure: the same Skeptic finding re-raised unchanged after the
   engineer claimed to fix it. Escalates immediately.
 - A hard blocker: permission denial, missing credential, irreversible action
-  without authorization, or a fundamental scope conflict.
+  without authorization, a fundamental scope conflict, or a gate or threshold
+  that has rejected the same substantive attempt twice.
 
 The open-goal loop reuses the per-ticket `loop-state-<LOOP_KEY>.json` (legacy:
 `.agentic/loop-state.json`), cross-session resume, and

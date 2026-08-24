@@ -319,10 +319,10 @@ These three carve-outs sit above default-and-proceed. When one fires, the conduc
 
 Every Worker brief (engineer or other implementer) must include this clause:
 
-> "Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."
+> "Resolve design-taste ambiguity by choosing the option most consistent with surrounding code. Return BLOCKED only for hard blockers: permission denial, missing credential, irreversible destructive action without authorization, fundamental scope conflict, or a gate/threshold/validation floor that has rejected the same substantive attempt twice. A gate encountered during the task is never an obstacle to route around by modifying the input the gate evaluates: on the second rejection, return BLOCKED with the gate's own stated reason and the inputs you tried - do not compose a third attempt that reframes or asserts the answer into the input. This holds regardless of your confidence that the rejection is a false negative. Do not return BLOCKED for style, naming, choice among libraries already in use in this project, or 'which of several reasonable approaches' questions - pick one, proceed, and note the choice in the return summary. Introducing a new runtime dependency or performing a major-version upgrade of an existing dependency is NOT within this contract - if the task requires either, return BLOCKED so the conductor can route through architect + dependency-auditor per the risk table."
 
 <div class="callout">
-Design-taste BLOCKED returns are a contract violation. New-dep / major-upgrade BLOCKED returns are the correct behavior - those route to architect + dependency-auditor, not conductor-direct.
+Design-taste BLOCKED returns are a contract violation. New-dep, major-upgrade, and twice-rejected-gate BLOCKED returns are the correct behavior - a gate is never routed around by editing its own input.
 </div>
 
 ---
