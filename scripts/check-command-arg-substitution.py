@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Purpose: Fails CI when a bare $0-$9 or $ARGUMENTS token reappears inside
-         an executable (bare/```bash/```sh) fence anywhere under a
-         target directory (default content/commands) - the exact class
-         of harness textual-substitution corruption DS-192 fixed at 12
-         sites.
+         an executable (bare/```bash/```sh/```shell/```zsh) fence
+         anywhere under a target directory (default content/commands) -
+         the exact class of harness textual-substitution corruption
+         DS-192 fixed at 12 sites.
 
 Public API: main(argv) -> int (exit code); run as
             `python3 scripts/check-command-arg-substitution.py [target_dir]`.
@@ -31,7 +31,18 @@ Failure modes: never mutates any file - read-only scan, stdout/stderr
                and "shell-session" - those conventionally hold captured
                terminal output where a bare token can legitimately
                appear as literal transcript text, and scanning them
-               would introduce false positives.
+               would introduce false positives. TOKEN_RE also does not
+               match the brace-delimited form (`${1}`, `${ARGUMENTS}`,
+               `${1-}`, etc.) - whether Claude Code's slash-command
+               textual substitution rewrites that form has not been
+               measured, so this is either an uncovered variant of the
+               policed class or an undocumented safe escape hatch;
+               either way it is undetected here. Deliberately NOT
+               folded into TOKEN_RE: defaulted brace forms like `${1-}`/
+               `${2-}` appear legitimately in this codebase (e.g.
+               content/commands/ds-implement-ticket.md:267) as the
+               substitution-safe idiom, and widening the regex to catch
+               bare `${1}` would also fire on that safe form.
 """
 
 import glob

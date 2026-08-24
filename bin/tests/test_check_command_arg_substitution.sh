@@ -2,7 +2,8 @@
 # Purpose: Executable regression spec for scripts/check-command-arg-
 #          substitution.py (DS-192) - the fence-state-machine gate that
 #          fails CI when a bare $0-$9/$ARGUMENTS token reappears inside an
-#          executable (bare/```bash/```sh) fence under content/commands.
+#          executable (bare/```bash/```sh/```shell/```zsh) fence under
+#          content/commands.
 #          Exercises the 6 named reddening mutations from the DS-192 plan
 #          plus a clean-tree pass assertion, operating only on scratch-
 #          directory copies of the real command files, never mutating

@@ -60,9 +60,16 @@
 #              comment at each assertion for why a single boolean grep is
 #              insufficient.
 #              Site 1749 (which uses $FEATURE_BRANCH, not $BRANCH_NAME) is
-#              intentionally left unpinned by check_prose_wiring(), same as
-#              before this ticket - it was never independently doc-pinned,
-#              only exercised indirectly via scenario 3's reproduction.
+#              not independently doc-pinned for the case/path-extraction
+#              assertions - same as before this ticket, exercised only
+#              indirectly via scenario 3's reproduction - but H1 (round 3
+#              Skeptic finding): the `done < <(...)` process-substitution
+#              redirect assertion below now pins BOTH sites via an
+#              occurrence-COUNT check (== 2), not mere presence, since the
+#              literal redirect text is byte-identical at 1628 and 1749 -
+#              a bare `grep -q` presence check is satisfied by a single
+#              surviving occurrence and would miss a pipe regression at
+#              either site alone.
 #          Every scenario below runs against a disposable scratch git repo
 #          under a temp directory (never touches the real DinoStack
 #          checkout, worktree, or branch state), and where a prior round's
@@ -160,8 +167,19 @@ check_prose_wiring() {
   # three assertions above unchanged, since none of them inspect how the
   # loop is fed. This is a distinct property from "the parser exists" and
   # needs its own pin.
-  if ! grep -q -- 'done < <(git -C \$REPO worktree list --porcelain)' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) to feed the existing-worktree scan" >&2
+  #
+  # H1 (DS-192 round 3 Skeptic finding): a bare `grep -q` presence check
+  # is satisfied by a SINGLE surviving occurrence, so a pipe regression at
+  # only one of the two worktree-guard sites (1628-ish Elevated-path
+  # definition, 1749-ish Merge-phase copy) still passes. The literal text
+  # is byte-identical at both sites (verified: both read
+  # `done < <(git -C $REPO worktree list --porcelain)`), so an occurrence
+  # COUNT of exactly 2 catches a regression at either site without
+  # anchoring on any surrounding context that a legitimate future edit
+  # could shift.
+  _dwt_redirect_count="$(grep -c -- 'done < <(git -C \$REPO worktree list --porcelain)' "$doc")"
+  if [ "$_dwt_redirect_count" -ne 2 ]; then
+    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) at both worktree-guard sites (expected 2 occurrences, found $_dwt_redirect_count)" >&2
     ok=1
   fi
   if ! grep -q -- 'UNPUSHED_RC=\$?' "$doc"; then
