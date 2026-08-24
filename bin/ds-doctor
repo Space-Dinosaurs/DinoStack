@@ -133,16 +133,20 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                WARN, not FAIL and never a silent OK (this check must never
                block the rest of doctor's findings, and must never report a
                check that did not run as confirmed current).
-               check_foreign_agent_hooks: missing ~/.claude/plugins dir or
-               missing/unparseable installed_plugins.json -> OK/no-op, not
-               FAIL (a clean machine with no plugins installed is a known
-               state); a malformed individual plugin's hooks.json, or a
-               plugins-map entry whose value isn't a list -> WARN and the
-               scan continues with the remaining plugins, never aborting
-               the whole check on one bad file; an unparseable
-               settings.json -> WARN and the check RETURNS without a
-               positive claim (it must never report OK when it could not
-               establish enabledPlugins at all).
+               check_foreign_agent_hooks: missing ~/.claude/plugins dir ->
+               OK/no-op, not FAIL (a clean machine with no plugins
+               installed is a known state); missing/unparseable
+               installed_plugins.json -> WARN, not OK and not FAIL (the
+               check could not establish which plugins are actually
+               installed, so it must not claim clean); a malformed
+               individual plugin's hooks.json, a plugins-map entry whose
+               value isn't a list, or a top-level "hooks" key whose value
+               isn't an object -> WARN and the scan continues with the
+               remaining plugins, never aborting the whole check on one
+               bad file; an unparseable settings.json -> WARN and the
+               check RETURNS without a positive claim (it must never
+               report OK when it could not establish enabledPlugins at
+               all).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -157,6 +161,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -192,28 +197,65 @@ def _plugins_dir() -> Path:
     which stays hardcoded to ~/.claude/settings.json for every OTHER check
     in this module - changing that would widen this fix's blast radius
     beyond check_foreign_agent_hooks.
+
+    CLAUDE_CONFIG_DIR is expanduser()'d the same way installPath already
+    is below - a literal "~/.claude" value (a real, observed shape for
+    this env var) must resolve to the same directory a shell would give
+    it, not to a literal "~" subdirectory relative to cwd. An empty-string
+    value is treated as unset (falls through to the ~/.claude sibling,
+    matching `if env:`'s existing falsy check). A relative value (e.g.
+    ".claude") is resolved relative to the current working directory,
+    which is the correct interpretation of a relative path and is left
+    as-is rather than errored on.
     """
     env = os.environ.get("CLAUDE_CONFIG_DIR")
     if env:
-        return Path(env) / "plugins"
+        return Path(os.path.expanduser(env)) / "plugins"
     return _settings_path().parent / "plugins"
 
 
 def _matcher_covers_spawn_tool(matcher: str) -> bool:
     """True if a PreToolUse hook matcher string covers the Agent or Task
-    subagent-spawn tools (DS-198). An empty matcher OR the literal "*"
-    wildcard means match-all in Claude Code hook semantics - MORE
-    dangerous, not exempt. Otherwise the matcher is split on "|" and each
-    token is compared for an EXACT match (never substring) against
-    {"Agent", "Task"}, so a pattern like "AgentX" or "TaskCreate" does not
-    produce a false hit (the real context-mode PostToolUse matcher
-    contains both tokens as substrings of a larger alternation and must
-    NOT match here).
+    subagent-spawn tools (DS-198).
+
+    Claude Code hook matchers are regex PATTERNS matched against the tool
+    name (via re.search), not exact-token sets - measured against real
+    plugins: context-mode's own PostToolUse matcher is the bare prefix
+    "mcp__", which no tool name equals but which is a valid, intentional
+    regex. A prior exact-token-set-intersection implementation reported
+    OK for ".*", "(Agent|Task)", and "^Agent$", all of which a real
+    plugin author could ship and all of which must FAIL here.
+
+    An empty matcher OR the literal "*" wildcard means match-all in
+    Claude Code hook semantics - MORE dangerous, not exempt - and is
+    special-cased before regex compilation because a bare "*" is not
+    itself a valid regex (nothing to repeat). Any other matcher is
+    compiled and tested via re.search(matcher, "Agent") or
+    re.search(matcher, "Task") - the tool name is the STRING being
+    searched, the matcher is the PATTERN doing the searching. Under this
+    direction "Agent" and "Task" exact tokens, "(Agent|Task)"
+    alternations, ".*" wildcards, "^Agent$" anchors, and "mcp__"-style
+    prefixes on OTHER tool names all resolve correctly, and "AgentX" /
+    "TaskCreate" (patterns LONGER than the literal strings "Agent"/"Task"
+    they would need to be found inside) correctly do NOT match - see
+    T21g's fixture, which pins this non-substring direction.
+
+    A matcher that fails to compile as a regex (a plugin author's typo,
+    e.g. an unbalanced "(") falls back to the previous conservative
+    "|"-split exact-token comparison rather than crashing the whole
+    check or silently treating an uncompilable matcher as non-matching -
+    a malformed matcher is exactly the ambiguous case where erring toward
+    detection (WARN-level uncertainty is not available at this
+    predicate's boundary) is safer than erring toward silence.
     """
     if matcher in ("", "*"):
         return True
-    tokens = {t.strip() for t in matcher.split("|")}
-    return bool(tokens & {"Agent", "Task"})
+    try:
+        pattern = re.compile(matcher)
+    except re.error:
+        tokens = {t.strip() for t in matcher.split("|")}
+        return bool(tokens & {"Agent", "Task"})
+    return bool(pattern.search("Agent") or pattern.search("Task"))
 
 
 def _managed_link_dirs() -> list[Path]:
@@ -1457,8 +1499,10 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     This check does not attempt it; a plugin's SessionStart/UserPromptSubmit
     hooks must be reviewed by hand. See docs/updating.md.
 
-    KNOWN LIMITATION - enablement scope: only ~/.claude/settings.json's
-    top-level enabledPlugins is consulted. A plugin enabled via a
+    KNOWN LIMITATION - enablement scope: only the top-level settings.json
+    sibling of the resolved plugins directory (~/.claude/settings.json,
+    or CLAUDE_CONFIG_DIR/settings.json when that env var is set - see
+    _plugins_dir()'s docstring) is consulted. A plugin enabled via a
     project-local .claude/settings.json (installed_plugins.json can carry
     "scope": "project" records) is not detected - deferred because ds-doctor
     is a global, cwd-independent tool with no single "the project" to
@@ -1470,13 +1514,21 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     FAIL-only, no-repair convention) - the fix is disabling/uninstalling
     the plugin or confirming its hook cannot mutate tool_input.
 
-    A missing plugins directory or missing/unparseable
-    installed_plugins.json is a known clean-machine state, not drift:
-    OK, not FAIL. A malformed individual plugin's hooks.json, or an
-    unparseable settings.json, or a per-plugin installed_plugins.json entry
-    that isn't a list, is a WARN and scanning continues (or, for an
-    unparseable settings.json, the whole check aborts without a positive
-    claim) - a check that could not run must never report OK.
+    A missing plugins directory is a known clean-machine state, not
+    drift: OK, not FAIL. A missing or unparseable installed_plugins.json
+    is a WARN, not OK and not FAIL - the check could not establish which
+    plugins are actually installed, so it must not claim clean. A
+    malformed individual plugin's hooks.json, a per-plugin
+    installed_plugins.json entry that isn't a list, or a top-level
+    "hooks" key whose value isn't an object, is also a WARN and scanning
+    continues with the remaining plugins (or, for an unparseable
+    settings.json, the whole check aborts without a positive claim) - a
+    check that could not run must never report OK. If every enabled
+    plugin hits one of those per-plugin WARN-and-skip branches and none
+    were actually found hazardous, the final summary is ALSO a WARN
+    ("could not fully check all of them"), never the OK("scanned N,
+    none register...") claim that would otherwise contradict the WARN
+    lines immediately above it.
     """
     plugins_dir = _plugins_dir()
     if not plugins_dir.is_dir():
@@ -1508,7 +1560,8 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     if not enabled_plugins:
         doc.ok(
             "foreign_agent_hook",
-            "no enabled plugin registers a PreToolUse hook on the Agent/Task tools",
+            "no plugins enabled (no enabledPlugins entries in "
+            f"{settings_path}) - nothing to scan",
         )
         return
 
@@ -1525,6 +1578,18 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
         return
 
     found_any = False
+    # True whenever a per-plugin WARN-and-skip fires below - a plugin that
+    # could not actually be checked (malformed plugins-map entry, an
+    # unparseable hooks.json, or a hooks.json with a malformed top-level
+    # "hooks" value) is NOT a plugin this scan can vouch for. Without this,
+    # the final `if not found_any: doc.ok(...)` would print a positive
+    # "scanned N plugins, all clean" claim on the SAME run as a WARN
+    # admitting a plugin could not be scanned - the identical
+    # never-report-OK-when-it-could-not-run contradiction this module's
+    # docstring already forbids for the settings.json/enabledPlugins path,
+    # just one level down at the per-plugin level (DS-198 round 3, Skeptic
+    # Minor 4 - see T21s's fixture).
+    scan_incomplete = False
     seen_install_paths: set[str] = set()
 
     for key in enabled_plugins:
@@ -1534,6 +1599,7 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 "foreign_agent_hook",
                 f"{installed_path}: plugin '{key}' entry is not a list, skipping",
             )
+            scan_incomplete = True
             continue
         if not isinstance(entries, list):
             continue
@@ -1560,6 +1626,16 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                     "foreign_agent_hook",
                     f"could not parse {hooks_json_path} for plugin '{key}': {exc}",
                 )
+                scan_incomplete = True
+                continue
+
+            if not isinstance(hooks_data, dict):
+                doc.warn(
+                    "foreign_agent_hook",
+                    f"{hooks_json_path}: unexpected schema (not a JSON "
+                    f"object) for plugin '{key}', skipping",
+                )
+                scan_incomplete = True
                 continue
 
             # A real Claude Code plugin hooks.json nests event arrays under
@@ -1568,8 +1644,26 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
             # packaged hooks.json use this nested shape; a hoisted-to-top
             # flat {"PreToolUse": [...]} form is also accepted for
             # forward/backward compatibility with any plugin that omits the
-            # "hooks" wrapper.
-            events = hooks_data.get("hooks", hooks_data) if isinstance(hooks_data, dict) else None
+            # "hooks" wrapper. A present "hooks" key whose value is NOT an
+            # object (null, a list, a string, ...) is a malformed schema,
+            # not "no PreToolUse hooks here" - .get("hooks", hooks_data)'s
+            # default only fires on a MISSING key, so a present-but-wrong
+            # -typed value must be checked explicitly or it silently masks
+            # a real top-level "PreToolUse" sibling key and reports a
+            # positive OK for a file that could not actually be scanned.
+            if "hooks" in hooks_data:
+                events = hooks_data.get("hooks")
+                if not isinstance(events, dict):
+                    doc.warn(
+                        "foreign_agent_hook",
+                        f"{hooks_json_path}: top-level 'hooks' key is not "
+                        f"an object for plugin '{key}', skipping",
+                    )
+                    scan_incomplete = True
+                    continue
+            else:
+                events = hooks_data
+
             pre_tool_use = events.get("PreToolUse") if isinstance(events, dict) else None
             if not isinstance(pre_tool_use, list):
                 continue
@@ -1593,10 +1687,19 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                     )
 
     if not found_any:
-        doc.ok(
-            "foreign_agent_hook",
-            "no enabled plugin registers a PreToolUse hook on the Agent/Task tools",
-        )
+        if scan_incomplete:
+            doc.warn(
+                "foreign_agent_hook",
+                f"scanned {len(enabled_plugins)} enabled plugin(s) but could not "
+                "fully check all of them (see WARN lines above) - not a "
+                "confirmed-clean scan",
+            )
+        else:
+            doc.ok(
+                "foreign_agent_hook",
+                f"scanned {len(enabled_plugins)} enabled plugin(s), none register a "
+                "PreToolUse hook on the Agent/Task tools",
+            )
 
 
 def check_cross_harness(doc: "Doctor") -> None:

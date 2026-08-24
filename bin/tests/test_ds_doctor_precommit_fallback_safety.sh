@@ -219,7 +219,10 @@ cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<CONFIG_EOF
 }
 CONFIG_EOF
 
-OUT=$(HOME="$TEMP_HOME" python3 "$DOCTOR" --fix 2>&1)
+# unset CLAUDE_CONFIG_DIR: a real value set in the invoking session would
+# make _plugins_dir() resolve OUTSIDE TEMP_HOME during this full ds-doctor
+# invocation (DS-198 round 3, Skeptic Major 2 sweep).
+OUT=$(HOME="$TEMP_HOME" CLAUDE_CONFIG_DIR= python3 "$DOCTOR" --fix 2>&1)
 
 if echo "$OUT" | grep -q "WARN git_precommit:"; then
   _pass "End-to-end: check_git_precommit WARNs when the hook source cannot be resolved"

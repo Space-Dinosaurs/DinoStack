@@ -108,10 +108,15 @@ EOF
 }
 
 invoke_doctor() {
-  # Run agentic-doctor with HOME and FAKE_REPO via config; capture output + exit
+  # Run agentic-doctor with HOME and FAKE_REPO via config; capture output + exit.
+  # unset CLAUDE_CONFIG_DIR: a real value set in the invoking session (e.g.
+  # ~/.claude-spacedinosaurs) would make _plugins_dir() resolve OUTSIDE
+  # TEMP_HOME and silently scan the real machine's plugins instead of these
+  # HOME-relative fixtures (DS-198 round 3, Skeptic Major 2).
   (
     HOME="$TEMP_HOME"
     export HOME
+    unset CLAUDE_CONFIG_DIR
     python3 "$DOCTOR" "$@"
   ) > "$TEMP_HOME/.out" 2>&1
   echo $? > "$TEMP_HOME/.exit"
@@ -1092,9 +1097,12 @@ cat > "$T20_HOME/.agentic/agentic-engineering-config.json" <<EOF
 EOF
 
 t20_invoke() {
+  # unset CLAUDE_CONFIG_DIR: see invoke_doctor()'s comment above (DS-198
+  # round 3, Skeptic Major 2) - same leak, different fixture family.
   (
     HOME="$T20_HOME"
     export HOME
+    unset CLAUDE_CONFIG_DIR
     python3 "$DOCTOR" "$@"
   ) > "$T20_HOME/.out" 2>&1
   echo $? > "$T20_HOME/.exit"
@@ -1156,6 +1164,7 @@ EOF
 (
   HOME="$T20E_HOME"
   export HOME
+  unset CLAUDE_CONFIG_DIR
   python3 "$DOCTOR"
 ) > "$T20E_HOME/.out" 2>&1
 
@@ -1192,6 +1201,7 @@ EOF
   (
     HOME="$T20F_HOME"
     export HOME
+    unset CLAUDE_CONFIG_DIR
     python3 "$DOCTOR"
   ) > "$T20F_HOME/.out" 2>&1
 
@@ -1325,6 +1335,15 @@ if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*evil@mkt.*Agent" && [[ "$R
   _pass "T21c foreign_agent_hook: hazardous Agent matcher (nested real shape) reported as FAIL, exit 1"
 else
   _fail "T21c foreign_agent_hook: hazardous Agent matcher (nested shape) should FAIL naming evil@mkt and Agent, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21c2: a hazard-detected run must NEVER also print an OK line for
+# foreign_agent_hook (the `if not found_any` guard, DS-198 round 3 Skeptic
+# Minor 8 - un-reddenable by mutation before this assertion existed).
+if ! echo "$OUT" | grep -q "^OK foreign_agent_hook:"; then
+  _pass "T21c2 foreign_agent_hook: hazard-detected run prints no OK line"
+else
+  _fail "T21c2 foreign_agent_hook: hazard-detected run must not also print OK\n$OUT"
 fi
 
 # T21d: same hazard, but the flat (no "hooks" wrapper) shape - coverage
@@ -1545,10 +1564,442 @@ cat > "$T21_HOME/.claude/settings.json" <<EOF
 EOF
 t21_invoke
 OUT=$(cat "$T21_HOME/.out")
-if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*malformed@mkt"; then
-  _pass "T21j foreign_agent_hook: non-list plugins-map entry WARNs"
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*malformed@mkt" && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:"; then
+  _pass "T21j foreign_agent_hook: non-list plugins-map entry WARNs, never a masked OK"
 else
-  _fail "T21j foreign_agent_hook: non-list plugins-map entry should WARN naming malformed@mkt\n$OUT"
+  _fail "T21j foreign_agent_hook: non-list plugins-map entry should WARN naming malformed@mkt, never OK\n$OUT"
+fi
+
+# T21k: regex matcher semantics (DS-198 round 3, Skeptic Major 1) - a
+# ".*" matcher means match-everything under real Claude Code matcher
+# semantics (regex, not exact-token set) and must FAIL.
+REGEX1_PLUGIN_DIR="$T21_HOME/plugin-installs/regex1"
+mkdir -p "$REGEX1_PLUGIN_DIR/hooks"
+cat > "$REGEX1_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": ".*", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "regex1@mkt": [{"installPath": "$REGEX1_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"regex1@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*regex1@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21k foreign_agent_hook: \".*\" regex matcher reported as FAIL, exit 1"
+else
+  _fail "T21k foreign_agent_hook: \".*\" regex matcher should FAIL naming regex1@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21l: "(Agent|Task)" alternation matcher must FAIL - the exact shape a
+# prior exact-token-set-intersection implementation reported OK for.
+REGEX2_PLUGIN_DIR="$T21_HOME/plugin-installs/regex2"
+mkdir -p "$REGEX2_PLUGIN_DIR/hooks"
+cat > "$REGEX2_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "(Agent|Task)", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "regex2@mkt": [{"installPath": "$REGEX2_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"regex2@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*regex2@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21l foreign_agent_hook: \"(Agent|Task)\" alternation matcher reported as FAIL, exit 1"
+else
+  _fail "T21l foreign_agent_hook: \"(Agent|Task)\" alternation matcher should FAIL naming regex2@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21m: "^Agent$" anchored matcher must FAIL - also mis-reported OK by the
+# prior exact-token-set-intersection implementation.
+REGEX3_PLUGIN_DIR="$T21_HOME/plugin-installs/regex3"
+mkdir -p "$REGEX3_PLUGIN_DIR/hooks"
+cat > "$REGEX3_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "^Agent\$", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "regex3@mkt": [{"installPath": "$REGEX3_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"regex3@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*regex3@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21m foreign_agent_hook: \"^Agent\$\" anchored matcher reported as FAIL, exit 1"
+else
+  _fail "T21m foreign_agent_hook: \"^Agent\$\" anchored matcher should FAIL naming regex3@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21n: a "mcp__"-style prefix matcher (the REAL context-mode PostToolUse
+# matcher shape, present as direct evidence real plugins use regex
+# semantics) does not itself name Agent/Task and must stay OK - confirms
+# the regex rewrite did not turn every non-empty matcher into a false
+# positive.
+PREFIX_PLUGIN_DIR="$T21_HOME/plugin-installs/prefixmatcher"
+mkdir -p "$PREFIX_PLUGIN_DIR/hooks"
+cat > "$PREFIX_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "mcp__", "hooks": [{"command": "echo safe"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "prefixmatcher@mkt": [{"installPath": "$PREFIX_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"prefixmatcher@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
+  _pass "T21n foreign_agent_hook: \"mcp__\" prefix matcher reported as OK (no false positive), exit 0"
+else
+  _fail "T21n foreign_agent_hook: \"mcp__\" prefix matcher should be OK, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21o: an invalid/uncompilable regex matcher (a plugin author's typo)
+# must not crash the whole check - falls back to conservative "|"-split
+# token matching. An unbalanced "(" is an uncompilable regex containing
+# the literal token "Agent".
+BADREGEX_PLUGIN_DIR="$T21_HOME/plugin-installs/badregex"
+mkdir -p "$BADREGEX_PLUGIN_DIR/hooks"
+cat > "$BADREGEX_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent|(unterminated", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "badregex@mkt": [{"installPath": "$BADREGEX_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"badregex@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*badregex@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21o foreign_agent_hook: uncompilable regex matcher does not crash, falls back to token match and FAILs"
+else
+  _fail "T21o foreign_agent_hook: uncompilable regex matcher should fall back and FAIL naming badregex@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21p: a PreToolUse entry missing the "matcher" key entirely must default
+# to "" (match-all) and FAIL - the default arg at pre_entry.get("matcher",
+# "") (DS-198 round 3, Skeptic Minor 8 - previously un-reddenable).
+NOMATCHER_PLUGIN_DIR="$T21_HOME/plugin-installs/nomatcher"
+mkdir -p "$NOMATCHER_PLUGIN_DIR/hooks"
+cat > "$NOMATCHER_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "nomatcher@mkt": [{"installPath": "$NOMATCHER_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"nomatcher@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*nomatcher@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21p foreign_agent_hook: missing 'matcher' key defaults to match-all and FAILs"
+else
+  _fail "T21p foreign_agent_hook: missing 'matcher' key should default to match-all and FAIL naming nomatcher@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21q: enabledPlugins filtering must compare `val is True` - a plugin
+# whose enabledPlugins value is the STRING "true" (truthy in many
+# languages, but not Python `is True`) or JSON `false` must NOT be
+# scanned (DS-198 round 3, Skeptic Minor 8 - previously un-reddenable;
+# scanning a disabled plugin would be a false positive with no test
+# objecting).
+DISABLED_PLUGIN_DIR="$T21_HOME/plugin-installs/disabled"
+mkdir -p "$DISABLED_PLUGIN_DIR/hooks"
+cat > "$DISABLED_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "disabled@mkt": [{"installPath": "$DISABLED_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"disabled@mkt": "true"}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
+  _pass "T21q foreign_agent_hook: enabledPlugins value that is not JSON boolean true is never scanned"
+else
+  _fail "T21q foreign_agent_hook: a non-'is True' enabledPlugins value should not be scanned, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21r: installPath dedupe - the same resolved installPath appearing
+# twice in a plugin's entries list must be scanned (and FAIL) exactly
+# once, not twice (DS-198 round 3, Skeptic Minor 8 - previously
+# un-reddenable).
+DEDUPE_PLUGIN_DIR="$T21_HOME/plugin-installs/dedupe"
+mkdir -p "$DEDUPE_PLUGIN_DIR/hooks"
+cat > "$DEDUPE_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "dedupe@mkt": [
+      {"installPath": "$DEDUPE_PLUGIN_DIR", "scope": "user"},
+      {"installPath": "$DEDUPE_PLUGIN_DIR", "scope": "project"}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"dedupe@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+FAIL_COUNT=$(echo "$OUT" | grep -cE "^FAIL foreign_agent_hook:.*dedupe@mkt")
+if [[ "$FAIL_COUNT" == "1" ]] && [[ "$RC" == "1" ]]; then
+  _pass "T21r foreign_agent_hook: duplicate installPath scanned exactly once (dedupe)"
+else
+  _fail "T21r foreign_agent_hook: duplicate installPath should FAIL exactly once, got $FAIL_COUNT\nrc=$RC\n$OUT"
+fi
+
+# T21s: a hooks.json whose top-level "hooks" key is present but is not an
+# object (null here) must WARN, not silently mask a top-level
+# "PreToolUse" sibling key and report a positive OK (DS-198 round 3,
+# Skeptic Minor 4).
+BADHOOKS_PLUGIN_DIR="$T21_HOME/plugin-installs/badhooksval"
+mkdir -p "$BADHOOKS_PLUGIN_DIR/hooks"
+cat > "$BADHOOKS_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": null,
+  "PreToolUse": [
+    {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+  ]
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "badhooksval@mkt": [{"installPath": "$BADHOOKS_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"badhooksval@mkt": true}
+}
+EOF
+t21_invoke
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*badhooksval@mkt" && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:"; then
+  _pass "T21s foreign_agent_hook: non-object top-level 'hooks' value WARNs, never a masked OK"
+else
+  _fail "T21s foreign_agent_hook: non-object top-level 'hooks' value should WARN naming badhooksval@mkt, never OK\n$OUT"
+fi
+
+# T21t: missing installed_plugins.json (enabledPlugins non-empty, but the
+# plugins manifest itself is absent) must WARN, not OK (DS-198 round 3,
+# Skeptic Major 3 - manifest previously asserted OK for this path).
+rm -f "$T21_HOME/.claude/plugins/installed_plugins.json"
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"anything@mkt": true}
+}
+EOF
+t21_invoke
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:" && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:"; then
+  _pass "T21t foreign_agent_hook: missing installed_plugins.json WARNs, never OK"
+else
+  _fail "T21t foreign_agent_hook: missing installed_plugins.json should WARN, never OK\n$OUT"
+fi
+
+# T21u: CLAUDE_CONFIG_DIR with a literal "~" prefix is expanduser()'d by
+# _plugins_dir(), not treated as a literal relative "~" subdirectory
+# (DS-198 round 3, Skeptic Minor 5).
+TILDE_ALT_CONFIG_DIR="$T21_HOME/tilde-config"
+mkdir -p "$TILDE_ALT_CONFIG_DIR/plugins"
+TILDE_EVIL="$T21_HOME/plugin-installs/tildeevil"
+mkdir -p "$TILDE_EVIL/hooks"
+cat > "$TILDE_EVIL/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$TILDE_ALT_CONFIG_DIR/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "tildeevil@mkt": [{"installPath": "$TILDE_EVIL", "scope": "user"}]
+  }
+}
+EOF
+cat > "$TILDE_ALT_CONFIG_DIR/settings.json" <<EOF
+{
+  "enabledPlugins": {"tildeevil@mkt": true}
+}
+EOF
+(
+  HOME="$T21_HOME"
+  export HOME
+  # HOME-relative "~" literal - expanduser() must resolve it against
+  # THIS HOME, not the invoking session's real HOME.
+  CLAUDE_CONFIG_DIR="~/tilde-config"
+  export CLAUDE_CONFIG_DIR
+  python3 "$DOCTOR"
+) > "$T21_HOME/.out" 2>&1
+RC=$?
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*tildeevil@mkt.*Agent" && [[ "$RC" == "1" ]]; then
+  _pass "T21u foreign_agent_hook: CLAUDE_CONFIG_DIR with a literal ~ prefix is expanduser()'d"
+else
+  _fail "T21u foreign_agent_hook: CLAUDE_CONFIG_DIR=~/tilde-config should expanduser() and detect tildeevil@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21v: the two OK-path messages must be distinguishable - "no plugins
+# enabled at all" is not the same claim as "scanned N plugins, all clean"
+# (DS-198 round 3, Skeptic Minor 6).
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {}
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{}
+EOF
+t21_invoke
+NOENABLED_OUT=$(cat "$T21_HOME/.out")
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"safe@mkt": true}
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "safe@mkt": [{"installPath": "$SAFE_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+t21_invoke
+SCANNED_OUT=$(cat "$T21_HOME/.out")
+NOENABLED_LINE=$(echo "$NOENABLED_OUT" | grep "^OK foreign_agent_hook:")
+SCANNED_LINE=$(echo "$SCANNED_OUT" | grep "^OK foreign_agent_hook:")
+if [[ -n "$NOENABLED_LINE" ]] && [[ -n "$SCANNED_LINE" ]] && [[ "$NOENABLED_LINE" != "$SCANNED_LINE" ]]; then
+  _pass "T21v foreign_agent_hook: no-plugins-enabled OK message differs from scanned-clean OK message"
+else
+  _fail "T21v foreign_agent_hook: the two OK messages should differ\nno-enabled: $NOENABLED_LINE\nscanned: $SCANNED_LINE"
 fi
 
 rm -rf "$T21_HOME"
