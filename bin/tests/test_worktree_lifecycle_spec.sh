@@ -16,29 +16,45 @@
 # Upstream deps: bin/tests/worktree_model.py (imported via PYTHONPATH);
 #                content/commands/ds-cleanup-worktrees.md (grepped by
 #                check_prose_wiring, resolved relative to this script's
-#                repo root - not the caller's cwd).
+#                repo root - not the caller's cwd);
+#                content/references/worktree-lifecycle.md (grepped by
+#                check_reap_wiring, DS-196 round-2 Major 3 fix - the
+#                session-start reap block and its AE_WORKTREE_REAP_DISABLE
+#                guard are prose that nothing else executes or tests, so
+#                either could be deleted silently without this).
 #
 # Downstream consumers: CI; qa_criteria scenario 8 (this ticket's QA gate) -
 #                       "demonstrates two distinct exit codes across three
 #                       runs (0, 1, 1)"; check_prose_wiring additionally
-#                       guards against a re-drift of DS-118 Critical 1.
+#                       guards against a re-drift of DS-118 Critical 1;
+#                       check_reap_wiring guards against a silent deletion
+#                       of the DS-196 automatic session-start reap
+#                       invocation or its kill-switch guard (qa_criteria
+#                       scenario 5 / rubric R3).
 #
 # Failure modes: exits non-zero if the observed exit-code sequence across
 #                the three runs is anything other than (0, 1, 1), OR if
 #                check_prose_wiring finds content/commands/ds-cleanup-
 #                worktrees.md missing a `classify_entry`/`disposition_for`
 #                reference, or re-introduces branch-name-based
-#                classification prose. Cleans up its scratch repo on exit
-#                via a trap regardless of outcome.
+#                classification prose, OR if check_reap_wiring finds
+#                content/references/worktree-lifecycle.md missing the
+#                backgrounded `ds-cleanup-worktrees --repo "$REPO_ROOT"`
+#                invocation or the `AE_WORKTREE_REAP_DISABLE` guard.
+#                Cleans up its scratch repo on exit via a trap regardless
+#                of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
-#              throwaway repo, plus two grep passes over one file.
+#              throwaway repo, plus grep passes over two files.
 
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLEANUP_DOC="$REPO_ROOT/content/commands/ds-cleanup-worktrees.md"
+LIFECYCLE_DOC="$REPO_ROOT/content/references/worktree-lifecycle.md"
+CLEANUP_BIN="$REPO_ROOT/bin/ds-cleanup-worktrees"
+SESSION_START_WRAP="$REPO_ROOT/hooks/session-start-wrap.sh"
 SCRATCH="$(mktemp -d)"
 
 cleanup() {
@@ -137,10 +153,79 @@ check_prose_wiring() {
   return "$ok"
 }
 
+# DS-196 round-2 Major 3 regression guard: content/references/worktree-lifecycle.md
+# must still contain the automatic, backgrounded session-start worktree reap
+# invocation AND its AE_WORKTREE_REAP_DISABLE kill-switch guard - this is
+# prose that nothing else executes, so a silent deletion of either would
+# otherwise pass every other gate in this repo unnoticed.
+check_reap_wiring() {
+  local doc="$1"
+  local ok=0
+
+  if [ ! -f "$doc" ]; then
+    echo "PROSE-WIRING VIOLATION: $doc not found" >&2
+    return 1
+  fi
+
+  if ! grep -qF 'ds-cleanup-worktrees --repo "$REPO_ROOT"' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not invoke the automatic session-start worktree reap (ds-cleanup-worktrees --repo \"\$REPO_ROOT\")" >&2
+    ok=1
+  fi
+  if ! grep -qF '>> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) &' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc's session-start reap invocation is not backgrounded (missing the trailing ') &' subshell form)" >&2
+    ok=1
+  fi
+  if ! grep -qF 'AE_WORKTREE_REAP_DISABLE' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not reference the AE_WORKTREE_REAP_DISABLE guard for the automatic reap" >&2
+    ok=1
+  fi
+
+  return "$ok"
+}
+
 echo "== Prose-wiring check: $CLEANUP_DOC names classify_entry/disposition_for, not branch-name classification =="
 check_prose_wiring "$CLEANUP_DOC"
 r0=$?
 echo "prose-wiring exit=$r0"
+
+echo "== Reap-wiring check: $LIFECYCLE_DOC still invokes the backgrounded session-start reap and its AE_WORKTREE_REAP_DISABLE guard =="
+check_reap_wiring "$LIFECYCLE_DOC"
+r0b=$?
+echo "reap-wiring exit=$r0b"
+
+# DS-196 round-2 Major 1/2 regression guard: neither manifest may re-drift
+# back to the pre-fix (false) claims that full mode "is not the mode either
+# automatic call site uses" (Major 1) or that session-start-wrap.sh's
+# worktree nudge is unqualified report-only (Major 2) - both were false once
+# the DS-196 automatic session-start reap shipped.
+check_manifest_reconciliation() {
+  local ok=0
+
+  if grep -qF 'is not the mode either' "$CLEANUP_BIN"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN still carries the stale 'is not the mode either automatic call site uses' claim" >&2
+    ok=1
+  fi
+  if ! grep -qF 'Full mode IS now the mode an automatic call site uses' "$CLEANUP_BIN"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the corrected DS-196 full-mode-is-automatic claim" >&2
+    ok=1
+  fi
+
+  if grep -qF 'removal remains operator-invoked via' "$SESSION_START_WRAP"; then
+    echo "PROSE-WIRING VIOLATION: $SESSION_START_WRAP still carries the stale unqualified 'removal remains operator-invoked' claim" >&2
+    ok=1
+  fi
+  if ! grep -qF 'report-only for THIS --count-only call site' "$SESSION_START_WRAP"; then
+    echo "PROSE-WIRING VIOLATION: $SESSION_START_WRAP is missing the corrected DS-196 call-site-scoped disclosure" >&2
+    ok=1
+  fi
+
+  return "$ok"
+}
+
+echo "== Manifest-reconciliation check: $CLEANUP_BIN and $SESSION_START_WRAP reflect the DS-196 automatic-reap call site accurately =="
+check_manifest_reconciliation
+r0c=$?
+echo "manifest-reconciliation exit=$r0c"
 
 echo "== Run 1: clean scratch repo (expect exit 0) =="
 setup_repo
@@ -162,11 +247,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0 and run exit codes 0 1 1, got prose-wiring=$r0 $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c $r1 $r2 $r3"
 exit 1

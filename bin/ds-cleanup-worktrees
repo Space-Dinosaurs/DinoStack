@@ -480,9 +480,18 @@ Public API (CLI):
                           24.
   --activity-window-hours <float>
                           DS-196: recent-file-activity floor in hours (see
-                          gate 4.5 above). Default 3.0. Pass 0 to disable
-                          (never used as the default - only the age floor
-                          runs at 0 seconds' notice; this floor stays a
+                          gate 4.5 above). Default 3.0. Pass 0 to narrow the
+                          window to "no non-None activity reading is ever
+                          recent enough to skip" - this does NOT disable the
+                          gate outright: `evaluate_entry` fires on
+                          `activity_hours is None or activity_hours <
+                          window`, and the `None` branch (no file could be
+                          stat'd inside the worktree - see
+                          `_worktree_activity_hours`) still fails CLOSED
+                          (SKIP_RECENT_ACTIVITY) at 0, same as at any other
+                          window value, since `None < 0` is never true either
+                          way (never used as the default - only the age
+                          floor runs at 0 seconds' notice; this floor stays a
                           separate, later gate).
   --no-origin-reachable-evidence
                           DS-196: rollback lever - restores pre-DS-196
@@ -642,6 +651,15 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       count exceeds a small threshold, pointing at
                       `/ds-cleanup-worktrees`; report-only, never removes
                       anything from that call site);
+                      content/references/worktree-lifecycle.md's
+                      §Session-start prune script (DS-196, MUTATING - a
+                      SEPARATE call site from the hook above: a plain,
+                      backgrounded `ds-cleanup-worktrees --repo <root>`
+                      invocation with no `--count-only`/`--dry-run`, run
+                      once per session-start preflight and unattended;
+                      suppressible via `AE_WORKTREE_REAP_DISABLE=1` - this
+                      IS the automatic call site the Performance section
+                      above now refers to);
                       automation/dinostack-worktree-reap/run.sh (DS-189, a
                       sibling unit of this same PR - a scheduled,
                       report-only automation package that consumes
@@ -715,7 +733,18 @@ Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
                timeout degrades that leg to inconclusive exactly like a
                `gh` error does, never a false ELIGIBLE.
 
-Performance: `--count-only` - two git calls total: `rev-parse
+Performance: (DS-196 correction: full mode IS now the mode an automatic call
+             site uses - `content/references/worktree-lifecycle.md`'s
+             session-start reap block invokes plain `ds-cleanup-worktrees
+             --repo <root>` with no `--count-only`/`--dry-run`, backgrounded,
+             once per session start. Per-entry cost below is unchanged by
+             that call site's own concurrency - see
+             content/references/worktree-lifecycle.md's "Residual, named
+             not fixed (round-2 Minor 4)" note, immediately after the
+             session-start prune script, for the one accepted trade-off
+             this introduces (a race with the synchronous `ds-branch-prune`
+             call that follows it in the same preflight).)
+             `--count-only` - two git calls total: `rev-parse
              --show-toplevel` (already paid by repo resolution before this
              mode's own check runs - `_resolve_repo` in single-repo mode,
              `RepoTarget.__init__` under `--multi-repo`) plus `git worktree
@@ -731,15 +760,23 @@ Performance: `--count-only` - two git calls total: `rev-parse
              `test_count_only_git_call_count_matches_manifest`). Full
              mode - the above plus, per
              managed worktree entry: `git status --porcelain
-             --ignored=matching`, `git merge-base --is-ancestor`, and
+             --ignored=matching`, `git merge-base --is-ancestor`,
+             `_worktree_activity_hours`'s recursive `os.walk` of the entry's
+             own working tree (DS-196, pruning `_ACTIVITY_SCAN_PRUNE_DIRS` -
+             filesystem-bound, not a subprocess, but scales with the
+             worktree's own file count), `_compute_origin_reachable`'s `git
+             branch -r --contains` (DS-196, local-only, no network), and
              (unless --no-gh) `git ls-remote` + one `gh pr list`, plus a
              final `git worktree prune`. Not designed for repositories
              with very large worktree counts; v1's full-mode `--no-gh`
              run measured 14.94s across ~31 entries on the live 38-
              worktree checkout (the network round-trip `--no-gh` failed to
-             suppress) - fixed in this round, but full mode still performs
-             real subprocess work per entry and is not the mode either
-             automatic call site uses.
+             suppress) - fixed in this round.
+             Full mode IS now the mode an automatic call site uses (see the
+             correction at the top of this section) - the backgrounded
+             session-start reap invokes it unattended once per session
+             start, so this per-entry cost is no longer merely a
+             manual-invocation concern.
 """
 
 from __future__ import annotations
@@ -1474,9 +1511,13 @@ def _worktree_age_hours(entry_path: str) -> Optional[float]:
 #: DS-196: directories pruned from `_worktree_activity_hours`'s recursive
 #: walk - trades completeness for cost (see the module docstring's
 #: activity-scan trade-off note). A worktree where ONLY a build/test run
-#: touched files inside one of these (all-gitignored) dirs reads as idle
-#: despite recent tool activity - accepted, since removal never destroys
-#: commits and gitignored build output is regenerable.
+#: touched files inside one of these (all-gitignored) dirs finds no file
+#: outside the pruned set, so `_worktree_activity_hours` returns `None` -
+#: the OPPOSITE of "reads as idle": the caller's `activity_hours is None`
+#: branch fails CLOSED (SKIP_RECENT_ACTIVITY), so this case is protected
+#: from removal despite the recent tool activity, not eligible for it.
+#: Accepted anyway, since removal never destroys commits and the false
+#: protection only costs a delayed reap, not a false removal.
 _ACTIVITY_SCAN_PRUNE_DIRS = frozenset(
     {".git", "node_modules", ".venv", "dist", "build", ".next", "__pycache__"}
 )

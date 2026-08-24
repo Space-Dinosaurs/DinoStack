@@ -811,19 +811,15 @@ class TestCheckOriginReachable:
         facts = _clean_branched_facts(pr_state="not_checked", origin_reachable="reachable")
         assert _check_origin_reachable(facts) is None
 
-    def test_pr_state_precondition_mutation_reddens_to_eligible(self):
-        # Named mutation: removing the pr_state precondition entirely
-        # makes an origin-reachable-but-pr-state-unresolved entry resolve
-        # ELIGIBLE, which is exactly the unsafe behavior the precondition
-        # exists to prevent.
-        def _unsafe_check(facts: DispositionFacts):
-            if facts.origin_reachable == "reachable":
-                return Disposition.ELIGIBLE
-            return None
-
-        facts = _clean_branched_facts(pr_state="not_checked", origin_reachable="reachable")
-        assert _check_origin_reachable(facts) is None
-        assert _unsafe_check(facts) is Disposition.ELIGIBLE
+    # round-2 Minor 7: a prior `test_pr_state_precondition_mutation_reddens_to_eligible`
+    # was removed here - it asserted a LOCALLY-defined `_unsafe_check` (never
+    # calling `_check_origin_reachable` itself) returns ELIGIBLE, so no
+    # mutation of `worktree_model.py`'s real predicate could ever redden it,
+    # and its other assertion duplicated `test_none_when_pr_state_not_checked_even_if_reachable`
+    # above exactly. Deletion per AGENTS.md's "for every test, name a
+    # mutation that would redden it; if none can be named, the test is
+    # decorative" - the real precondition is already covered by the test
+    # above, which DOES call the production `_check_origin_reachable`.
 
     def test_full_disposition_for_reaches_eligible_via_origin_reachable(self):
         # QA scenario 1 (worktree_model half): a squash-merged (ancestry
