@@ -118,8 +118,8 @@ If fetch fails, stop and report the error. Network issues are surfaced verbatim.
 ```bash
 CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
 COUNTS="$(git -C "$AE_REPO_DIR" rev-list --left-right --count HEAD...origin/main)"
-LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
-REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
+LOCAL_AHEAD="$(echo "$COUNTS" | awk -v idx=1 '{print $(idx)}')"
+REMOTE_AHEAD="$(echo "$COUNTS" | awk -v idx=2 '{print $(idx)}')"
 DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
 Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `ds-update` is the actual gate.
