@@ -161,14 +161,30 @@ def test_scenario_02_deny_field7_real_round5_defect(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 3: ALLOW - field-7 exempt bare "n/a"
+# Scenario 3 (REVISED, round-N fix): DENY - field-7 bare "n/a" is NOT exempt.
+#
+# skeptic-protocol.md:299 ("A bare `n/a` is invalid - every `n/a` value MUST
+# carry a specific reason") and :330 (the Skeptic BLOCKS on a bare `n/a`)
+# both require rejecting a bare `n/a`. The prior round's `_field7_is_exempt_na`
+# inverted this in the permissive direction (a Skeptic finding this round);
+# fixed to DENY, conforming to the protocol rather than the hook's own prior
+# behavior.
 # --------------------------------------------------------------------------- #
-def test_scenario_03_allow_field7_bare_na(tmp_path):
+def test_scenario_03_deny_field7_bare_na(tmp_path):
     prompt = "7. Conductor spawn brief (...): n/a\n\n## What to review\n"
     rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
     assert rc == 0
-    assert not _is_denied(parsed)
-    assert _mod.field7_violation(["n/a"]) is None
+    assert _is_denied(parsed)
+    assert _mod.field7_violation(["n/a"]) == "n/a"
+
+
+def test_scenario_03_mutation_bare_na_exemption_reddens():
+    """Executed mutation-testing proof: restoring the prior round's
+    permissive bare-'n/a' exemption (`s == "n/a" or ...`) makes a bare 'n/a'
+    exempt again, contradicting the protocol."""
+    assert _mod._field7_is_exempt_na("n/a") is False
+    mutated_exempt = ("n/a" == "n/a".strip())  # the prior round's bare check
+    assert mutated_exempt is True, "mutation should have re-exempted bare n/a"
 
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +196,189 @@ def test_scenario_04_allow_field7_canonical_na(tmp_path):
     assert rc == 0
     assert not _is_denied(parsed)
     assert _mod.field7_violation(["n/a - Trivial direct edit"]) is None
+
+
+# --------------------------------------------------------------------------- #
+# Round-N fix regression: Critical 1 - the hook must not deny the repo's own
+# canonical spawn template. Reads content/commands/ds-skeptic.md's LIVE
+# field-7 line directly (not a synthetic copy in this test file), so
+# template drift re-breaks this test rather than silently going unnoticed.
+# --------------------------------------------------------------------------- #
+def _read_live_field7_template_line() -> str:
+    text = (_REPO_ROOT / "content" / "commands" / "ds-skeptic.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.strip().startswith("7. Conductor spawn brief"):
+            return line
+    raise AssertionError("content/commands/ds-skeptic.md field-7 template line not found")
+
+
+def test_round_n_fix_critical1_live_template_na_value_allowed(tmp_path):
+    """A conductor who fills field 7 with a compliant 'n/a - Trivial direct
+    edit' and leaves the template's own trailing '[Neutrality: ...]' note
+    intact (the normal, expected shape of a real spawn) must be allowed."""
+    template_line = _read_live_field7_template_line()
+    assert "[Neutrality:" in template_line, (
+        "template line no longer carries the trailing neutrality note - "
+        "re-check whether this regression test is still needed"
+    )
+    bracket_start = template_line.index("[Neutrality:")
+    trailing_note = template_line[bracket_start:]
+    filled_value = f"n/a - Trivial direct edit {trailing_note}"
+    prompt = f"7. Conductor spawn brief (...): {filled_value}\n\n## What to review\n"
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    assert _mod.field7_violation([filled_value]) is None
+
+
+def test_round_n_fix_critical1_mutation_note_strip_removed_reddens():
+    """Executed mutation-testing proof: removing
+    `_strip_field7_neutrality_note()` from `field7_violation()` reddens for
+    a TAGGED (non-n/a) field-7 value carrying the template's trailing note -
+    the note's own closing bracket is then read as an untagged claim
+    fragment and a compliant, fully-tagged spawn is falsely denied. (A bare
+    n/a-shaped value is a weaker witness here since Critical 2's shape-based
+    `_field7_is_exempt_na` independently matches any string beginning
+    `n/a - ...` regardless of what follows, strip or no strip - this
+    fixture isolates the note-strip fix specifically.)"""
+    template_line = _read_live_field7_template_line()
+    bracket_start = template_line.index("[Neutrality:")
+    trailing_note = template_line[bracket_start:]
+    filled_value = f"The retry fix resolves the timeout. [verified: a.py:5] {trailing_note}"
+
+    # Live behavior: allowed.
+    assert _mod.field7_violation([filled_value]) is None
+
+    # Mutated behavior: skip the strip, exercise the exempt-check +
+    # per-sentence path directly as field7_violation() would without it.
+    joined = " ".join([filled_value])
+    assert not _mod._field7_is_exempt_na(joined), (
+        "unstripped joined value must not equal the exact n/a shape"
+    )
+    violation = None
+    for sent in _mod._split_sentences_keep_trailing_tag(joined):
+        if not (
+            _mod._PROVENANCE_RE.search(sent)
+            or _mod._ATTRIBUTION_RE.search(sent)
+            or _mod._SELF_REF_TICKET_RE.search(sent)
+        ):
+            violation = sent
+            break
+    assert violation is not None, "mutation should have reddened (false deny reintroduced)"
+
+
+def test_round_n_fix_critical1_neutrality_note_strip_is_not_a_generic_bracket_escape():
+    """Proves the neutrality-note strip cannot be used as a generic
+    "append any trailing bracket" escape hatch: a bracket missing any one
+    of the three required substrings (the literal 'Neutrality:' opener,
+    'skeptic-protocol.md', and 'Section 7' + 'Neutrality requirement') is
+    left in place and denies normally, including when it contains an
+    actual smuggled claim."""
+    smuggled = "The retry fix is definitely correct. [I am confident retry.py:42 is the root cause]"
+    assert _mod.field7_violation([smuggled]) == smuggled
+
+    near_miss_1 = "The retry fix is definitely correct. [Neutrality: some unrelated note]"
+    assert _mod.field7_violation([near_miss_1]) == near_miss_1
+
+    near_miss_2 = (
+        "The retry fix is definitely correct. "
+        "[Neutrality: cites skeptic-protocol.md but not the section]"
+    )
+    assert _mod.field7_violation([near_miss_2]) == near_miss_2
+
+    # Only the exact three-substring form strips, and even then the
+    # underlying untagged claim (not the note) still denies.
+    exact_note = (
+        "The retry fix is definitely correct. "
+        '[Neutrality: provenance-tagged factual claims only - never a '
+        'conductor hypothesis or suspicion. See skeptic-protocol.md '
+        'Section 7 "Neutrality requirement".]'
+    )
+    assert _mod.field7_violation([exact_note]) == "The retry fix is definitely correct."
+
+
+# --------------------------------------------------------------------------- #
+# Round-N fix regression: Critical 2 - a protocol-valid non-enumerated
+# `n/a - <reason>` must be exempt (skeptic-protocol.md:299,330).
+# --------------------------------------------------------------------------- #
+def test_round_n_fix_critical2_allow_non_enumerated_na(tmp_path):
+    value = "n/a - Skeptic reviewing a conductor-authored artifact with no separate brief"
+    prompt = f"7. Conductor spawn brief (...): {value}\n\n## What to review\n"
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round_n_fix_critical2_mutation_closed_set_reddens():
+    """Executed mutation-testing proof: restoring the prior round's
+    closed-set `_CANONICAL_NA_STRINGS` membership check reddens on any
+    truthful, protocol-valid reason not in that enumerated set."""
+    canonical_na_strings = {
+        "n/a - Trivial direct edit",
+        "n/a - permission-blocked carve-out",
+    }
+    value = "n/a - Skeptic reviewing a conductor-authored artifact with no separate brief"
+    mutated_exempt = value in canonical_na_strings
+    assert mutated_exempt is False, "mutation should have reddened (falsely denied)"
+    assert _mod._field7_is_exempt_na(value) is True
+
+
+# --------------------------------------------------------------------------- #
+# Round-N fix regression: Major - abbreviation periods (e.g./i.e./etc.) must
+# not split a compliant, fully-tagged-or-attributed sentence into an
+# untagged tail fragment.
+# --------------------------------------------------------------------------- #
+def test_round_n_fix_major_abbreviation_eg_not_split():
+    value = "Per the Engineer, the fix touches the retry path, e.g. the backoff calculation."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round_n_fix_major_abbreviation_ie_not_split():
+    value = "That is, i.e. the config change is unrelated to the retry path. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round_n_fix_major_mutation_abbreviation_guard_removed_reddens():
+    """Executed mutation-testing proof: removing the abbreviation
+    lookbehinds from _SENT_SPLIT_RE reddens - a compliant, tagged sentence
+    containing 'e.g.' is mis-split into an untagged tail fragment and
+    falsely denied."""
+    import re as _re
+
+    mutated_re = _re.compile(r'(?<=[.?!])\s+(?!\[)|(?<=\])\s+(?=[A-Z])')  # missing abbrev guards
+    value = "Per the Engineer, the fix touches the retry path, e.g. the backoff calculation."
+
+    def _split_with(regex, text):
+        raw = regex.split(text.strip())
+        out: list[str] = []
+        for frag in raw:
+            frag = frag.strip()
+            if not frag:
+                continue
+            if out and _re.fullmatch(r'\[[^\]]*\]\.?', frag):
+                out[-1] = out[-1] + " " + frag
+            else:
+                out.append(frag)
+        return out
+
+    # Live regex: stays one sentence, allowed.
+    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 1
+    assert _mod.field7_violation([value]) is None
+
+    # Mutated regex: splits on the "e.g." period, tail fragment is untagged.
+    mutated_sentences = _split_with(mutated_re, value)
+    assert len(mutated_sentences) == 2, "mutation did not split as expected"
+    violation = None
+    for sent in mutated_sentences:
+        if not (
+            _mod._PROVENANCE_RE.search(sent)
+            or _mod._ATTRIBUTION_RE.search(sent)
+            or _mod._SELF_REF_TICKET_RE.search(sent)
+        ):
+            violation = sent
+            break
+    assert violation is not None, "mutation should have reddened (false deny on tail fragment)"
 
 
 # --------------------------------------------------------------------------- #
