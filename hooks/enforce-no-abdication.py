@@ -167,7 +167,7 @@ Observability: every VERDICT path this hook reaches AFTER the
                clean-turn classified path), each carrying a `detail` object
                recording the gate/classifier state that produced it. This
                hook is the sole EVERY-VERDICT caller of that module; the
-               other thirteen log actions only (see that module's manifest
+               other fourteen log actions only (see that module's manifest
                for why the postures differ). Deny-only logging would have left
                the central question - does a canonical `## Operator
                decisions` block reach a classifier at all? - unanswerable,
