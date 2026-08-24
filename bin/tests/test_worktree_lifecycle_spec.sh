@@ -21,7 +21,12 @@
 #                check_reap_wiring, DS-196 round-2 Major 3 fix - the
 #                session-start reap block and its AE_WORKTREE_REAP_DISABLE
 #                guard are prose that nothing else executes or tests, so
-#                either could be deleted silently without this).
+#                either could be deleted silently without this);
+#                bin/ds-cleanup-worktrees (CLEANUP_BIN, grepped by
+#                check_manifest_reconciliation and check_activity_window_prose
+#                for its NOTE text and module docstring);
+#                hooks/session-start-wrap.sh (SESSION_START_WRAP, grepped by
+#                check_manifest_reconciliation for its call-site disclosure).
 #
 # Downstream consumers: CI; qa_criteria scenario 8 (this ticket's QA gate) -
 #                       "demonstrates two distinct exit codes across three
@@ -54,8 +59,13 @@
 #                the gate; "`None < 0` is never true either way" as the
 #                None-branch mechanism; or "no non-None activity reading is
 #                ever recent enough to skip" (false for a negative/
-#                future-mtime reading). Cleans up its scratch repo on exit
-#                via a trap regardless of outcome.
+#                future-mtime reading); OR if check_activity_window_prose's
+#                presence assertion finds bin/ds-cleanup-worktrees missing
+#                the corrected "is None" short-circuit mechanism explanation
+#                entirely (e.g. the module docstring's --activity-window-hours
+#                entry deleted outright, not merely reworded back to a false
+#                claim). Cleans up its scratch repo on exit via a trap
+#                regardless of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -181,9 +191,10 @@ check_prose_wiring() {
 # auto-reap invocation and its kill-switch guard must exist, not merely
 # that other prose agree about whether they exist. A future, deliberate
 # removal of the DS-196 automatic session-start reap feature must edit
-# THIS function (delete or gate its two `grep -qF` assertions) in the same
-# commit that removes the invocation from worktree-lifecycle.md - that is
-# the expected, correct failure mode, not a defect in this guard.
+# THIS function (delete or gate its `grep -qF` assertions - re-derive the
+# current count from the function body, don't hand-pin a number here) in
+# the same commit that removes the invocation from worktree-lifecycle.md -
+# that is the expected, correct failure mode, not a defect in this guard.
 check_reap_wiring() {
   local doc="$1"
   local ok=0
