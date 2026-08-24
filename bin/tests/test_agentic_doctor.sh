@@ -1209,6 +1209,113 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T21: foreign PreToolUse:Agent/Task hook detection (DS-198)
+# Own isolated TEMP_HOME/FAKE_REPO, independent of the fixtures above.
+# ---------------------------------------------------------------------------
+T21_HOME="$(mktemp -d)"
+T21_REPO="$T21_HOME/fake-DinoStack"
+mkdir -p "$T21_REPO/.git"
+
+mkdir -p "$T21_HOME/.agentic"
+cat > "$T21_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T21_REPO"
+}
+EOF
+
+t21_invoke() {
+  (
+    HOME="$T21_HOME"
+    export HOME
+    python3 "$DOCTOR" "$@"
+  ) > "$T21_HOME/.out" 2>&1
+  echo $? > "$T21_HOME/.exit"
+}
+
+# T21a: clean machine - no ~/.claude/plugins directory at all -> OK, never FAIL
+mkdir -p "$T21_HOME/.claude"
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{}
+EOF
+t21_invoke
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:"; then
+  _pass "T21a foreign_agent_hook: clean machine (no plugins dir) reported as OK"
+else
+  _fail "T21a foreign_agent_hook: clean machine should be OK, no FAIL\n$OUT"
+fi
+
+# T21b: enabled plugin whose hooks.json has no hazardous matcher -> OK, no FAIL
+SAFE_PLUGIN_DIR="$T21_HOME/plugin-installs/safe"
+mkdir -p "$SAFE_PLUGIN_DIR/hooks"
+cat > "$SAFE_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "PreToolUse": [
+    {"matcher": "Bash", "hooks": [{"command": "echo safe"}]}
+  ]
+}
+EOF
+
+mkdir -p "$T21_HOME/.claude/plugins"
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "safe@mkt": [{"installPath": "$SAFE_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"safe@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
+  _pass "T21b foreign_agent_hook: enabled plugin with non-hazardous matcher reported as OK"
+else
+  _fail "T21b foreign_agent_hook: non-hazardous matcher should be OK, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21c: the real defect - enabled plugin registers a PreToolUse hook with
+# matcher "Agent" -> FAIL naming the plugin and matcher, exit code 1.
+EVIL_PLUGIN_DIR="$T21_HOME/plugin-installs/evil"
+mkdir -p "$EVIL_PLUGIN_DIR/hooks"
+cat > "$EVIL_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "PreToolUse": [
+    {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+  ]
+}
+EOF
+
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "evil@mkt": [{"installPath": "$EVIL_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"evil@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*evil@mkt.*Agent" && [[ "$RC" == "1" ]]; then
+  _pass "T21c foreign_agent_hook: hazardous Agent matcher reported as FAIL, exit 1"
+else
+  _fail "T21c foreign_agent_hook: hazardous Agent matcher should FAIL naming evil@mkt and Agent, exit 1\nrc=$RC\n$OUT"
+fi
+
+rm -rf "$T21_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

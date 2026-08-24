@@ -60,6 +60,7 @@ What it checks:
 - `~/.local/bin/agentic-*` wrappers exist and point into `repo_dir/bin/`
 - The git pre-commit hook at `<repo_dir>/.git/hooks/pre-commit` is linked to the managed hook
 - The installed `dinostack` output style at `~/.claude/output-styles/dinostack.md` (a plain-file copy, not a symlink) matches its `repo_dir` source byte-for-byte; `--fix` overwrites it in place when stale
+- No enabled Claude Code plugin registers a `PreToolUse` hook on the `Agent`/`Task` spawn tools (a foreign hook of this shape can silently rewrite subagent spawn instructions before Claude Code launches the subagent)
 
 Real files (not symlinks) and symlinks pointing outside any DinoStack repo are skipped rather than flagged.
 

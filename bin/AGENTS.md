@@ -23,7 +23,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-cleanup-worktrees` | Python | Single-repo worktree removal (classify -> lock/dirty -> merge-evidence -> disposition, `bin/tests/worktree_model.py`), PLUS an in-process `--multi-repo`/`--report` surface: discovers a set of repos (explicit `--repo` xN, positional root scan, `--init-config` to scaffold, or a `~/.agentic/cleanup-worktrees.json` fallback), sweeps each with its own independently-resolved base branch, `--max-repos N` to bound discovery cost, and can rank them read-only ("which project is worst") via a cheap 2-git-call FAST tier or a full-cost DEEP tier. |
 | `ds-cost` | Python | Token / wall-time / dollar rollups per agent, session, task, and developer team from `.agentic/events.jsonl` and session logs. |
 | `ds-disable` | Python | Append the opt-out marker to `AGENTS.md`; optionally update the global config. |
-| `ds-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`, DS-54 hooks-snapshot staleness). |
+| `ds-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`, DS-54 hooks-snapshot staleness), foreign-plugin PreToolUse Agent/Task hook detection (DS-198). |
 | `ds-emit` | Bash | Append one structured JSON event to `.agentic/events.jsonl` at orchestration boundaries. |
 | `ds-feedback` | Python | Manage the home-dir feedback store (`~/.agentic/feedback.jsonl`) - append/list/mark operator and agent friction items. |
 | `ds-help` | Python | Print the static slash-command reference to stdout. Zero file I/O; never fails. |

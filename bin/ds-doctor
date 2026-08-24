@@ -11,10 +11,14 @@ Purpose: Inspect global dinostack install health and (with --fix)
          that the repo_dir pre-commit hook is wired, that the
          session-stable hooks snapshot (DS-54) is not dormant relative to the
          checkout's live hook source (never_migrated / half_applied /
-         stale_but_stable - see check_hooks_snapshot_staleness), and (DS-171
+         stale_but_stable - see check_hooks_snapshot_staleness), (DS-171
          round 4) that the installed `dinostack` output style
          (~/.claude/output-styles/dinostack.md) is not stale relative to
-         repo_dir's built copy - see check_output_style_staleness. With --fix,
+         repo_dir's built copy - see check_output_style_staleness, and
+         (DS-198) that no enabled Claude Code plugin registers a
+         PreToolUse hook on the Agent/Task spawn tools, which could
+         silently mutate subagent spawn input - see
+         check_foreign_agent_hooks. With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
          in settings.json (atomic read-merge-write); when the expected
          in-repo target for an ours-to-own symlink no longer exists at all
@@ -71,7 +75,12 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
                (repo_dir source), ~/.claude/settings.json (hook
                inspection/repair), ~/.claude/agents/, ~/.claude/commands/,
                ~/.claude/skills/. Reads <repo_dir>/bin/{agentic-,ds-}* (bin
-               wrapper check). check_git_precommit resolves the REAL git
+               wrapper check). check_foreign_agent_hooks additionally reads
+               ~/.claude/plugins/installed_plugins.json and each enabled
+               plugin's own packaged hooks/hooks.json (resolved via
+               installPath) - never ~/.claude/settings.json, which was
+               measured to carry no plugin-registered hook entries at all.
+               check_git_precommit resolves the REAL git
                hooks dir via _resolve_git_hooks_dir (shells out to `git -C
                <repo_dir> rev-parse --git-path hooks`, following a
                worktree's gitdir pointer to the shared hooks dir) and the
@@ -114,6 +123,12 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                WARN, not FAIL and never a silent OK (this check must never
                block the rest of doctor's findings, and must never report a
                check that did not run as confirmed current).
+               check_foreign_agent_hooks: missing ~/.claude/plugins dir or
+               missing/unparseable installed_plugins.json -> OK/no-op, not
+               FAIL (a clean machine with no plugins installed is a known
+               state); a malformed individual plugin's hooks.json -> WARN
+               and the scan continues with the remaining plugins, never
+               aborting the whole check on one bad file.
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -152,6 +167,30 @@ def _settings_path() -> Path:
 
 def _local_bin() -> Path:
     return _home() / ".local" / "bin"
+
+
+def _plugins_dir() -> Path:
+    """Claude Code plugins directory, resolved as a sibling of
+    _settings_path() rather than a fresh hardcode, so a CLAUDE_CONFIG_DIR
+    override (e.g. ~/.claude-spacedinosaurs, whose settings.json and
+    plugins entries are individual symlinks into ~/.claude/*) is honored
+    automatically the same way _settings_path() already is.
+    """
+    return _settings_path().parent / "plugins"
+
+
+def _matcher_covers_spawn_tool(matcher: str) -> bool:
+    """True if a PreToolUse hook matcher string covers the Agent or Task
+    subagent-spawn tools (DS-198). An empty matcher means match-all in
+    Claude Code hook semantics - MORE dangerous, not exempt. Otherwise the
+    matcher is split on "|" and each token is compared for an EXACT match
+    (never substring) against {"Agent", "Task"}, so a pattern like
+    "AgentX" or "TaskCreate" does not produce a false hit.
+    """
+    if matcher == "":
+        return True
+    tokens = {t.strip() for t in matcher.split("|")}
+    return bool(tokens & {"Agent", "Task"})
 
 
 def _managed_link_dirs() -> list[Path]:
@@ -1356,6 +1395,138 @@ def check_output_style_staleness(doc: Doctor) -> None:
         doc.refresh_stale_copy("output_style", src, dst)
 
 
+# ---------------------------------------------------------------------------
+# Check (f4): foreign PreToolUse hooks targeting the Agent/Task spawn tool
+# (DS-198)
+# ---------------------------------------------------------------------------
+
+
+def check_foreign_agent_hooks(doc: Doctor) -> None:
+    """FAIL for each enabled Claude Code plugin that registers a
+    PreToolUse hook on the Agent/Task subagent-spawn tools, in its OWN
+    packaged hooks/hooks.json - never in ~/.claude/settings.json, which
+    was measured to NOT carry plugin-registered hooks at all (a plugin's
+    hooks are wired at spawn time from its own manifest, not written into
+    settings.json). A hook of this shape can return {"action": "modify",
+    "updatedInput": ...} and silently rewrite the tool_input Claude Code
+    uses to launch a subagent, before it ever launches - the exact
+    mechanism DS-198 exists to detect (context-mode v1.0.103's
+    hooks/core/routing.mjs is the concrete instance that motivated this
+    check). Inspecting only plugin-packaged hooks.json files structurally
+    excludes DinoStack's own settings.json-registered hooks by
+    construction - no denylist needed.
+
+    Read-only: ds-doctor must never touch a third-party plugin's files,
+    and there is no --fix repair here (mirrors check_hook_scripts_exist's
+    FAIL-only, no-repair convention) - the fix is disabling/uninstalling
+    the plugin or confirming its hook cannot mutate tool_input.
+
+    A missing plugins directory or missing/unparseable
+    installed_plugins.json is a known clean-machine state, not drift:
+    OK, not FAIL. A malformed individual plugin's hooks.json is a WARN
+    and scanning continues with the remaining plugins - one bad file must
+    never abort the whole check (mirrors check_hooks_snapshot_staleness's
+    WARN-not-crash convention).
+    """
+    plugins_dir = _plugins_dir()
+    if not plugins_dir.is_dir():
+        doc.ok(
+            "foreign_agent_hook",
+            "no Claude Code plugins directory found - nothing to check",
+        )
+        return
+
+    settings_path = _settings_path()
+    enabled_plugins: list[str] = []
+    if settings_path.is_file():
+        try:
+            settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
+            enabled = settings_data.get("enabledPlugins") if isinstance(settings_data, dict) else None
+            if isinstance(enabled, dict):
+                enabled_plugins = [key for key, val in enabled.items() if val is True]
+        except Exception as exc:
+            doc.warn("foreign_agent_hook", f"could not parse {settings_path}: {exc}")
+
+    if not enabled_plugins:
+        doc.ok(
+            "foreign_agent_hook",
+            "no enabled plugin registers a PreToolUse hook on the Agent/Task tools",
+        )
+        return
+
+    installed_path = plugins_dir / "installed_plugins.json"
+    try:
+        installed_data = json.loads(installed_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        doc.warn("foreign_agent_hook", f"could not parse {installed_path}: {exc}")
+        return
+
+    plugins_map = installed_data.get("plugins") if isinstance(installed_data, dict) else None
+    if not isinstance(plugins_map, dict):
+        doc.warn("foreign_agent_hook", f"{installed_path}: unexpected schema, no 'plugins' dict")
+        return
+
+    found_any = False
+    seen_install_paths: set[str] = set()
+
+    for key in enabled_plugins:
+        entries = plugins_map.get(key)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            install_path_raw = entry.get("installPath")
+            if not isinstance(install_path_raw, str) or not install_path_raw:
+                continue
+            install_path = Path(os.path.realpath(os.path.expanduser(install_path_raw)))
+            dedupe_key = str(install_path)
+            if dedupe_key in seen_install_paths:
+                continue
+            seen_install_paths.add(dedupe_key)
+
+            hooks_json_path = install_path / "hooks" / "hooks.json"
+            if not hooks_json_path.is_file():
+                continue
+
+            try:
+                hooks_data = json.loads(hooks_json_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                doc.warn(
+                    "foreign_agent_hook",
+                    f"could not parse {hooks_json_path} for plugin '{key}': {exc}",
+                )
+                continue
+
+            pre_tool_use = hooks_data.get("PreToolUse") if isinstance(hooks_data, dict) else None
+            if not isinstance(pre_tool_use, list):
+                continue
+
+            for pre_entry in pre_tool_use:
+                if not isinstance(pre_entry, dict):
+                    continue
+                matcher = pre_entry.get("matcher", "")
+                if not isinstance(matcher, str):
+                    continue
+                if _matcher_covers_spawn_tool(matcher):
+                    found_any = True
+                    doc.fail(
+                        "foreign_agent_hook",
+                        f"plugin '{key}' registers a PreToolUse hook (matcher "
+                        f"'{matcher}') at {hooks_json_path} - this can silently "
+                        f"rewrite subagent (Task/Agent) spawn input before "
+                        f"Claude Code launches the subagent (DS-198). Disable or "
+                        f"uninstall the plugin, or confirm its hook cannot mutate "
+                        f"tool_input, before spawning subagents.",
+                    )
+
+    if not found_any:
+        doc.ok(
+            "foreign_agent_hook",
+            "no enabled plugin registers a PreToolUse hook on the Agent/Task tools",
+        )
+
+
 def check_cross_harness(doc: "Doctor") -> None:
     """Validate the cross-harness team stack: configs, harnesses, model handles."""
     at = _load_agentic_team_module()
@@ -1557,6 +1728,9 @@ def main() -> int:
 
     # (f3) installed dinostack output style currency (DS-171 round 4)
     check_output_style_staleness(doc)
+
+    # (f4) foreign PreToolUse hooks targeting the Agent/Task spawn tool (DS-198)
+    check_foreign_agent_hooks(doc)
 
     # (g) cross-harness team stack (opt-in via --cross-harness)
     if args.cross_harness:
