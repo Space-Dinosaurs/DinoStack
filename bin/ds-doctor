@@ -141,31 +141,43 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                WARN, not FAIL and never a silent OK (this check must never
                block the rest of doctor's findings, and must never report a
                check that did not run as confirmed current).
-               check_foreign_agent_hooks: missing ~/.claude/plugins dir ->
-               OK/no-op, not FAIL (a clean machine with no plugins
-               installed is a known state). Every other JSON document or
-               value this check reads (settings.json, its enabledPlugins
-               value, installed_plugins.json, its plugins map, a
-               per-plugin entry, an installPath, a hooks.json file, its
-               hooks/PreToolUse values, a PreToolUse entry, a matcher
-               value or its compiled regex) follows one rule: MISSING or
-               unconfirmable -> WARN, never OK and never FAIL; a value
-               that is PRESENT but the wrong JSON type or otherwise
-               unconfirmable is treated identically to missing, never
-               silently coerced to an empty/falsy default that could be
-               mistaken for "nothing here" (DS-198 round 5, Skeptic Major
-               1: an enabledPlugins value of the wrong type used to
-               collapse to an empty list indistinguishable from a
-               legitimately empty one, masking an actually-enabled
-               hazardous plugin as a false OK). A prerequisite the whole
-               scan depends on (settings.json, installed_plugins.json, the
-               top-level plugins map) failing this check makes the WHOLE
-               check return without a positive claim; a per-plugin or
-               per-entry failure WARNs and the scan continues with the
-               remaining plugins, never aborting the whole check on one
-               bad file - but never yields a bare OK for the run either
-               (see check_foreign_agent_hooks's own docstring for the
-               scan_incomplete mechanism that enforces this second half).
+               check_foreign_agent_hooks: MISSING is not governed by a
+               single rule - it varies deliberately by site (a missing
+               ~/.claude/plugins dir, a missing settings.json/enabledPlugins
+               key, or a plugin's missing hooks.json are each a known-clean
+               state -> OK; a missing installed_plugins.json, a missing
+               plugins-map entry for an enabled plugin, or a missing
+               installPath is unconfirmable -> WARN; a missing matcher key
+               is treated as match-all by design -> can FAIL. See
+               check_foreign_agent_hooks's own docstring for the exact
+               per-site MISSING treatment; do not infer one from this
+               module docstring). What IS a single, exceptionless rule:
+               every JSON value this check reads that is PRESENT but the
+               wrong JSON type or otherwise unconfirmable (settings_data,
+               enabledPlugins, an enabledPlugins entry's value,
+               installed_data, its plugins map, a per-plugin entry, an
+               installPath, hooks_data, its hooks/PreToolUse values, a
+               PreToolUse entry, a matcher value, or a matcher that raises
+               when compiled/evaluated as a regex) -> WARN, never OK and
+               never FAIL - it is never silently coerced to an
+               empty/falsy default that could be mistaken for "nothing
+               here" (DS-198 round 5, Skeptic Major 1; round 6, Skeptic
+               Major 1: this closed first for wrong-typed CONTAINERS,
+               then for a wrong-typed VALUE inside an otherwise
+               well-typed enabledPlugins object - an enabledPlugins entry
+               value of the wrong type used to collapse via `val is True`
+               into "disabled", indistinguishable from a legitimately
+               disabled plugin, masking an actually-enabled hazardous
+               plugin as a false OK). A prerequisite the whole scan
+               depends on (settings.json, installed_plugins.json, the
+               top-level plugins map) failing this present-but-wrong-typed
+               check makes the WHOLE check return without a positive
+               claim; a per-plugin or per-entry failure WARNs and the scan
+               continues with the remaining plugins, never aborting the
+               whole check on one bad file - but never yields a bare OK
+               for the run either (see check_foreign_agent_hooks's own
+               docstring for the scan_incomplete mechanism that enforces
+               this second half).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -1658,6 +1670,34 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
             )
             return
         if isinstance(enabled, dict):
+            # DS-198 round 6, Skeptic Major 1: a wrong-typed VALUE inside an
+            # otherwise well-typed enabledPlugins object (e.g. `1`, "true",
+            # a nested object) must not be silently coerced by `val is
+            # True`'s strict identity check into "disabled" - under JS
+            # `if (enabled)` truthiness semantics (which Claude Code's own
+            # settings consumer is far more likely to use than Python's
+            # `is True`), a truthy non-boolean value like `1` or "true"
+            # means ENABLED, so collapsing it to "not True" here would
+            # under-detect an actually-enabled hazardous plugin as a false
+            # OK - the exact class round 5 closed for the CONTAINER
+            # (settings_data, enabledPlugins) but left open for values
+            # inside it. Any non-boolean value is unconfirmable and aborts
+            # the whole check (WARN, never OK), the same treatment as a
+            # non-dict enabledPlugins above - it is not scanned as "one bad
+            # plugin among others" because at this point enabled_plugins
+            # has not been computed yet and there is no partial-list
+            # concept to fall back to.
+            non_bool_keys = sorted(
+                key for key, val in enabled.items() if not isinstance(val, bool)
+            )
+            if non_bool_keys:
+                doc.warn(
+                    "foreign_agent_hook",
+                    f"{settings_path}: 'enabledPlugins' has non-boolean "
+                    f"value(s) for {', '.join(non_bool_keys)} - could not "
+                    "confirm which plugins are enabled",
+                )
+                return
             enabled_plugins = [key for key, val in enabled.items() if val is True]
 
     if not enabled_plugins:
@@ -1841,10 +1881,16 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 # DS-198 round 5, Skeptic Minor 3 reconsidered this and
                 # recommended the opposite (UNCONFIRMABLE/WARN) on the
                 # grounds that "matcher": null's PreToolUse semantics are
-                # unverified - vercel 0.45.1 was observed shipping
-                # "matcher": null only on SessionEnd, an event with no
-                # tool-name matching at all, so that observation says
-                # nothing about PreToolUse specifically. Kept as match-all
+                # UNOBSERVED - no real hooks.json on file has been checked
+                # for a "matcher": null entry on any event, PreToolUse or
+                # otherwise (a prior version of this comment cited a
+                # specific vercel-plugin observation that does not exist
+                # in that plugin's actual hooks.json - DS-198 round 6,
+                # Skeptic Minor 5 - do not restate that citation). What
+                # would settle this: install a throwaway plugin with
+                # {"PreToolUse": [{"matcher": null, "hooks": [{"command":
+                # "..."}]}]}, run any tool, and observe whether the hook
+                # fires. Kept as match-all
                 # after weighing it: this function's own docstring already
                 # resolves an identically-unverified choice (re.search vs.
                 # match/fullmatch) in favor of the conservative,
@@ -1906,7 +1952,8 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                     doc.fail(
                         "foreign_agent_hook",
                         f"plugin '{key}' registers a PreToolUse hook (matcher "
-                        f"'{matcher}') at {hooks_json_path} - this can silently "
+                        f"'{_truncate_for_message(matcher)}') at {hooks_json_path} "
+                        f"- this can silently "
                         f"rewrite subagent (Task/Agent) spawn input before "
                         f"Claude Code launches the subagent (DS-198). Disable or "
                         f"uninstall the plugin, or confirm its hook cannot mutate "

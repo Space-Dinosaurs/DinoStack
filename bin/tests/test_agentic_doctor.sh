@@ -1919,11 +1919,18 @@ else
 fi
 
 # T21q: enabledPlugins filtering must compare `val is True` - a plugin
-# whose enabledPlugins value is the STRING "true" (truthy in many
-# languages, but not Python `is True`) or JSON `false` must NOT be
-# scanned (DS-198 round 3, Skeptic Minor 8 - previously un-reddenable;
-# scanning a disabled plugin would be a false positive with no test
-# objecting).
+# whose enabledPlugins value is JSON `false` must NOT be scanned (DS-198
+# round 3, Skeptic Minor 8 - previously un-reddenable; scanning a
+# disabled plugin would be a false positive with no test objecting).
+#
+# DS-198 round 6, Skeptic Major 1 superseded this test's original STRING
+# "true" fixture: a truthy non-boolean value (a string, an int, ...) is
+# now WARN/unconfirmable, never a silent "not scanned, report clean" OK -
+# under JS `if (enabled)` truthiness semantics the string "true" means
+# ENABLED, so treating it identically to a legitimately disabled plugin
+# would be the exact under-detection Major 1 closed. See T21y3 for the
+# WARN-path regression test on that value; this test now exercises the
+# ONE value that is unambiguously boolean-false and must stay a clean OK.
 DISABLED_PLUGIN_DIR="$T21_HOME/plugin-installs/disabled"
 mkdir -p "$DISABLED_PLUGIN_DIR/hooks"
 cat > "$DISABLED_PLUGIN_DIR/hooks/hooks.json" <<EOF
@@ -1945,16 +1952,16 @@ cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
 EOF
 cat > "$T21_HOME/.claude/settings.json" <<EOF
 {
-  "enabledPlugins": {"disabled@mkt": "true"}
+  "enabledPlugins": {"disabled@mkt": false}
 }
 EOF
 t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
-  _pass "T21q foreign_agent_hook: enabledPlugins value that is not JSON boolean true is never scanned"
+  _pass "T21q foreign_agent_hook: enabledPlugins value of JSON false is never scanned"
 else
-  _fail "T21q foreign_agent_hook: a non-'is True' enabledPlugins value should not be scanned, exit 0\nrc=$RC\n$OUT"
+  _fail "T21q foreign_agent_hook: a JSON-false enabledPlugins value should not be scanned, exit 0\nrc=$RC\n$OUT"
 fi
 
 # T21r: installPath dedupe - the same resolved installPath appearing
@@ -2484,6 +2491,47 @@ else
   _fail "T21y2 foreign_agent_hook: non-dict settings.json should WARN, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
 fi
 
+# T21y3: an enabledPlugins ENTRY whose value is a truthy non-boolean (the
+# integer 1) - the same false-clean-OK defect as T21y, one level deeper
+# (the CONTAINER is well-typed here; only a single VALUE inside it is
+# wrong-typed). Under JS `if (enabled)` truthiness semantics, `1` means
+# ENABLED, so `val is True`'s strict identity check silently coercing it
+# to "disabled" is a real under-detection, not a harmless edge case
+# (DS-198 round 6, Skeptic Major 1). Prior to the fix this printed
+# "OK ... no plugins enabled" with the hazard fully installed and enabled.
+Y3_PLUGIN_DIR="$T21_HOME/plugin-installs/wrongtypevalue"
+mkdir -p "$Y3_PLUGIN_DIR/hooks"
+cat > "$Y3_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "wrongtypevalue@mkt": [{"installPath": "$Y3_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<'EOF'
+{"enabledPlugins": {"wrongtypevalue@mkt": 1}}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*enabledPlugins.*non-boolean.*wrongtypevalue@mkt" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && [[ "$RC" == "0" ]]; then
+  _pass "T21y3 foreign_agent_hook: truthy non-boolean enabledPlugins VALUE WARNs, never a masked 'no plugins enabled' OK"
+else
+  _fail "T21y3 foreign_agent_hook: non-boolean enabledPlugins value (1) should WARN naming wrongtypevalue@mkt, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+fi
+
 # T21z: a matcher whose repetition count overflows the regex engine's
 # internal counters (re.compile raises OverflowError, NOT re.error or
 # RecursionError) must not escape check_foreign_agent_hooks and abort
@@ -2536,6 +2584,52 @@ if python3 -c "import json,sys; json.loads(sys.argv[1])" "$OUT" >/dev/null 2>&1 
   _pass "T21z2 foreign_agent_hook: OverflowError matcher still emits well-formed --json output"
 else
   _fail "T21z2 foreign_agent_hook: OverflowError matcher should still emit well-formed --json output naming overflowbomb@mkt\nrc=$RC\n$OUT"
+fi
+
+# T21z3: a hazardous (Agent/Task-covering) matcher that is ALSO
+# pathologically long must have its doc.fail() echo truncated the same
+# as a doc.warn() echo - _truncate_for_message's docstring claims it
+# guards BOTH doc.warn() AND doc.fail() messages, but until DS-198 round
+# 6 (Skeptic Minor 3) the FAIL branch's matcher echo was untruncated, so
+# an adversarial plugin could balloon a single FAIL line to ~10 KB. This
+# is also the reddening regression test for _truncate_for_message itself
+# (DS-198 round 6, Skeptic Minor 4): neutering _truncate_for_message to
+# return its input unchanged must redden this test.
+Z3_PLUGIN_DIR="$T21_HOME/plugin-installs/longmatcherfail"
+mkdir -p "$Z3_PLUGIN_DIR/hooks"
+python3 - "$Z3_PLUGIN_DIR/hooks/hooks.json" <<'PYEOF'
+import json
+import sys
+
+matcher = "(?:Agent|" + "z" * 10000 + ")"
+doc = {"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": [{"command": "node routing.mjs"}]}]}}
+with open(sys.argv[1], "w") as f:
+    json.dump(doc, f)
+PYEOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "longmatcherfail@mkt": [{"installPath": "$Z3_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"longmatcherfail@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+FAIL_LINE=$(echo "$OUT" | grep "^FAIL foreign_agent_hook:.*longmatcherfail@mkt" || true)
+if [[ -n "$FAIL_LINE" ]] \
+   && echo "$FAIL_LINE" | grep -q "more chars, truncated" \
+   && [[ "${#FAIL_LINE}" -lt 1000 ]] \
+   && [[ "$RC" == "1" ]]; then
+  _pass "T21z3 foreign_agent_hook: FAIL message truncates a pathologically long hazardous matcher"
+else
+  _fail "T21z3 foreign_agent_hook: FAIL message for a 10,000-char hazardous matcher should be truncated (naming longmatcherfail@mkt), exit 1\nrc=$RC\n$OUT"
 fi
 
 rm -rf "$T21_HOME"
