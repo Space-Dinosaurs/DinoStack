@@ -70,8 +70,15 @@ Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             or dry-run mode), 2 (--fix ran but one or more items could not be
             fixed).
 
-Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
-               shutil, subprocess, sys, tempfile). Reads
+Upstream deps: Python 3 stdlib (argparse, json, os, pathlib, re, shutil,
+               subprocess, sys, tempfile at module scope; glob,
+               importlib.machinery, importlib.util imported function-local
+               by --cross-harness support code), plus one OPTIONAL
+               third-party import - yaml - imported function-local and
+               guarded by a try/except so its absence degrades to a WARN
+               rather than an ImportError (--cross-harness team.yml
+               parsing only; every other check runs with zero third-party
+               deps). Reads
                ~/.agentic/agentic-engineering-config.json
                (repo_dir source), ~/.claude/settings.json (hook
                inspection/repair), ~/.claude/agents/, ~/.claude/commands/,
@@ -136,18 +143,29 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                check that did not run as confirmed current).
                check_foreign_agent_hooks: missing ~/.claude/plugins dir ->
                OK/no-op, not FAIL (a clean machine with no plugins
-               installed is a known state); missing/unparseable
-               installed_plugins.json -> WARN, not OK and not FAIL (the
-               check could not establish which plugins are actually
-               installed, so it must not claim clean); a malformed
-               individual plugin's hooks.json, a plugins-map entry whose
-               value isn't a list, or a top-level "hooks" key whose value
-               isn't an object -> WARN and the scan continues with the
+               installed is a known state). Every other JSON document or
+               value this check reads (settings.json, its enabledPlugins
+               value, installed_plugins.json, its plugins map, a
+               per-plugin entry, an installPath, a hooks.json file, its
+               hooks/PreToolUse values, a PreToolUse entry, a matcher
+               value or its compiled regex) follows one rule: MISSING or
+               unconfirmable -> WARN, never OK and never FAIL; a value
+               that is PRESENT but the wrong JSON type or otherwise
+               unconfirmable is treated identically to missing, never
+               silently coerced to an empty/falsy default that could be
+               mistaken for "nothing here" (DS-198 round 5, Skeptic Major
+               1: an enabledPlugins value of the wrong type used to
+               collapse to an empty list indistinguishable from a
+               legitimately empty one, masking an actually-enabled
+               hazardous plugin as a false OK). A prerequisite the whole
+               scan depends on (settings.json, installed_plugins.json, the
+               top-level plugins map) failing this check makes the WHOLE
+               check return without a positive claim; a per-plugin or
+               per-entry failure WARNs and the scan continues with the
                remaining plugins, never aborting the whole check on one
-               bad file; an unparseable settings.json -> WARN and the
-               check RETURNS without a positive claim (it must never
-               report OK when it could not establish enabledPlugins at
-               all).
+               bad file - but never yields a bare OK for the run either
+               (see check_foreign_agent_hooks's own docstring for the
+               scan_incomplete mechanism that enforces this second half).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -215,6 +233,24 @@ def _plugins_dir() -> Path:
     return _settings_path().parent / "plugins"
 
 
+_UNTRUSTED_VALUE_ECHO_LIMIT = 200
+
+
+def _truncate_for_message(value: str, limit: int = _UNTRUSTED_VALUE_ECHO_LIMIT) -> str:
+    """Bound an untrusted third-party value (a plugin-supplied matcher
+    string, etc.) before it is echoed into a doc.warn()/doc.fail() message.
+    A malformed or adversarial plugin can ship an arbitrarily long value
+    (T21x's fixture is 10,001 characters) - printing it in full bloats
+    both plain-text and --json output without adding diagnostic value
+    past the first `limit` characters. Returns the value unchanged when
+    it is already within the limit; otherwise appends an explicit elision
+    marker naming how many characters were cut, so a truncated message is
+    never mistaken for the value's full, untruncated content."""
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}...<+{len(value) - limit} more chars, truncated>"
+
+
 def _matcher_covers_spawn_tool(matcher: str) -> bool:
     """True if a PreToolUse hook matcher string covers the Agent or Task
     subagent-spawn tools (DS-198).
@@ -247,20 +283,34 @@ def _matcher_covers_spawn_tool(matcher: str) -> bool:
     they would need to be found inside) correctly do NOT match - see
     T21g's fixture, which pins this non-substring direction.
 
-    A matcher that fails to compile as a regex (a plugin author's typo,
-    e.g. an unbalanced "(", or a pathologically nested pattern that
-    overflows Python's recursion limit) is NOT resolved by this
-    predicate - re.error and RecursionError both propagate to the
-    caller uncaught (DS-198 round 4, Skeptic Major 1: a prior
-    "|"-split token-comparison fallback silently returned False - a
-    confirmed-clean signal - for any uncompilable matcher that did not
-    happen to contain a bare "Agent"/"Task" pipe-token, e.g. "(Agent",
-    "[Agent", "Agent)$[", "(?P<", contradicting this module's own
-    "never report OK when a check could not run" invariant). The caller
-    treats an uncompilable matcher as UNCONFIRMABLE, the same
-    WARN-and-skip treatment as every other malformed-schema shape this
-    check encounters, rather than guessing True or False for a value it
-    cannot actually inspect.
+    A matcher that fails to compile or evaluate as a regex (a plugin
+    author's typo, e.g. an unbalanced "(", a pathologically nested
+    pattern that overflows Python's recursion limit, or a repetition
+    count too large for the regex engine's internal counters, e.g.
+    "Agent{4294967296}") is NOT resolved by this predicate - ANY
+    exception raised by re.compile()/Pattern.search() propagates to the
+    caller uncaught, by design: this is untrusted third-party plugin
+    input, and the regex engine's own exception surface for malformed or
+    pathological patterns is not a fixed, enumerable set (re.error and
+    RecursionError were the first two instances found; OverflowError -
+    "the repetition number is too large" - is a third, found only
+    because a plausible typo like "Agent{4294967296}" was tried; there
+    is no reason to believe these three exhaust the set). DS-198 round 4,
+    Skeptic Major 1: a prior "|"-split token-comparison fallback silently
+    returned False - a confirmed-clean signal - for any uncompilable
+    matcher that did not happen to contain a bare "Agent"/"Task"
+    pipe-token, e.g. "(Agent", "[Agent", "Agent)$[", "(?P<",
+    contradicting this module's own "never report OK when a check could
+    not run" invariant. DS-198 round 5, Skeptic Major 2: a ban-list of
+    two named exception types (re.error, RecursionError) at the CALLER's
+    except clause let a third, OverflowError, escape uncaught and abort
+    the entire ds-doctor run - the caller now catches by CLASS (any
+    exception from this call) rather than maintaining a list of named
+    exception types for input this function does not control. The caller
+    treats ANY exception here as UNCONFIRMABLE, the same WARN-and-skip
+    treatment as every other malformed-schema shape this check
+    encounters, rather than guessing True or False for a value it cannot
+    actually inspect.
     """
     if matcher in ("", "*"):
         return True
@@ -1525,17 +1575,27 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     the plugin or confirming its hook cannot mutate tool_input.
 
     A missing plugins directory is a known clean-machine state, not
-    drift: OK, not FAIL. A missing or unparseable installed_plugins.json
-    is a WARN, not OK and not FAIL - the check could not establish which
-    plugins are actually installed, so it must not claim clean. A
-    malformed individual plugin's hooks.json, a per-plugin
-    installed_plugins.json entry that isn't a list, a top-level "hooks"
-    key whose value isn't an object, a matcher of the wrong JSON type, or
-    a matcher that cannot be evaluated as a regex, is also a WARN and
-    scanning continues with the remaining plugins (or, for an unparseable
-    settings.json, the whole check aborts without a positive claim) - a
-    check that could not run must never report OK. If ANY enabled plugin
-    (or any single entry belonging to it) hits one of those WARN-and-skip
+    drift: OK, not FAIL. Every other value this function reads and could
+    not confirm - whether MISSING (installed_plugins.json absent, a
+    plugins-map entry absent) or PRESENT but the wrong JSON type or
+    otherwise unconfirmable (a non-dict settings_data or enabledPlugins,
+    a plugins-map entry that isn't a list, a top-level "hooks" key or
+    PreToolUse value of the wrong type, a matcher of the wrong JSON type,
+    or a matcher that raises when compiled/evaluated as a regex) - is a
+    WARN, never OK and never FAIL: a check that could not confirm a fact
+    must never assert that fact is clean, and "present but wrong-typed"
+    gets the identical treatment as "absent" rather than being silently
+    coerced into whatever falsy default would make it look like the
+    normal empty case (DS-198 round 5, Skeptic Major 1 + Major 2 close
+    this as a class rather than as two newly-enumerated instances - do
+    not extend this docstring with a new named shape each time one is
+    found; the invariant above already covers it). A per-plugin or
+    per-entry WARN lets scanning continue with the remaining plugins; a
+    WARN on a whole-run prerequisite (settings.json, installed_plugins.json,
+    the top-level plugins map) makes the whole check abort without a
+    positive claim - a check that could not run must never report OK. If
+    ANY enabled plugin (or any single entry belonging to it) hits one of
+    those WARN-and-skip
     branches, the final summary is ALSO a WARN ("could not fully check
     all of them") for the WHOLE run - not only when every plugin hits
     one - never the OK("scanned N, none register...") claim that would
@@ -1567,12 +1627,38 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     if settings_path.is_file():
         try:
             settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
-            enabled = settings_data.get("enabledPlugins") if isinstance(settings_data, dict) else None
-            if isinstance(enabled, dict):
-                enabled_plugins = [key for key, val in enabled.items() if val is True]
         except Exception as exc:
             doc.warn("foreign_agent_hook", f"could not parse {settings_path}: {exc}")
             return
+        # DS-198 round 5, Skeptic Major 1: a value read from JSON whose
+        # TYPE does not match what the code expects must WARN, not be
+        # silently coerced to an empty/falsy default that the "nothing
+        # enabled" OK-path below cannot distinguish from a genuinely
+        # empty or absent enabledPlugins. This is a general class, not
+        # two special-cased shapes: ANY present-but-wrong-typed value in
+        # this parse (a non-dict top-level settings_data, or an
+        # enabledPlugins key present but not itself an object - a list,
+        # a string, a number, ...) is unconfirmable and must not collapse
+        # into the same "no plugins enabled" claim a legitimately absent
+        # or empty enabledPlugins produces. Only a MISSING enabledPlugins
+        # key (enabled is None) is the legitimate "nothing to scan" case.
+        if not isinstance(settings_data, dict):
+            doc.warn(
+                "foreign_agent_hook",
+                f"{settings_path}: unexpected schema (not a JSON object) "
+                "- could not determine enabledPlugins",
+            )
+            return
+        enabled = settings_data.get("enabledPlugins")
+        if enabled is not None and not isinstance(enabled, dict):
+            doc.warn(
+                "foreign_agent_hook",
+                f"{settings_path}: 'enabledPlugins' is present but not an "
+                "object - could not determine which plugins are enabled",
+            )
+            return
+        if isinstance(enabled, dict):
+            enabled_plugins = [key for key, val in enabled.items() if val is True]
 
     if not enabled_plugins:
         doc.ok(
@@ -1751,6 +1837,33 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 # cannot evaluate, not an implicit match-all - it is
                 # UNCONFIRMABLE, same treatment as an uncompilable regex
                 # below.
+                #
+                # DS-198 round 5, Skeptic Minor 3 reconsidered this and
+                # recommended the opposite (UNCONFIRMABLE/WARN) on the
+                # grounds that "matcher": null's PreToolUse semantics are
+                # unverified - vercel 0.45.1 was observed shipping
+                # "matcher": null only on SessionEnd, an event with no
+                # tool-name matching at all, so that observation says
+                # nothing about PreToolUse specifically. Kept as match-all
+                # after weighing it: this function's own docstring already
+                # resolves an identically-unverified choice (re.search vs.
+                # match/fullmatch) in favor of the conservative,
+                # least-likely-to-under-detect option, and a JS-hosted
+                # hook-matching implementation (Claude Code itself) is far
+                # more likely to test a matcher value with a bare falsy
+                # check (`if (!hook.matcher) matchAll = true`) - under
+                # which `null` and an omitted key are indistinguishable -
+                # than to special-case `null` into a narrower semantics
+                # unsupported by the missing-key case. Treating null as
+                # UNCONFIRMABLE here would be the one place in this
+                # function where an ambiguous match-all-shaped value is
+                # resolved AWAY from the conservative reading, for a
+                # security check whose whole purpose is to not
+                # under-detect. If a future observation shows Claude Code
+                # actually treats "matcher": null as "match nothing" on
+                # PreToolUse, revisit this - T21p2 pins the current
+                # (match-all/FAIL) behavior and must be updated alongside
+                # any such change.
                 if matcher is None:
                     matcher = ""
                 if not isinstance(matcher, str):
@@ -1758,27 +1871,33 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                         "foreign_agent_hook",
                         f"{hooks_json_path}: plugin '{key}' PreToolUse "
                         f"entry has a non-string 'matcher' value "
-                        f"({matcher!r}) - could not confirm this hook "
-                        "does not cover Agent/Task, skipping",
+                        f"({_truncate_for_message(repr(matcher))}) - could "
+                        "not confirm this hook does not cover Agent/Task, "
+                        "skipping",
                     )
                     scan_incomplete = True
                     continue
                 try:
                     covers = _matcher_covers_spawn_tool(matcher)
-                except (re.error, RecursionError) as exc:
-                    # DS-198 round 4, Skeptic Major 1 + Minor 8: an
-                    # uninspectable matcher (fails to compile, or a
-                    # pathologically nested pattern that overflows the
-                    # regex engine's recursion limit) must never yield a
-                    # positive OK - WARN and mark the scan incomplete
-                    # rather than guessing, and never let the exception
-                    # escape and abort the whole ds-doctor run.
+                except Exception as exc:
+                    # DS-198 round 4, Skeptic Major 1 + Minor 8; round 5,
+                    # Skeptic Major 2: an uninspectable matcher (fails to
+                    # compile for ANY reason - re.error, RecursionError,
+                    # OverflowError, or any other exception the regex
+                    # engine can raise on untrusted third-party input; see
+                    # _matcher_covers_spawn_tool's docstring for why this
+                    # is caught by class rather than by an enumerated
+                    # exception-type ban-list) must never yield a positive
+                    # OK - WARN and mark the scan incomplete rather than
+                    # guessing, and never let the exception escape and
+                    # abort the whole ds-doctor run.
                     doc.warn(
                         "foreign_agent_hook",
                         f"{hooks_json_path}: plugin '{key}' PreToolUse "
-                        f"matcher '{matcher}' could not be evaluated as a "
-                        f"regex ({exc}) - could not confirm this hook "
-                        "does not cover Agent/Task, skipping",
+                        f"matcher '{_truncate_for_message(matcher)}' could "
+                        f"not be evaluated as a regex ({exc}) - could not "
+                        "confirm this hook does not cover Agent/Task, "
+                        "skipping",
                     )
                     scan_incomplete = True
                     continue

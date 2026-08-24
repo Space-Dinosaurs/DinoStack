@@ -874,11 +874,16 @@ def _run_doctor(repo_dir: Path) -> int:
     <repo_dir>/.git/hooks - all resolved via _load_repo_dir()/_home(), which
     read ~/.agentic/agentic-engineering-config.json and $HOME, never cwd) are
     HOME- or config-derived and are not cwd-sensitive today. The sole
-    cwd-dependent read in ds-doctor is the optional role-models.yml probe at
-    bin/ds-doctor:947 (_os.getcwd()), which only fires under --cross-harness
-    (ds-update never passes it) and is read-only (doc.ok/doc.fail/doc.warn,
-    no writes) - this pin is what scopes that probe correctly if
-    --cross-harness is ever wired through in the future.
+    cwd-dependent read in ds-doctor is the optional role-models.yml probe
+    inside check_cross_harness's role-models.yml lookup (_os.getcwd()),
+    which only fires under --cross-harness (ds-update never passes it)
+    and is read-only (doc.ok/doc.fail/doc.warn, no writes) - this pin is
+    what scopes that probe correctly if --cross-harness is ever wired
+    through in the future. Deliberately named by function/behavior, not
+    by line number: a prior line-number citation here (bin/ds-doctor:947,
+    later found stale at 1851, DS-198 round 5 Skeptic Minor 9) went stale
+    twice as unrelated edits shifted the target file - grep for
+    "_os.getcwd()" in bin/ds-doctor if you need the exact site.
     """
     try:
         result = subprocess.run(

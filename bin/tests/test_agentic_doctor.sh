@@ -2128,6 +2128,35 @@ else
   _fail "T21t4 foreign_agent_hook: missing 'installPath' should WARN naming noinstallpath@mkt, never OK, exit 0\nrc=$RC\n$OUT"
 fi
 
+# T21t4b: an entry whose 'installPath' key is PRESENT but is an empty
+# string must also WARN, never be silently skipped - the empty-string
+# sub-clause of `not isinstance(install_path_raw, str) or not
+# install_path_raw` is distinct from the missing-key case T21t4 covers
+# and had no fixture of its own (DS-198 round 5, Skeptic Minor 6).
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "emptyinstallpath@mkt": [{"installPath": "", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"emptyinstallpath@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^WARN foreign_agent_hook:.*emptyinstallpath@mkt" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*none register" \
+   && [[ "$RC" == "0" ]]; then
+  _pass "T21t4b foreign_agent_hook: empty-string 'installPath' WARNs, never OK"
+else
+  _fail "T21t4b foreign_agent_hook: empty-string 'installPath' should WARN naming emptyinstallpath@mkt, never OK, exit 0\nrc=$RC\n$OUT"
+fi
+
 # T21t5: a PRESENT "PreToolUse" key whose value is not a list (malformed,
 # distinct from an ABSENT key which is the normal no-PreToolUse-hooks
 # case and must stay silent) must WARN (DS-198 round 4, Skeptic Minor 3).
@@ -2397,6 +2426,116 @@ if echo "$OUT" | grep -qE "^WARN foreign_agent_hook:.*recursionbomb@mkt" \
   _pass "T21x foreign_agent_hook: RecursionError from a pathological matcher WARNs, never crashes"
 else
   _fail "T21x foreign_agent_hook: pathological matcher should WARN naming recursionbomb@mkt, never crash or OK, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21y: an enabledPlugins value of the wrong JSON type (a list, not an
+# object) must WARN, never silently collapse to "no plugins enabled" -
+# an enabled, hazardous plugin exists in installed_plugins.json but the
+# check could not confirm which plugins are enabled at all (DS-198
+# round 5, Skeptic Major 1). This is the false-positive-OK repro: prior
+# to the fix this printed "OK ... no plugins enabled" with the hazard
+# fully installed and enabled.
+Y_PLUGIN_DIR="$T21_HOME/plugin-installs/wrongtypeenabled"
+mkdir -p "$Y_PLUGIN_DIR/hooks"
+cat > "$Y_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "wrongtypeenabled@mkt": [{"installPath": "$Y_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<'EOF'
+{"enabledPlugins": ["wrongtypeenabled@mkt"]}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*enabledPlugins.*not an object" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && [[ "$RC" == "0" ]]; then
+  _pass "T21y foreign_agent_hook: list-typed enabledPlugins WARNs, never a masked 'no plugins enabled' OK"
+else
+  _fail "T21y foreign_agent_hook: list-typed enabledPlugins should WARN, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21y2: same defect, non-dict top-level settings.json (a JSON array
+# instead of an object) - the OTHER half of Major 1's fix.
+cat > "$T21_HOME/.claude/settings.json" <<'EOF'
+["not", "an", "object"]
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*unexpected schema" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && [[ "$RC" == "0" ]]; then
+  _pass "T21y2 foreign_agent_hook: non-dict top-level settings.json WARNs, never a masked OK"
+else
+  _fail "T21y2 foreign_agent_hook: non-dict settings.json should WARN, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21z: a matcher whose repetition count overflows the regex engine's
+# internal counters (re.compile raises OverflowError, NOT re.error or
+# RecursionError) must not escape check_foreign_agent_hooks and abort
+# the whole ds-doctor run (DS-198 round 5, Skeptic Major 2). Prior to
+# the fix this produced an uncaught traceback and a nonzero exit with
+# zero JSON output.
+Z_PLUGIN_DIR="$T21_HOME/plugin-installs/overflowbomb"
+mkdir -p "$Z_PLUGIN_DIR/hooks"
+cat > "$Z_PLUGIN_DIR/hooks/hooks.json" <<'EOF'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent{4294967296}", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "overflowbomb@mkt": [{"installPath": "$Z_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"overflowbomb@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^WARN foreign_agent_hook:.*overflowbomb@mkt" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*none register" \
+   && ! echo "$OUT" | grep -qi "Traceback" \
+   && [[ "$RC" == "0" ]]; then
+  _pass "T21z foreign_agent_hook: OverflowError from a repetition-count matcher WARNs, never crashes"
+else
+  _fail "T21z foreign_agent_hook: OverflowError matcher should WARN naming overflowbomb@mkt, never crash or OK, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21z2: the same OverflowError fixture, but confirming --json mode still
+# emits well-formed JSON rather than zero bytes plus an uncaught traceback.
+t21_invoke --json
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if python3 -c "import json,sys; json.loads(sys.argv[1])" "$OUT" >/dev/null 2>&1 \
+   && echo "$OUT" | grep -q "overflowbomb@mkt"; then
+  _pass "T21z2 foreign_agent_hook: OverflowError matcher still emits well-formed --json output"
+else
+  _fail "T21z2 foreign_agent_hook: OverflowError matcher should still emit well-formed --json output naming overflowbomb@mkt\nrc=$RC\n$OUT"
 fi
 
 rm -rf "$T21_HOME"
