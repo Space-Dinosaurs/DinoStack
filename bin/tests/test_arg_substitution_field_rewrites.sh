@@ -26,9 +26,22 @@ note_fail() {
   FAIL=1
 }
 
+# assert_eq: compares old-form vs new-form output. Fails loudly (rather than
+# silently passing) if BOTH sides are empty, unless the caller passes
+# "allow-empty" as a 4th argument - a broken fixture (e.g. a renamed key the
+# awk pattern no longer matches) produces old=[] new=[] and must not read as
+# agreement. Every fixture in this file expects non-empty output (even the
+# empty-input numstat case below prints "0" via `END {print s+0}`), so
+# allow-empty is not currently used by any call site - it exists so a future
+# genuinely-empty-on-both-sides fixture can opt in explicitly rather than
+# this guard being loosened for everyone.
 assert_eq() {
-  local label="$1" old="$2" new="$3"
+  local label="$1" old="$2" new="$3" mode="${4:-}"
   echo "$label: old=[$old] new=[$new]"
+  if [ "$mode" != "allow-empty" ] && [ -z "$old" ] && [ -z "$new" ]; then
+    note_fail "$label: both old-form and new-form output are empty - the fixture likely no longer matches the awk pattern (this assertion would pass vacuously otherwise)"
+    return
+  fi
   if [ "$old" != "$new" ]; then
     note_fail "$label: old-form and new-form output diverge"
   fi

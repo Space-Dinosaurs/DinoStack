@@ -20,7 +20,18 @@ Failure modes: never mutates any file - read-only scan, stdout/stderr
                file-discovery set. Exit 2 on an unrecognized
                (unclassifiable) fence line or an unterminated fence
                block, so the parser fails loudly rather than silently
-               desynchronizing open/closed state.
+               desynchronizing open/closed state. SCAN_LANGS is an
+               allowlist ("", "bash", "sh", "shell", "zsh") that fails
+               OPEN by design for any other fence tag: an executable
+               fence under some tag not in this set (or a tag this repo
+               doesn't currently use, e.g. a hypothetical future
+               harness-recognized shell dialect) is silently unscanned -
+               this is the gate's own residual blind spot, of the exact
+               defect class it polices. Deliberately excludes "console"
+               and "shell-session" - those conventionally hold captured
+               terminal output where a bare token can legitimately
+               appear as literal transcript text, and scanning them
+               would introduce false positives.
 """
 
 import glob
@@ -30,7 +41,7 @@ import sys
 FENCE_RE = re.compile(r'^(?:> )?[ \t]*```([A-Za-z0-9_+-]*)[ \t]*$')
 PARTIAL_FENCE_RE = re.compile(r'^(?:> )?[ \t]*`{3,}')
 TOKEN_RE = re.compile(r'\$(?:[0-9]|ARGUMENTS\b)')
-SCAN_LANGS = {"", "bash", "sh"}
+SCAN_LANGS = {"", "bash", "sh", "shell", "zsh"}
 
 
 def scan_file(path):

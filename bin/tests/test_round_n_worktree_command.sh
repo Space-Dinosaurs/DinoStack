@@ -41,12 +41,15 @@
 #              awk field-selector syntax (`$0=="branch "b`), turning the
 #              guard into a comparison that is never true. Replaced with a
 #              pure-bash while/case scan (EXISTING_WT/_wt_path). Scenario 3
-#              is rewritten to reproduce the new bash construct verbatim;
-#              scenario 3b pins prefix-safety (a branch name that is a
-#              prefix of another must not false-match); scenario 3c pins
-#              glob-metacharacter literal-safety (a branch name containing
-#              `*` must match only its literal counterpart in the
-#              double-quoted case pattern). `check_prose_wiring()`'s single
+#              is rewritten to reproduce the new bash construct verbatim, via
+#              a single `bash_reuse_guard_parse()` function that scenarios 3,
+#              3b, and 3c ALL call - there is exactly one parser in this
+#              file, not a test-local copy per scenario; scenario 3b pins
+#              prefix-safety (a branch name that is a prefix of another must
+#              not false-match); scenario 3c pins glob-metacharacter
+#              literal-safety (a branch name containing `*` must match only
+#              its literal counterpart in the double-quoted case pattern).
+#              `check_prose_wiring()`'s single
 #              awk-literal assertion is replaced with three assertions
 #              pinning the bash form's existence, path extraction, and
 #              EXISTING_WT assignment separately - see the inline comment at
@@ -303,12 +306,15 @@ if [ "${already_checked_out:-0}" -lt 1 ]; then
   note_fail "scenario 2: worktree add's failure message did not match either known wording (checked out / used by worktree) - a THIRD wording may exist; investigate before accepting"
 fi
 
-# bash_reuse_guard: reproduces the documented DS-192 bash while/case
-# existing-worktree lookup verbatim (copied from the doc's rewritten site
-# 1628, substituting the caller's own branch name for $BRANCH_NAME),
-# printing the resolved EXISTING_WT path on stdout.
-bash_reuse_guard() {
-  local repo="$1" branch_name="$2"
+# bash_reuse_guard_parse: the SOLE reproduction of the documented DS-192 bash
+# while/case existing-worktree lookup (copied from the doc's rewritten site
+# 1628, substituting the caller's own branch name for $BRANCH_NAME). Reads
+# porcelain lines from STDIN and prints the resolved EXISTING_WT path -
+# every scenario below (3, 3b, 3c) feeds this one function body, whether the
+# source is a live `git worktree list --porcelain` invocation or a synthetic
+# fixture file. There is exactly one parser in this file.
+bash_reuse_guard_parse() {
+  local branch_name="$1"
   local EXISTING_WT=""
   local _wt_path=""
   local _wt_line
@@ -317,12 +323,12 @@ bash_reuse_guard() {
       "worktree "*) _wt_path="${_wt_line#worktree }" ;;
       "branch refs/heads/$branch_name") EXISTING_WT="$_wt_path" ;;
     esac
-  done < <(git -C "$repo" worktree list --porcelain)
+  done
   printf '%s' "$EXISTING_WT"
 }
 
 echo "== Scenario 3: bash while/case reuse guard (as documented, DS-192) identifies the existing worktree PATH for feat/test =="
-guard_path="$(bash_reuse_guard "$S1/repo" "feat/test")"
+guard_path="$(git -C "$S1/repo" worktree list --porcelain | bash_reuse_guard_parse "feat/test")"
 expected_path="$(cd "$S1/wt-roundn" && pwd -P)"
 echo "scenario3 guard_path=[$guard_path] expected=[$expected_path]"
 if [ -z "$guard_path" ] || [ "$guard_path" != "$expected_path" ]; then
@@ -332,7 +338,6 @@ fi
 echo "== Scenario 3b: prefix-safety - a branch name that is a prefix of another branch's name must not false-match =="
 S3B="$SCRATCH/s3b"
 mkdir -p "$S3B"
-git init -q --bare "$S3B/origin.git"
 {
   echo "worktree /scratch/wt-feat-test"
   echo "HEAD 0000000000000000000000000000000000000000"
@@ -343,23 +348,9 @@ git init -q --bare "$S3B/origin.git"
   echo "branch refs/heads/feat/test-extra"
   echo ""
 } > "$S3B/porcelain.txt"
-# Reuse the real porcelain-parsing logic against synthetic input by piping
-# the fixture file through the same while/case body used above, rather than
-# re-deriving a second parser.
-bash_reuse_guard_from_file() {
-  local file="$1" branch_name="$2"
-  local EXISTING_WT=""
-  local _wt_path=""
-  local _wt_line
-  while IFS= read -r _wt_line; do
-    case "$_wt_line" in
-      "worktree "*) _wt_path="${_wt_line#worktree }" ;;
-      "branch refs/heads/$branch_name") EXISTING_WT="$_wt_path" ;;
-    esac
-  done < "$file"
-  printf '%s' "$EXISTING_WT"
-}
-prefix_match="$(bash_reuse_guard_from_file "$S3B/porcelain.txt" "feat/test")"
+# Feeds the synthetic fixture through the SAME bash_reuse_guard_parse
+# function used by scenario 3 above (no second parser is derived here).
+prefix_match="$(bash_reuse_guard_parse "feat/test" < "$S3B/porcelain.txt")"
 echo "scenario3b prefix_match=[$prefix_match] expected=[/scratch/wt-feat-test]"
 if [ "$prefix_match" != "/scratch/wt-feat-test" ]; then
   note_fail "scenario 3b: guard resolved the wrong worktree for a prefix-ambiguous branch name (feat/test vs feat/test-extra)"
@@ -378,7 +369,7 @@ mkdir -p "$S3C"
   echo "branch refs/heads/feat/text"
   echo ""
 } > "$S3C/porcelain.txt"
-literal_match="$(bash_reuse_guard_from_file "$S3C/porcelain.txt" "feat/te*t")"
+literal_match="$(bash_reuse_guard_parse "feat/te*t" < "$S3C/porcelain.txt")"
 echo "scenario3c literal_match=[$literal_match] expected=[/scratch/wt-star]"
 if [ "$literal_match" != "/scratch/wt-star" ]; then
   note_fail "scenario 3c: guard did not treat a glob metacharacter in BRANCH_NAME as a literal string in the case pattern"
@@ -596,7 +587,7 @@ echo "== Results =="
 echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario3b=[$prefix_match] scenario3c=[$literal_match] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7=$checkout_rc_report"
 
 if [ "$FAIL" = "0" ]; then
-  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add (version-tolerant message match); awk reuse guard resolves the path; dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's git-version-DEPENDENT dichotomy is pinned (old-git bypass-and-drag vs new-git refusal), each arm confirmed with a stderr-verified collision refusal or a confirmed HEAD-drag - not a single unconditional claim"
+  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add (version-tolerant message match); bash while/case reuse guard resolves the path (prefix-safe, glob-metachar-literal-safe); dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's git-version-DEPENDENT dichotomy is pinned (old-git bypass-and-drag vs new-git refusal), each arm confirmed with a stderr-verified collision refusal or a confirmed HEAD-drag - not a single unconditional claim"
   exit 0
 fi
 
