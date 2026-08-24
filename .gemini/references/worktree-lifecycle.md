@@ -192,11 +192,16 @@ git worktree prune
 # `--show-toplevel` returns THAT WORKTREE's own root, not the main checkout's - this is
 # expected and acceptable, since the reap then scopes to that worktree's own repo view;
 # the main-checkout session-start invocation is the normal case. The log is APPENDED
-# (never truncated) with a per-run header line (UTC timestamp + pid) so concurrent
-# sessions or a 30-minute-idle re-fire (see below) interleave identifiably in
-# `.agentic/worktree-reap.log` rather than clobbering the only record of a mutating
-# removal pass. Suppress entirely with `AE_WORKTREE_REAP_DISABLE=1`; PATH-absence
-# degrades to a warning, same discipline as the branch-prune guard below:
+# (never truncated) with a per-run header line (UTC timestamp + pid) so DIFFERENT
+# concurrent sessions interleave identifiably in `.agentic/worktree-reap.log` rather
+# than clobbering the only record of a mutating removal pass. Corrected claim
+# (round-2 Minor 6): `$$` in a backgrounded subshell expands to the PARENT shell's
+# own pid, not a fresh subshell pid (verified in both bash and zsh) - a same-session
+# 30-minute-idle re-fire (see below) shares this pid across every run and is
+# distinguished by its timestamp alone, not by pid; pid only distinguishes a
+# genuinely different session's own shell process. Suppress entirely with
+# `AE_WORKTREE_REAP_DISABLE=1`; PATH-absence degrades to a warning, same discipline
+# as the branch-prune guard below:
 if [ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]; then
   if command -v ds-cleanup-worktrees >/dev/null 2>&1; then
     REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || REPO_ROOT=""
@@ -223,6 +228,8 @@ else
   echo "WARNING: ds-branch-prune not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local branch prune skipped this session." >&2
 fi
 ```
+
+**Residual, named not fixed (round-2 Minor 4): undisclosed reap/branch-prune concurrency.** The automatic reap above is backgrounded (`&`) while `ds-branch-prune` immediately following it in the same script runs synchronously - the two race for the remainder of this preflight. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both already soft-fail by design (the reap's subprocess appends its own errors to the log via `|| true`, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the reap can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion - but this is the one accepted trade-off in this change that was not previously disclosed anywhere in this document.
 
 ## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
 
