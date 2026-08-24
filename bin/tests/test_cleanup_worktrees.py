@@ -2675,3 +2675,154 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
         f"restore must succeed even after the explicit base branch is deleted and gc'd, "
         f"since compaction was correctly refused: {restore_proc.stderr}"
     )
+
+
+# --------------------------------------------------------------------------
+# DS-191 follow-up (closes a regression-test gap in PR #797, `64e4e330`).
+#
+# The test above proves the guard (`_archive_compaction_base`'s
+# explicit-base-mismatch refusal) produces a full-history bundle that
+# SURVIVES the mismatched base being destroyed and gc'd. It never proves
+# the INVERSE: that had compaction been applied against that same unsafe
+# base anyway, the resulting bundle would have become genuinely
+# unrestorable. Without that inverse, the guard's refusal is unfalsifiable
+# from this suite's point of view - a no-op guard and a load-bearing one
+# would both make the sibling test pass.
+#
+# This test supplies the inverse directly: it calls `_archive_branch_bundle`
+# with `exclude_ref` set to the SAME unsafe base (`origin/feat-x`) that
+# `_archive_compaction_base` would refuse to use - i.e. it constructs
+# exactly the bundle a defect in that guard would produce - then destroys
+# and gc's that base (same sequence as the sibling test, both repos) and
+# asserts the restore FAILS with git's own prerequisite error. This is an
+# observable-restorability assertion, not a return-value or header-line
+# proxy (both of those are asserted first, as preconditions, but the
+# defect this test guards against is a data-loss defect, so the payoff
+# assertion is the actual failed `git fetch` from the bundle).
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_compaction_against_unsafe_base_becomes_unrestorable_after_base_destroyed_end_to_end(tmp_path):
+    """Fork point: the unproven branch is forked from `feat-x`'s own tip
+    (not from `main`), same as the sibling test above and for the same
+    reason - `feat-x`'s tip must genuinely be the bundle's prerequisite
+    under compaction, or destroying `feat-x` proves nothing."""
+    mod = _load_module_directly()
+    repo, origin = init_repo_with_origin(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat-x")
+    (repo / "feat-x-file.txt").write_text("feature work\n")
+    _git(repo, "add", "feat-x-file.txt")
+    _git(repo, "commit", "-q", "-m", "feat-x work")
+    _git(repo, "push", "-q", "origin", "feat-x")
+
+    branch = "worktree-agent-unsafe-compact"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-unsafe-compact", branch)
+    _git(repo, "checkout", "-q", "main")
+
+    # Bypass `_archive_compaction_base` entirely and pass the unsafe base
+    # straight through, exactly as a defect in that guard would - this
+    # function has no opinion of its own on whether `exclude_ref` is a
+    # durable ref.
+    ok, detail, bundle_path, compact = mod._archive_branch_bundle(str(repo), branch, "origin/feat-x")
+    assert ok, detail
+    assert compact is True, "expected genuine compaction against feat-x's tip"
+
+    header, _, _ = Path(bundle_path).read_bytes().partition(b"\n\n")
+    header_lines = header.split(b"\n")
+    assert any(line.startswith(b"-") for line in header_lines), (
+        f"expected a prerequisite (-prefixed) header line for a genuinely compact "
+        f"bundle, got: {header_lines!r}"
+    )
+
+    # Remove the worktree and branch ref (this function never does either
+    # itself), then destroy + gc `feat-x` on both the working repo and the
+    # bare origin - the exact permanent-loss trigger. Sequence matches the
+    # sibling test's own reflog-expiry discipline: `git gc --prune=now`
+    # does NOT expire reflogs on its own, and the `checkout` calls above
+    # populated HEAD's reflog with a path back to feat-x's tip, so an
+    # explicit `reflog expire` is required before gc on BOTH repos.
+    _git(repo, "worktree", "remove", "--force", str(wt))
+    _git(repo, "branch", "-D", branch)
+    _git(repo, "push", "-q", "origin", "--delete", "feat-x")
+    _git(repo, "branch", "-D", "feat-x")
+    subprocess.run(["git", "-C", str(origin), "branch", "-D", "feat-x"], capture_output=True, text=True)
+    _git(repo, "remote", "prune", "origin")
+    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], capture_output=True, text=True)
+    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+
+    restore_proc = subprocess.run(
+        ["git", "-C", str(repo), "fetch", bundle_path, f"refs/heads/{branch}:refs/heads/{branch}"],
+        capture_output=True,
+        text=True,
+    )
+    assert restore_proc.returncode != 0, (
+        "expected restore to FAIL once the excluded base (feat-x) is destroyed and "
+        "gc'd - this is the exact data-loss failure mode _archive_compaction_base's "
+        "explicit-base-mismatch refusal exists to prevent; a restore that succeeds "
+        "here would mean the guard defends against nothing"
+    )
+    assert "prerequisite" in restore_proc.stderr.lower(), restore_proc.stderr
+
+
+# --------------------------------------------------------------------------
+# DS-191 follow-up. `_archive_branch_bundle`'s compaction gate is
+# `0 < unique_count < total_count` (bin/ds-cleanup-worktrees:1697). The
+# lower bound (`unique_count == 0`, branch fully contained in the exclude
+# ref) already has coverage via
+# `test_archive_bundle_defensive_guard_skips_empty_exclusion` (a mutation
+# widening the gate to admit 0 there is caught because the resulting
+# `--not` argv would create an empty bundle, triggering this function's own
+# TOCTOU retry path and changing the number of `git bundle create`
+# invocations that test asserts on).
+#
+# The UPPER bound (`unique_count == total_count` - the branch shares NO
+# commits with the exclude ref at all, e.g. a genuinely orphaned/disjoint
+# history) had no coverage at all: measured directly against this
+# checkout, widening the gate to `0 < unique_count <= total_count` left
+# all 118 pre-existing tests in this file green. This test closes that
+# gap. (It does not assert on restorability, unlike the test above -
+# measured separately, a bundle built with `--not <exclude_ref>` against a
+# disjoint history records NO prerequisite header line at all, since the
+# traversal never reaches a commit reachable from `exclude_ref`; such a
+# bundle is already self-contained regardless of whether `--not` was
+# applied, so the discriminating observable is the header/compact flag,
+# not restorability.)
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_skips_exclusion_when_branch_shares_no_history_with_base(tmp_path):
+    mod = _load_module_directly()
+    repo, _origin = init_repo_with_origin(tmp_path)
+
+    # An orphan branch has no common ancestor with `main` at all, so
+    # `unique_count == total_count` relative to `main` - the exact upper
+    # boundary this gate must refuse to compact against.
+    _git(repo, "checkout", "-q", "--orphan", "disjoint-branch")
+    _git(repo, "rm", "-rf", "-q", ".")
+    (repo / "disjoint.txt").write_text("no shared history with main\n")
+    _git(repo, "add", "disjoint.txt")
+    _git(repo, "commit", "-q", "-m", "disjoint work")
+    branch = "disjoint-branch"
+
+    unique = _git(repo, "rev-list", "--count", branch, "--not", "main").stdout.strip()
+    total = _git(repo, "rev-list", "--count", branch).stdout.strip()
+    assert unique == total and int(total) > 0, (
+        f"precondition: branch must share zero history with the exclude ref "
+        f"(unique={unique}, total={total})"
+    )
+
+    ok, detail, bundle_path, compact = mod._archive_branch_bundle(str(repo), branch, "main")
+    assert ok, detail
+    assert compact is False, (
+        "expected compaction to be refused when the branch shares no history with "
+        "the exclude ref (unique_count == total_count)"
+    )
+
+    header, _, _ = Path(bundle_path).read_bytes().partition(b"\n\n")
+    header_lines = header.split(b"\n")
+    assert not any(line.startswith(b"-") for line in header_lines), (
+        f"expected NO prerequisite header line when the branch shares no history "
+        f"with the exclude ref, got: {header_lines!r}"
+    )
