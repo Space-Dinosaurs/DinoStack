@@ -76,10 +76,20 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
                inspection/repair), ~/.claude/agents/, ~/.claude/commands/,
                ~/.claude/skills/. Reads <repo_dir>/bin/{agentic-,ds-}* (bin
                wrapper check). check_foreign_agent_hooks additionally reads
-               ~/.claude/plugins/installed_plugins.json and each enabled
+               <plugins_dir>/installed_plugins.json and each enabled
                plugin's own packaged hooks/hooks.json (resolved via
-               installPath) - never ~/.claude/settings.json, which was
-               measured to carry no plugin-registered hook entries at all.
+               installPath), plus a settings.json sibling of plugins_dir
+               (honors CLAUDE_CONFIG_DIR via _plugins_dir() - see its
+               docstring - normally ~/.claude/settings.json) but ONLY to
+               enumerate enabledPlugins; it never treats settings.json as a
+               source of plugin-registered HOOK entries, which was measured
+               to carry none at all (a plugin's own hooks.json is the sole
+               hook-definition source). Only PreToolUse is
+               inspected for a hazardous Agent/Task matcher; SessionStart
+               and UserPromptSubmit hooks (which can inject unconditional
+               additionalContext regardless of any matcher) are a known,
+               documented gap - see check_foreign_agent_hooks's docstring
+               and docs/updating.md.
                check_git_precommit resolves the REAL git
                hooks dir via _resolve_git_hooks_dir (shells out to `git -C
                <repo_dir> rev-parse --git-path hooks`, following a
@@ -126,9 +136,13 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                check_foreign_agent_hooks: missing ~/.claude/plugins dir or
                missing/unparseable installed_plugins.json -> OK/no-op, not
                FAIL (a clean machine with no plugins installed is a known
-               state); a malformed individual plugin's hooks.json -> WARN
-               and the scan continues with the remaining plugins, never
-               aborting the whole check on one bad file.
+               state); a malformed individual plugin's hooks.json, or a
+               plugins-map entry whose value isn't a list -> WARN and the
+               scan continues with the remaining plugins, never aborting
+               the whole check on one bad file; an unparseable
+               settings.json -> WARN and the check RETURNS without a
+               positive claim (it must never report OK when it could not
+               establish enabledPlugins at all).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -170,24 +184,33 @@ def _local_bin() -> Path:
 
 
 def _plugins_dir() -> Path:
-    """Claude Code plugins directory, resolved as a sibling of
-    _settings_path() rather than a fresh hardcode, so a CLAUDE_CONFIG_DIR
-    override (e.g. ~/.claude-spacedinosaurs, whose settings.json and
-    plugins entries are individual symlinks into ~/.claude/*) is honored
-    automatically the same way _settings_path() already is.
+    """Claude Code plugins directory. Honors a CLAUDE_CONFIG_DIR override
+    directly (e.g. ~/.claude-spacedinosaurs) - checked BEFORE falling back
+    to _settings_path()'s sibling, so this function resolves correctly even
+    on a machine where CLAUDE_CONFIG_DIR points at a real, non-symlinked
+    directory tree. This is deliberately independent of _settings_path(),
+    which stays hardcoded to ~/.claude/settings.json for every OTHER check
+    in this module - changing that would widen this fix's blast radius
+    beyond check_foreign_agent_hooks.
     """
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env:
+        return Path(env) / "plugins"
     return _settings_path().parent / "plugins"
 
 
 def _matcher_covers_spawn_tool(matcher: str) -> bool:
     """True if a PreToolUse hook matcher string covers the Agent or Task
-    subagent-spawn tools (DS-198). An empty matcher means match-all in
-    Claude Code hook semantics - MORE dangerous, not exempt. Otherwise the
-    matcher is split on "|" and each token is compared for an EXACT match
-    (never substring) against {"Agent", "Task"}, so a pattern like
-    "AgentX" or "TaskCreate" does not produce a false hit.
+    subagent-spawn tools (DS-198). An empty matcher OR the literal "*"
+    wildcard means match-all in Claude Code hook semantics - MORE
+    dangerous, not exempt. Otherwise the matcher is split on "|" and each
+    token is compared for an EXACT match (never substring) against
+    {"Agent", "Task"}, so a pattern like "AgentX" or "TaskCreate" does not
+    produce a false hit (the real context-mode PostToolUse matcher
+    contains both tokens as substrings of a larger alternation and must
+    NOT match here).
     """
-    if matcher == "":
+    if matcher in ("", "*"):
         return True
     tokens = {t.strip() for t in matcher.split("|")}
     return bool(tokens & {"Agent", "Task"})
@@ -1404,17 +1427,43 @@ def check_output_style_staleness(doc: Doctor) -> None:
 def check_foreign_agent_hooks(doc: Doctor) -> None:
     """FAIL for each enabled Claude Code plugin that registers a
     PreToolUse hook on the Agent/Task subagent-spawn tools, in its OWN
-    packaged hooks/hooks.json - never in ~/.claude/settings.json, which
-    was measured to NOT carry plugin-registered hooks at all (a plugin's
-    hooks are wired at spawn time from its own manifest, not written into
-    settings.json). A hook of this shape can return {"action": "modify",
+    packaged hooks/hooks.json - never settings.json's hook entries (see
+    module docstring). A hook of this shape can return {"action": "modify",
     "updatedInput": ...} and silently rewrite the tool_input Claude Code
     uses to launch a subagent, before it ever launches - the exact
     mechanism DS-198 exists to detect (context-mode v1.0.103's
     hooks/core/routing.mjs is the concrete instance that motivated this
-    check). Inspecting only plugin-packaged hooks.json files structurally
-    excludes DinoStack's own settings.json-registered hooks by
-    construction - no denylist needed.
+    check, at its Agent-tool branch, hooks/core/routing.mjs:324-338).
+    Inspecting only plugin-packaged hooks.json files structurally excludes
+    DinoStack's own settings.json-registered hooks by construction - no
+    denylist needed.
+
+    A plugin's hooks.json may nest event arrays under a top-level "hooks"
+    key ({"description": ..., "hooks": {"PreToolUse": [...]}}) - this is
+    the shape BOTH real plugins on the dev machine that motivated this
+    check use (context-mode, vercel). A flat {"PreToolUse": [...]} form
+    (no "hooks" wrapper) is also accepted for forward/backward
+    compatibility. See _plugins_dir()'s docstring for the CLAUDE_CONFIG_DIR
+    resolution this check depends on.
+
+    KNOWN LIMITATION - event scope: only PreToolUse matchers are inspected.
+    A plugin's SessionStart or UserPromptSubmit hook can inject arbitrary,
+    UNCONDITIONAL additionalContext into every session (no matcher-based
+    signal to test against - these events do not gate on a tool name the
+    way PreToolUse does), which is a structurally different and much
+    noisier hazard class: nearly every context-injection plugin (including
+    legitimate ones) registers a SessionStart hook for this purpose, so a
+    presence-based check here would be almost entirely false positives.
+    This check does not attempt it; a plugin's SessionStart/UserPromptSubmit
+    hooks must be reviewed by hand. See docs/updating.md.
+
+    KNOWN LIMITATION - enablement scope: only ~/.claude/settings.json's
+    top-level enabledPlugins is consulted. A plugin enabled via a
+    project-local .claude/settings.json (installed_plugins.json can carry
+    "scope": "project" records) is not detected - deferred because ds-doctor
+    is a global, cwd-independent tool with no single "the project" to
+    resolve here, and adding that resolution is a materially larger and
+    riskier change than this check's original scope.
 
     Read-only: ds-doctor must never touch a third-party plugin's files,
     and there is no --fix repair here (mirrors check_hook_scripts_exist's
@@ -1423,10 +1472,11 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
 
     A missing plugins directory or missing/unparseable
     installed_plugins.json is a known clean-machine state, not drift:
-    OK, not FAIL. A malformed individual plugin's hooks.json is a WARN
-    and scanning continues with the remaining plugins - one bad file must
-    never abort the whole check (mirrors check_hooks_snapshot_staleness's
-    WARN-not-crash convention).
+    OK, not FAIL. A malformed individual plugin's hooks.json, or an
+    unparseable settings.json, or a per-plugin installed_plugins.json entry
+    that isn't a list, is a WARN and scanning continues (or, for an
+    unparseable settings.json, the whole check aborts without a positive
+    claim) - a check that could not run must never report OK.
     """
     plugins_dir = _plugins_dir()
     if not plugins_dir.is_dir():
@@ -1436,7 +1486,14 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
         )
         return
 
-    settings_path = _settings_path()
+    # Derive settings_path as plugins_dir's sibling (not the shared
+    # _settings_path() global) so enabledPlugins is read from the SAME
+    # config root plugins_dir resolved from - if CLAUDE_CONFIG_DIR is set,
+    # both move together; if not, both fall back to ~/.claude together.
+    # Reading enabledPlugins from _settings_path() while plugins_dir moved
+    # under CLAUDE_CONFIG_DIR would silently mismatch enabled-plugin keys
+    # against a completely different installed_plugins.json.
+    settings_path = plugins_dir.parent / "settings.json"
     enabled_plugins: list[str] = []
     if settings_path.is_file():
         try:
@@ -1446,6 +1503,7 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 enabled_plugins = [key for key, val in enabled.items() if val is True]
         except Exception as exc:
             doc.warn("foreign_agent_hook", f"could not parse {settings_path}: {exc}")
+            return
 
     if not enabled_plugins:
         doc.ok(
@@ -1471,6 +1529,12 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
 
     for key in enabled_plugins:
         entries = plugins_map.get(key)
+        if entries is not None and not isinstance(entries, list):
+            doc.warn(
+                "foreign_agent_hook",
+                f"{installed_path}: plugin '{key}' entry is not a list, skipping",
+            )
+            continue
         if not isinstance(entries, list):
             continue
         for entry in entries:
@@ -1498,7 +1562,15 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 )
                 continue
 
-            pre_tool_use = hooks_data.get("PreToolUse") if isinstance(hooks_data, dict) else None
+            # A real Claude Code plugin hooks.json nests event arrays under
+            # a top-level "hooks" key (e.g. {"description": ..., "hooks":
+            # {"PreToolUse": [...]}}) - both context-mode and vercel's
+            # packaged hooks.json use this nested shape; a hoisted-to-top
+            # flat {"PreToolUse": [...]} form is also accepted for
+            # forward/backward compatibility with any plugin that omits the
+            # "hooks" wrapper.
+            events = hooks_data.get("hooks", hooks_data) if isinstance(hooks_data, dict) else None
+            pre_tool_use = events.get("PreToolUse") if isinstance(events, dict) else None
             if not isinstance(pre_tool_use, list):
                 continue
 

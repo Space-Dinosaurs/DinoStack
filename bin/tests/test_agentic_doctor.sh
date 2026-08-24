@@ -1227,6 +1227,11 @@ t21_invoke() {
   (
     HOME="$T21_HOME"
     export HOME
+    # T21 fixtures are HOME-relative; a real CLAUDE_CONFIG_DIR set in the
+    # invoking session (e.g. ~/.claude-spacedinosaurs) would make
+    # _plugins_dir() resolve OUTSIDE T21_HOME and silently scan the real
+    # machine's plugins instead of the fixture - unset it here.
+    unset CLAUDE_CONFIG_DIR
     python3 "$DOCTOR" "$@"
   ) > "$T21_HOME/.out" 2>&1
   echo $? > "$T21_HOME/.exit"
@@ -1246,6 +1251,7 @@ else
 fi
 
 # T21b: enabled plugin whose hooks.json has no hazardous matcher -> OK, no FAIL
+# (flat {"PreToolUse": [...]} shape, no "hooks" wrapper.)
 SAFE_PLUGIN_DIR="$T21_HOME/plugin-installs/safe"
 mkdir -p "$SAFE_PLUGIN_DIR/hooks"
 cat > "$SAFE_PLUGIN_DIR/hooks/hooks.json" <<EOF
@@ -1274,20 +1280,28 @@ t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
-  _pass "T21b foreign_agent_hook: enabled plugin with non-hazardous matcher reported as OK"
+  _pass "T21b foreign_agent_hook: enabled plugin with non-hazardous matcher reported as OK (flat shape)"
 else
   _fail "T21b foreign_agent_hook: non-hazardous matcher should be OK, exit 0\nrc=$RC\n$OUT"
 fi
 
 # T21c: the real defect - enabled plugin registers a PreToolUse hook with
 # matcher "Agent" -> FAIL naming the plugin and matcher, exit code 1.
+# Uses the REAL nested {"description": ..., "hooks": {"PreToolUse": [...]}}
+# shape copied from an actual installed plugin's packaged hooks.json (both
+# context-mode and vercel on the dev machine use this nested form, never
+# the flat form) - this is the fixture that must prove the schema-level
+# Critical (DS-198 round 2) is fixed.
 EVIL_PLUGIN_DIR="$T21_HOME/plugin-installs/evil"
 mkdir -p "$EVIL_PLUGIN_DIR/hooks"
 cat > "$EVIL_PLUGIN_DIR/hooks/hooks.json" <<EOF
 {
-  "PreToolUse": [
-    {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
-  ]
+  "description": "evil plugin hooks",
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
 }
 EOF
 
@@ -1308,9 +1322,233 @@ t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*evil@mkt.*Agent" && [[ "$RC" == "1" ]]; then
-  _pass "T21c foreign_agent_hook: hazardous Agent matcher reported as FAIL, exit 1"
+  _pass "T21c foreign_agent_hook: hazardous Agent matcher (nested real shape) reported as FAIL, exit 1"
 else
-  _fail "T21c foreign_agent_hook: hazardous Agent matcher should FAIL naming evil@mkt and Agent, exit 1\nrc=$RC\n$OUT"
+  _fail "T21c foreign_agent_hook: hazardous Agent matcher (nested shape) should FAIL naming evil@mkt and Agent, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21d: same hazard, but the flat (no "hooks" wrapper) shape - coverage
+# retained for the non-nested form, which the check must also accept.
+FLATEVIL_PLUGIN_DIR="$T21_HOME/plugin-installs/flatevil"
+mkdir -p "$FLATEVIL_PLUGIN_DIR/hooks"
+cat > "$FLATEVIL_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "PreToolUse": [
+    {"matcher": "Task", "hooks": [{"command": "node routing.mjs"}]}
+  ]
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "flatevil@mkt": [{"installPath": "$FLATEVIL_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"flatevil@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*flatevil@mkt.*Task" && [[ "$RC" == "1" ]]; then
+  _pass "T21d foreign_agent_hook: hazardous Task matcher (flat shape) reported as FAIL, exit 1"
+else
+  _fail "T21d foreign_agent_hook: hazardous Task matcher (flat shape) should FAIL naming flatevil@mkt and Task, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21e: empty matcher ("") means match-all -> must FAIL, not be treated as
+# an exemption.
+EMPTY_PLUGIN_DIR="$T21_HOME/plugin-installs/emptymatcher"
+mkdir -p "$EMPTY_PLUGIN_DIR/hooks"
+cat > "$EMPTY_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "emptymatcher@mkt": [{"installPath": "$EMPTY_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"emptymatcher@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*emptymatcher@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21e foreign_agent_hook: empty matcher (match-all) reported as FAIL, exit 1"
+else
+  _fail "T21e foreign_agent_hook: empty matcher should FAIL naming emptymatcher@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21f: "*" wildcard matcher also means match-all -> must FAIL.
+STAR_PLUGIN_DIR="$T21_HOME/plugin-installs/starmatcher"
+mkdir -p "$STAR_PLUGIN_DIR/hooks"
+cat > "$STAR_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "starmatcher@mkt": [{"installPath": "$STAR_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"starmatcher@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*starmatcher@mkt" && [[ "$RC" == "1" ]]; then
+  _pass "T21f foreign_agent_hook: \"*\" wildcard matcher reported as FAIL, exit 1"
+else
+  _fail "T21f foreign_agent_hook: \"*\" wildcard matcher should FAIL naming starmatcher@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21g: substring false-positive guard - a matcher token that merely
+# CONTAINS "Agent" or "Task" (e.g. context-mode's real PostToolUse
+# alternation shape) must NOT match, since _matcher_covers_spawn_tool does
+# exact-token comparison, not substring.
+SUBSTR_PLUGIN_DIR="$T21_HOME/plugin-installs/substr"
+mkdir -p "$SUBSTR_PLUGIN_DIR/hooks"
+cat > "$SUBSTR_PLUGIN_DIR/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "AgentX|TaskCreate", "hooks": [{"command": "echo safe"}]}
+    ]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "substr@mkt": [{"installPath": "$SUBSTR_PLUGIN_DIR", "scope": "user"}]
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"substr@mkt": true}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^OK foreign_agent_hook:" && ! echo "$OUT" | grep -q "^FAIL foreign_agent_hook:" && [[ "$RC" == "0" ]]; then
+  _pass "T21g foreign_agent_hook: AgentX/TaskCreate substring tokens reported as OK (no false positive), exit 0"
+else
+  _fail "T21g foreign_agent_hook: substring tokens should be OK (not a false positive), exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21h: unparseable settings.json must not be reported as OK - the check
+# could not establish enabledPlugins at all, so it must not claim clean.
+cat > "$T21_HOME/.claude/settings.json" <<'EOF'
+{ this is not valid json
+EOF
+t21_invoke
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:" && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:"; then
+  _pass "T21h foreign_agent_hook: unparseable settings.json WARNs, never reports OK"
+else
+  _fail "T21h foreign_agent_hook: unparseable settings.json should WARN and never OK\n$OUT"
+fi
+
+# T21i: CLAUDE_CONFIG_DIR override is honored by _plugins_dir() - a plugin
+# enabled only under an ALTERNATE config dir's settings.json/plugins tree
+# must be detected there, not silently missed by falling back to
+# ~/.claude (whose settings.json here has no enabledPlugins at all).
+ALT_CONFIG_DIR="$T21_HOME/alt-config"
+mkdir -p "$ALT_CONFIG_DIR/plugins"
+CFGDIR_EVIL="$T21_HOME/plugin-installs/cfgdirevil"
+mkdir -p "$CFGDIR_EVIL/hooks"
+cat > "$CFGDIR_EVIL/hooks/hooks.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Agent", "hooks": [{"command": "node routing.mjs"}]}
+    ]
+  }
+}
+EOF
+cat > "$ALT_CONFIG_DIR/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "cfgdirevil@mkt": [{"installPath": "$CFGDIR_EVIL", "scope": "user"}]
+  }
+}
+EOF
+cat > "$ALT_CONFIG_DIR/settings.json" <<EOF
+{
+  "enabledPlugins": {"cfgdirevil@mkt": true}
+}
+EOF
+# ~/.claude/settings.json (HOME-default) stays clean/no-op for this case.
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{}
+EOF
+(
+  HOME="$T21_HOME"
+  export HOME
+  CLAUDE_CONFIG_DIR="$ALT_CONFIG_DIR"
+  export CLAUDE_CONFIG_DIR
+  python3 "$DOCTOR"
+) > "$T21_HOME/.out" 2>&1
+RC=$?
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -qE "^FAIL foreign_agent_hook:.*cfgdirevil@mkt.*Agent" && [[ "$RC" == "1" ]]; then
+  _pass "T21i foreign_agent_hook: CLAUDE_CONFIG_DIR override honored by _plugins_dir(), exit 1"
+else
+  _fail "T21i foreign_agent_hook: CLAUDE_CONFIG_DIR override should be honored, naming cfgdirevil@mkt, exit 1\nrc=$RC\n$OUT"
+fi
+
+# T21j: an installed_plugins.json entry whose value is not a list (malformed
+# schema) must WARN, not silently `continue` with no signal at all.
+cat > "$T21_HOME/.claude/plugins/installed_plugins.json" <<EOF
+{
+  "version": 2,
+  "plugins": {
+    "malformed@mkt": {"installPath": "/nonexistent", "scope": "user"}
+  }
+}
+EOF
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"malformed@mkt": true}
+}
+EOF
+t21_invoke
+OUT=$(cat "$T21_HOME/.out")
+if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*malformed@mkt"; then
+  _pass "T21j foreign_agent_hook: non-list plugins-map entry WARNs"
+else
+  _fail "T21j foreign_agent_hook: non-list plugins-map entry should WARN naming malformed@mkt\n$OUT"
 fi
 
 rm -rf "$T21_HOME"
