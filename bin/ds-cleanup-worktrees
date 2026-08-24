@@ -47,14 +47,27 @@ Gate order, first match wins, ALL must clear for REMOVE:
      NEVER removed, unconditionally, before any other check. This is a
      hard floor, not a heuristic: a v1 dry run against the live 38-
      worktree checkout flagged this tool's OWN worktree as REMOVE.
-  4. AGE FLOOR (new, round-2 Major 2b) -> a worktree whose directory
-     mtime is within `--min-age-hours` (default 24) is never removed,
-     regardless of dirty/lock/branch state. This protects a resumable-idle
-     worktree - the harness releases its lock once an agent finishes a
-     TURN, not once the session is truly done; an unlocked, clean worktree
-     can still belong to work the operator will resume. See the Locked
-     handling note below for why this floor exists independently of
-     `SKIP_LOCKED`, not instead of it.
+  4. AGE FLOOR (new, round-2 Major 2b) -> a worktree whose OWN ROOT
+     DIRECTORY's mtime (an approximate proxy, re-armed by any operation
+     touching the path directly - never the branch's or its commits'
+     creation time) is within `--min-age-hours` (default 24) is never
+     removed, regardless of dirty/lock/branch state. This protects a
+     resumable-idle worktree - the harness releases its lock once an agent
+     finishes a TURN, not once the session is truly done; an unlocked,
+     clean worktree can still belong to work the operator will resume. See
+     the Locked handling note below for why this floor exists
+     independently of `SKIP_LOCKED`, not instead of it.
+  4.5. RECENT ACTIVITY (DS-196) -> `SKIP_RECENT_ACTIVITY`, immediately
+     after the age floor, before any git/gh evidence is gathered. Unlike
+     gate 4's single directory-mtime stat, this walks every FILE under the
+     worktree (pruning `.git`/`node_modules`/`.venv`/`dist`/`build`/
+     `.next`/`__pycache__` - see `_worktree_activity_hours`) and gates on
+     the most recent FILE mtime being within `--activity-window-hours`
+     (default 3.0) - a more direct liveness signal layered on top of gate
+     4's approximate directory-mtime proxy. An indeterminate reading
+     (`None`) fails CLOSED, same posture as gate 4. `SKIP_RECENT_ACTIVITY`
+     masks `SKIP_DIRTY`/`SKIP_LOCKED` in `--explain` for an in-use tree,
+     same class as `SKIP_TOO_YOUNG` masking those same two gates.
   5. LOCKED (directory present) -> `disposition_for`'s own gate;
      `SKIP_LOCKED`, unconditionally, never unlocked or force-removed here.
   6. DIRTY -> `disposition_for`'s own gate (`git status --porcelain`,
@@ -92,12 +105,20 @@ Gate order, first match wins, ALL must clear for REMOVE:
      telemetry is disposable for the purpose of BLOCKING removal, but it
      is not worthless, and a failed salvage blocks removal too.
   8. Branch evidence -> delegated entirely to `disposition_for` (ancestry,
-     then a bare MERGED PR, then push status - `strict_pr_state=False`,
+     then content-subsumption, then a bare MERGED PR, then origin-
+     reachability (DS-196), then push status - `strict_pr_state=False`,
      the same lenient grade the shared model already reserves for
      worktree removal, since removal does not destroy commits). A
      never-pushed branch with unique commits, or a CLOSED PR, both resolve
      `SKIP_*` (never `ELIGIBLE`) under this model - NOT sufficient alone,
-     unlike v1's bespoke predicate.
+     unlike v1's bespoke predicate. DS-196's `origin_reachable` evidence
+     (`_compute_origin_reachable`, local-only) resolves `ELIGIBLE` when
+     this entry's branch tip is reachable from ANY `origin/*` ref AND
+     `pr_state` was affirmatively resolved (not `"not_checked"`) -
+     `--no-origin-reachable-evidence` restores pre-DS-196 evidence order
+     exactly. See `worktree_model.py`'s `WORKTREE_REMOVAL_EVIDENCE_ORDER`
+     and `_check_origin_reachable` docstrings for the full precedence
+     rationale and safety precondition.
   9. PR-QUERY-FAILURE OVERRIDE (round-N Major fix) -> a `gh` PR-state query
      that could not be answered at all (nonzero exit, unparseable JSON, or
      a timeout - see `_pr_state`'s docstring) is a DISTINCT fact from "no
@@ -228,6 +249,8 @@ Public API (CLI):
   ds-cleanup-worktrees [--repo <path>]... [root ...] [--multi-repo] [--depth N]
                     [--report [--json]] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
+                    [--activity-window-hours <float>]
+                    [--no-origin-reachable-evidence]
                     [--strict-ignored] [--archive-unproven] [--max-repos N]
   ds-cleanup-worktrees --init-config
 
@@ -455,6 +478,19 @@ Public API (CLI):
                           own manifests for that pre-fix figure).
   --min-age-hours <float> Age floor in hours (see gate 4 above). Default
                           24.
+  --activity-window-hours <float>
+                          DS-196: recent-file-activity floor in hours (see
+                          gate 4.5 above). Default 3.0. Pass 0 to disable
+                          (never used as the default - only the age floor
+                          runs at 0 seconds' notice; this floor stays a
+                          separate, later gate).
+  --no-origin-reachable-evidence
+                          DS-196: rollback lever - restores pre-DS-196
+                          evidence order exactly (passes
+                          `worktree_model.MERGE_EVIDENCE_ORDER`, without
+                          `origin_reachable`, to `disposition_for`). Surfaced
+                          here and in the docs as an explicit escape hatch,
+                          same spirit as `--strict-ignored` below.
   --strict-ignored        Round-3 escape hatch back to the round-2 default:
                           gate 7 (PROTECTED CONTENT) becomes a fail-safe
                           ALLOWLIST again - block unless every ignored path
@@ -732,6 +768,7 @@ _BIN_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BIN_DIR / "tests"))
 
 from worktree_model import (  # noqa: E402
+    MERGE_EVIDENCE_ORDER,
     Disposition,
     DispositionFacts,
     WorktreeClass,
@@ -1300,6 +1337,35 @@ def _is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
     return proc.returncode == 0
 
 
+def _compute_origin_reachable(repo: str, head_sha: Optional[str]) -> str:
+    """DS-196: `"reachable"` | `"unreachable"` | `"not_checked"`. LOCAL-ONLY
+    (no network call) - `git -C repo branch -r --contains <sha> --list
+    'origin/*'` lists every `origin/*` remote-tracking ref that contains
+    `head_sha` in its history. Nonempty stdout means at least one such ref
+    exists (not necessarily the base branch - any `origin/*` ref counts,
+    which is what makes this evidence source useful for a squash-merged
+    per-unit fan-out branch that was pushed and later fast-forwarded/
+    replaced upstream but still has a surviving remote-tracking ref).
+    Nonzero exit or a missing/empty `head_sha` fails CLOSED to
+    `"not_checked"` - never `"unreachable"` on an indeterminate read, since
+    this tool's callers treat `"not_checked"` as inconclusive (never a
+    green light) while `"unreachable"` is an affirmative negative result
+    from a query that DID run successfully. Populates `facts.
+    origin_reachable` ONLY - never `facts.head_reachable`, which remains
+    unrelated, dead code (see the module docstring's Removal predicate
+    gate 4a note and `worktree_model.DispositionFacts`'s own docstring).
+
+    Depends on stale remote-tracking refs surviving locally - see the
+    module docstring's `fetch.prune` caveat.
+    """
+    if not head_sha:
+        return "not_checked"
+    proc = _run(["git", "-C", repo, "branch", "-r", "--contains", head_sha, "--list", "origin/*"])
+    if proc.returncode != 0:
+        return "not_checked"
+    return "reachable" if proc.stdout.strip() else "unreachable"
+
+
 def _gh_available(repo: str, no_gh: bool) -> bool:
     if no_gh or shutil.which("gh") is None:
         return False
@@ -1403,6 +1469,43 @@ def _worktree_age_hours(entry_path: str) -> Optional[float]:
     except OSError:
         return None
     return (time.time() - mtime) / 3600.0
+
+
+#: DS-196: directories pruned from `_worktree_activity_hours`'s recursive
+#: walk - trades completeness for cost (see the module docstring's
+#: activity-scan trade-off note). A worktree where ONLY a build/test run
+#: touched files inside one of these (all-gitignored) dirs reads as idle
+#: despite recent tool activity - accepted, since removal never destroys
+#: commits and gitignored build output is regenerable.
+_ACTIVITY_SCAN_PRUNE_DIRS = frozenset(
+    {".git", "node_modules", ".venv", "dist", "build", ".next", "__pycache__"}
+)
+
+
+def _worktree_activity_hours(entry_path: str) -> Optional[float]:
+    """DS-196: hours since the most recent mtime among FILES (never
+    directories themselves) under `entry_path`, `os.walk`-pruning
+    `_ACTIVITY_SCAN_PRUNE_DIRS`. Returns `None` when no file could be
+    stat'd at all (e.g. the directory is empty or unreadable) - the
+    caller treats `None` as "too recent to know" and fails CLOSED
+    (never removed), mirroring `_worktree_age_hours`'s own None handling.
+    """
+    latest: Optional[float] = None
+    try:
+        for dirpath, dirnames, filenames in os.walk(entry_path):
+            dirnames[:] = [d for d in dirnames if d not in _ACTIVITY_SCAN_PRUNE_DIRS]
+            for filename in filenames:
+                try:
+                    mtime = os.path.getmtime(os.path.join(dirpath, filename))
+                except OSError:
+                    continue
+                if latest is None or mtime > latest:
+                    latest = mtime
+    except OSError:
+        return None
+    if latest is None:
+        return None
+    return (time.time() - latest) / 3600.0
 
 
 _BRANCH_SAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9._-]")
@@ -1761,6 +1864,12 @@ def _build_facts(
         if gh_ok:
             pr_state, pr_query_errored = _pr_state(repo, entry.branch)
 
+    # DS-196: local-only, no network/gh dependency - computed unconditionally
+    # (cheap: a single `git branch -r --contains`) regardless of
+    # --no-origin-reachable-evidence, which only affects the evidence ORDER
+    # passed to disposition_for, never whether this fact gets computed.
+    origin_reachable = _compute_origin_reachable(repo, entry.head)
+
     facts = DispositionFacts(
         dirty_status=dirty_status,
         head_reachable="not_checked",
@@ -1768,6 +1877,7 @@ def _build_facts(
         merge_evidence=merge_evidence,
         content_subsumption="not_checked",
         pr_state=pr_state,
+        origin_reachable=origin_reachable,
     )
     return facts, pr_query_errored
 
@@ -1781,6 +1891,11 @@ def _display_reason(facts: DispositionFacts) -> str:
         return "ancestor-of-base"
     if facts.pr_state == "MERGED":
         return "pr-merged"
+    # DS-196: checked after merge_evidence and pr_state == "MERGED", mirroring
+    # WORKTREE_REMOVAL_EVIDENCE_ORDER's own precedence (origin_reachable sits
+    # after pr_state).
+    if facts.origin_reachable == "reachable":
+        return "origin-reachable"
     return "eligible"
 
 
@@ -1793,11 +1908,23 @@ def evaluate_entry(
     allow_network: bool,
     min_age_hours: float,
     strict_ignored: bool,
+    activity_window_hours: float = 3.0,
+    no_origin_reachable_evidence: bool = False,
 ) -> Dict:
     """Resolves one worktree entry. `outcome` is one of: SKIP_UNMANAGED,
     SKIP_MISSING, SKIP_MISSING_LOCKED, SKIP_SELF, SKIP_TOO_YOUNG,
-    SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT, SKIP_PR_QUERY_ERROR,
-    SKIP_UNPROVEN, REMOVE.
+    SKIP_RECENT_ACTIVITY, SKIP_LOCKED, SKIP_DIRTY, SKIP_PROTECTED_CONTENT,
+    SKIP_PR_QUERY_ERROR, SKIP_UNPROVEN, REMOVE.
+
+    DS-196: `activity_window_hours` gates a worktree with a file touched
+    inside the window (`SKIP_RECENT_ACTIVITY`) immediately after the
+    `min_age_hours` age floor, before any git/gh evidence is gathered -
+    same "protect a resumable-idle worktree" spirit as the age floor, but
+    keyed on FILE content mtimes rather than the worktree root directory's
+    own mtime. `no_origin_reachable_evidence` (the `--no-origin-reachable-
+    evidence` CLI rollback lever), when True, makes the `disposition_for`
+    call below pass `merge_evidence_order=MERGE_EVIDENCE_ORDER` explicitly
+    - reproducing pre-DS-196 evidence order exactly.
     """
     base = {"path": entry.path, "branch": entry.branch, "class": wt_class.value}
 
@@ -1821,9 +1948,19 @@ def evaluate_entry(
     if age_hours is None or age_hours < min_age_hours:
         return {**base, "outcome": "SKIP_TOO_YOUNG"}
 
+    # DS-196: gate 4.5, immediately after the age floor, before any git
+    # status/evidence call - a None (indeterminate) reading fails CLOSED,
+    # same posture as the age floor immediately above.
+    activity_hours = _worktree_activity_hours(entry.path)
+    if activity_hours is None or activity_hours < activity_window_hours:
+        return {**base, "outcome": "SKIP_RECENT_ACTIVITY"}
+
     dirty_status, ignored_offenders = _git_status_and_ignored(entry.path, strict_ignored)
     facts, pr_query_errored = _build_facts(repo, entry, dirty_status, base_ref, gh_ok, allow_network)
-    disposition = disposition_for(entry, wt_class, facts)
+    disposition_kwargs = {}
+    if no_origin_reachable_evidence:
+        disposition_kwargs["merge_evidence_order"] = MERGE_EVIDENCE_ORDER
+    disposition = disposition_for(entry, wt_class, facts, **disposition_kwargs)
 
     if disposition is Disposition.SKIP_LOCKED:
         # Guardrail: never unlock or force-remove a worktree whose
@@ -1870,6 +2007,8 @@ def _evaluate_entries(
     allow_network: bool,
     min_age_hours: float,
     strict_ignored: bool,
+    activity_window_hours: float = 3.0,
+    no_origin_reachable_evidence: bool = False,
 ) -> List[Dict]:
     """The shared per-entry evaluation loop: entry 0 is always the MAIN
     worktree (`SKIP_MAIN`), every other entry is resolved via
@@ -1886,7 +2025,18 @@ def _evaluate_entries(
             results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
             continue
         results.append(
-            evaluate_entry(repo, entry, wt_class, resolved_base, gh_ok, allow_network, min_age_hours, strict_ignored)
+            evaluate_entry(
+                repo,
+                entry,
+                wt_class,
+                resolved_base,
+                gh_ok,
+                allow_network,
+                min_age_hours,
+                strict_ignored,
+                activity_window_hours,
+                no_origin_reachable_evidence,
+            )
         )
     return results
 
@@ -2200,7 +2350,15 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     gh_ok = _gh_available(repo, args.no_gh)
     allow_network = not args.no_gh
     results = _evaluate_entries(
-        repo, entries, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+        repo,
+        entries,
+        resolved_base,
+        gh_ok,
+        allow_network,
+        args.min_age_hours,
+        args.strict_ignored,
+        args.activity_window_hours,
+        args.no_origin_reachable_evidence,
     )
     eligible = sum(1 for r in results if r["outcome"] == "REMOVE")
     return {
@@ -2343,6 +2501,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--explain", action="store_true")
     p.add_argument("--count-only", action="store_true")
     p.add_argument("--min-age-hours", type=float, default=24.0)
+    p.add_argument("--activity-window-hours", type=float, default=3.0)
+    p.add_argument("--no-origin-reachable-evidence", dest="no_origin_reachable_evidence", action="store_true")
     p.add_argument("--strict-ignored", action="store_true")
     p.add_argument("--archive-unproven", action="store_true")
     p.add_argument("--init-config", dest="init_config", action="store_true")
@@ -2393,6 +2553,7 @@ _ALL_OUTCOMES = (
     "SKIP_MISSING_LOCKED",
     "SKIP_SELF",
     "SKIP_TOO_YOUNG",
+    "SKIP_RECENT_ACTIVITY",
     "SKIP_LOCKED",
     "SKIP_DIRTY",
     "SKIP_PROTECTED_CONTENT",
@@ -2522,7 +2683,15 @@ def _run_repo(
         return 0
 
     results = _evaluate_entries(
-        repo, entries, resolved_base, gh_ok, allow_network, args.min_age_hours, args.strict_ignored
+        repo,
+        entries,
+        resolved_base,
+        gh_ok,
+        allow_network,
+        args.min_age_hours,
+        args.strict_ignored,
+        args.activity_window_hours,
+        args.no_origin_reachable_evidence,
     )
 
     # Bucket-membership invariant (round-2 Minor a, round-6 correction):
@@ -2863,6 +3032,21 @@ def _run_repo(
             "may still be skipped afterward for another reason (dirty, locked, unproven "
             "branch, etc.) - this does not guarantee removal, and removes the protection "
             "against reaping a concurrent session's fresh worktree."
+        )
+
+    # DS-196: mirrors the SKIP_TOO_YOUNG NOTE above - a worktree with a file
+    # touched inside --activity-window-hours is buried in the
+    # `skipped-recent-activity` bucket field unless surfaced explicitly.
+    recent_activity_count = outcome_counts.get("SKIP_RECENT_ACTIVITY", 0)
+    if recent_activity_count:
+        print(
+            f"NOTE: {recent_activity_count} worktree(s) skipped because a file inside them was "
+            f"touched within the {args.activity_window_hours:g}h activity window "
+            "(--activity-window-hours) - a resumable, actively-used worktree, so this is a "
+            "safety default, not a bug. Pass --activity-window-hours 0 to lift this specific "
+            "floor; the activity floor is only one of several gates, so a worktree may still be "
+            "skipped afterward for another reason (dirty, locked, unproven branch, etc.) - this "
+            "does not guarantee removal."
         )
 
     if args.dry_run and salvage_would:

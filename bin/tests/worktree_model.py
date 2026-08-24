@@ -25,7 +25,8 @@ Public API:
   parse_porcelain(text)                              -> List[WorktreeEntry]
   classify_entry(entry, *, host, repo_root, is_main)  -> WorktreeClass
   disposition_for(entry, wt_class, facts, *,
-                   merge_evidence_order=MERGE_EVIDENCE_ORDER) -> Disposition
+                   merge_evidence_order=WORKTREE_REMOVAL_EVIDENCE_ORDER)
+                                                        -> Disposition
   disposition_for_orphan_branch(branch, facts, *,
                    merge_evidence_order=MERGE_EVIDENCE_ORDER,
                    base_branches=DEFAULT_BASE_BRANCHES) -> Disposition
@@ -34,6 +35,34 @@ Public API:
   WorktreeClass, Disposition                            -> enums
   MERGE_EVIDENCE_ORDER                                   -> evidence-source
                                                             precedence tuple
+                                                            used by
+                                                            disposition_for_
+                                                            orphan_branch's
+                                                            default (BRANCH
+                                                            DELETION path -
+                                                            never gains an
+                                                            "origin_reachable"
+                                                            entry)
+  WORKTREE_REMOVAL_EVIDENCE_ORDER                        -> DS-196: the
+                                                            evidence-source
+                                                            precedence tuple
+                                                            `disposition_for`
+                                                            (LIVE WORKTREE
+                                                            REMOVAL) now
+                                                            defaults to -
+                                                            adds
+                                                            "origin_reachable"
+                                                            after "pr_state".
+                                                            `disposition_for`
+                                                            and
+                                                            `disposition_for_
+                                                            orphan_branch` now
+                                                            have DIFFERENT
+                                                            default evidence
+                                                            orders - this is
+                                                            deliberate (see
+                                                            DispositionFacts
+                                                            below).
   DEFAULT_BASE_BRANCHES                                  -> ("main", "master")
                                                             default guard set
 
@@ -395,6 +424,17 @@ class DispositionFacts:
     that cannot determine a fact must pass the string `"not_checked"`
     explicitly, which every gate below treats as inconclusive-and-fails-
     closed, never as a silent green light.
+
+    DS-196: `origin_reachable` is a NEW, required (no-default) field,
+    preserving this invariant - every construction site across the
+    codebase must pass it explicitly. It is distinct from the existing
+    (untouched, still-dead) `head_reachable` field: `head_reachable` is
+    about a DETACHED-HEAD commit still being referenced somewhere;
+    `origin_reachable` is about whether this entry's own branch tip is
+    reachable from ANY `origin/*` ref (not necessarily the base branch),
+    a local-only, network-free signal computed by `_compute_origin_
+    reachable` in `bin/ds-cleanup-worktrees`. It does not alter detached-
+    HEAD handling at all.
     """
 
     dirty_status: str  # "clean" | "dirty" | "not_checked"
@@ -403,6 +443,7 @@ class DispositionFacts:
     merge_evidence: str  # "merged" | "unmerged" | "not_checked"
     content_subsumption: str  # "subsumed" | "not_subsumed" | "not_checked" (DS-153 B1)
     pr_state: str  # "OPEN" | "MERGED" | "CLOSED" | "NONE" | "not_checked"
+    origin_reachable: str  # "reachable" | "unreachable" | "not_checked" (DS-196)
 
 
 def _check_merge_evidence(facts: DispositionFacts) -> Optional[Disposition]:
@@ -461,6 +502,29 @@ def _check_ls_remote(facts: DispositionFacts) -> Optional[Disposition]:
     return None  # "pushed" alone is not proof of merge; inconclusive
 
 
+def _check_origin_reachable(facts: DispositionFacts) -> Optional[Disposition]:
+    """DS-196: LENIENT-only (`disposition_for`'s live-worktree-removal path)
+    - never added to `_EVIDENCE_CHECKS_STRICT`, and `"origin_reachable"` is
+    never added to the module-level `MERGE_EVIDENCE_ORDER` tuple
+    `disposition_for_orphan_branch` defaults to. Dict membership alone
+    cannot make this evidence source reachable from the branch-deletion
+    path - `_resolve_merge_evidence` only ever looks up a key that appears
+    in the ORDER TUPLE it is iterating (see that function, below).
+
+    Requires `pr_state` to have been AFFIRMATIVELY resolved (not
+    `"not_checked"`) before trusting origin-reachability - this is what
+    makes this evidence source safe under `--no-gh` or a failed `gh`
+    query: when PR evidence could not be gathered at all, a worktree
+    behind a live OPEN PR that this query simply could not see must never
+    be mistaken for a safely-reapable one.
+    """
+    if facts.pr_state == "not_checked":
+        return None
+    if facts.origin_reachable == "reachable":
+        return Disposition.ELIGIBLE
+    return None
+
+
 #: plan §API / interface design. The evidence-source precedence used by both
 #: `disposition_for` and `disposition_for_orphan_branch` when no single
 #: source is definitive on its own. ORDER IS LOAD-BEARING (this is the
@@ -476,6 +540,12 @@ def _check_ls_remote(facts: DispositionFacts) -> Optional[Disposition]:
 #: could not be computed (e.g. after a history rewrite); `ls_remote_status`
 #: last because "pushed" alone says nothing about merge status - it only
 #: ever produces a SKIP_* here, never an ELIGIBLE.
+#:
+#: This tuple is `disposition_for_orphan_branch`'s default (BRANCH
+#: DELETION) - it has NO "origin_reachable" entry, deliberately, and is
+#: left byte-for-byte unchanged by DS-196. See `WORKTREE_REMOVAL_EVIDENCE_
+#: ORDER` below for `disposition_for`'s (LIVE WORKTREE REMOVAL) own,
+#: DIFFERENT default.
 MERGE_EVIDENCE_ORDER: Tuple[str, ...] = (
     "merge_evidence",
     "content_subsumption",
@@ -483,10 +553,32 @@ MERGE_EVIDENCE_ORDER: Tuple[str, ...] = (
     "ls_remote_status",
 )
 
+#: DS-196: `disposition_for`'s (LIVE WORKTREE REMOVAL ONLY) default evidence
+#: order. Identical to `MERGE_EVIDENCE_ORDER` except for the new
+#: `"origin_reachable"` entry, inserted AFTER `"pr_state"` (never before) -
+#: `_check_pr_state_lenient`'s `SKIP_PR_OPEN` veto must resolve first, so an
+#: OPEN PR can never be shadowed by origin-reachability - and BEFORE
+#: `"ls_remote_status"`, since that source never produces `ELIGIBLE` on its
+#: own and origin-reachability is a stronger signal when it does apply.
+#: `disposition_for_orphan_branch` (BRANCH DELETION) keeps `MERGE_EVIDENCE_
+#: ORDER` as its own default, unchanged - `"origin_reachable"` never
+#: appears there, and `_EVIDENCE_CHECKS_STRICT` never gains a matching key
+#: either (see `_check_origin_reachable`'s docstring). BOTH conditions are
+#: required to keep the branch-deletion path structurally unreachable by
+#: this evidence source.
+WORKTREE_REMOVAL_EVIDENCE_ORDER: Tuple[str, ...] = (
+    "merge_evidence",
+    "content_subsumption",
+    "pr_state",
+    "origin_reachable",
+    "ls_remote_status",
+)
+
 _EVIDENCE_CHECKS_LENIENT: Dict[str, Callable[[DispositionFacts], Optional[Disposition]]] = {
     "merge_evidence": _check_merge_evidence,
     "content_subsumption": _check_content_subsumption,
     "pr_state": _check_pr_state_lenient,
+    "origin_reachable": _check_origin_reachable,
     "ls_remote_status": _check_ls_remote,
 }
 
@@ -496,6 +588,45 @@ _EVIDENCE_CHECKS_STRICT: Dict[str, Callable[[DispositionFacts], Optional[Disposi
     "pr_state": _check_pr_state_strict,
     "ls_remote_status": _check_ls_remote,
 }
+
+
+#: DS-196 plan step 17 / Minor 3: `_resolve_merge_evidence`'s `checks[source]`
+#: lookup is an UNGUARDED dict access - a key present in an order tuple but
+#: absent from the paired checks dict is a hard `KeyError` at runtime, not a
+#: caught/handled condition. Every (order tuple, checks dict) PAIRING this
+#: module's two public functions can actually produce with their own
+#: defaults, or that a caller can construct via the documented rollback
+#: lever (`--no-origin-reachable-evidence` passes `MERGE_EVIDENCE_ORDER`
+#: with `strict_pr_state=False`), is validated here at IMPORT TIME so a
+#: mismatch is caught immediately rather than only on whichever code path
+#: happens to hit the missing key first.
+_VALID_EVIDENCE_ORDER_CHECKS_PAIRINGS: Tuple[Tuple[Tuple[str, ...], Dict[str, Callable[[DispositionFacts], Optional[Disposition]]]], ...] = (
+    (WORKTREE_REMOVAL_EVIDENCE_ORDER, _EVIDENCE_CHECKS_LENIENT),
+    (MERGE_EVIDENCE_ORDER, _EVIDENCE_CHECKS_STRICT),
+    (MERGE_EVIDENCE_ORDER, _EVIDENCE_CHECKS_LENIENT),
+)
+
+
+def _assert_evidence_order_key_consistency() -> None:
+    """Raises `AssertionError` naming the first missing key if any order
+    tuple in `_VALID_EVIDENCE_ORDER_CHECKS_PAIRINGS` contains a key absent
+    from its paired checks dict. Called unconditionally at module import
+    time (below) and also called directly by
+    `test_worktree_model.py`'s key-set consistency test so a mutation that
+    adds an order-tuple entry with no matching dict key reddens
+    immediately rather than only on the next `disposition_for*` call that
+    happens to reach it.
+    """
+    for order, checks in _VALID_EVIDENCE_ORDER_CHECKS_PAIRINGS:
+        missing = [key for key in order if key not in checks]
+        if missing:
+            raise AssertionError(
+                f"evidence order/checks-dict mismatch: {missing!r} present in order tuple "
+                f"but absent from its paired checks dict"
+            )
+
+
+_assert_evidence_order_key_consistency()
 
 
 def _resolve_merge_evidence(
@@ -528,7 +659,7 @@ def disposition_for(
     wt_class: WorktreeClass,
     facts: DispositionFacts,
     *,
-    merge_evidence_order: Tuple[str, ...] = MERGE_EVIDENCE_ORDER,
+    merge_evidence_order: Tuple[str, ...] = WORKTREE_REMOVAL_EVIDENCE_ORDER,
 ) -> Disposition:
     """The locked/dirty/branch-vs-detached/merge-evidence-independent-of-push
     disposition gate for a LIVE worktree entry (has a `WorktreeClass`).
@@ -544,6 +675,19 @@ def disposition_for(
     merged branch does not need its push status checked at all; push status
     is consulted only once merge evidence and PR state are both
     inconclusive).
+
+    DS-196: this function's default `merge_evidence_order` is now
+    `WORKTREE_REMOVAL_EVIDENCE_ORDER`, NOT `MERGE_EVIDENCE_ORDER` -
+    `disposition_for` (live worktree removal) and `disposition_for_
+    orphan_branch` (branch deletion) intentionally diverge on their
+    default evidence order as of this ticket. `origin_reachable` is
+    distinct from `head_reachable` above and does not alter the detached-
+    HEAD branch at all - it participates only in the branched-entry
+    `_resolve_merge_evidence` call below, gated by its own `pr_state !=
+    "not_checked"` precondition (see `_check_origin_reachable`).
+    `--no-origin-reachable-evidence` (the caller-side rollback lever in
+    `bin/ds-cleanup-worktrees`) reproduces pre-DS-196 behavior exactly by
+    passing `merge_evidence_order=MERGE_EVIDENCE_ORDER` explicitly here.
     """
     if wt_class is WorktreeClass.MAIN:
         return Disposition.SKIP_MAIN
