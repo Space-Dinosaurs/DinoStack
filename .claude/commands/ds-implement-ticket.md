@@ -1642,6 +1642,10 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
     # `done < <(...)` is load-bearing here - a pipe form runs the loop in a
     # subshell and loses EXISTING_WT after exit, reproducing the "guard
     # matches nothing" failure this rewrite fixes.
+    # Behavioral difference vs. the retired awk one-liner (DS-192): on a
+    # worktree path containing whitespace, `${_wt_line#worktree }` yields
+    # the full path while the old awk field-2 form truncated at the first
+    # space - an improvement, not merely a side effect of the rewrite.
     ```
 
     If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
@@ -1771,6 +1775,8 @@ while IFS= read -r _wt_line; do
   esac
 done < <(git -C $REPO worktree list --porcelain)
 # `done < <(...)` is load-bearing - a pipe form would lose EXISTING_WT.
+# Also whitespace-path-safe vs. the retired awk form, same improvement as
+# the Elevated-path definition above.
 if [ -n "$EXISTING_WT" ]; then
   INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
 elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then

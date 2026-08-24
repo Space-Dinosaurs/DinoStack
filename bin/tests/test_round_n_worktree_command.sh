@@ -41,7 +41,10 @@
 #              awk field-selector syntax (`$0=="branch "b`), turning the
 #              guard into a comparison that is never true. Replaced with a
 #              pure-bash while/case scan (EXISTING_WT/_wt_path). Scenario 3
-#              is rewritten to reproduce the new bash construct verbatim, via
+#              is rewritten to reproduce the new bash construct's parsing
+#              logic (fed via stdin, not the doc's own `done < <(...)`
+#              redirect - see the fourth check_prose_wiring() assertion
+#              below for what pins that redirect form specifically), via
 #              a single `bash_reuse_guard_parse()` function that scenarios 3,
 #              3b, and 3c ALL call - there is exactly one parser in this
 #              file, not a test-local copy per scenario; scenario 3b pins
@@ -50,10 +53,12 @@
 #              literal-safety (a branch name containing `*` must match only
 #              its literal counterpart in the double-quoted case pattern).
 #              `check_prose_wiring()`'s single
-#              awk-literal assertion is replaced with three assertions
-#              pinning the bash form's existence, path extraction, and
-#              EXISTING_WT assignment separately - see the inline comment at
-#              that assertion for why a single boolean grep is insufficient.
+#              awk-literal assertion is replaced with FOUR assertions
+#              pinning the bash form's existence, path extraction, EXISTING_WT
+#              assignment, and the literal `done < <(...)` process-substitution
+#              redirect (round 3 fix, below) separately - see the inline
+#              comment at each assertion for why a single boolean grep is
+#              insufficient.
 #              Site 1749 (which uses $FEATURE_BRANCH, not $BRANCH_NAME) is
 #              intentionally left unpinned by check_prose_wiring(), same as
 #              before this ticket - it was never independently doc-pinned,
@@ -146,6 +151,17 @@ check_prose_wiring() {
   fi
   if ! grep -q -- 'EXISTING_WT="\$_wt_path"' "$doc"; then
     echo "PROSE-WIRING VIOLATION: $doc does not assign the extracted path to EXISTING_WT on branch match (DS-192 bash rewrite)" >&2
+    ok=1
+  fi
+  # G1 (DS-192 round 3): pin the literal process-substitution redirect form.
+  # A rewrite to a pipe (`... | while ...`) runs the loop in a subshell and
+  # silently drops EXISTING_WT after the loop exits - reproducing the exact
+  # "guard matches nothing" failure this ticket fixes - while passing the
+  # three assertions above unchanged, since none of them inspect how the
+  # loop is fed. This is a distinct property from "the parser exists" and
+  # needs its own pin.
+  if ! grep -q -- 'done < <(git -C \$REPO worktree list --porcelain)' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) to feed the existing-worktree scan" >&2
     ok=1
   fi
   if ! grep -q -- 'UNPUSHED_RC=\$?' "$doc"; then

@@ -89,6 +89,13 @@ content = content.replace(old, new, 1)
 with open(path, "w") as f:
     f.write(content)
 PYEOF
+fixture_rc=$?
+if [ "$fixture_rc" != "0" ]; then
+  note_fail "mutation 1: fixture-apply heredoc exited $fixture_rc - mutation did not land"
+fi
+if ! grep -qF "awk '/^developer_id:/{print \$2}'" "$doc"; then
+  note_fail "mutation 1: reverted bare-\$2 form is not present in the fixture after applying the mutation"
+fi
 out="$(run_check "$WORK_DIR" 2>&1)"
 rc=$?
 echo "mutation1 exit=$rc output=[$out]"
@@ -117,6 +124,13 @@ assert inserted, "no ```bash fence found to inject into"
 with open(path, "w") as f:
     f.writelines(lines)
 PYEOF
+fixture_rc=$?
+if [ "$fixture_rc" != "0" ]; then
+  note_fail "mutation 2: fixture-apply heredoc exited $fixture_rc - mutation did not land"
+fi
+if ! grep -qF 'echo injected $1' "$doc"; then
+  note_fail "mutation 2: injected bare-token line is not present in the fixture after applying the mutation"
+fi
 out="$(run_check "$WORK_DIR" 2>&1)"
 rc=$?
 echo "mutation2 exit=$rc output=[$out]"
@@ -145,6 +159,18 @@ assert inserted, "no ```yaml fence found to inject into"
 with open(path, "w") as f:
     f.writelines(lines)
 PYEOF
+fixture_rc=$?
+# G3 (DS-192 round 3): mutation 3's assertion below is NEGATIVE (rc must be
+# 0), so an unchecked, silently-failed fixture heredoc would leave $doc
+# unmutated and this assertion would pass vacuously - testing nothing. Both
+# checks below must run BEFORE run_check so a fixture failure is caught on
+# its own terms, independent of whatever run_check happens to report.
+if [ "$fixture_rc" != "0" ]; then
+  note_fail "mutation 3: fixture-apply heredoc exited $fixture_rc - mutation did not land"
+fi
+if ! grep -qF 'decoy: $1' "$doc"; then
+  note_fail "mutation 3: injected yaml-fence decoy line is not present in the fixture after applying the mutation"
+fi
 out="$(run_check "$WORK_DIR" 2>&1)"
 rc=$?
 echo "mutation3 exit=$rc output=[$out]"
@@ -175,6 +201,13 @@ lines.insert(5, "````\n")
 with open(path, "w") as f:
     f.writelines(lines)
 PYEOF
+fixture_rc=$?
+if [ "$fixture_rc" != "0" ]; then
+  note_fail "mutation 5: fixture-apply heredoc exited $fixture_rc - mutation did not land"
+fi
+if ! grep -qF '````' "$doc"; then
+  note_fail "mutation 5: injected 4-backtick fence line is not present in the fixture after applying the mutation"
+fi
 out="$(run_check "$WORK_DIR" 2>&1)"
 rc=$?
 echo "mutation5 exit=$rc output=[$out]"
@@ -209,6 +242,15 @@ del lines[close_idx]
 with open(path, "w") as f:
     f.writelines(lines)
 PYEOF
+fixture_rc=$?
+if [ "$fixture_rc" != "0" ]; then
+  note_fail "mutation 6: fixture-apply heredoc exited $fixture_rc - mutation did not land"
+fi
+clean_fence_count="$(grep -cF '```' "$CLEAN_DIR/ds-implement-ticket.md")"
+mutated_fence_count="$(grep -cF '```' "$doc")"
+if [ "$mutated_fence_count" != "$((clean_fence_count - 1))" ]; then
+  note_fail "mutation 6: expected exactly one fence line removed from the fixture (clean=$clean_fence_count, mutated=$mutated_fence_count) - mutation did not land as expected"
+fi
 out="$(run_check "$WORK_DIR" 2>&1)"
 rc=$?
 echo "mutation6 exit=$rc output=[$out]"
