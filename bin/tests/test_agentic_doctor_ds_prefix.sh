@@ -84,9 +84,14 @@ EOF
 }
 
 invoke_doctor() {
+  # unset CLAUDE_CONFIG_DIR: a real value set in the invoking session would
+  # make _plugins_dir() resolve OUTSIDE TEMP_HOME and silently scan the
+  # real machine's plugins instead of these HOME-relative fixtures
+  # (DS-198 round 3, Skeptic Major 2).
   (
     HOME="$TEMP_HOME"
     export HOME
+    unset CLAUDE_CONFIG_DIR
     python3 "$DOCTOR" "$@"
   ) > "$TEMP_HOME/.out" 2>&1
   echo $? > "$TEMP_HOME/.exit"
