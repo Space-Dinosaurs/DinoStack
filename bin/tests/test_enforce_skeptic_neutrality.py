@@ -923,3 +923,157 @@ def test_scenario_27_pep604_guard_79_checks():
 # (bin/tests/test_docs_currency_sync.py, bin/tests/test_tracker_writeback_ranking_spec.py)
 # per the plan's Implementation step 6 - not duplicated here.
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# Round-2 fix regression: Critical (relocated) - `_ATTRIBUTION_RE` was a
+# closed 4-agent enumeration against `content/agents/skeptic.md:30`'s open
+# "any other named agent's own return passed through as written" carve-out,
+# denying 14 of the 18 agents under content/agents/ a protocol-sanctioned
+# un-bracketed pass-through. Fixed by deriving `_ATTRIBUTION_RE` from
+# `_KNOWN_AGENT_SLUGS`, a hardcoded tuple kept in sync (rather than read at
+# hook RUNTIME - the DS-54 hooks-snapshot mechanism does not carry
+# content/agents/ into the deployed snapshot dir) by this test re-deriving
+# the live `content/agents/*.md` file set at TEST TIME on every run.
+# --------------------------------------------------------------------------- #
+def _live_agent_slugs() -> set[str]:
+    agents_dir = _REPO_ROOT / "content" / "agents"
+    return {p.stem for p in agents_dir.glob("*.md")}
+
+
+def test_attribution_regex_slug_set_matches_live_agents_directory():
+    """Bidirectional set equality, not containment: fails if a new agent
+    file is added and `_KNOWN_AGENT_SLUGS` is not updated to match, AND
+    fails if `_KNOWN_AGENT_SLUGS` carries a stale slug no longer present
+    under content/agents/."""
+    assert set(_mod._KNOWN_AGENT_SLUGS) == _live_agent_slugs()
+
+
+def test_attribution_regex_allows_every_current_agent_pass_through():
+    """Executed end-to-end: 'Per the <Agent>, ...' must ALLOW (not deny)
+    for every current agent under content/agents/, per skeptic.md:30's
+    'any other named agent's own return passed through as written'
+    carve-out. Round-2's closed 4-name enumeration denied 14 of these."""
+    for slug in sorted(_live_agent_slugs()):
+        display = slug.replace("-", " ").title()
+        sentence = f"Per the {display}, the retry backoff resets incorrectly under load."
+        assert _mod.field7_violation([sentence]) is None, (
+            f"attribution to '{display}' (slug '{slug}') was incorrectly denied"
+        )
+
+
+def test_attribution_regex_allows_conductor_and_done_with_concerns():
+    assert _mod.field7_violation(
+        ["Per the conductor, the retry backoff resets incorrectly under load."]
+    ) is None
+    assert _mod.field7_violation(
+        ["Per Engineer DONE_WITH_CONCERNS: the retry backoff resets incorrectly under load."]
+    ) is None
+
+
+def test_attribution_regex_mutation_closed_roster_reddens():
+    """Executed mutation-testing proof: reverting to the round-2 closed
+    5-name roster (Engineer|Architect|Investigator|QA-Engineer|conductor)
+    denies attribution to every other current agent (14 of 18 files)."""
+    import re as _re
+
+    old_re = _re.compile(
+        r'\bPer\s+(the\s+)?(Engineer|Architect|Investigator|QA-Engineer|conductor)\b'
+        r'|DONE_WITH_CONCERNS',
+        _re.IGNORECASE,
+    )
+    denied_count = 0
+    for slug in _live_agent_slugs():
+        display = slug.replace("-", " ").title()
+        sentence = f"Per the {display}, the retry backoff resets incorrectly under load."
+        if not old_re.search(sentence):
+            denied_count += 1
+    assert denied_count >= 13, (
+        f"mutation should have reddened (denied most agents), only denied {denied_count}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Round-2 fix regression: Major - `_NA_WITH_REASON_RE` with `re.DOTALL` and
+# an unbounded `.*$` tail exempted the ENTIRE remainder of field 7 once a
+# leading `n/a - <reason>` clause matched, silently disabling the primary
+# deny rule for any field-7 value merely prefixed with a valid-looking n/a
+# clause.
+# --------------------------------------------------------------------------- #
+def test_round2_fix_major_na_prefix_does_not_exempt_trailing_untagged_sentence():
+    value = "n/a - Trivial direct edit. The config loader is the root cause; look there."
+    result = _mod.field7_violation([value])
+    assert result is not None, "an n/a prefix must not exempt a trailing untagged sentence"
+
+
+def test_round2_fix_major_mutation_unbounded_na_regex_reddens():
+    """Executed mutation-testing proof: restoring the prior unbounded,
+    re.DOTALL `_NA_WITH_REASON_RE` (`^n/a\\s*-\\s*\\S.*$`) matched against
+    the whole joined field exempts the entire value, including the
+    trailing untagged claim - reddening this scenario."""
+    import re as _re
+
+    mutated_re = _re.compile(r'^n/a\s*-\s*\S.*$', _re.IGNORECASE | _re.DOTALL)
+    value = "n/a - Trivial direct edit. The config loader is the root cause; look there."
+    assert mutated_re.match(value.strip()) is not None, (
+        "mutation should have reddened (falsely exempted the whole value)"
+    )
+
+
+def test_round2_fix_major_na_reason_with_bracket_not_exempt():
+    """A reason containing a bracket is never exempt on its own - closes
+    the same unbounded-tail defect class for a bracket smuggled directly
+    into the reason rather than via a second sentence."""
+    value = 'n/a - Trivial direct edit [some bracketed content]'
+    assert _mod._field7_is_exempt_na(value) is False
+
+
+# --------------------------------------------------------------------------- #
+# Round-2 fix regression: Minor - content inside a qualifying
+# `[Neutrality: ...]` bracket was stripped and never scanned, so a steer
+# riding inside the boilerplate passed when the carrier bracket contained
+# the three required substrings with arbitrary filler between them.
+# --------------------------------------------------------------------------- #
+def test_round2_fix_minor_neutrality_bracket_smuggle_denied():
+    smuggled_value = (
+        'n/a - Trivial direct edit [Neutrality: the retry.py backoff is the '
+        'root cause - see skeptic-protocol.md Section 7 "Neutrality '
+        'requirement".]'
+    )
+    result = _mod.field7_violation([smuggled_value])
+    assert result is not None, "a bracket smuggling a claim past the three-substring check must deny"
+
+
+def test_round2_fix_minor_mutation_loose_substring_strip_reddens():
+    """Executed mutation-testing proof: restoring the prior round's loose
+    three-substring strip (`[^\\]]*?` filler between required substrings,
+    no exact-literal requirement) strips the smuggled bracket entirely,
+    leaving a compliant-looking bare `n/a - Trivial direct edit` and
+    falsely exempting the whole value."""
+    import re as _re
+
+    mutated_re = _re.compile(
+        r'\s*\[\s*Neutrality:[^\]]*?skeptic-protocol\.md[^\]]*?Section\s*7[^\]]*?'
+        r'Neutrality\s+requirement[^\]]*?\]\s*$',
+        _re.IGNORECASE,
+    )
+    smuggled_value = (
+        'n/a - Trivial direct edit [Neutrality: the retry.py backoff is the '
+        'root cause - see skeptic-protocol.md Section 7 "Neutrality '
+        'requirement".]'
+    )
+    stripped = mutated_re.sub('', smuggled_value).rstrip()
+    assert stripped == "n/a - Trivial direct edit", (
+        "mutation should have reddened (silently stripped the smuggled claim)"
+    )
+    assert _mod._field7_is_exempt_na(stripped) is True
+
+
+def test_round2_fix_minor_exact_literal_note_still_strips_correctly():
+    """Regression: the tightened exact-literal strip must still strip the
+    repo's real, unmodified template note (no smuggled content)."""
+    template_line = _read_live_field7_template_line()
+    bracket_start = template_line.index("[Neutrality:")
+    trailing_note = template_line[bracket_start:]
+    value = f"n/a - Trivial direct edit {trailing_note}"
+    assert _mod.field7_violation([value]) is None
