@@ -261,7 +261,7 @@ ae_sanitize() {
 }
 
 ae_derive_loop_key() {
-  # $1 = TICKET_ID (may be empty)   $2 = SESSION_ID (may be empty, or "null")
+  # arg1 = TICKET_ID (may be empty)   arg2 = SESSION_ID (may be empty, or "null")
   #
   # This function's ONLY output is the key on stdout. Do NOT add a diagnostic
   # print here - callers capture stdout as the key, and so does
@@ -614,12 +614,12 @@ classifiers:
 - **Output channel:** resolver MUST emit JSON on stdout. Stderr is captured and logged to `resolution_notes` but is NOT parsed.
 - **Exit code:** zero exit = success; non-zero exit = treat as "no entries from this resolver" (log stderr, continue Phase 0; do NOT abort).
 - **JSON shape:** stdout MUST be either a single object `{ticket_id: string, title?: string}` OR a JSON array of such objects. Any other shape (non-JSON, missing `ticket_id`, wrong types) is a resolver failure.
-- **Capture-group substitution:** `$1` through `$9` correspond to regex capture groups from `detect`. Substituted values MUST be shell-escaped by wrapping the value in single quotes and replacing every embedded single quote `'` with the four-character sequence `'\''`. Example: a capture value `O'Brien's repo` is substituted as `'O'\''Brien'\''s repo'`. The engineer MUST NOT use unquoted `$1` substitution under any circumstance — raw URLs and tracker IDs may contain shell metacharacters (`;`, `&`, `` ` ``, `$()`, `|`, newlines) that would otherwise inject commands into the conductor shell.
+- **Capture-group substitution:** capture group 1 through capture group 9 correspond to regex capture groups from `detect`. Substituted values MUST be shell-escaped by wrapping the value in single quotes and replacing every embedded single quote `'` with the four-character sequence `'\''`. Example: a capture value `O'Brien's repo` is substituted as `'O'\''Brien'\''s repo'`. The engineer MUST NOT use unquoted capture-group substitution under any circumstance - raw URLs and tracker IDs may contain shell metacharacters (`;`, `&`, `` ` ``, `$()`, `|`, newlines) that would otherwise inject commands into the conductor shell.
 - **Timeout:** 10 seconds per resolver invocation. On timeout: kill the process, treat as zero entries, append a `"resolver timeout: <source_label>"` warning to `resolution_notes`.
 
 **MCP-tool resolver contract (binding).**
 
-- **Invocation:** the conductor calls the named MCP tool with `args` as the input dict. Capture-group substitution `$1`-`$9` applies to string-typed values inside `args` by literal string replacement. Shell-escaping does NOT apply (these are tool-call arguments, not shell tokens). The conductor MUST type-check each substituted value against the schema the MCP tool advertises — if the tool expects an integer and substitution produces a non-numeric string, treat as resolver failure and log; do NOT silently coerce.
+- **Invocation:** the conductor calls the named MCP tool with `args` as the input dict. Capture-group substitution (capture group 1 through capture group 9) applies to string-typed values inside `args` by literal string replacement. Shell-escaping does NOT apply (these are tool-call arguments, not shell tokens). The conductor MUST type-check each substituted value against the schema the MCP tool advertises - if the tool expects an integer and substitution produces a non-numeric string, treat as resolver failure and log; do NOT silently coerce.
 - **Response parsing:** the resolver entry MAY specify `response_path:` — a JSONPath-like expression (root `$`, dot-traversal, optional array index e.g. `$.data.items[0]`) telling the conductor which sub-object of the tool response carries `ticket_id` and `title`. If `response_path` is omitted, the conductor reads `ticket_id`/`title` directly from the top-level response object. If `response_path` is present but does not resolve (key missing, type mismatch), treat as resolver failure.
 - **Failure & timeout:** MCP tool errors and tool-side timeouts are treated identically to shell-command non-zero exit — log and continue.
 
@@ -1545,7 +1545,7 @@ This subsection is reached exactly once per ticket, on every ticket path, before
 
 **Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands. The literal `create_commands` form (initial spawn vs. preseeded vs. round-N rework) is NOT restated here - Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) is the sole canonical definition site; every other spawn site points there.
 
-**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the create command. Initial spawn (branch does not yet exist on origin): `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH`. Round-N rework fix pass on a Trivial-path branch that already exists on origin (same `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` existence check as the canonical definition in `content/references/worktree-lifecycle.md` §Round-N rework mechanic): `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME` instead - this resets/checks out the existing branch at the origin tip rather than branching fresh from `$BASE_BRANCH`. **`checkout -B`'s already-checked-out behavior is git-version-dependent - do not assume it matches `worktree add`'s protection.** `git worktree add -B` refuses (exit 128, "already checked out at ..." on older git / "already used by worktree at ..." on newer git - the wording is not stable across versions either, but the refusal is) when `$BRANCH_NAME` is checked out in another worktree, on every measured version. `git checkout -B $BRANCH_NAME origin/$BRANCH_NAME` is different: on OLDER git (observed: 2.39.5), it does NOT refuse - it exits 0, force-moves the shared `refs/heads/$BRANCH_NAME` ref to `origin/$BRANCH_NAME`'s tip, and silently drags that OTHER worktree's `HEAD` along with it, so an unpushed commit sitting in that other worktree becomes unreachable from the branch tip (still recoverable via reflog, but silently dropped from the branch). On NEWER git (observed: 2.55.0, and matching the exit behavior seen on a CI runner's 2.54.0), `checkout -B` now refuses the same way `worktree add` does (non-zero exit, other worktree's `HEAD` untouched) - this protection was added upstream at some point between those two measured versions; the exact boundary release is not verified here, so it is not named. **The porcelain precheck is MANDATORY (not a convenience) on the Trivial path before running `checkout -B` under BOTH behaviors**: on older git it is the ONLY thing preventing silent data loss; on newer git it converts what would otherwise be a hard, unhandled fatal into the guarded reuse-vs-recovery path instead of an unhandled failure. Locate any existing worktree for `$BRANCH_NAME` via the same `git -C $REPO worktree list --porcelain` awk extraction documented in the canonical Elevated-path definition above, and if one exists, apply the same precheck-gated reuse-vs-recovery logic (never running `checkout -B` from a location other than that existing worktree while it may hold local-only state) rather than assuming a clean switch. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
+**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the create command. Initial spawn (branch does not yet exist on origin): `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH`. Round-N rework fix pass on a Trivial-path branch that already exists on origin (same `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` existence check as the canonical definition in `content/references/worktree-lifecycle.md` §Round-N rework mechanic): `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME` instead - this resets/checks out the existing branch at the origin tip rather than branching fresh from `$BASE_BRANCH`. **`checkout -B`'s already-checked-out behavior is git-version-dependent - do not assume it matches `worktree add`'s protection.** `git worktree add -B` refuses (exit 128, "already checked out at ..." on older git / "already used by worktree at ..." on newer git - the wording is not stable across versions either, but the refusal is) when `$BRANCH_NAME` is checked out in another worktree, on every measured version. `git checkout -B $BRANCH_NAME origin/$BRANCH_NAME` is different: on OLDER git (observed: 2.39.5), it does NOT refuse - it exits 0, force-moves the shared `refs/heads/$BRANCH_NAME` ref to `origin/$BRANCH_NAME`'s tip, and silently drags that OTHER worktree's `HEAD` along with it, so an unpushed commit sitting in that other worktree becomes unreachable from the branch tip (still recoverable via reflog, but silently dropped from the branch). On NEWER git (observed: 2.55.0, and matching the exit behavior seen on a CI runner's 2.54.0), `checkout -B` now refuses the same way `worktree add` does (non-zero exit, other worktree's `HEAD` untouched) - this protection was added upstream at some point between those two measured versions; the exact boundary release is not verified here, so it is not named. **The porcelain precheck is MANDATORY (not a convenience) on the Trivial path before running `checkout -B` under BOTH behaviors**: on older git it is the ONLY thing preventing silent data loss; on newer git it converts what would otherwise be a hard, unhandled fatal into the guarded reuse-vs-recovery path instead of an unhandled failure. Locate any existing worktree for `$BRANCH_NAME` via the same `git -C $REPO worktree list --porcelain` existing-worktree lookup documented in the canonical Elevated-path definition above, and if one exists, apply the same precheck-gated reuse-vs-recovery logic (never running `checkout -B` from a location other than that existing worktree while it may hold local-only state) rather than assuming a clean switch. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
 
 **Phase 5 parallel fan-out path.** Conductor-side worktree creation is preserved as today; the fan-out logic lives in Phase 5 itself.
 
@@ -1628,7 +1628,21 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
     **Guard (already checked out):** `git worktree add` fails fatally (exit 128, `already checked out at ...` on older git / `already used by worktree at ...` on newer git - the wording is not stable across versions, but the refusal is) if `$BRANCH_NAME` is already checked out in another worktree under `$REPO` (e.g. a prior round's worktree was never cleaned up). Before running the add, locate the existing worktree's path from `git -C $REPO worktree list --porcelain` (matched by exact string equality on the `branch` line, not a shell-interpolated regex, to avoid `$BRANCH_NAME` metacharacters mis-parsing):
 
     ```bash
-    EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$BRANCH_NAME" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+    EXISTING_WT=""
+    _wt_path=""
+    while IFS= read -r _wt_line; do
+      case "$_wt_line" in
+        "worktree "*) _wt_path="${_wt_line#worktree }" ;;
+        "branch refs/heads/$BRANCH_NAME") EXISTING_WT="$_wt_path" ;;
+      esac
+    done < <(git -C $REPO worktree list --porcelain)
+    # `done < <(...)` is load-bearing here - a pipe form runs the loop in a
+    # subshell and loses EXISTING_WT after exit, reproducing the "guard
+    # matches nothing" failure this rewrite fixes.
+    # Behavioral difference vs. the retired awk one-liner (DS-192): on a
+    # worktree path containing whitespace, `${_wt_line#worktree }` yields
+    # the full path while the old awk field-2 form truncated at the first
+    # space - an improvement, not merely a side effect of the rewrite.
     ```
 
     If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
@@ -1749,7 +1763,17 @@ After all engineers return, append an output-only entry per unit: write `worker_
 INTEGRATION_WORKTREE="${REPO}/.agentic/worktrees/${FEATURE_BRANCH}"
 # Same rule as the Elevated-path definition above (substitute
 # $INTEGRATION_WORKTREE/$FEATURE_BRANCH for $WORKTREE_PATH/$BRANCH_NAME).
-EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$FEATURE_BRANCH" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+EXISTING_WT=""
+_wt_path=""
+while IFS= read -r _wt_line; do
+  case "$_wt_line" in
+    "worktree "*) _wt_path="${_wt_line#worktree }" ;;
+    "branch refs/heads/$FEATURE_BRANCH") EXISTING_WT="$_wt_path" ;;
+  esac
+done < <(git -C $REPO worktree list --porcelain)
+# `done < <(...)` is load-bearing - a pipe form would lose EXISTING_WT.
+# Also whitespace-path-safe vs. the retired awk form, same improvement as
+# the Elevated-path definition above.
 if [ -n "$EXISTING_WT" ]; then
   INTEGRATION_WORKTREE="$EXISTING_WT"   # reuse - apply reset-vs-recovery above first
 elif git -C $REPO ls-remote --exit-code --heads origin "$FEATURE_BRANCH" >/dev/null 2>&1; then
@@ -2313,7 +2337,7 @@ git -C "$COMMIT_CHECKOUT" add [specific files]
 
 # Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
+DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $NF}')
 # Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
 if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
@@ -2674,7 +2698,7 @@ Run:
 # Resolve identity for PR Developer: field (may already be set from Phase 8).
 # Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
+DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $NF}')}
 if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 
 # Engineer model for the PR Model: attribution line (DS-166). Source-of-truth is
@@ -3550,7 +3574,7 @@ else
                 echo "WARNING: [phase: knowledge-commit] diff --numstat failed for $KC_F: $KC_F_NUMSTAT_ERR - treating this file as REVERT RISK PRESENT (fail-closed)."
                 KC_F_DELETED=-1
               else
-                KC_F_DELETED=$(awk '{s += $2} END {print s+0}' "$KC_IDX.f-numstat")
+                KC_F_DELETED=$(awk -v idx=2 '{s += $(idx)} END {print s+0}' "$KC_IDX.f-numstat")
               fi
               # No `''|*[!0-9]*` arm mirroring the aggregate block's guard is
               # needed for CORRECTNESS: $((0+"")) and $((0+abc)) both yield 0
@@ -3591,8 +3615,8 @@ else
                   echo "WARNING: [phase: knowledge-commit] ls-tree origin/$BRANCH_NAME -- $KC_F failed while resetting the temp index after a revert-risk skip - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
                   KC_RESET_FAILED="yes"
                 else
-                  KC_TIP_MODE=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $1}')
-                  KC_TIP_SHA=$(printf '%s' "$KC_TIP_ENTRY" | awk '{print $3}')
+                  KC_TIP_MODE=$(printf '%s' "$KC_TIP_ENTRY" | awk -v idx=1 '{print $(idx)}')
+                  KC_TIP_SHA=$(printf '%s' "$KC_TIP_ENTRY" | awk -v idx=3 '{print $(idx)}')
                   KC_CACHEINFO_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index --add --cacheinfo "$KC_TIP_MODE,$KC_TIP_SHA,$KC_F" 2>&1 >/dev/null)
                   if [ $? -ne 0 ]; then
                     echo "WARNING: [phase: knowledge-commit] update-index --add --cacheinfo failed while resetting $KC_F's temp index entry after a revert-risk skip: $KC_CACHEINFO_ERR - the temp index entry for $KC_F cannot be verified safe. Abandoning this knowledge-commit run rather than risk shipping stale content (fail-closed)."
@@ -3678,7 +3702,7 @@ else
           # awk emits 0 (not empty) for an empty input file under bash, zsh, and
           # sh, so the '' arm below is reachable only if awk itself fails to run
           # or the numstat file is unreadable. Keep it for exactly that case.
-          KC_DELETED=$(awk '{s += $2} END {print s+0}' "$KC_IDX.numstat")
+          KC_DELETED=$(awk -v idx=2 '{s += $(idx)} END {print s+0}' "$KC_IDX.numstat")
           case "$KC_DELETED" in
             ''|*[!0-9]*)
               echo "WARNING: [phase: knowledge-commit] deleted-line count is empty or non-numeric ('$KC_DELETED') - awk did not run or its output is unusable; treating as REVERT RISK PRESENT (fail-closed)."
@@ -3688,7 +3712,7 @@ else
             0) : ;;
             *)
               KC_REVERT_RISK="yes"
-              awk -v kc_branch="$BRANCH_NAME" '$2 > 0 {printf "WARNING: [phase: knowledge-commit] %s has %s deleted line(s) vs origin/%s - this commit may revert content another session already merged. Review the PR diff before merging.\n", $3, $2, kc_branch}' "$KC_IDX.numstat"
+              awk -v kc_branch="$BRANCH_NAME" -v idx2=2 -v idx3=3 '$(idx2) > 0 {printf "WARNING: [phase: knowledge-commit] %s has %s deleted line(s) vs origin/%s - this commit may revert content another session already merged. Review the PR diff before merging.\n", $(idx3), $(idx2), kc_branch}' "$KC_IDX.numstat"
               ;;
           esac
         fi

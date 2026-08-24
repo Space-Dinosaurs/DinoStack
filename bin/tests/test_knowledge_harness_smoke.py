@@ -14,7 +14,12 @@ Purpose: Proves the knowledge-commit test harness works before any
          stub can force one subcommand to fail while a dozen other git calls
          in the same block still work, and can prove a command was never
          attempted; (4) `awk '{s += $2} END {print s+0}'` on an empty file
-         emits "0", not nothing.
+         emits "0", not nothing - equally true of the DS-192 harness-safe
+         `awk -v idx=2 '{s += $(idx)} END {print s+0}'` idiom that replaced
+         the bare-`$2` form in production (content/commands/ds-implement-
+         ticket.md), which this smoke fixture's own bare form no longer
+         matches in shape but still matches in the zero-emission property
+         under test.
 
 Public API: none (pytest test module; 13 parametrized functions x {bash, zsh}
             = 26 collected IDs, plus 4 static shell-independent assertions =

@@ -1,0 +1,25 @@
+name: command-arg-substitution
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-command-arg-substitution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run command arg-substitution gate
+        # Scan-only (no `git diff --exit-code` step of any kind) - a
+        # regenerate-then-assert-diff pattern touching content/commands/
+        # ds-implement-ticket.md would flip that file's provenance from
+        # AUTHORED to DERIVED under scripts/gate-provenance.sh's D1 rule.
+        # Non-required for now (DS-192); mirrors command-file-budget.yml's
+        # advisory posture.
+        timeout-minutes: 2
+        run: python3 scripts/check-command-arg-substitution.py content/commands

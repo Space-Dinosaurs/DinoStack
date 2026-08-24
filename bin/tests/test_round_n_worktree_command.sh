@@ -33,6 +33,43 @@
 #              old git, and the thing converting a hard fatal into the
 #              guarded reuse path on new git. Scenario 7 asserts this
 #              dichotomy directly rather than pinning either single version.
+#            - DS-192: the awk one-liner powering the existing-worktree
+#              reuse guard (both sites, 1628/1749 in
+#              content/commands/ds-implement-ticket.md) is harness-argument-
+#              substitution-unsafe - Claude Code's slash-command `$0`/`$1`-
+#              `$9`/`$ARGUMENTS` textual substitution silently corrupts the
+#              awk field-selector syntax (`$0=="branch "b`), turning the
+#              guard into a comparison that is never true. Replaced with a
+#              pure-bash while/case scan (EXISTING_WT/_wt_path). Scenario 3
+#              is rewritten to reproduce the new bash construct's parsing
+#              logic (fed via stdin, not the doc's own `done < <(...)`
+#              redirect - see the fourth check_prose_wiring() assertion
+#              below for what pins that redirect form specifically), via
+#              a single `bash_reuse_guard_parse()` function that scenarios 3,
+#              3b, and 3c ALL call - there is exactly one parser in this
+#              file, not a test-local copy per scenario; scenario 3b pins
+#              prefix-safety (a branch name that is a prefix of another must
+#              not false-match); scenario 3c pins glob-metacharacter
+#              literal-safety (a branch name containing `*` must match only
+#              its literal counterpart in the double-quoted case pattern).
+#              `check_prose_wiring()`'s single
+#              awk-literal assertion is replaced with FOUR assertions
+#              pinning the bash form's existence, path extraction, EXISTING_WT
+#              assignment, and the literal `done < <(...)` process-substitution
+#              redirect (round 3 fix, below) separately - see the inline
+#              comment at each assertion for why a single boolean grep is
+#              insufficient.
+#              Site 1749 (which uses $FEATURE_BRANCH, not $BRANCH_NAME) is
+#              not independently doc-pinned for the case/path-extraction
+#              assertions - same as before this ticket, exercised only
+#              indirectly via scenario 3's reproduction - but H1 (round 3
+#              Skeptic finding): the `done < <(...)` process-substitution
+#              redirect assertion below now pins BOTH sites via an
+#              occurrence-COUNT check (== 2), not mere presence, since the
+#              literal redirect text is byte-identical at 1628 and 1749 -
+#              a bare `grep -q` presence check is satisfied by a single
+#              surviving occurrence and would miss a pipe regression at
+#              either site alone.
 #          Every scenario below runs against a disposable scratch git repo
 #          under a temp directory (never touches the real DinoStack
 #          checkout, worktree, or branch state), and where a prior round's
@@ -102,10 +139,47 @@ check_prose_wiring() {
   fi
 
   # Round 3 MAJOR 1: the reset precheck must fetch BEFORE evaluating the
-  # predicates, must capture the unpushed-commit check's exit code, and
-  # must document the awk-based path extraction (not the old boolean grep).
-  if ! grep -q -- 'awk -v b="refs/heads/\$BRANCH_NAME"' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc does not document the awk-based existing-worktree path extraction" >&2
+  # predicates and must capture the unpushed-commit check's exit code.
+  # DS-192: the awk one-liner (both worktree-guard sites, 1628/1749) was
+  # replaced with a pure-bash while/case scan that extracts the existing
+  # worktree's path and assigns it to EXISTING_WT - reintroducing the bare
+  # $BRANCH_NAME/$2/$0 awk form here would itself be the exact defect class
+  # DS-192's CI gate polices. Three assertions, not one: a bare
+  # "case statement exists" grep would repeat the same boolean-only
+  # weakness (no path-extraction pin) that made the original awk-literal
+  # assertion insufficient once the awk form was retired.
+  if ! grep -q -- 'case "\$_wt_line" in' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not document the bash-based existing-worktree path extraction (awk form removed per DS-192)" >&2
+    ok=1
+  fi
+  if ! grep -q -- '_wt_path="\${_wt_line#worktree }"' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not extract the worktree path from the porcelain 'worktree ' line (DS-192 bash rewrite)" >&2
+    ok=1
+  fi
+  if ! grep -q -- 'EXISTING_WT="\$_wt_path"' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not assign the extracted path to EXISTING_WT on branch match (DS-192 bash rewrite)" >&2
+    ok=1
+  fi
+  # G1 (DS-192 round 3): pin the literal process-substitution redirect form.
+  # A rewrite to a pipe (`... | while ...`) runs the loop in a subshell and
+  # silently drops EXISTING_WT after the loop exits - reproducing the exact
+  # "guard matches nothing" failure this ticket fixes - while passing the
+  # three assertions above unchanged, since none of them inspect how the
+  # loop is fed. This is a distinct property from "the parser exists" and
+  # needs its own pin.
+  #
+  # H1 (DS-192 round 3 Skeptic finding): a bare `grep -q` presence check
+  # is satisfied by a SINGLE surviving occurrence, so a pipe regression at
+  # only one of the two worktree-guard sites (1628-ish Elevated-path
+  # definition, 1749-ish Merge-phase copy) still passes. The literal text
+  # is byte-identical at both sites (verified: both read
+  # `done < <(git -C $REPO worktree list --porcelain)`), so an occurrence
+  # COUNT of exactly 2 catches a regression at either site without
+  # anchoring on any surrounding context that a legitimate future edit
+  # could shift.
+  _dwt_redirect_count="$(grep -c -- 'done < <(git -C \$REPO worktree list --porcelain)' "$doc")"
+  if [ "$_dwt_redirect_count" -ne 2 ]; then
+    echo "PROSE-WIRING VIOLATION: $doc does not use the load-bearing process-substitution redirect (done < <(...)) at both worktree-guard sites (expected 2 occurrences, found $_dwt_redirect_count)" >&2
     ok=1
   fi
   if ! grep -q -- 'UNPUSHED_RC=\$?' "$doc"; then
@@ -266,12 +340,73 @@ if [ "${already_checked_out:-0}" -lt 1 ]; then
   note_fail "scenario 2: worktree add's failure message did not match either known wording (checked out / used by worktree) - a THIRD wording may exist; investigate before accepting"
 fi
 
-echo "== Scenario 3: awk-based reuse guard (as documented) identifies the existing worktree PATH for feat/test =="
-guard_path="$(git -C "$S1/repo" worktree list --porcelain | awk -v b="refs/heads/feat/test" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+# bash_reuse_guard_parse: the SOLE reproduction of the documented DS-192 bash
+# while/case existing-worktree lookup (copied from the doc's rewritten site
+# 1628, substituting the caller's own branch name for $BRANCH_NAME). Reads
+# porcelain lines from STDIN and prints the resolved EXISTING_WT path -
+# every scenario below (3, 3b, 3c) feeds this one function body, whether the
+# source is a live `git worktree list --porcelain` invocation or a synthetic
+# fixture file. There is exactly one parser in this file.
+bash_reuse_guard_parse() {
+  local branch_name="$1"
+  local EXISTING_WT=""
+  local _wt_path=""
+  local _wt_line
+  while IFS= read -r _wt_line; do
+    case "$_wt_line" in
+      "worktree "*) _wt_path="${_wt_line#worktree }" ;;
+      "branch refs/heads/$branch_name") EXISTING_WT="$_wt_path" ;;
+    esac
+  done
+  printf '%s' "$EXISTING_WT"
+}
+
+echo "== Scenario 3: bash while/case reuse guard (as documented, DS-192) identifies the existing worktree PATH for feat/test =="
+guard_path="$(git -C "$S1/repo" worktree list --porcelain | bash_reuse_guard_parse "feat/test")"
 expected_path="$(cd "$S1/wt-roundn" && pwd -P)"
 echo "scenario3 guard_path=[$guard_path] expected=[$expected_path]"
 if [ -z "$guard_path" ] || [ "$guard_path" != "$expected_path" ]; then
-  note_fail "scenario 3: awk reuse guard did not resolve the existing worktree's path"
+  note_fail "scenario 3: bash reuse guard did not resolve the existing worktree's path"
+fi
+
+echo "== Scenario 3b: prefix-safety - a branch name that is a prefix of another branch's name must not false-match =="
+S3B="$SCRATCH/s3b"
+mkdir -p "$S3B"
+{
+  echo "worktree /scratch/wt-feat-test"
+  echo "HEAD 0000000000000000000000000000000000000000"
+  echo "branch refs/heads/feat/test"
+  echo ""
+  echo "worktree /scratch/wt-feat-test-extra"
+  echo "HEAD 1111111111111111111111111111111111111111"
+  echo "branch refs/heads/feat/test-extra"
+  echo ""
+} > "$S3B/porcelain.txt"
+# Feeds the synthetic fixture through the SAME bash_reuse_guard_parse
+# function used by scenario 3 above (no second parser is derived here).
+prefix_match="$(bash_reuse_guard_parse "feat/test" < "$S3B/porcelain.txt")"
+echo "scenario3b prefix_match=[$prefix_match] expected=[/scratch/wt-feat-test]"
+if [ "$prefix_match" != "/scratch/wt-feat-test" ]; then
+  note_fail "scenario 3b: guard resolved the wrong worktree for a prefix-ambiguous branch name (feat/test vs feat/test-extra)"
+fi
+
+echo "== Scenario 3c: glob-metachar literal-safety - a branch name containing a shell glob metacharacter must match only its literal counterpart =="
+S3C="$SCRATCH/s3c"
+mkdir -p "$S3C"
+{
+  echo "worktree /scratch/wt-star"
+  echo "HEAD 2222222222222222222222222222222222222222"
+  echo "branch refs/heads/feat/te*t"
+  echo ""
+  echo "worktree /scratch/wt-plain"
+  echo "HEAD 3333333333333333333333333333333333333333"
+  echo "branch refs/heads/feat/text"
+  echo ""
+} > "$S3C/porcelain.txt"
+literal_match="$(bash_reuse_guard_parse "feat/te*t" < "$S3C/porcelain.txt")"
+echo "scenario3c literal_match=[$literal_match] expected=[/scratch/wt-star]"
+if [ "$literal_match" != "/scratch/wt-star" ]; then
+  note_fail "scenario 3c: guard did not treat a glob metacharacter in BRANCH_NAME as a literal string in the case pattern"
 fi
 
 echo "== Scenario 4: dirty-worktree case - reddens under the pre-precheck baseline, protected under current logic =="
@@ -483,10 +618,10 @@ if [ -z "$alt_git_found" ]; then
 fi
 
 echo "== Results =="
-echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7=$checkout_rc_report"
+echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario3b=[$prefix_match] scenario3c=[$literal_match] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7=$checkout_rc_report"
 
 if [ "$FAIL" = "0" ]; then
-  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add (version-tolerant message match); awk reuse guard resolves the path; dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's git-version-DEPENDENT dichotomy is pinned (old-git bypass-and-drag vs new-git refusal), each arm confirmed with a stderr-verified collision refusal or a confirmed HEAD-drag - not a single unconditional claim"
+  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add (version-tolerant message match); bash while/case reuse guard resolves the path (prefix-safe, glob-metachar-literal-safe); dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's git-version-DEPENDENT dichotomy is pinned (old-git bypass-and-drag vs new-git refusal), each arm confirmed with a stderr-verified collision refusal or a confirmed HEAD-drag - not a single unconditional claim"
   exit 0
 fi
 
