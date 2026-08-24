@@ -78,6 +78,19 @@ eligible to remove)  <repo path>`, then pushed via:
 Logs land in `~/.dinostack-worktree-reap/logs/run-<timestamp>.log` (raw JSON alongside as
 `run-<timestamp>.json`), pruned after 30 days.
 
+**DS-196 semantics change (accepted, not pinned):** the deployed `ds-cleanup-worktrees` copy's
+`eligible` count now reflects the new origin-reachability evidence source and the 3.0h default
+activity-liveness gate - origin-reachable-but-squash-merged worktrees are now counted as
+eligible where they previously were not, while a worktree with recent file activity inside the
+window is now excluded from `eligible` where it previously was not. This is the intended,
+more-accurate behavior for this automation's purpose (a worst-repos-by-eligible-count report)
+and is deliberately NOT held back to pre-DS-196 semantics. `run.sh` itself is unaffected and
+stays report-only (`--multi-repo --report --json`, no removal-capable flag - see
+`bin/tests/test_worktree_reap_report_only.sh`). The deployed copy under `~/.dinostack-worktree-reap/`
+is a point-in-time snapshot taken by `install.sh` (see Upstream deps below) - it does NOT pick
+up this change automatically; **re-run `automation/dinostack-worktree-reap/install.sh` after
+this merge** to refresh it.
+
 **Never removal-capable.** `run.sh` invokes `--report` and nothing else - `--report` is
 structurally read-only in `ds-cleanup-worktrees` (it never calls `git worktree
 remove`/`unlock`/`prune` under any combination of flags, and is incompatible with

@@ -120,6 +120,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check (`_execution_prose_flag`) and the advisory operator-decisions per-item check (`_decision_item_sprawl_flag`), the hook's only two remaining checks as of DS-171 (only relevant when `turn_shape_guard_enabled: true`) |
 | `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` | guard active | Worktree-isolation-spawn enforcement hook (`hooks/enforce-worktree-isolation-spawn.py`) |
 | `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
+| `AE_WORKTREE_REAP_DISABLE=1` | reap active | Session-start automatic worktree reap (`content/references/worktree-lifecycle.md` §Session-start prune script, invoking `bin/ds-cleanup-worktrees`) - a session-start-script kill switch, not a hook-enforced guard |
 | `AE_WORKTREE_WRITE_GUARD_DISABLE=1` | guard active | Worktree-isolation Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`) |
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |

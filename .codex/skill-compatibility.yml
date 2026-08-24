@@ -572,6 +572,16 @@
       "source_token": "/simplify"
     },
     {
+      "expected_target": "bin/ds-branch-prune",
+      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
+      "kind": "operational",
+      "occurrence_hash": "4452e46ac937f9d9916166b69403addbf787c4fd91d248d1a0d5acc71be76e36",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-branch-prune"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -1022,6 +1032,16 @@
       "source_token": ".claude/install.sh"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "72cf2511431d58176a7a0ff6b51e1e0f3399062d8910c7e9f24da09c972f58b6",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -1272,6 +1292,16 @@
       "source_token": "Bash"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "900d2f82bacb5c0938d6d4d0b79596f9b39bb0579bac251f55fe2cfa1001d51c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -1496,16 +1526,6 @@
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
       "occurrence_hash": "a7a048140d81f61ca218f6f728180bdb3e6c5a752926290b8f9a14b8431d8c18",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "a909bf5521a4e457db2a46f997807757f0354d5e23ff1237d32640567ad5fc7f",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -2102,16 +2122,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "e0ddc635afcf7bc57e1a93ad67a36126dcebb594a27dd7ce379db5c11b791f32",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -2230,16 +2240,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "bin/ds-branch-prune",
-      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
-      "kind": "operational",
-      "occurrence_hash": "f36816cc409859274df9fbf042e3450bd67642eba6996738b647416472989aa2",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": "wrap",
