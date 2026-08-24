@@ -28,15 +28,25 @@ Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
          the reframe" section for the executed proof).
 
          Field 7 is exempt from the structural rule only when its whole
-         joined value matches the shape `n/a - <non-empty reason>`
-         (`_field7_is_exempt_na` / `_NA_WITH_REASON_RE`) - per
-         skeptic-protocol.md:299/:330, the enumerated reason strings this
-         repo's spawn templates most often use are canonical PREFERRED
-         WORDING, not an exhaustive whitelist, and a truthful non-
-         enumerated reason is equally valid; a bare `n/a` is explicitly
-         INVALID per the same protocol section and is therefore NOT
-         exempt here, falling through to the per-sentence check below
-         (where it is denied as an untagged, non-exempt sentence).
+         joined value is EXACTLY ONE sentence matching the shape `n/a -
+         <non-empty, bracket-free reason>` (`_field7_is_exempt_na` /
+         `_NA_WITH_REASON_RE`) - per skeptic-protocol.md:299/:330, the
+         enumerated reason strings this repo's spawn templates most often
+         use are canonical PREFERRED WORDING, not an exhaustive whitelist,
+         and a truthful non-enumerated reason is equally valid; a bare
+         `n/a` is explicitly INVALID per the same protocol section and is
+         therefore NOT exempt here, falling through to the per-sentence
+         check below (where it is denied as an untagged, non-exempt
+         sentence). Two additional bypasses were found by execution and
+         are now closed by the same bounding: an `n/a - <reason>` clause
+         followed by any FURTHER sentence is no longer exempt (the field's
+         value must be that one sentence and nothing else - an appended
+         untagged claim now falls through and is denied on its own
+         merits), and a reason containing a bracket character is no longer
+         exempt (closes a smuggling path where a bracket that narrowly
+         missed the exact-literal neutrality-note match below could carry
+         an untagged claim inside it while still reading as a compliant
+         `n/a - <reason>` prefix).
          Otherwise every individual sentence must carry a
          tag/attribution/self-reference, checked PER SENTENCE via
          `_split_sentences_keep_trailing_tag` so a tag on one sentence
@@ -54,11 +64,17 @@ Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
          (`_strip_field7_neutrality_note`) - unstripped, this note's own
          closing bracket denied every template-conforming spawn,
          including a compliant bare `n/a - Trivial direct edit`. The
-         strip is deliberately narrow (three required substrings must
-         all be present inside the same bracket) so it can never
-         generalize into a "matches any trailing `[...]`" escape hatch;
-         see this hook's test file for the executed proof that a
-         near-miss bracket is left in place and denies normally.
+         strip requires an exact, whitespace-tolerant match of the full
+         literal note text (`_NEUTRALITY_NOTE_TEXT`), not merely that
+         three required substrings all appear somewhere inside the same
+         bracket - a prior looser version of this strip (three
+         substrings joined by unbounded filler) was found by execution to
+         silently discard a bracket carrying a smuggled untagged claim
+         alongside those same three substrings, so any bracket that
+         deviates from the exact wording - smuggled content included - is
+         now left in place and denies normally; see this hook's test file
+         for the executed proof, both for a near-miss bracket and for the
+         smuggled-content case.
 
          **The structural rule does NOT apply to the brief region.**
          Proven, not assumed: feeding all 10 canonical §8 adversarial-
@@ -152,11 +168,22 @@ Failure modes:
       mis-split, the same class of false positive this round fixed for
       the six listed forms. No real-session evidence yet shows a
       seventh form recurring; extend the list if that changes.
-    - Two disclosed, NOT fixed, bounded false negatives, both accepted
-      as lower-severity than the false positives this round prioritized
-      fixing: (1) `_PROVENANCE_RE` matches the literal substring
-      `[verified:` / `[verified-local:` anywhere in a sentence, so a
-      sentence that merely quotes tag syntax (rather than genuinely
+    - EXACTLY TWO disclosed, NOT fixed, bounded false negatives remain as
+      of this round - re-counted and re-verified by execution, not
+      restated from a prior round's claim (a prior round's identical "two
+      disclosed" claim was FALSE at the time it was written: three
+      additional, undisclosed bypasses were live on the primary deny
+      surface - a closed-roster gap in `_ATTRIBUTION_RE`, an unbounded
+      `_NA_WITH_REASON_RE` match that exempted an entire multi-sentence
+      field-7 value once its first sentence looked like a valid `n/a -
+      <reason>`, and a loose neutrality-note strip that discarded a
+      bracket carrying a smuggled claim alongside the three substrings it
+      checked for - all three are now fixed and covered by regression
+      tests, not merely re-labeled as residuals). The two that remain,
+      both accepted as lower-severity than the false positives this round
+      prioritized fixing: (1) `_PROVENANCE_RE` matches the literal
+      substring `[verified:` / `[verified-local:` anywhere in a sentence,
+      so a sentence that merely quotes tag syntax (rather than genuinely
       carrying one) reads as exempt; (2) `_BRIEF_START_RE` is
       unanchored, so a pasted Worker-output block that itself contains
       an earlier, unrelated "Adversarial brief:" mention ahead of the
@@ -288,8 +315,57 @@ def extract_field7(prompt: str) -> list[str] | None:
 # --------------------------------------------------------------------------- #
 _PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[per\s+\S+.*?,\s*unverified\]',
                              re.IGNORECASE)
-_ATTRIBUTION_RE = re.compile(r'\bPer\s+(the\s+)?(Engineer|Architect|Investigator|QA-Engineer|conductor)\b'
-                              r'|DONE_WITH_CONCERNS', re.IGNORECASE)
+
+# content/agents/skeptic.md:30 states the attribution carve-out is OPEN,
+# not a fixed roster: "an Engineer's DONE_WITH_CONCERNS concerns, an
+# architect's recommended adversarial brief, or ANY OTHER NAMED AGENT'S
+# OWN RETURN passed through as written". A prior round's closed 5-name
+# enumeration (Engineer|Architect|Investigator|QA-Engineer|conductor)
+# denied 14 of the 18 agents under content/agents/ - e.g. "Per the
+# Debugger, ..." or "Per the Skeptic, ..." - even though `skeptic.md`
+# explicitly sanctions exactly that shape, and the hook's OWN
+# `_brief_deny_reason` prescribes this pass-through as its remedy,
+# denying an operator a second time for following it. Fixed to a
+# roster derived from the CURRENT `content/agents/*.md` file set
+# (`_KNOWN_AGENT_SLUGS` below) rather than a hand-picked subset, kept in
+# sync by `bin/tests/test_enforce_skeptic_neutrality.py`'s
+# `test_attribution_regex_covers_every_current_agent_file`, which
+# re-derives the live directory listing at TEST TIME and fails if this
+# hardcoded tuple falls behind it. Deliberately NOT a live directory
+# read inside this hook at RUNTIME: the DS-54 hooks-snapshot mechanism
+# (scripts/lib/hooks-snapshot.sh's `hooks_source_paths`) copies only
+# hooks/, bin/ds-identity, and the four in-scope adapters' hook sources
+# into the deployed `~/.agentic/hooks-snapshot/` dir that installed
+# hook commands actually execute from - never content/ - so a runtime
+# read of content/agents/ would silently find nothing once a session
+# runs from the snapshot rather than from the live checkout, a strictly
+# worse failure mode than the closed-set gap this fixes.
+_KNOWN_AGENT_SLUGS = (
+    "adr-drift-detector", "adr-generator", "architect", "debugger",
+    "dependency-auditor", "engineer", "goal-condition-evaluator",
+    "investigator", "learning-extractor", "learnings-agent",
+    "orchestration-planner", "perf-analyst", "product-discovery",
+    "qa-engineer", "release-orchestrator", "security-auditor",
+    "skeptic", "wrap-ticket",
+)
+
+
+def _slug_to_name_pattern(slug: str) -> str:
+    """Converts a hyphenated agent slug (e.g. 'qa-engineer') into a regex
+    alternative tolerating however a conductor writes the display name -
+    hyphenated, spaced, or any capitalization ('QA-Engineer', 'QA
+    Engineer', 'qa engineer') - case-folding is applied by the compiled
+    pattern's re.IGNORECASE flag, not here."""
+    return r'[-\s]+'.join(re.escape(part) for part in slug.split('-'))
+
+
+_ATTRIBUTION_RE = re.compile(
+    r'\bPer\s+(the\s+)?(?:' +
+    '|'.join(_slug_to_name_pattern(_s) for _s in _KNOWN_AGENT_SLUGS) +
+    r'|conductor)\b'
+    r'|DONE_WITH_CONCERNS',
+    re.IGNORECASE,
+)
 _SELF_REF_TICKET_RE = re.compile(r'\bDS-\d+\s+is\s+(the\s+)?(ticket|PR|unit|issue)\b', re.IGNORECASE)
 
 
@@ -311,25 +387,53 @@ def _paragraph_exempt(paragraph: str) -> bool:
 # above is valid and must NOT be BLOCKED on that basis alone") both state
 # the enumerated set is canonical PREFERRED WORDING for recurring
 # situations, never an exhaustive whitelist. A closed-set membership check
-# (the prior round's `_CANONICAL_NA_STRINGS`) denied every protocol-valid
+# (a prior round's `_CANONICAL_NA_STRINGS`) denied every protocol-valid
 # non-enumerated reason - fixed by a SHAPE check instead: any
 # `n/a - <non-empty reason>` is exempt, regardless of the reason's exact
 # wording (this hook cannot judge truthfulness/specificity - that
 # assessment is the Skeptic's own Step 0 job, per the same protocol
 # section).
-_NA_WITH_REASON_RE = re.compile(r'^n/a\s*-\s*\S.*$', re.IGNORECASE | re.DOTALL)
+#
+# BOUNDED two ways, both closing a real bypass found by execution:
+# (1) `[^\[\]\n]+` forbids a bracket character inside the reason, so a
+#     bracket that narrowly misses the exact-literal neutrality-note match
+#     below (see `_FIELD7_NEUTRALITY_NOTE_RE`) can never smuggle an
+#     untagged claim through this exemption merely by trailing a
+#     protocol-valid-looking `n/a - <reason>` prefix - e.g. `n/a - Trivial
+#     direct edit [Neutrality: <smuggled root-cause claim> - see
+#     skeptic-protocol.md Section 7 "Neutrality requirement".]` denies.
+# (2) `_field7_is_exempt_na` requires the WHOLE joined field to be
+#     EXACTLY ONE sentence per `_split_sentences_keep_trailing_tag` before
+#     testing this regex - a prior version had no such bound and matched
+#     `re.DOTALL` across the ENTIRE remaining string via a trailing `.*$`,
+#     so `n/a - Trivial direct edit. <any untagged claim>.` was exempt in
+#     full: the primary deny surface was silently disabled for any field-7
+#     value merely PREFIXED with a valid-looking n/a clause. Requiring
+#     exactly one sentence means a second, appended sentence instead falls
+#     through to the per-sentence loop below, where it is denied on its
+#     own merits like any other untagged claim.
+_NA_WITH_REASON_RE = re.compile(r'^n/a\s*-\s*[^\[\]\n]+$', re.IGNORECASE)
 
 
 def _field7_is_exempt_na(text: str) -> bool:
-    """Exempt iff the whole joined field is `n/a - <reason>` with a
-    non-empty reason. Deliberately does NOT exempt a bare `n/a`:
-    skeptic-protocol.md:299 states "A bare `n/a` is invalid - every `n/a`
-    value MUST carry a specific reason", and :330 requires the Skeptic to
-    BLOCK on a bare `n/a`. A bare `n/a` therefore falls through to the
-    per-sentence structural check below, where it is denied as an
-    untagged, non-exempt sentence - conforming to the protocol rather than
-    inverting it in the permissive direction (a prior round's behavior)."""
-    return bool(_NA_WITH_REASON_RE.match(text.strip()))
+    """Exempt iff the whole joined field is EXACTLY ONE sentence, and that
+    sentence is `n/a - <reason>` with a non-empty, bracket-free reason.
+    Deliberately does NOT exempt a bare `n/a`: skeptic-protocol.md:299
+    states "A bare `n/a` is invalid - every `n/a` value MUST carry a
+    specific reason", and :330 requires the Skeptic to BLOCK on a bare
+    `n/a`. A bare `n/a` therefore falls through to the per-sentence
+    structural check below, where it is denied as an untagged, non-exempt
+    sentence - conforming to the protocol rather than inverting it in the
+    permissive direction (a prior round's behavior). Likewise, an `n/a -
+    <reason>` clause followed by ANY additional sentence, or carrying a
+    bracket inside the reason itself, is NOT exempt - both are real
+    bypasses found by execution against the prior, unbounded version of
+    this check (see `_NA_WITH_REASON_RE`'s comment above)."""
+    s = text.strip()
+    sentences = _split_sentences_keep_trailing_tag(s)
+    if len(sentences) != 1:
+        return False
+    return bool(_NA_WITH_REASON_RE.match(sentences[0]))
 
 
 # The template line this hook enforces against (content/commands/ds-skeptic.md
@@ -339,18 +443,44 @@ def _field7_is_exempt_na(text: str) -> bool:
 # skeptic-protocol.md Section 7 "Neutrality requirement".]'. Executed against
 # the unmodified hook, this note's OWN closing bracket denied every
 # template-conforming spawn, including a bare "n/a - Trivial direct edit"
-# plus the note. Stripped here, but ONLY when the trailing bracket is this
-# EXACT boilerplate - deliberately narrow (must literally open with
-# "Neutrality:" AND cite both "skeptic-protocol.md" and "Section 7" AND
-# "Neutrality requirement" inside the same bracket) so it can never become a
-# general "matches any trailing [...]" escape hatch a conductor could smuggle
-# an untagged claim inside. See
-# test_neutrality_note_strip_is_not_a_generic_bracket_escape for the proof:
-# a bracket that omits any one of the three required substrings is left
-# in place and denies normally.
+# plus the note. Stripped here, but ONLY when the bracket is a
+# whitespace-normalized match of this EXACT literal wording - a prior
+# version instead required only that three substrings ("Neutrality:",
+# "skeptic-protocol.md", "Section 7", "Neutrality requirement") all appear
+# somewhere inside the same bracket, joined by `[^\]]*?` filler of
+# arbitrary content. Executed proof of the bypass that opened: a bracket
+# reading '[Neutrality: <smuggled root-cause claim> - see
+# skeptic-protocol.md Section 7 "Neutrality requirement".]' still contains
+# all three required substrings, so the entire bracket - smuggled claim
+# included - was silently discarded before the untagged-sentence check
+# ever ran, on a value the conductor's own field-7 text made look like a
+# compliant `n/a - <reason>` plus the template's own note. Fixed to an
+# exact-literal match (`_NEUTRALITY_NOTE_TEXT` below, whitespace-tolerant
+# only) so a bracket carrying ANY additional or substituted content next
+# to the three required substrings is left in place, unstripped, and
+# denies normally via the per-sentence check (or, for an `n/a`-prefixed
+# value, via `_NA_WITH_REASON_RE`'s bracket-free requirement). See
+# test_neutrality_note_strip_is_not_a_generic_bracket_escape and
+# test_neutrality_note_strip_rejects_smuggled_content_inside_bracket for
+# the proof.
+_NEUTRALITY_NOTE_TEXT = (
+    'Neutrality: provenance-tagged factual claims only - never a conductor '
+    'hypothesis or suspicion. See skeptic-protocol.md Section 7 '
+    '"Neutrality requirement".'
+)
+
+
+def _literal_to_whitespace_tolerant_pattern(text: str) -> str:
+    """Escapes `text` for regex use, then collapses each escaped literal
+    space run back into `\\s+` so the match tolerates incidental
+    whitespace/line-wrap variance without loosening what content is
+    permitted between the required words."""
+    escaped = re.escape(text)
+    return re.sub(r'(\\ )+', r'\\s+', escaped)
+
+
 _FIELD7_NEUTRALITY_NOTE_RE = re.compile(
-    r'\s*\[\s*Neutrality:[^\]]*?skeptic-protocol\.md[^\]]*?Section\s*7[^\]]*?'
-    r'Neutrality\s+requirement[^\]]*?\]\s*$',
+    r'\s*\[\s*' + _literal_to_whitespace_tolerant_pattern(_NEUTRALITY_NOTE_TEXT) + r'\s*\]\s*$',
     re.IGNORECASE,
 )
 
@@ -404,11 +534,15 @@ def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
 
 def field7_violation(field7_paragraphs: list[str] | None) -> str | None:
     """PRIMARY DENY RULE. Permitted field-7 content is EXACTLY: (a) an
-    exempt n/a value (bare 'n/a' or one of the canonical enumerated
-    strings, checked over the WHOLE joined field), or (b) one or more
-    sentences, EACH individually carrying a provenance tag, an
-    attribution marker, or a self-referential ticket mention. The tag
-    check is PER SENTENCE - a tag on one sentence does not exempt a
+    exempt n/a value - the WHOLE joined field is exactly ONE sentence of
+    the shape 'n/a - <reason>' with a non-empty, bracket-free reason (a
+    bare 'n/a' is explicitly NOT exempt, and neither is an 'n/a -
+    <reason>' clause followed by any additional sentence, or one whose
+    reason itself contains a bracket - see `_field7_is_exempt_na` and
+    `_NA_WITH_REASON_RE` for the two real bypasses this bounding closes),
+    or (b) one or more sentences, EACH individually carrying a provenance
+    tag, an attribution marker, or a self-referential ticket mention. The
+    tag check is PER SENTENCE - a tag on one sentence does not exempt a
     different, untagged sentence. Returns the first untagged sentence, or
     None if clean.
 
