@@ -2,16 +2,6 @@
   "magic": "DINOSTACK_CODEX_SKILL_COMPATIBILITY",
   "occurrences": [
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "009703b6759764392ac01f0870bb050370268bb9e228024146b1013efc2ddde3",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": ".codex/skills/**",
       "generated_token": "$AE_REPO_DIR/.codex/skills/**",
       "kind": "operational",
@@ -62,16 +52,6 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "content/sections/02-delegation.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
-      "kind": "operational",
-      "occurrence_hash": "088bbfec6f4002852163b02336b84e1c49c9465275190c3fa2e95bf0587d7a7f",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/02-delegation.md"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -110,16 +90,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": ".agentic/**",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
-      "kind": "operational",
-      "occurrence_hash": "0d3351e647f5acc2c32ff429e7866ceb29a1fabdfc448e4a2ec492b0751a5c73",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/**"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -516,6 +486,16 @@
       "generated_token": "Read",
       "kind": "semantic-reference",
       "occurrence_hash": "349b93a780089ed362afcf431b5cfeb0558d3babfe77f7db22aac8d682fba497",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "34f2dc0a3be4f29faafc2f65d5b260f944c30da2950487160f5c857c6f211f9c",
       "resolution_mode": "compatibility-preamble",
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
@@ -1092,6 +1072,16 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
+      "expected_target": "content/sections/02-delegation.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
+      "kind": "operational",
+      "occurrence_hash": "7b9750c25deb52deb428ac3cb16d5f27ae1c106f38238c6e8a35317feab69340",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/02-delegation.md"
+    },
+    {
       "expected_target": "Agent",
       "generated_token": "Agent",
       "kind": "semantic-reference",
@@ -1240,6 +1230,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/config.json"
+    },
+    {
+      "expected_target": ".agentic/**",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/**",
+      "kind": "operational",
+      "occurrence_hash": "8b69a071995e74cc660d2d9de54c9207a75af43c4cd17d830d7a013057d4a101",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/**"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1402,14 +1402,14 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9c07035c3f43d5767ee7525c05117e6eb03fa136e631927b4df763c7a63a9941",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "9b024623d61e0e7a2c36a2681622df1e57f5e9ceb78e9dd02792a92812cd0854",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1912,16 +1912,6 @@
       "source_token": "content/commands/ds-identity.md"
     },
     {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "d22d8807a301656da8ac7bb3750aa9802d2fd687528421d5e1da4861845c60d2",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".gitignore"
-    },
-    {
       "expected_target": "content/sections/11-worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
       "kind": "operational",
@@ -1980,6 +1970,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": ".gitignore",
+      "generated_token": "$AE_PROJECT_DIR/.gitignore",
+      "kind": "operational",
+      "occurrence_hash": "d729f376bd1655fed3cd2693ec7edd1ef1ce61e9b9bd84a6c60cffa170ff9aed",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".gitignore"
     },
     {
       "expected_target": "content/references/task-state-file.md",
@@ -2162,16 +2162,6 @@
       "source_token": "**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` \u00a7Background-Spawn Enforcement Detail."
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "ea9043942388fbad08075f213b2a7c42ddf874d0959d197fa111a290e0dbab66",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "git worktree add + spawn_agent",
       "generated_token": "**Isolation is mandatory for every shippable-edit spawn.** Before every `engineer`, `qa-engineer`, and `release-orchestrator` spawn, execute the Codex spawn contract above (see \u00a7Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.",
       "kind": "operational",
@@ -2330,6 +2320,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "fd0355cd63d586af95f8f1e2dbc1fec3ea5b836ca53924ce0d086857e2aad9d5",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "content/references/events-log.md",
