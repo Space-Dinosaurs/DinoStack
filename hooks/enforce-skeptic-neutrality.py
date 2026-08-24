@@ -28,12 +28,37 @@ Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
          the reframe" section for the executed proof).
 
          Field 7 is exempt from the structural rule only when its whole
-         joined value is exactly `n/a` or one of the canonical enumerated
-         `n/a - <reason>` strings this repo's spawn templates use
-         (`_CANONICAL_NA_STRINGS`) - otherwise every individual sentence
-         must carry a tag/attribution/self-reference, checked PER
-         SENTENCE via `_split_sentences_keep_trailing_tag` so a tag on one
-         sentence never exempts a different, untagged sentence.
+         joined value matches the shape `n/a - <non-empty reason>`
+         (`_field7_is_exempt_na` / `_NA_WITH_REASON_RE`) - per
+         skeptic-protocol.md:299/:330, the enumerated reason strings this
+         repo's spawn templates most often use are canonical PREFERRED
+         WORDING, not an exhaustive whitelist, and a truthful non-
+         enumerated reason is equally valid; a bare `n/a` is explicitly
+         INVALID per the same protocol section and is therefore NOT
+         exempt here, falling through to the per-sentence check below
+         (where it is denied as an untagged, non-exempt sentence).
+         Otherwise every individual sentence must carry a
+         tag/attribution/self-reference, checked PER SENTENCE via
+         `_split_sentences_keep_trailing_tag` so a tag on one sentence
+         never exempts a different, untagged sentence - this per-sentence
+         scope is field-7-specific and is NOT shared with the brief
+         region's exemption, which is PARAGRAPH-scoped
+         (`_paragraph_exempt`).
+
+         Field 7's own mandated template line
+         (content/commands/ds-skeptic.md) appends a fixed, non-claim-
+         bearing "[Neutrality: ... See skeptic-protocol.md Section 7
+         'Neutrality requirement'.]" instructional note after the
+         conductor's actual value on every spawn. `field7_violation()`
+         strips this EXACT boilerplate before evaluating the field
+         (`_strip_field7_neutrality_note`) - unstripped, this note's own
+         closing bracket denied every template-conforming spawn,
+         including a compliant bare `n/a - Trivial direct edit`. The
+         strip is deliberately narrow (three required substrings must
+         all be present inside the same bracket) so it can never
+         generalize into a "matches any trailing `[...]`" escape hatch;
+         see this hook's test file for the executed proof that a
+         near-miss bracket is left in place and denies normally.
 
          **The structural rule does NOT apply to the brief region.**
          Proven, not assumed: feeding all 10 canonical §8 adversarial-
@@ -121,6 +146,26 @@ Failure modes:
       match infeasible for real use (would deny the majority of
       legitimate spawns). A controlled-vocabulary composed-extension
       system is a named, deferred follow-up, not implemented here.
+    - `_SENT_SPLIT_RE`'s abbreviation guard (`e.g.`/`i.e.`/`etc.`/`vs.`/
+      `cf.`/`et al.`) is a fixed, non-exhaustive list - an abbreviation
+      outside this list that ends mid-sentence in a period can still be
+      mis-split, the same class of false positive this round fixed for
+      the six listed forms. No real-session evidence yet shows a
+      seventh form recurring; extend the list if that changes.
+    - Two disclosed, NOT fixed, bounded false negatives, both accepted
+      as lower-severity than the false positives this round prioritized
+      fixing: (1) `_PROVENANCE_RE` matches the literal substring
+      `[verified:` / `[verified-local:` anywhere in a sentence, so a
+      sentence that merely quotes tag syntax (rather than genuinely
+      carrying one) reads as exempt; (2) `_BRIEF_START_RE` is
+      unanchored, so a pasted Worker-output block that itself contains
+      an earlier, unrelated "Adversarial brief:" mention ahead of the
+      real marker would shift the scanned window to the wrong
+      occurrence. Both require a materially larger structural change
+      (parsing the wrapping bracket's own well-formedness for (1);
+      requiring the extraction to originate from the LAST occurrence or
+      a more specific structural anchor for (2)) than this round's scope
+      - tracked as named residuals, not silently absorbed.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern. A lost
@@ -260,26 +305,58 @@ def _paragraph_exempt(paragraph: str) -> bool:
 # --------------------------------------------------------------------------- #
 # Field 7: PRIMARY structural conformance rule
 # --------------------------------------------------------------------------- #
-_CANONICAL_NA_STRINGS = {
-    "n/a - Trivial direct edit",
-    "n/a - permission-blocked carve-out",
-    "n/a - Brief tier (per-consumer lives in architect plan path above)",
-    "n/a - non-shared-utility surface (importer count below 5 threshold)",
-    "n/a - architect plan deferred to Plan-tier second pass",
-    "n/a - Skeptic-on-Brief (Brief is the artifact under review)",
-    "n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)",
-    "n/a - single Elevated unit (no Brief required by the promotion gate)",
-    "n/a - architect skipped (judgment-based: well-understood, self-contained change)",
-    "n/a - architect skipped (mechanical: simple/targeted-unit metric)",
-    "n/a - assembled Plan review (per-unit plans listed inline)",
-    "n/a - Worker was self-directed with no conductor-composed brief text beyond a ticket ID reference",
-    "n/a - internal scaffolding artifact (no conductor claim-bearing brief text distinct from the artifact itself)",
-}
+# skeptic-protocol.md:299 ("This list is not exhaustive: a situation none of
+# them covers may supply its own 'n/a - <reason>' string") and :330 ("A
+# truthful, specific rationale that is NOT one of the enumerated strings
+# above is valid and must NOT be BLOCKED on that basis alone") both state
+# the enumerated set is canonical PREFERRED WORDING for recurring
+# situations, never an exhaustive whitelist. A closed-set membership check
+# (the prior round's `_CANONICAL_NA_STRINGS`) denied every protocol-valid
+# non-enumerated reason - fixed by a SHAPE check instead: any
+# `n/a - <non-empty reason>` is exempt, regardless of the reason's exact
+# wording (this hook cannot judge truthfulness/specificity - that
+# assessment is the Skeptic's own Step 0 job, per the same protocol
+# section).
+_NA_WITH_REASON_RE = re.compile(r'^n/a\s*-\s*\S.*$', re.IGNORECASE | re.DOTALL)
 
 
 def _field7_is_exempt_na(text: str) -> bool:
-    s = text.strip()
-    return s == "n/a" or s in _CANONICAL_NA_STRINGS
+    """Exempt iff the whole joined field is `n/a - <reason>` with a
+    non-empty reason. Deliberately does NOT exempt a bare `n/a`:
+    skeptic-protocol.md:299 states "A bare `n/a` is invalid - every `n/a`
+    value MUST carry a specific reason", and :330 requires the Skeptic to
+    BLOCK on a bare `n/a`. A bare `n/a` therefore falls through to the
+    per-sentence structural check below, where it is denied as an
+    untagged, non-exempt sentence - conforming to the protocol rather than
+    inverting it in the permissive direction (a prior round's behavior)."""
+    return bool(_NA_WITH_REASON_RE.match(text.strip()))
+
+
+# The template line this hook enforces against (content/commands/ds-skeptic.md
+# field 7) appends a fixed, non-claim-bearing instructional note AFTER the
+# conductor's actual value on every spawn: '[Neutrality: provenance-tagged
+# factual claims only - never a conductor hypothesis or suspicion. See
+# skeptic-protocol.md Section 7 "Neutrality requirement".]'. Executed against
+# the unmodified hook, this note's OWN closing bracket denied every
+# template-conforming spawn, including a bare "n/a - Trivial direct edit"
+# plus the note. Stripped here, but ONLY when the trailing bracket is this
+# EXACT boilerplate - deliberately narrow (must literally open with
+# "Neutrality:" AND cite both "skeptic-protocol.md" and "Section 7" AND
+# "Neutrality requirement" inside the same bracket) so it can never become a
+# general "matches any trailing [...]" escape hatch a conductor could smuggle
+# an untagged claim inside. See
+# test_neutrality_note_strip_is_not_a_generic_bracket_escape for the proof:
+# a bracket that omits any one of the three required substrings is left
+# in place and denies normally.
+_FIELD7_NEUTRALITY_NOTE_RE = re.compile(
+    r'\s*\[\s*Neutrality:[^\]]*?skeptic-protocol\.md[^\]]*?Section\s*7[^\]]*?'
+    r'Neutrality\s+requirement[^\]]*?\]\s*$',
+    re.IGNORECASE,
+)
+
+
+def _strip_field7_neutrality_note(text: str) -> str:
+    return _FIELD7_NEUTRALITY_NOTE_RE.sub('', text).rstrip()
 
 
 # Splits on sentence-ending punctuation NOT immediately followed by a bracket
@@ -289,8 +366,26 @@ def _field7_is_exempt_na(text: str) -> bool:
 # sentence 2's untagged claim - a splitter bug found and fixed during this
 # design: the original form never split after a closing "]", so two
 # consecutive tagged sentences merged into one unit and an untagged second
-# sentence went undetected).
-_SENT_SPLIT_RE = re.compile(r'(?<=[.?!])\s+(?!\[)|(?<=\])\s+(?=[A-Z])')
+# sentence went undetected). The four negative lookbehinds guard against a
+# SECOND splitter bug (found this round): a period ending a common
+# abbreviation ("e.g.", "i.e.", "etc.", "vs.", "cf.", "al." as in "et al.")
+# is sentence-ending punctuation by the bare [.?!] test, so a single,
+# fully-tagged-or-attributed sentence that merely contains one of these
+# abbreviations mid-sentence was incorrectly split into two fragments and
+# the tail fragment (with no tag of its own) was falsely denied as
+# untagged. Each abbreviation lookbehind is independently fixed-width, so
+# they chain legally even though the abbreviations differ in length.
+# Each abbreviation lookbehind is SCOPED case-insensitive via the inline
+# (?i:...) flag group, not a compile-wide re.IGNORECASE - a compile-wide
+# flag would also case-fold the `[A-Z]` lookahead on the second alternative,
+# reintroducing the exact splitter-merge bug this regex was fixed for (any
+# lowercase word after a closing "]" would then also split, no longer
+# distinguishing a genuinely new sentence from mid-value bracket noise).
+_SENT_SPLIT_RE = re.compile(
+    r'(?<!(?i:e\.g\.))(?<!(?i:i\.e\.))(?<!(?i:etc\.))(?<!(?i:vs\.))(?<!(?i:cf\.))(?<!(?i:al\.))'
+    r'(?<=[.?!])\s+(?!\[)'
+    r'|(?<=\])\s+(?=[A-Z])'
+)
 
 
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
@@ -317,13 +412,18 @@ def field7_violation(field7_paragraphs: list[str] | None) -> str | None:
     different, untagged sentence. Returns the first untagged sentence, or
     None if clean.
 
+    The field's own fixed trailing "[Neutrality: ...]" template boilerplate
+    (see `_strip_field7_neutrality_note`) is stripped before any check, so
+    it can never itself read as an untagged claim or falsely close off a
+    real one's tag.
+
     Deliberately NOT applied to the brief region - see this module's
     Purpose docstring and the architect plan's proof that all 10 §8
     templates would deny under this rule despite carrying no violation
     under their own stated purpose."""
     if not field7_paragraphs:
         return None
-    joined = " ".join(field7_paragraphs)
+    joined = _strip_field7_neutrality_note(" ".join(field7_paragraphs))
     if _field7_is_exempt_na(joined):
         return None
     for sent in _split_sentences_keep_trailing_tag(joined):
