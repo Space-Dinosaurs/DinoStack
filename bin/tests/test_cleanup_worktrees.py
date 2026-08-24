@@ -1126,6 +1126,41 @@ def _make_unproven_branch_worktree(repo: Path, rel_path: str, branch: str) -> Pa
     return wt
 
 
+def _destroy_base_branch_and_gc_everywhere(repo: Path, origin: Path, base_branch: str) -> None:
+    """Deletes `base_branch` on both `repo`'s local checkout and the bare
+    `origin` remote, then fully expires reflogs and gc's both repos - the
+    exact permanent-loss trigger the DS-191 compaction tests rely on to
+    prove a bundle's prerequisite really becomes unreachable, not merely
+    absent from one ref.
+
+    `git gc --prune=now` does NOT expire reflog entries on its own
+    (measured: a plain `checkout -> branch -D -> gc --prune=now` sequence
+    leaves the deleted commit reachable, since HEAD's own reflog still
+    pins it) - an explicit `reflog expire` is required on BOTH repos
+    before gc, or the prune has nothing to orphan."""
+    _git(repo, "push", "-q", "origin", "--delete", base_branch)
+    _git(repo, "branch", "-D", base_branch)
+    subprocess.run(["git", "-C", str(origin), "branch", "-D", base_branch], capture_output=True, text=True)
+    _git(repo, "remote", "prune", "origin")
+    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    subprocess.run(
+        ["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+
+
+def _bundle_header_lines(bundle_path) -> list:
+    """Returns a bundle's header lines, split on the blank-line separator
+    from the payload - the read-partition-split idiom shared across the
+    compaction tests that assert on whether a bundle records a
+    `-`-prefixed prerequisite commit line."""
+    header, _, _ = Path(bundle_path).read_bytes().partition(b"\n\n")
+    return header.split(b"\n")
+
+
 # --------------------------------------------------------------------------
 # 19. (round-5) --archive-unproven is OPT-IN: without the flag, an unproven
 #     branch is reported and untouched, exactly as before round 5.
@@ -2635,36 +2670,23 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
     archive_dir = repo / ".agentic" / "worktree-archive"
     bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
     assert len(bundles) == 1
-    header, _, _ = bundles[0].read_bytes().partition(b"\n\n")
-    header_lines = header.split(b"\n")
+    header_lines = _bundle_header_lines(bundles[0])
     assert not any(line.startswith(b"-") for line in header_lines), (
         f"expected NO prerequisite header line (full-history bundle) when the explicit "
         f"base does not match auto-resolution, got: {header_lines!r}"
     )
 
+    # The archived branch ref ITSELF must also be deleted here (this tool
+    # never deletes it as part of --archive-unproven, by design) - before
+    # destroying feat-x below - otherwise it keeps feat-x's tip reachable
+    # as its own ancestor and gc can never orphan it, regardless of which
+    # base the bundle was built against.
+    _git(repo, "branch", "-D", branch)
     # Delete + gc the explicit base branch everywhere - the exact
     # permanent-loss trigger. A compact bundle against feat-x would now be
     # unrestorable ("Repository lacks these prerequisite commits"); a
-    # full-history bundle has no such dependency. The archived branch ref
-    # ITSELF must also be deleted here (this tool never deletes it as
-    # part of --archive-unproven, by design) - otherwise it keeps
-    # feat-x's tip reachable as its own ancestor and gc can never orphan
-    # it, regardless of which base the bundle was built against. HEAD's
-    # own reflog (populated by the `checkout` calls above) ALSO keeps the
-    # deleted commit reachable indefinitely - `git gc --prune=now` on its
-    # own does NOT expire reflog entries (measured: a plain `checkout ->
-    # branch -D -> gc --prune=now` sequence leaves the deleted commit
-    # present), so an explicit `reflog expire` is required first for the
-    # prune to actually happen.
-    _git(repo, "push", "-q", "origin", "--delete", "feat-x")
-    _git(repo, "branch", "-D", "feat-x")
-    _git(repo, "branch", "-D", branch)
-    subprocess.run(["git", "-C", str(origin), "branch", "-D", "feat-x"], capture_output=True, text=True)
-    _git(repo, "remote", "prune", "origin")
-    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
-    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    # full-history bundle has no such dependency.
+    _destroy_base_branch_and_gc_everywhere(repo, origin, "feat-x")
 
     restore_proc = subprocess.run(
         ["git", "-C", str(repo), "fetch", str(bundles[0]), f"refs/heads/{branch}:refs/heads/{branch}"],
@@ -2682,14 +2704,23 @@ def test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_e
 #
 # The test above proves the guard (`_archive_compaction_base`'s
 # explicit-base-mismatch refusal) produces a full-history bundle that
-# SURVIVES the mismatched base being destroyed and gc'd. It never proves
-# the INVERSE: that had compaction been applied against that same unsafe
-# base anyway, the resulting bundle would have become genuinely
-# unrestorable. Without that inverse, the guard's refusal is unfalsifiable
-# from this suite's point of view - a no-op guard and a load-bearing one
-# would both make the sibling test pass.
+# SURVIVES the mismatched base being destroyed and gc'd. That refusal
+# path is already covered by two existing tests (measured: mutating
+# `_archive_compaction_base` to a no-op that always returns
+# `resolved_base` unconditionally reddens both
+# `test_archive_compaction_base_skips_when_explicit_base_mismatches_auto_resolution`
+# and
+# `test_archive_unproven_explicit_base_mismatch_survives_base_deletion_end_to_end`).
 #
-# This test supplies the inverse directly: it calls `_archive_branch_bundle`
+# What was missing is the INVERSE premise: that a compact bundle built
+# against that same unsafe base really does become unrestorable once the
+# base is destroyed and gc'd. Nothing in this suite proved that a compact
+# bundle's `--not <exclude_ref>` prerequisite is genuinely load-bearing
+# for restorability - the two guard tests above never construct a compact
+# bundle at all, so they cannot speak to what compaction would have cost
+# had the guard not refused it.
+#
+# This test supplies that inverse directly: it calls `_archive_branch_bundle`
 # with `exclude_ref` set to the SAME unsafe base (`origin/feat-x`) that
 # `_archive_compaction_base` would refuse to use - i.e. it constructs
 # exactly the bundle a defect in that guard would produce - then destroys
@@ -2727,8 +2758,7 @@ def test_archive_bundle_compaction_against_unsafe_base_becomes_unrestorable_afte
     assert ok, detail
     assert compact is True, "expected genuine compaction against feat-x's tip"
 
-    header, _, _ = Path(bundle_path).read_bytes().partition(b"\n\n")
-    header_lines = header.split(b"\n")
+    header_lines = _bundle_header_lines(bundle_path)
     assert any(line.startswith(b"-") for line in header_lines), (
         f"expected a prerequisite (-prefixed) header line for a genuinely compact "
         f"bundle, got: {header_lines!r}"
@@ -2737,20 +2767,10 @@ def test_archive_bundle_compaction_against_unsafe_base_becomes_unrestorable_afte
     # Remove the worktree and branch ref (this function never does either
     # itself), then destroy + gc `feat-x` on both the working repo and the
     # bare origin - the exact permanent-loss trigger. Sequence matches the
-    # sibling test's own reflog-expiry discipline: `git gc --prune=now`
-    # does NOT expire reflogs on its own, and the `checkout` calls above
-    # populated HEAD's reflog with a path back to feat-x's tip, so an
-    # explicit `reflog expire` is required before gc on BOTH repos.
+    # sibling test's own reflog-expiry discipline via the shared helper.
     _git(repo, "worktree", "remove", "--force", str(wt))
     _git(repo, "branch", "-D", branch)
-    _git(repo, "push", "-q", "origin", "--delete", "feat-x")
-    _git(repo, "branch", "-D", "feat-x")
-    subprocess.run(["git", "-C", str(origin), "branch", "-D", "feat-x"], capture_output=True, text=True)
-    _git(repo, "remote", "prune", "origin")
-    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
-    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"], capture_output=True, text=True)
-    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    _destroy_base_branch_and_gc_everywhere(repo, origin, "feat-x")
 
     restore_proc = subprocess.run(
         ["git", "-C", str(repo), "fetch", bundle_path, f"refs/heads/{branch}:refs/heads/{branch}"],
@@ -2784,11 +2804,12 @@ def test_archive_bundle_compaction_against_unsafe_base_becomes_unrestorable_afte
 # all 118 pre-existing tests in this file green. This test closes that
 # gap. (It does not assert on restorability, unlike the test above -
 # measured separately, a bundle built with `--not <exclude_ref>` against a
-# disjoint history records NO prerequisite header line at all, since the
-# traversal never reaches a commit reachable from `exclude_ref`; such a
-# bundle is already self-contained regardless of whether `--not` was
-# applied, so the discriminating observable is the header/compact flag,
-# not restorability.)
+# disjoint history records NO prerequisite header line at all regardless
+# of whether `--not` was applied, since the traversal never reaches a
+# commit reachable from `exclude_ref`; the header assertion below cannot
+# discriminate this case and is kept only as a same-shape precondition
+# check alongside the sibling tests - the sole discriminating observable
+# here is `compact is False`.)
 # --------------------------------------------------------------------------
 
 
@@ -2820,8 +2841,7 @@ def test_archive_bundle_skips_exclusion_when_branch_shares_no_history_with_base(
         "the exclude ref (unique_count == total_count)"
     )
 
-    header, _, _ = Path(bundle_path).read_bytes().partition(b"\n\n")
-    header_lines = header.split(b"\n")
+    header_lines = _bundle_header_lines(bundle_path)
     assert not any(line.startswith(b"-") for line in header_lines), (
         f"expected NO prerequisite header line when the branch shares no history "
         f"with the exclude ref, got: {header_lines!r}"
