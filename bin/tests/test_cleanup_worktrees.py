@@ -1594,8 +1594,7 @@ def test_archive_bundle_excludes_already_on_base_objects(tmp_path):
     bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
     assert len(bundles) == 1
     compact_bundle = bundles[0]
-    header, _, _ = compact_bundle.read_bytes().partition(b"\n\n")
-    header_lines = header.split(b"\n")
+    header_lines = _bundle_header_lines(compact_bundle)
     assert any(line.startswith(b"-") for line in header_lines), (
         f"expected a prerequisite (-prefixed) header line in a compact bundle, got: {header_lines!r}"
     )
@@ -1685,8 +1684,7 @@ def test_archive_unproven_prints_full_history_note_for_unverifiable_base(tmp_pat
     archive_dir = repo / ".agentic" / "worktree-archive"
     bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
     assert len(bundles) == 1
-    header, _, _ = bundles[0].read_bytes().partition(b"\n\n")
-    header_lines = header.split(b"\n")
+    header_lines = _bundle_header_lines(bundles[0])
     assert not any(line.startswith(b"-") for line in header_lines), (
         f"expected no prerequisite header line for a full-history bundle, got: {header_lines!r}"
     )
