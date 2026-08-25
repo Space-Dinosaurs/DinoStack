@@ -289,7 +289,6 @@ The main session agent classifies each task as <strong>Trivial</strong>, <strong
 - Screenshots, diagnostic logging
 - Small, reversible edits
 - Trivial work goes to an isolated engineer; Low is direct action
-- Related Trivial tweaks batch into one draft PR instead of one per change
 
 </div>
 <div>
@@ -311,8 +310,26 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <strong>Tier declaration:</strong> every Elevated spawn carries a required <code>Tier:</code> line. Tier 1 = Haiku (opt-in, shallow tasks), Tier 2 = Sonnet (implementation default), Tier 3 = Opus (review default: skeptic, security-auditor). Each agent's frontmatter <code>model:</code> is the default; pass a param only to override. Authoring roles (architect, adr-generator, product-discovery) also escalate to Tier 3 on Plan+ADR-tier units.
 </div>
 
+---
+
+## Under the hood - implicit Trivial batching
+
+<style scoped>
+  p { font-size: 0.88em; margin: 0.3em 0; }
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.35em; }
+</style>
+
+Related Trivial tweaks share one draft PR instead of one per change - no command, no configuration.
+
+- Say "make the border 1px" - it commits, pushes, and opens a <strong>draft</strong> PR on the first tweak
+- The next related tweak lands on that same PR instead of opening a fresh one
+- Every tweak is still risk-classified and CI still runs on every push; one that turns out non-Trivial mid-batch still gets full adversarial review
+- <strong>"Ship it"</strong> (or moving to unrelated work, or wrapping the session) marks the PR ready and merges it
+
 <div class="callout">
-<strong>Implicit Trivial batching.</strong> Say "make the border 1px" and it commits, pushes, and opens one draft PR; the next related tweak lands on that same PR instead of opening a fresh one. No command, no configuration. Every tweak is still risk-classified and CI still runs on every push - a tweak that turns out non-Trivial mid-batch still gets full adversarial review, and the draft state is a mechanical merge gate. "Ship it" (or moving to unrelated work, or wrapping the session) marks it ready and merges. Point a worktree at the tweak branch to watch changes land live. Needs `gh`; without it, tweaks fall back to one PR per change.
+The draft state is a mechanical merge gate - <code>gh pr merge</code> refuses a draft PR either way. Once it's open, point a worktree at the tweak branch (fast-forward after each push) to watch changes land live. Needs <code>gh</code>; without it, tweaks fall back to one PR per change.
 </div>
 
 ---
