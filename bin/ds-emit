@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Purpose: Append a single JSON event line to .agentic/events.jsonl, called
 #          inline by the conductor at orchestration boundaries (spawn_start,
-#          spawn_complete, conductor_direct). Resolves phase from the caller's
+#          spawn_complete, tracker_writeback). Resolves phase from the caller's
 #          per-ticket keyed loop-state file, falling back to the legacy
 #          .agentic/loop-state.json, per the six-row order below.
 #
 # Public API: ds-emit <event> <agent_or_-> <task_id_or_-> <json_data>
-#             - event:    event type (spawn_start|spawn_complete|conductor_direct|...)
+#             - event:    event type (spawn_start|spawn_complete|tracker_writeback|...)
 #             - agent:    agent name, or "-" for null
 #             - task_id:  task id, or "-" for null
 #             - json_data: compact JSON object as a single string

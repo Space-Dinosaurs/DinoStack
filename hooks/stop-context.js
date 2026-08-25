@@ -762,7 +762,8 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
 
 /**
  * Append a single session_total event to .agentic/events.jsonl summing
- * spawn_complete + conductor_direct events for the current session.
+ * spawn_complete events for the current session (conductor_direct is a
+ * retired event name and is no longer counted - see :555 above).
  * Best-effort: any fs / parse failure is swallowed silently.
  *
  * @param {string} cwd - Verified project directory.
