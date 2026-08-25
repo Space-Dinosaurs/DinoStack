@@ -409,7 +409,7 @@ DinoStack/
 - `~/DinoStack/docs/slides/planning-tier-slides.html` - the tiered Brief/Plan promotion gate
 - `~/DinoStack/docs/slides/profiles-slides.html` - risk profiles that tune how aggressively work is reviewed
 - `~/DinoStack/docs/slides/risk-classification-slides.html` - signal-based risk tiers that drive delegation choices
-- `~/DinoStack/docs/slides/worktree-lifecycle-slides.html` - isolation-by-default worktrees and cleanup rules
+- `~/DinoStack/docs/slides/worktree-lifecycle-slides.html` - isolation-by-default worktrees, cleanup rules, and implicit Trivial-tier batching (small tweaks share one draft PR instead of one per change)
 
 Full inventory of rules, agents, commands, and config toggles: see [docs/components.md](docs/components.md).
 
