@@ -8627,14 +8627,15 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          every other gate cannot resolve), the Implicit Trivial batching
          section (the canonical single-source mechanism for opening one
          draft PR at the first push of a Trivial-tier tweak and
-         continuing it via detached-HEAD nested-worktree seeding, placed
-         INSIDE the engineer's own worktree so the write/read isolation
-         hooks admit it, across subsequent related tweaks, referenced by
-         a pointer from content/sections/04-risk-classification.md
-         §Trivial signals), and the SKIP_UNREFERENCED_COMMIT section (the
-         disposition EVERY detached leftover this mechanism's crash paths
-         produce resolves to today - `head_reachable` is dead code in
-         bin/ds-cleanup-worktrees, so no leftover, pushed or not,
+         continuing it by detaching the engineer's OWN harness isolation
+         worktree onto the batch's fetched remote tip - no second/nested
+         worktree - so the write/read isolation hooks admit every edit
+         trivially, across subsequent related tweaks, referenced by a
+         pointer from content/sections/04-risk-classification.md §Trivial
+         signals), and the SKIP_UNREFERENCED_COMMIT section (the
+         disposition EVERY such detached harness worktree resolves to
+         today if it crashes before its push - `head_reachable` is dead
+         code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
          triage/recovery procedure).
 
@@ -8688,16 +8689,17 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                discipline, not a structural guarantee - a crashed session or
                a forgotten cleanup still relies on the session-start prune,
                bin/ds-branch-prune, and bin/ds-cleanup-worktrees backstops.
-               A detached nested engineer worktree left by Implicit Trivial
-               batching is a DIFFERENT case from the above: none of the
-               session-start prune, bin/ds-branch-prune, or the automatic
-               reap resolve it - `head_reachable` (the fact the reap's
-               ELIGIBLE path for a detached HEAD depends on) is dead code
-               in bin/ds-cleanup-worktrees, hardcoded to "not_checked" at
-               every construction site, so every such leftover resolves
-               SKIP_UNREFERENCED_COMMIT regardless of push status and is
-               left in place; only the manual procedure in
-               §SKIP_UNREFERENCED_COMMIT resolves it.
+               A crashed Implicit Trivial batching continuation leaves its
+               own harness isolation worktree detached (possibly with an
+               unpushed commit) - a DIFFERENT case from the above: none of
+               the session-start prune, bin/ds-branch-prune, or the
+               automatic reap resolve it - `head_reachable` (the fact the
+               reap's ELIGIBLE path for a detached HEAD depends on) is
+               dead code in bin/ds-cleanup-worktrees, hardcoded to
+               "not_checked" at every construction site, so every such
+               leftover resolves SKIP_UNREFERENCED_COMMIT regardless of
+               push status and is left in place; only the manual procedure
+               in §SKIP_UNREFERENCED_COMMIT resolves it.
 
 Performance: Standard.
 -->
@@ -8813,122 +8815,71 @@ branch/PR rather than risk colliding with an unrelated batch).
 ### Seeding mechanics
 
 **Continuation** (an existing batch): the Trivial engineer is briefed in
-plain prose (per `:1545`'s form) to run, from inside its own
-harness-provided isolation worktree (its own cwd, `$CALLER_ROOT` below):
+plain prose (per `:1545`'s form) to run, directly inside its own
+harness-provided isolation worktree - no nested worktree, no separate
+directory:
 
 ```bash
-git fetch origin && git worktree add --detach .tweak-nested origin/chore/tweak-<key>
+git fetch origin && git checkout --detach origin/chore/tweak-<key>
 ```
 
-(bare-relative form - detached HEAD at the fetched tip).
+[verified-by-execution, own worktree, git 2.55.0]: `git checkout --detach
+origin/main` succeeds; `git symbolic-ref -q HEAD` afterward exits nonzero
+(genuinely detached); the engineer's own harness branch ref
+(`worktree-agent-<id>`) survives the detach untouched, confirmed via
+`git show-ref` before and after. Every edit the engineer makes afterward
+lands inside its own `caller_root` by construction, since there is no
+second directory - the write/read isolation hooks
+(`hooks/enforce-worktree-write.py`, `hooks/enforce-worktree-read.py`)
+admit it trivially, with no placement decision, no exemption, and no
+kill-switch to reason about.
 
-**Placement is binding, not incidental: the nested worktree MUST be
-created INSIDE the engineer's own worktree** - `$CALLER_ROOT/.tweak-nested`,
-never a sibling path directly under `.claude/worktrees/`.
-[verified-by-read] `hooks/enforce-worktree-write.py:401-405` and
-`hooks/enforce-worktree-read.py:388-392` both grant a Write/Edit/Read (or
-deny it) purely on whether the resolved target is inside `caller_root` -
-the payload's own `cwd`, i.e. the engineer's own worktree root. Neither
-hook carries a nested-worktree carve-out, so a **sibling** placement
-(`.claude/worktrees/agent-<id>-nested`) is DENIED on every subsequent
-Edit the engineer makes inside it once seeded - the mechanism as
-originally drafted was not executable with the harness's own guarded
-tools. A path under `$CALLER_ROOT` passes both hooks' containment check
-by construction, with no exemption or kill-switch needed.
-
-Classification is preserved despite the deeper nesting:
-[verified-by-read] `classify_entry` (`bin/tests/worktree_model.py:392-394`)
-is path-prefix-only against `repo_root` - `$CALLER_ROOT/.tweak-nested`'s
-path relative to the primary root is still
-`.claude/worktrees/agent-<id>/.tweak-nested`, which still starts with the
-`.claude/worktrees/` prefix, so it still classifies ISOLATION (never
-UNMANAGED), same as the (denied) sibling placement would have.
-
-**Git-status noise, resolved (the plan's own open question).**
-[verified-by-execution, scratch repo, git 2.55.0]: a nested worktree's
-directory shows as an untracked entry (`?? .tweak-nested/`) in the OUTER
-(parent) worktree's `git status --porcelain`, and a bare `git add -A` run
-in the outer worktree stages it as an EMBEDDED GIT REPOSITORY (a
-gitlink) - real noise, and a real hazard if anything downstream ever runs
-an unscoped `git add -A` in the engineer's own worktree while the nested
-one exists. The create sequence neutralizes this - before creating the
-nested worktree:
+The engineer edits, commits detached (`git commit -s`), then **pushes by
+explicit refspec**:
 
 ```bash
-echo '.tweak-nested/' >> "$(git rev-parse --git-common-dir)/info/exclude"
+git push origin "HEAD:refs/heads/chore/tweak-<key>"
 ```
 
-[verified-by-execution]: this makes `git status --porcelain` report clean
-in the outer worktree with the nested one present, and keeps a scoped
-`git add <specific-files>` (which the engineer's own commit step already
-uses, never a blind `-A`) unaffected either way. **Disclosure:**
-`info/exclude` lives in the repo's shared common `.git` directory, not
-per-worktree - the exclusion is REPO-WIDE across every worktree of this
-repo for the session's lifetime, not scoped to just this one engineer's
-worktree. Harmless here (`.tweak-nested` is never a real tracked path
-anywhere in this repo), but not a narrowly-scoped fix, and worth stating
-plainly rather than silently.
-
-The engineer edits, commits (`git -C .tweak-nested commit -s`), then
-**pushes from inside the nested worktree, BEFORE removal**:
-
-```bash
-git -C .tweak-nested push origin "HEAD:refs/heads/chore/tweak-<key>"
-```
-
-**Binding constraint - braced variables always, and the explicit refspec
-is mandatory - corrected to the measured behavior, not "silent no-op":**
-[verified-by-execution, scratch repo, git 2.55.0] a detached worktree's
-bare branch-name push does NOT behave as a uniform silent no-op; it does
-one of two things, neither of them the intended push. With NO local
-branch named `chore/tweak-<key>` present in the nested worktree (the
-normal case - a fresh detached checkout never creates one), the bare form
-FAILS LOUDLY: `git push -u origin chore/tweak-<key>` exits nonzero with
+[verified-by-execution, own worktree, git 2.55.0]: committed on the
+detached HEAD, pushed by this exact refspec form to a scratch branch,
+confirmed landed via `git ls-remote`, then deleted the scratch ref -
+clean round trip. **Binding constraint - braced variables always, and
+the explicit refspec is mandatory:** a detached worktree's bare
+branch-name push does NOT behave as a uniform silent no-op; it does one
+of two things, neither of them the intended push. With NO local branch
+named `chore/tweak-<key>` present (the normal case - a detached checkout
+never creates one), the bare form FAILS LOUDLY:
+`git push -u origin chore/tweak-<key>` exits nonzero with
 `error: src refspec chore/tweak-<key> does not match any` - safe, but
-wastes the turn. With a STALE local branch of that name present (e.g.
-left over from a prior worktree reusing this same path), the bare form
-instead pushes THAT local ref - silently landing the WRONG commit on
-`origin`, the genuinely dangerous case. The explicit
-`HEAD:refs/heads/chore/tweak-<key>` refspec form is mandatory in **both**
-cases - it names the exact commit being pushed regardless of what local
-branches happen to exist, and is unaffected by either failure mode above.
-Do not simplify this to a bare branch-name form, and **do not substitute
+wastes the turn. With a STALE local branch of that name already present
+(unusual but possible on a reused worktree), the bare form instead pushes
+THAT local ref - silently landing the WRONG commit on `origin`, the
+genuinely dangerous case. The explicit `HEAD:refs/heads/chore/tweak-<key>`
+refspec form is mandatory in **both** cases - it names the exact commit
+being pushed regardless of what local branches happen to exist. Do not
+simplify this to a bare branch-name form, and **do not substitute
 `AGENTS.md:53`'s literal** (`git push -u origin <branch-name>`) here -
 that sequence's worker-pushes-then-conductor-acts SEQUENCE carries over
 (matching the `:2575`/`:2585-2595` in-worktree push precedent, which uses
 this same explicit-refspec form for the same underlying reason), its push
 FORM does not.
 
-Only after the push succeeds does the engineer run
-`git worktree remove .tweak-nested` on its own nested worktree and return
-the already-landed SHA as confirmation. **The conductor pushes nothing on
-this path** - its role is to open the draft PR (minting) or note the
-landed push (continuation); push-by-SHA from the primary checkout is
-reserved for the §Round-N rework mechanic's recovery procedure above,
-never used routinely here.
+The engineer returns the already-landed SHA as confirmation once the push
+succeeds - there is no separate removal step, since there was never a
+second worktree to remove; the harness's own isolation-worktree cleanup
+(§Isolation worktree cleanup commands above, "once the branch has been
+pushed") handles the engineer's worktree exactly as it would for any
+other Trivial spawn. **The conductor pushes nothing on this path** - its
+role is to open the draft PR (minting) or note the landed push
+(continuation); push-by-SHA from the primary checkout is reserved for the
+§Round-N rework mechanic's recovery procedure above, never used routinely
+here.
 
-**Disclosure - weaker preservation if the PARENT worktree is torn down
-mid-batch.** [verified-by-execution, scratch repo, git 2.55.0]: because
-the nested worktree's working directory now lives physically inside the
-engineer's own worktree, a crash or forced removal of the PARENT
-(isolation) worktree between commit and push destroys the nested
-worktree's on-disk files along with it. The commit OBJECT itself survives
-in the shared object database immediately afterward (confirmed via
-`git cat-file -e` post-removal) - but with no ref and no worktree entry
-referencing it, the next `git worktree prune` (run at every session
-start) clears both admin entries, leaving the commit as pure
-reflog-window garbage subject to `gc.reflogExpireUnreachable` /
-`gc.pruneExpire`. This is WEAKER preservation than a crashed branch-based
-engineer, whose branch ref persists on its own admin entry until the
-branch is explicitly deleted. The window is narrow - same-turn
-commit-to-push, no session boundary crosses it - but it is real, and is
-stated here rather than papered over.
-
-**New work (minting):** an ordinary base-seeded Trivial spawn - no nesting
-needed, since there is no existing tip to detach against. The engineer
-pushes `HEAD:refs/heads/chore/tweak-<key>` from its own harness worktree;
-the conductor then opens the draft PR against the already-pushed branch, a
-direct instance of the standard worker-pushes-then-conductor-acts
+**New work (minting):** an ordinary base-seeded Trivial spawn - the
+engineer pushes `HEAD:refs/heads/chore/tweak-<key>` from its own harness
+worktree; the conductor then opens the draft PR against the already-pushed
+branch, a direct instance of the standard worker-pushes-then-conductor-acts
 sequence. On return, the file-overlap scope test
 (`git diff --name-only HEAD~1 HEAD` in the engineer's worktree) runs as
 **verification only, never the batching decision** - the pre-spawn
@@ -8939,25 +8890,31 @@ main-based-engineer-worktree row of that table); a conflict during that
 recovery is re-delegated to a fresh engineer, never resolved
 conductor-side.
 
-### Crash paths (stated honestly)
+### Crash paths (stated honestly - one worktree, not two)
 
-**All detached leftovers are refused by design today - not only the
-unpushed ones.** [verified-by-read] `disposition_for`'s detached-HEAD
-branch (`bin/tests/worktree_model.py:701-707`) is `ELIGIBLE` only when
+Because there is no nested worktree, a crashed continuation spawn leaves
+behind exactly ONE artifact: its own ordinary harness isolation worktree,
+detached, possibly holding an unpushed commit - not two admin entries,
+and no orphaned-nested-entry case to reason about separately. It is
+reaped (or not) by the same harness/session-start machinery that governs
+any other crashed spawn.
+
+[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:392-394`)
+is path-prefix-only and never reads `entry.branch` - a detached harness
+worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
+like a branched one. `disposition_for`'s detached-HEAD branch
+(`bin/tests/worktree_model.py:701-707`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-But `bin/ds-cleanup-worktrees:1917` hardcodes
-`head_reachable="not_checked"` at every construction site, and that
-file's own module docstring (`:1392-1394`) calls the field "unrelated,
-dead code" - distinct from the separate, live `origin_reachable` field
-DS-196 added, which does not feed this branch at all
-(`worktree_model.py:428-438`). Since `"not_checked" != "reachable"`, the
-`ELIGIBLE` arm of this branch can never fire today: **every detached
-leftover, whether its push already landed or not, resolves
-`SKIP_UNREFERENCED_COMMIT`** and is left for manual handling - refused by
-design, the same work-preserving discipline as `SKIP_UNPROVEN` below, but
-a distinct disposition. (An earlier draft of this section claimed a
-crash-after-push leftover is auto-swept; that claim was wrong and is
-corrected here.)
+`bin/ds-cleanup-worktrees:1917` hardcodes `head_reachable="not_checked"`
+at every construction site, and `_compute_origin_reachable`'s own
+docstring (`:1392-1394`) calls the field "unrelated, dead code" -
+distinct from the separate, live `origin_reachable` field DS-196 added,
+which does not feed this branch at all (`worktree_model.py:428-438`).
+Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
+today: **every detached harness worktree, whether its push already
+landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
+manual handling - refused by design, the same work-preserving discipline
+as `SKIP_UNPROVEN` below, but a distinct disposition.
 
 **Operator triage, since the tool does not distinguish the two cases for
 you:** check whether the commit already reached `origin` -
@@ -9218,12 +9175,13 @@ file, so there is no vicious-loop risk to defend against.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - run automatically and unattended by the backgrounded session-start reap above, a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
-Per-tweak disposable nested worktrees created during Implicit Trivial
-batching (§Implicit Trivial batching: open the PR at first push above)
-are instances of this same obligation and its "once the branch is
-pushed" trigger - the engineer's own push-then-remove sequence already
-satisfies it on the success path; a crash instead leaves the
-`SKIP_UNREFERENCED_COMMIT` residual documented below.
+Implicit Trivial batching (§Implicit Trivial batching: open the PR at
+first push above) needs no special case here: each continuation spawn is
+an ordinary Trivial engineer running in its own harness isolation
+worktree, so the standard "once the branch is pushed" trigger above
+already covers it - there is no second worktree to separately account
+for. A crash before push instead leaves the `SKIP_UNREFERENCED_COMMIT`
+residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
@@ -9245,23 +9203,23 @@ Not every non-`ELIGIBLE` branch-evidence outcome lands in `SKIP_UNPROVEN`, and `
 
 ## `SKIP_UNREFERENCED_COMMIT`: a distinct detached-HEAD-commit class
 
-Implicit Trivial batching (§Implicit Trivial batching: open the PR at
-first push above) is the first place in the methodology that creates
-detached, nested engineer worktrees
-(`$CALLER_ROOT/.tweak-nested`, inside the engineer's own isolation
-worktree - see the Placement note in that section for why) whose spawn
-can crash before its own removal step. That leftover is a distinct
-disposition from `SKIP_UNPROVEN` above - it is not a checked-out branch
-with unproven ancestry, it is a **detached HEAD**. `disposition_for`
-reports it as `SKIP_UNREFERENCED_COMMIT`, refused by the same
-work-preserving discipline as `SKIP_UNPROVEN`. **As of today this is the
-outcome for EVERY such leftover, not only an unpushed one** -
-`head_reachable`, the fact that would let a leftover whose commit already
-reached `origin` resolve `ELIGIBLE` instead, is dead code in
-`bin/ds-cleanup-worktrees` (see §Crash paths above); nothing currently
-distinguishes "sole copy of the work" from "already safely on origin" for
-you. Auto-deleting an entry in this disposition is never acceptable
-either way, since the tool itself cannot yet tell which case it is.
+The route into this disposition (§Implicit Trivial batching: open the PR
+at first push above) is a detached HARNESS ENGINEER WORKTREE that crashed
+before its push - no nested worktree, just the engineer's own
+`.claude/worktrees/agent-<id>` left with `git symbolic-ref -q HEAD`
+failing and possibly an uncommitted-nowhere-else commit sitting on top.
+That leftover is a distinct disposition from `SKIP_UNPROVEN` above - it
+is not a checked-out branch with unproven ancestry, it is a **detached
+HEAD**. `disposition_for` reports it as `SKIP_UNREFERENCED_COMMIT`,
+refused by the same work-preserving discipline as `SKIP_UNPROVEN`. **As
+of today this is the outcome for EVERY such leftover, not only an
+unpushed one** - `head_reachable`, the fact that would let a leftover
+whose commit already reached `origin` resolve `ELIGIBLE` instead, is dead
+code in `bin/ds-cleanup-worktrees` (see §Crash paths above); nothing
+currently distinguishes "sole copy of the work" from "already safely on
+origin" for you. Auto-deleting an entry in this disposition is never
+acceptable either way, since the tool itself cannot yet tell which case
+it is.
 
 **Manual recovery/discard procedure:**
 
@@ -9286,23 +9244,18 @@ either way, since the tool itself cannot yet tell which case it is.
    `git -C <path> diff` before deciding what to do with the uncommitted
    content, and only then run `git worktree remove --force <path>`.
 
-**Note:** `--force` here is unrelated to, and not licensed by, §Guardrail:
-never force-override the harness lock above - an engineer-created nested
-worktree is never locked (the harness lock applies to isolation
-worktrees created by the harness itself, not to a nested `worktree add`
-an engineer runs inside one), so the only thing a plain `remove` ever
-refuses on here is uncommitted work, which is precisely the signal
-recovery step 3 exists to preserve.
-
-**Applicability is narrower than it looks - this disposition only
-resolves when the PARENT (isolation) worktree survives with the nested
-one still registered inside it.** If instead the crash tears down the
-whole parent worktree (§Seeding mechanics above, the weaker-preservation
-disclosure), `git worktree prune` clears both admin entries together and
-the leftover commit never surfaces as a `SKIP_UNREFERENCED_COMMIT` entry
-at all - it becomes ordinary unreachable object-database garbage, subject
-to the same reflog-expiry window as any other orphaned commit, with no
-tool-surfaced signal pointing at it.
+**Note - this is the harness's own isolation worktree, unlike the
+now-deleted nested-worktree design, so the §Guardrail: never
+force-override the harness lock rule above applies directly here, not as
+an unrelated aside.** If `git worktree remove` instead refuses citing the
+lock (a still-running or not-yet-reaped agent), that is a DIFFERENT
+refusal from the uncommitted-content one in step 3 - do not unlock or
+force-remove it; follow §Isolation worktree cleanup commands above
+("that is expected and safe... NEVER a signal to unlock or
+force-remove") and let the session-start prune's locked-but-dir-missing
+reclaim path or the automatic reap resolve it once the lock is genuinely
+released. Only a refusal naming uncommitted content (not a lock) is what
+step 3's `--force` addresses.
 
 ### Advisory: sharing node_modules across worktrees (pnpm)
 

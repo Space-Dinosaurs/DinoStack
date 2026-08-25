@@ -1649,7 +1649,7 @@ hr {
 <p>A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:</p>
 <ul>
 <li>The first tweak commits, pushes, and opens a <strong>draft</strong> PR immediately - CI runs on every push, nothing is deferred</li>
-<li>Every continuation is seeded via a detached-HEAD nested worktree created INSIDE the engineer's own worktree (<code>$CALLER_ROOT/.tweak-nested</code>, never a sibling - the write/read isolation hooks admit only paths inside caller_root); the engineer <strong>pushes from inside it, before removing it</strong></li>
+<li>Every continuation detaches the engineer's OWN harness isolation worktree onto the batch's fetched remote tip (<code>git checkout --detach origin/chore/tweak-&lt;key&gt;</code>) - no nested worktree, no separate directory; every edit lands inside caller_root by construction, so the write/read isolation hooks admit it trivially</li>
 <li>A detached worktree's bare branch-name push either fails loudly (no local branch) or silently pushes the wrong ref (a stale local branch) - the explicit <code>HEAD:refs/heads/chore/tweak-&lt;key&gt;</code> refspec form is mandatory in both cases</li>
 <li>Draft state mechanically blocks merge (both plain and <code>--admin</code> forms) until <code>gh pr ready</code> - verified live against this repo (PR #815)</li>
 <li>Two concurrency fixes: a session-scoped <code>&lt;key&gt;</code> token so two sessions minting for the same file can never converge, and an origin-visible <code>tweak-claim:</code> PR comment so two sessions continuing the same batch don't collide</li>
@@ -1810,7 +1810,7 @@ hr {
 ;" data-marpit-pagination-total="12">
 <h2 id="skip_unreferenced_commit-a-distinct-crash-residual">SKIP_UNREFERENCED_COMMIT: a distinct crash residual</h2>
 
-<p>Implicit Trivial batching is the first mechanism that creates detached, nested engineer worktrees.</p>
+<p>A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.</p>
 <ul>
 <li><code>head_reachable</code> (the fact that would let a pushed-already leftover auto-sweep) is dead code in <code>bin/ds-cleanup-worktrees</code> - hardcoded <code>&quot;not_checked&quot;</code> at every construction site - so <strong>every</strong> detached leftover, pushed or not, resolves <code>SKIP_UNREFERENCED_COMMIT</code> today, refused by design, same work-preserving discipline as <code>SKIP_UNPROVEN</code></li>
 <li>Triage manually: <code>git -C &lt;path&gt; branch -r --contains &quot;$(git -C &lt;path&gt; rev-parse HEAD)&quot;</code> - nonempty means the work already reached <code>origin</code> and is safe; empty means this worktree is the sole copy</li>
@@ -1818,7 +1818,7 @@ hr {
 <li>Discard via <strong>plain <code>git worktree remove &lt;path&gt;</code> first</strong> - a refusal naming uncommitted files means there's working-tree content <code>log -1</code> couldn't show; inspect <code>status --porcelain</code> and <code>diff</code> before deciding, only then <code>--force</code></li>
 </ul>
 <div class="callout">
---force here is unrelated to the harness-lock guardrail - an engineer-created nested worktree is never locked, so the only thing a plain remove ever refuses on is uncommitted work.
+This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one, let the session-start prune or reap resolve it once the lock releases.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="12" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

@@ -396,7 +396,7 @@ Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touch
 A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:
 
 - The first tweak commits, pushes, and opens a **draft** PR immediately - CI runs on every push, nothing is deferred
-- Every continuation is seeded via a detached-HEAD nested worktree created INSIDE the engineer's own worktree (`$CALLER_ROOT/.tweak-nested`, never a sibling - the write/read isolation hooks admit only paths inside caller_root); the engineer **pushes from inside it, before removing it**
+- Every continuation detaches the engineer's OWN harness isolation worktree onto the batch's fetched remote tip (`git checkout --detach origin/chore/tweak-<key>`) - no nested worktree, no separate directory; every edit lands inside caller_root by construction, so the write/read isolation hooks admit it trivially
 - A detached worktree's bare branch-name push either fails loudly (no local branch) or silently pushes the wrong ref (a stale local branch) - the explicit `HEAD:refs/heads/chore/tweak-<key>` refspec form is mandatory in both cases
 - Draft state mechanically blocks merge (both plain and `--admin` forms) until `gh pr ready` - verified live against this repo (PR #815)
 - Two concurrency fixes: a session-scoped `<key>` token so two sessions minting for the same file can never converge, and an origin-visible `tweak-claim:` PR comment so two sessions continuing the same batch don't collide
@@ -416,7 +416,7 @@ Canonical mechanism: content/references/worktree-lifecycle.md §Implicit Trivial
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-Implicit Trivial batching is the first mechanism that creates detached, nested engineer worktrees.
+A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.
 
 - `head_reachable` (the fact that would let a pushed-already leftover auto-sweep) is dead code in `bin/ds-cleanup-worktrees` - hardcoded `"not_checked"` at every construction site - so **every** detached leftover, pushed or not, resolves `SKIP_UNREFERENCED_COMMIT` today, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
 - Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
@@ -424,7 +424,7 @@ Implicit Trivial batching is the first mechanism that creates detached, nested e
 - Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
 
 <div class="callout">
---force here is unrelated to the harness-lock guardrail - an engineer-created nested worktree is never locked, so the only thing a plain remove ever refuses on is uncommitted work.
+This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one, let the session-start prune or reap resolve it once the lock releases.
 </div>
 
 ---
