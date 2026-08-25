@@ -110,13 +110,24 @@ Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
          A genuine "Resolved issues preflight" HEADING (line-anchored,
          mandatory colon) is stripped from the prompt before extraction
          (`_strip_preflight_block`), because that section legitimately
-         quotes historical steers verbatim for context and must never be
+         quotes historical steers verbatim for context and must not be
          scanned as if it were the conductor's own current claim. This is
          intentionally NOT a free-floating phrase match: an earlier
          version of this strip matched any MENTION of the phrase, not
          just the heading, and either truncated a legitimate tagged claim
          or silently deleted a genuine steer positioned after the
          mention, depending on which side of the match it fell on.
+         CORRECTED this round (was previously overstated as "never"): the
+         strip's own end-of-block boundary check now requires the
+         MANDATORY bold markup every real heading carries
+         (`_OTHER_STRUCTURAL_RE`/`_boundary_alt`), closing the case where
+         an UNBOLDED, mid-prose quoted mention of a heading phrase inside
+         the preflight block (e.g. a paraphrased "Adversarial brief: I
+         suspect ..." reproduced as plain prose) was misread as the
+         block's real end and left unstripped. A narrower residual
+         remains, disclosed below: a quote that reproduces the EXACT
+         bolded markdown of a genuine heading is still lexically
+         indistinguishable from one and still ends the strip early.
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
             "Agent"), fires only when `tool_input.subagent_type ==
@@ -193,35 +204,59 @@ Failure modes:
       mis-split, the same class of false positive this round fixed for
       the six listed forms. No real-session evidence yet shows a
       seventh form recurring; extend the list if that changes.
-    - EXACTLY ONE disclosed, NOT fixed, false negative remains as of this
-      round - re-counted and RE-VERIFIED BY EXECUTION THIS ROUND (see
-      the direct `field7_violation()` call against a quoted-tag-syntax
-      fixture in bin/tests/test_enforce_skeptic_neutrality.py's
-      `test_provenance_re_substring_match_false_negative_residual`), not
-      restated from a prior round's claim. A prior round's identical
-      "EXACTLY TWO disclosed" attestation was FALSE when written - it
-      both mis-stated the count (a third defect, the field-7 truncation
-      false-POSITIVE deny below, was live and undisclosed in that
-      direction) and mis-stated one residual's direction (the prior
-      round's own text called `_BRIEF_START_RE`'s unanchored/first-match
-      behavior a "coverage shift", when live execution that round showed
-      it producing an outright false-positive DENY on a spawn whose real
-      brief was clean). Both the truncation false-positive-deny defect
-      and the `_BRIEF_START_RE` false-positive-deny defect are FIXED this
-      round (line-anchored + last-occurrence extraction for the marker;
-      truncation-flag advisory-downgrade for the cap) and are covered by
-      regression tests with confirmed-failing-pre-fix mutations, not
-      merely re-labeled as residuals. The one that remains, lower
-      severity because it is a false NEGATIVE (a bypass, not a false
-      deny) rather than a false positive: `_PROVENANCE_RE` matches the
+    - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
       literal substring `[verified:` / `[verified-local:` anywhere in a
       sentence, so a sentence that merely quotes tag syntax as an example
-      (rather than genuinely carrying a tag of its own) reads as exempt.
-      Fixing it requires parsing the wrapping bracket's own
-      well-formedness (e.g. confirming the tag is the sentence's own
-      trailing annotation, not prose describing tag syntax) - a
-      materially larger structural change than this round's scope;
-      tracked as a named residual, not silently absorbed.
+      (rather than genuinely carrying a tag of its own) reads as exempt -
+      DIRECTION: false negative (a bypass, not a false deny). Fixing it
+      requires parsing the wrapping bracket's own well-formedness (e.g.
+      confirming the tag is the sentence's own trailing annotation, not
+      prose describing tag syntax) - a materially larger structural
+      change than any round to date has scoped; tracked as a named
+      residual, not silently absorbed. Re-verified by execution this
+      round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
+      `test_round3_residual_provenance_re_substring_match_false_negative`).
+
+    Complete disclosed-residual enumeration (round-4 re-count, by direct
+    re-grep of this section plus re-execution of each named test, not
+    restated from a prior round's count - a prior round's "EXACTLY ONE/
+    TWO disclosed" attestations were each themselves found false in a
+    later round by exactly this omission; enumerating the full list here
+    rather than asserting a bare count is round-4's fix for that pattern):
+      1. Field-7 truncation false negative (bullet above, this section):
+         a truncated field-7 fragment that genuinely IS untagged is not
+         caught. DIRECTION: false negative (bypass), advisory-only.
+      2. Brief-region paragraph-scoped exemption (bullet above, this
+         section): a tag anywhere in a <=5-line captured paragraph exempts
+         every claim in that same paragraph from categories B/C.
+         DIRECTION: false negative (bypass).
+      3. Brief-region scope gap (bullet above, this section): categories
+         B/C phrase-deny only, no structural template conformance for the
+         brief region. DIRECTION: coverage gap (named, deferred follow-up
+         ticket), not a false positive or negative on its own.
+      4. `_SENT_SPLIT_RE` abbreviation-guard non-exhaustiveness (bullet
+         above, this section): an abbreviation outside the fixed 6-form
+         list can still mis-split a compliant sentence. DIRECTION: false
+         positive (a false deny on an otherwise-compliant sentence).
+      5. `_PROVENANCE_RE` substring-match false negative (bullet
+         immediately above): quoted tag syntax reads as exempt.
+         DIRECTION: false negative (bypass).
+      6. Bolded-quote preflight boundary (this module's Purpose docstring,
+         "CORRECTED this round" paragraph): a preflight block quoting a
+         historical steer using the EXACT bolded markdown of a genuine
+         heading still ends the strip early. DIRECTION: false positive
+         (the quoted content is left exposed to extraction, which can
+         produce a false deny on the quoted historical text rather than
+         the real, current brief/field-7 value) - narrower than the
+         unbolded-mention shape fixed this round (requires the conductor
+         to reproduce heading-shaped bold markup while quoting history).
+    Six residuals total as of this round, not one. Two additional
+    round-4 defects - the unbolded preflight-mention false-positive deny,
+    and `_FIELD7_START_RE`'s first-match (rather than last-match)
+    extraction - are FIXED this round (see `_boundary_alt`'s comment and
+    `_FIELD7_START_RE`'s own comment above) and are covered by regression
+    tests with confirmed-failing-pre-fix mutations, not merely re-labeled
+    as residuals.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern. A lost
@@ -246,6 +281,57 @@ from pathlib import Path
 KILL_SWITCH_ENV = "AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE"
 
 # --------------------------------------------------------------------------- #
+# Shared boundary-heading phrase set (round-4 fix)
+# --------------------------------------------------------------------------- #
+# Every genuine section heading this hook treats as a structural BOUNDARY
+# ("the next known section has begun, stop capturing/stripping here") is,
+# per every canonical spawn template (content/commands/ds-skeptic.md:30,42,
+# 44,56,58; content/references/skeptic-protocol.md:260,378), rendered with
+# MANDATORY markdown bold (`**Heading:**`) or a literal `##` - never bare
+# unbolded text. `_boundary_alt()` builds the shared alternation used by
+# BOTH boundary-detection regexes below (`_OTHER_STRUCTURAL_RE`, the
+# preflight-strip's own "where does the block end" check, and
+# `_STRUCTURAL_STOP_RE`, the extraction capture's per-line stop check) so
+# the two can never drift out of sync on which phrases require bold.
+#
+# Round-4 fix, both directions of the SAME bug: the prior `\*{0,2}` (bold
+# OPTIONAL) let an UNBOLDED, mid-prose MENTION of a heading phrase - e.g. a
+# "Resolved issues preflight" block quoting a historical steer as plain
+# prose ("Adversarial brief: I suspect the retry path was the cause") -
+# read as a genuine section boundary. Two real false-positive denies
+# resulted: (a) the preflight-strip's own end-of-block search
+# (`_OTHER_STRUCTURAL_RE`) stopped at the unbolded quoted mention instead
+# of continuing to the block's real end, leaving the quoted "I suspect..."
+# text unstripped and exposed to extraction; (b) with `_FIELD7_START_RE`
+# still taking the FIRST match (not yet fixed to mirror `_BRIEF_START_RE`'s
+# round-3 last-match fix - see `_FIELD7_START_RE` below), a similarly
+# unbolded quoted "Conductor spawn brief:" mention ahead of the real marker
+# could shift field-7 extraction onto the wrong text. Requiring the
+# mandatory bold every genuine heading actually carries closes the
+# unbolded-mention shape of both, without weakening detection of any real
+# heading (which is always bold in every canonical template). See
+# test_round4_fix_major1_unbolded_preflight_mention_not_a_boundary and
+# test_round4_fix_major2_field7_last_match for the executed proof and
+# reddening mutations.
+#
+# Disclosed, NOT fixed by this round: a preflight block that quotes a
+# historical steer using the EXACT bolded markdown of a genuine heading
+# (e.g. re-typing "**Adversarial brief:** I suspect ...") is lexically
+# indistinguishable from a real heading and still terminates the strip
+# early - narrower than the unbolded case just fixed (it requires the
+# conductor to reproduce heading-shaped bold markup while quoting history,
+# not merely paraphrase it), but not eliminated. See the residual
+# enumeration in this module's Purpose docstring.
+def _boundary_alt(phrases: tuple[str, ...]) -> str:
+    return "|".join(re.escape(p) for p in phrases)
+
+
+_OTHER_STRUCTURAL_PHRASES = ("What to review", "Adversarial brief", "Conductor spawn brief")
+_STRUCTURAL_STOP_PHRASES = (
+    "What to review", "Resolved issues preflight", "Adversarial brief", "Conductor spawn brief",
+)
+
+# --------------------------------------------------------------------------- #
 # Extraction regexes (order-independent by construction)
 # --------------------------------------------------------------------------- #
 # Line-anchored (mirrors _FIELD7_START_RE's own `(?:^|\n)\s*` prefix) AND
@@ -261,13 +347,20 @@ KILL_SWITCH_ENV = "AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE"
 _BRIEF_START_RE = re.compile(
     r'(?:^|\n)\s*\*{0,2}Adversarial brief[^:\n]{0,40}:\*{0,2}', re.IGNORECASE
 )
+# Round-4 fix: takes the LAST match, mirroring `_BRIEF_START_RE`'s own
+# round-3 fix above - a prior version of THIS regex was the "symmetric site
+# never fixed" (still FIRST-match-only) when the brief marker was fixed.
+# An earlier, unrelated quoted mention of "Conductor spawn brief:" (e.g.
+# inside a preflight quote the strip's bold-mandate does not catch, or
+# pasted Worker output) could otherwise shift field-7 extraction onto that
+# quoted text instead of the real, current field-7 value. See
+# test_round4_fix_major2_field7_last_match for the executed proof.
 _FIELD7_START_RE = re.compile(
     r'(?:^|\n)\s*(?:(?:7\.|[-*])\s*)?\*{0,2}\s*Conductor spawn brief[^:\n]{0,80}:\*{0,2}',
     re.IGNORECASE,
 )
 _STRUCTURAL_STOP_RE = re.compile(
-    r'^\s*(##|\*{0,2}(What to review|Resolved issues preflight|Adversarial brief|'
-    r'Conductor spawn brief)|[1-7]\.\s)',
+    r'^\s*(##|\*\*(?:' + _boundary_alt(_STRUCTURAL_STOP_PHRASES) + r')|[1-7]\.\s)',
     re.IGNORECASE,
 )
 
@@ -279,7 +372,7 @@ _PREFLIGHT_START_RE = re.compile(
     re.IGNORECASE,
 )
 _OTHER_STRUCTURAL_RE = re.compile(
-    r'\n\s*(##|\*{0,2}(What to review|Adversarial brief|Conductor spawn brief)\*{0,2})',
+    r'\n\s*(##|\*\*(?:' + _boundary_alt(_OTHER_STRUCTURAL_PHRASES) + r'))',
     re.IGNORECASE,
 )
 
@@ -387,10 +480,16 @@ def extract_brief(prompt: str) -> list[str] | None:
 
 def extract_field7_ex(prompt: str) -> tuple[list[str] | None, bool]:
     """Field-7 counterpart to `extract_brief` that also surfaces the
-    truncation flag `main()` needs to decide deny vs. advisory-downgrade."""
+    truncation flag `main()` needs to decide deny vs. advisory-downgrade.
+
+    Round-4 fix: `use_last_match=True`, mirroring `extract_brief`'s own
+    round-3 fix - `_FIELD7_START_RE` was left on first-match only when the
+    brief marker was fixed, so an earlier quoted mention of "Conductor
+    spawn brief:" could shift extraction onto the wrong text. See
+    `_FIELD7_START_RE`'s own comment above."""
     return _extract_bounded_region_ex(
         _strip_preflight_block(prompt), _FIELD7_START_RE,
-        _FIELD7_MAX_PARAGRAPHS, _MAX_LINES_PER_PARAGRAPH
+        _FIELD7_MAX_PARAGRAPHS, _MAX_LINES_PER_PARAGRAPH, use_last_match=True
     )
 
 

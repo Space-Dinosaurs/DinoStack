@@ -1284,3 +1284,136 @@ def test_round3_fix_minor_content_deviation_still_denies():
         "“Neutrality requirement”]"
     )
     assert _mod.field7_violation([value]) == value
+
+
+# =========================================================================== #
+# Round-4 fix regression: Major #1 - `_OTHER_STRUCTURAL_RE` (the preflight-
+# strip's own end-of-block boundary check) treated an UNBOLDED, mid-prose
+# MENTION of a heading phrase inside the preflight block as the block's real
+# end, leaving a genuine quoted historical steer past that point unstripped
+# and exposed to extraction - reviewer's exact reproduction.
+# =========================================================================== #
+_ROUND4_MAJOR1_REPRO_PROMPT = (
+    "**Adversarial brief:** Review the diff for correctness and edge cases.\n"
+    "## Global-context inputs\n"
+    "7. **Conductor spawn brief (claim-bearing text only):** n/a - Trivial direct edit\n\n"
+    "**Resolved issues preflight:**\n"
+    "Round 1 raised 1 Major.\n"
+    "Adversarial brief: I suspect the retry path was the cause (quoted historical steer).\n"
+    "Resolution: brief rewritten neutrally.\n"
+)
+
+
+def test_round4_fix_major1_unbolded_preflight_mention_not_a_boundary(tmp_path):
+    """Executed end-to-end with the reviewer's exact reproduction: a clean
+    spawn (real brief and real field 7 both compliant) must not be denied
+    just because its preflight block quotes an unbolded historical mention
+    of a heading phrase further down."""
+    assert _mod.extract_brief(_ROUND4_MAJOR1_REPRO_PROMPT) == [
+        "Review the diff for correctness and edge cases."
+    ]
+    assert _mod.extract_field7(_ROUND4_MAJOR1_REPRO_PROMPT) == ["n/a - Trivial direct edit"]
+
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), _ROUND4_MAJOR1_REPRO_PROMPT))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+
+
+def test_round4_fix_major1_mutation_optional_bold_reddens():
+    """Executed mutation-testing proof, confirmed failing pre-fix: restoring
+    the prior `\\*{0,2}` (bold OPTIONAL) version of `_OTHER_STRUCTURAL_RE`
+    lets the unbolded quoted mention terminate the preflight-strip early,
+    leaving 'I suspect' unstripped and shifting brief extraction (via the
+    last-match search) onto that quoted text instead of the real, clean
+    brief - exactly the false-positive deny the reviewer reported."""
+    import re as _re
+
+    mutated_other_structural_re = _re.compile(
+        r'\n\s*(##|\*{0,2}(What to review|Adversarial brief|Conductor spawn brief)\*{0,2})',
+        _re.IGNORECASE,
+    )
+
+    def _mutated_strip_preflight_block(prompt: str) -> str:
+        m = _mod._PREFLIGHT_START_RE.search(prompt)
+        if not m:
+            return prompt
+        tail = prompt[m.end():]
+        m2 = mutated_other_structural_re.search(tail)
+        end = m.end() + (m2.start() if m2 else len(tail))
+        return prompt[:m.start()] + prompt[end:]
+
+    # Live (fixed) regex: strip removes the whole preflight block, including
+    # the quoted "I suspect" mention.
+    live_stripped = _mod._strip_preflight_block(_ROUND4_MAJOR1_REPRO_PROMPT)
+    assert "I suspect" not in live_stripped
+
+    # Mutated regex: strip stops early at the unbolded mention, leaving it
+    # in the prompt and available to the last-match brief extraction.
+    mutated_stripped = _mutated_strip_preflight_block(_ROUND4_MAJOR1_REPRO_PROMPT)
+    assert "I suspect" in mutated_stripped, "mutation should have reddened (mention left unstripped)"
+
+    mutated_paras, _truncated = _mod._extract_bounded_region_ex(
+        mutated_stripped, _mod._BRIEF_START_RE,
+        _mod._BRIEF_MAX_PARAGRAPHS, _mod._MAX_LINES_PER_PARAGRAPH_BRIEF, use_last_match=True
+    )
+    assert mutated_paras is not None
+    joined = " ".join(mutated_paras)
+    assert "I suspect" in joined, (
+        "mutation should have reddened (last-match brief extraction captured "
+        "the unstripped quoted mention instead of the real, clean brief)"
+    )
+
+
+# =========================================================================== #
+# Round-4 fix regression: Major #2 - `_FIELD7_START_RE` was still extracted
+# via the FIRST match (the round-3 fix applied last-match only to
+# `_BRIEF_START_RE`) - a quoted "Conductor spawn brief:" mention ahead of the
+# real marker (e.g. pasted Worker output, not caught by the preflight-strip
+# since it is not inside a preflight block at all) shifts field-7 extraction
+# onto the wrong text.
+# =========================================================================== #
+_ROUND4_MAJOR2_QUOTED_FIELD7_MENTION_PROMPT = (
+    "**What to review:** Below is the Worker's prior return, quoted verbatim:\n"
+    "Conductor spawn brief: (quoted, historical) The retry path was the root "
+    "cause.\n\n"
+    "## Global-context inputs\n"
+    "7. Conductor spawn brief (...): n/a - Trivial direct edit\n"
+)
+
+
+def test_round4_fix_major2_field7_last_match(tmp_path):
+    """Executed: field-7 extraction must capture the REAL, current value
+    (the LAST 'Conductor spawn brief:' marker), not an earlier quoted
+    mention pasted as part of Worker output - and the resulting spawn,
+    whose real field 7 is a compliant 'n/a - Trivial direct edit', must not
+    be denied."""
+    result = _mod.extract_field7(_ROUND4_MAJOR2_QUOTED_FIELD7_MENTION_PROMPT)
+    assert result == ["n/a - Trivial direct edit"]
+
+    rc, parsed, _ = _run_hook(
+        _payload(str(tmp_path), _ROUND4_MAJOR2_QUOTED_FIELD7_MENTION_PROMPT)
+    )
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+
+
+def test_round4_fix_major2_mutation_first_match_reddens():
+    """Executed mutation-testing proof, confirmed failing pre-fix: reverting
+    field-7 extraction to the FIRST match captures the quoted historical
+    mention instead of the real field-7 value, and that captured fragment
+    carries no provenance tag/attribution/self-reference, denying a spawn
+    whose real field 7 was clean."""
+    mutated_paras, _truncated = _mod._extract_bounded_region_ex(
+        _mod._strip_preflight_block(_ROUND4_MAJOR2_QUOTED_FIELD7_MENTION_PROMPT),
+        _mod._FIELD7_START_RE, _mod._FIELD7_MAX_PARAGRAPHS, _mod._MAX_LINES_PER_PARAGRAPH,
+        use_last_match=False,
+    )
+    assert mutated_paras is not None
+    assert mutated_paras != ["n/a - Trivial direct edit"], (
+        "mutation should have reddened (captured the WRONG, quoted region)"
+    )
+    violation = _mod.field7_violation(mutated_paras)
+    assert violation is not None, (
+        "mutation should have reddened (false deny on the quoted mention "
+        "instead of the real, clean field-7 value)"
+    )
