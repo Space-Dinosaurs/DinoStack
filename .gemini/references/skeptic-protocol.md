@@ -42,61 +42,13 @@ Performance: N/A - methodology document consumed by LLMs at spawn time.
 
 ## 0. Risk Assessment
 
-Before starting any task, the main agent performs a brief risk assessment. The primary outcome is **Low** or **Elevated**. An optional **Elevated + Cleanup** tier extends the Elevated path with a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
-
-### Risk signals
-
-**Elevated → Full Adversarial Review (Worker + fresh independent Skeptic)**
-Any single signal triggers:
-- Security / auth / crypto / payments / secrets
-- Irreversible operations (deletes, migrations, schema changes, force pushes)
-- Architecture decisions that constrain future choices
-- Modifies protocol or infrastructure files
-- Production or shared state
-- Multi-file changes (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes back to Elevated)
-- New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated in every profile)
-- Touches external APIs or services
-- Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem")
-- Logic with emergent/non-obvious cross-component interactions
-- User signals high stakes ("production", "critical", "don't mess this up")
-- Configuration changes
-- Research that produces a document, recommendation, plan, or anything to be acted on
-- Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius)
-- Anything where a mistake costs time or data
-
-**Low → Light Touch (direct action, brief inline self-check)**
-None of the above:
-- Single file, well-understood change in familiar code
-- Clearly reversible (e.g., file edits that haven't been committed or pushed, reads with no writes)
-- Exploration / research / draft work — **only when the output is understanding, not a decision-driving artifact.** If the research will produce a document, recommendation, plan, or anything that drives a subsequent decision or action, it is Elevated, not Low.
-- Read operations with minor targeted edits
-- **Targeted wording fix to already-reviewed content** - a change that adjusts phrasing only, where the substance was already reviewed and approved (e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration, fixing ambiguous wording). Applies only when the content being adjusted has already passed Skeptic review in the current or a recent session. Overrides the "new file creation" and single-file edit Elevated signals for this case only. Does not override the "modifies protocol or infrastructure files" Elevated signal - wording fixes in protocol or infrastructure files remain Elevated regardless. Does not apply to new decisions, new recommendations, or new content not previously reviewed.
-- **File renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing (e.g., Next.js page files), auto-discovery (e.g., Jest test globs, webpack entry points), config naming conventions (e.g., `next.config.js`, `__init__.py`) - the operation is Elevated because the rename changes behavior without changing file contents).
-
-**Uncertainty rule:** When in doubt, classify as Elevated. "Looks simple" is not a Low signal. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
-
-**Letter equals spirit rule:** Violating the letter of these rules is violating the spirit of these rules. There is no valid interpretation of a rule that permits bypassing it. "I followed the intent" after skipping a required step is not a defense - the steps exist because intent alone does not catch errors. This principle applies to every rule in both protocols. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
-
-**Mid-task reclassification:** If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
-
-**Low risk self-check:** After completing the change, re-read it in full. Verify: (1) the change does exactly what was intended, (2) no obvious edge cases or errors are introduced, (3) no unintended side effects are present. If any concern arises during self-check, reclassify as Elevated and apply adversarial review.
-
-### Common rationalizations to reject
-
-| Rationalization | Why it fails |
-|---|---|
-| "This looks simple, I can do it directly." | "Looks simple" is not a Low signal. Simple-looking tasks are where unreviewed errors accumulate most often. |
-| "I'm following the spirit of the rule, just not the letter." | Violating the letter is violating the spirit. No exceptions. |
-| "It's only one file / a few lines." | Line count is not a risk signal. A one-line change to a shared utility has high blast radius. |
-| "I already reviewed it myself." | Self-review is the direct-action self-check for Low risk. It does not substitute for Skeptic review on Elevated tasks. |
-| "The Skeptic will catch any mistakes." | The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker. |
-| "We're moving fast, we can skip review this time." | The protocol exists precisely for times when moving fast creates pressure to skip it. Speed is not a Low signal. |
-| "This change is too minor to bother with a Worker." | Delegate on risk signals, not on size. The Worker overhead is small; the cost of an unreviewed error is not. |
+Before starting any task, the main agent performs a brief risk assessment. The canonical tier definitions, the Elevated signal table, the Low/Trivial signals, the uncertainty rule, the letter-equals-spirit rule, mid-task reclassification, and the Low-risk self-check all live in `content/sections/04-risk-classification.md` and `content/sections/02-delegation.md` (Elevated signal table); the common-rationalizations table lives in `content/references/delegation-detail.md` §Common Rationalizations to Reject. Those sections are assembled into the resident METHODOLOGY.md / `/dinostack` skill embed - this Section 0 does not restate them. The outcome is one of three tiers: **Trivial**, **Low**, or **Elevated**, with an optional **Elevated + Cleanup** extension that adds a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
 
 ### Approach by risk level
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
+| Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
@@ -121,7 +73,7 @@ The core thesis: **the value of an adversarial reviewer is independence**. A rev
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
-**Document hierarchy:** This is the canonical specification for The Skeptic Protocol. `~/.claude/CLAUDE.md` contains inline risk classification rules and a delegation decision table; procedural details are read from this document via trigger-condition pointers. When documents diverge, this document governs.
+**Document hierarchy:** This is the canonical specification for The Skeptic Protocol's adversarial-loop mechanics (Section 2 onward). Risk classification itself is canonical in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, assembled into the resident METHODOLOGY.md / `/dinostack` skill embed; Section 0 above is a pointer to those sections, not an independent source. When Section 0's summary and the canonical sections diverge, the canonical sections govern.
 
 ---
 
@@ -144,7 +96,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
    - `BLOCKED`: the Worker hit a hard blocker requiring an architecture decision or human judgment. Escalate immediately to the human with the Worker's blocker description. Do not spawn a Skeptic on incomplete work.
    - `DONE_WITH_CONCERNS`: proceed with Skeptic review as normal. The Worker's stated concerns become additional context for the Skeptic - surface them in the spawn prompt alongside the adversarial brief.
 
-3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `~/.claude/agents/skeptic.md`) with:
+3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `content/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
    - The resolved issues preflight list (empty on round 1; see Section 4)

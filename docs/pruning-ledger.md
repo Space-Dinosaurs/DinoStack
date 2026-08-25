@@ -45,13 +45,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/824
 
 ## PL-20260825-2
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/skeptic-protocol.md (Section 0 "Risk Assessment"; "Document hierarchy" passage; ~/.claude/agents/skeptic.md citation)
 - Signal(s): Signal 3 (verbatim duplication) + Signal 5 (orphaned legacy text)
 - Confidence: HIGH
 - Rationale: Section 0 duplicates the Elevated-signal and common-rationalizations tables canonical in content/sections/02-delegation.md, 04-risk-classification.md, and delegation-detail.md (a known DS-48 multi-copy drift hazard); states risk is "Low or Elevated" only, missing Trivial; the "~/.claude/CLAUDE.md contains inline risk classification rules" hierarchy claim is stale post-DS-143. Approved for pointer-izing after confirming the skeptic agent's read chain resolves the canonical table.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/826
 
 ## PL-20260825-3
 - Status: RAISED
