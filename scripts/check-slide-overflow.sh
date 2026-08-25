@@ -38,8 +38,16 @@
 #                force a Chrome re-download on every single invocation.
 #
 # Performance: cold run needs network for `npm ci` and, on first live
-#              measurement, a Chrome-for-Testing download. Warm runs are
-#              offline except for the Google Fonts the decks @import.
+#              measurement, a Chrome-for-Testing download. A "warm" run is
+#              offline for the Chrome download ONLY on a machine that
+#              persists node_modules/.chrome-for-testing-cache across runs -
+#              in CI, with no actions/cache step configured for that
+#              directory, every job run downloads Chrome fresh; locally, an
+#              intervening `npm ci` (including this script's own staleness
+#              gate, when build-slides.sh's separate gate fires) deletes it
+#              too, since npm ci always wipes node_modules first. The
+#              Google Fonts the decks @import are fetched on every run
+#              regardless.
 
 set -euo pipefail
 

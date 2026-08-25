@@ -33,9 +33,14 @@
 #                report stale and force a Chrome re-download on every run).
 #
 # Performance: cold run needs network for `npm ci` (via the staleness gate
-#              below) and Chrome-for-Testing download; warm runs still need
-#              network for Google Fonts unless AE_TEST_BLOCK_HOSTS scenarios
-#              intentionally block them.
+#              below) and Chrome-for-Testing download; every run (cold or
+#              warm) still needs network for Google Fonts unless
+#              AE_TEST_BLOCK_HOSTS scenarios intentionally block them. The
+#              Chrome-for-Testing download itself is only skipped when
+#              node_modules/.chrome-for-testing-cache survives from a prior
+#              run - not guaranteed in CI (no actions/cache step for that
+#              directory) and not guaranteed locally either, since an
+#              intervening `npm ci` always wipes node_modules first.
 
 set -uo pipefail
 
@@ -76,7 +81,11 @@ cleanup() { rm -rf "$TMP_ROOT"; }
 trap cleanup EXIT
 
 FRONTMATTER="$TMP_ROOT/frontmatter.txt"
-sed -n '1,153p' "$REPO_DIR/docs/slides/how-it-works-slides.md" > "$FRONTMATTER"
+# Derive the frontmatter block by cutting at the second `---` line (Marp
+# frontmatter delimiter) rather than a hard-coded line count (Skeptic
+# MIN-frontmatter-sed) - resilient to the source deck's frontmatter growing
+# or shrinking.
+awk '/^---$/{n++} {print} n==2{exit}' "$REPO_DIR/docs/slides/how-it-works-slides.md" > "$FRONTMATTER"
 
 # Fixture A: one short clean slide.
 FIXTURE_A_MD="$TMP_ROOT/fixtureA.md"

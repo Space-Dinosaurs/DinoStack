@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Purpose: Browserless regression guard for scripts/check-slide-overflow.js's
-#          compare/ratchet logic. Deliberately exercises ONLY the
-#          --measurements-json code path (hand-written JSON fixtures under
-#          mktemp -d) - it never invokes puppeteer-core, @puppeteer/browsers,
-#          npm ci, or network, so it is safe to run in the required bin-sh-
-#          tests glob (which must stay browserless). The live-Chrome
-#          scenarios (font fail-closed axes, fresh-context-per-deck,
-#          real overflow rendering) live in scripts/check-slide-overflow-
-#          live-selftest.sh instead, which is NOT discovered by that glob.
+#          compare/ratchet logic and CLI-level safety nets. Most scenarios
+#          exercise ONLY the --measurements-json code path (hand-written
+#          JSON fixtures under mktemp -d). Scenario (g) is the exception: it
+#          copies check-slide-overflow.js into a scratch directory alongside
+#          a STUB @puppeteer/browsers/puppeteer-core (an abandoned-promise
+#          install() and an unreachable launch()) to reproduce Skeptic
+#          finding CRIT-silent-exit deterministically - it still touches no
+#          real network, npm, or browser, so it stays safe for the required
+#          bin-sh-tests glob (which must stay browserless). The live-Chrome
+#          scenarios (font fail-closed axes, fresh-context-per-deck, real
+#          overflow rendering) live in scripts/check-slide-overflow-live-
+#          selftest.sh instead, which is NOT discovered by that glob.
 #
 # Public API: ./bin/tests/test_check_slide_overflow.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -180,6 +184,113 @@ if echo "$out_f" | grep -q 'measurements-json file not found'; then
   _pass "(f) missing --measurements-json file prints a clear error"
 else
   _fail "(f) missing --measurements-json file's output did not match: $out_f"
+fi
+
+# --- Scenario (g): CRIT-silent-exit completion sentinel ---
+# Reproduces the Skeptic's method: a scratch node_modules with a stub
+# @puppeteer/browsers whose install() returns an abandoned promise (never
+# resolves, never rejects) and a stub puppeteer-core whose launch() would
+# error if ever reached. Before the fix, main()'s promise chain never
+# settles, node drains the event loop, and the process exits 0 with ZERO
+# output. Reddening mutation: delete the `process.on('exit', ...)` sentinel
+# block from check-slide-overflow.js (leaving the markCompleted() call
+# sites in place, now unused) - confirmed manually: exit 0, no output.
+SENTINEL_DIR="$TMP_ROOT/sentinel-test"
+mkdir -p "$SENTINEL_DIR/node_modules/@puppeteer/browsers"
+mkdir -p "$SENTINEL_DIR/node_modules/puppeteer-core"
+cp "$GATE_SCRIPT" "$SENTINEL_DIR/check-slide-overflow.js"
+
+write_json "$SENTINEL_DIR/node_modules/@puppeteer/browsers/package.json" \
+  '{"name":"@puppeteer/browsers","version":"0.0.0-stub","main":"index.js"}'
+cat > "$SENTINEL_DIR/node_modules/@puppeteer/browsers/index.js" <<'EOF'
+'use strict';
+exports.install = function install() {
+  return new Promise(() => {});
+};
+exports.computeExecutablePath = function computeExecutablePath() {
+  return '/nonexistent/chrome';
+};
+exports.detectBrowserPlatform = function detectBrowserPlatform() {
+  return 'linux';
+};
+exports.resolveBuildId = async function resolveBuildId() {
+  return 'stub-build-id';
+};
+EOF
+
+write_json "$SENTINEL_DIR/node_modules/puppeteer-core/package.json" \
+  '{"name":"puppeteer-core","version":"0.0.0-stub","main":"index.js"}'
+cat > "$SENTINEL_DIR/node_modules/puppeteer-core/index.js" <<'EOF'
+'use strict';
+exports.launch = async function launch() {
+  throw new Error('stub puppeteer-core launch() should never be called in this test');
+};
+EOF
+
+out_g="$(cd "$SENTINEL_DIR" && timeout 20 node check-slide-overflow.js --deck /tmp/does-not-need-to-exist.html 2>&1)"
+rc_g=$?
+if [[ "$rc_g" -eq 1 ]]; then
+  _pass "(g) abandoned install() promise exits 1, not a silent 0"
+else
+  _fail "(g) abandoned install() promise exited $rc_g (expected 1): $out_g"
+fi
+if echo "$out_g" | grep -q 'aborted before reaching a verdict'; then
+  _pass "(g) abandoned install() promise prints the sentinel message"
+else
+  _fail "(g) abandoned install() promise's output did not match: $out_g"
+fi
+
+# --- Scenario (h): --repeat requires a positive integer ---
+out_h="$(node "$GATE_SCRIPT" --measurements-json "$MEAS_A" --baseline "$BASE_A" --repeat abc 2>&1)"
+rc_h=$?
+if [[ "$rc_h" -ne 0 ]]; then
+  _pass "(h) --repeat abc exits non-zero"
+else
+  _fail "(h) --repeat abc exited 0 (expected non-zero)"
+fi
+if echo "$out_h" | grep -q -- '--repeat requires a positive integer'; then
+  _pass "(h) --repeat abc prints a clear error"
+else
+  _fail "(h) --repeat abc's output did not match: $out_h"
+fi
+
+# --- Scenario (i): --dump-overflows + --measurements-json is rejected ---
+out_i="$(node "$GATE_SCRIPT" --dump-overflows --measurements-json "$MEAS_A" --baseline "$BASE_A" 2>&1)"
+rc_i=$?
+if [[ "$rc_i" -ne 0 ]]; then
+  _pass "(i) --dump-overflows + --measurements-json exits non-zero"
+else
+  _fail "(i) --dump-overflows + --measurements-json exited 0 (expected non-zero)"
+fi
+if echo "$out_i" | grep -q -- '--dump-overflows and --measurements-json are mutually exclusive'; then
+  _pass "(i) --dump-overflows + --measurements-json prints a clear error"
+else
+  _fail "(i) --dump-overflows + --measurements-json's output did not match: $out_i"
+fi
+
+# --- Scenario (j): --deck scoping in --measurements-json mode ---
+# A measurements file with TWO decks, --deck naming only one -> only that
+# deck's failure is reported; the other deck's overflow must not leak in.
+MEAS_J="$TMP_ROOT/meas-j.json"
+BASE_J="$TMP_ROOT/base-j.json"
+write_json "$MEAS_J" '[{"deck":"x-slides.html","slides":[{"id":"1","title":"X One","scrollHeight":730}]},{"deck":"y-slides.html","slides":[{"id":"1","title":"Y One","scrollHeight":730}]}]'
+write_json "$BASE_J" '{}'
+out_j="$(node "$GATE_SCRIPT" --measurements-json "$MEAS_J" --baseline "$BASE_J" --deck x-slides.html 2>&1)"
+rc_j=$?
+if [[ "$rc_j" -eq 1 ]]; then
+  _pass "(j) --deck scoping exits 1 for the named deck's own overflow"
+else
+  _fail "(j) --deck scoping exited $rc_j (expected 1): $out_j"
+fi
+if echo "$out_j" | grep -q 'OVERFLOW x-slides.html slide 1'; then
+  _pass "(j) --deck scoping reports the named deck's overflow"
+else
+  _fail "(j) --deck scoping did not report the named deck's overflow: $out_j"
+fi
+if echo "$out_j" | grep -q 'y-slides.html'; then
+  _fail "(j) --deck scoping leaked the unscoped deck's failure: $out_j"
+else
+  _pass "(j) --deck scoping did not leak the unscoped deck's failure"
 fi
 
 echo ""

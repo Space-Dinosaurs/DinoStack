@@ -52,13 +52,36 @@
 //                runs. A missing --measurements-json file, an empty deck
 //                glob, or a puppeteer/Chrome-for-Testing resolution failure
 //                all exit non-zero with a message naming the cause.
+//                Two additional hard-failure paths (Skeptic CRIT-silent-exit):
+//                (1) after install()/computeExecutablePath resolve, the
+//                resolved executablePath is verified with fs.existsSync -
+//                a broken/partial install (e.g. an aborted extraction)
+//                exits non-zero naming the missing path instead of letting
+//                puppeteer-core's launch() fail in a way that can leave the
+//                extraction promise never settling. (2) a completion
+//                sentinel (`completed`) is set true only on a genuine
+//                verdict path (reportAndExit, the dump-overflows path, or a
+//                caught error path); a `process.on('exit', ...)` handler
+//                checks it and forces exit 1 with "aborted before reaching
+//                a verdict" if the process is about to exit 0 without ever
+//                having reached one - this is the actual fix for the
+//                previously-claimed-but-untrue assumption that a run always
+//                produces output: a stalled/abandoned async
+//                operation (observed with a stubbed @puppeteer/browsers
+//                whose install() never resolves) used to let node drain
+//                the event loop and exit 0 with zero output.
 //
-// Performance: cold run downloads Chrome-for-Testing (network, one-time,
-//              cached in scripts/node_modules/.chrome-for-testing-cache).
-//              Each deck gets its own fresh browser context + page - this
-//              is the sole load-bearing determinism mechanism (a reused
-//              page converges on wrong values, measured) - so runtime
-//              scales linearly with deck count, not sublinearly.
+// Performance: cold run downloads Chrome-for-Testing (network; cached in
+//              scripts/node_modules/.chrome-for-testing-cache ONLY on a
+//              machine that persists that directory across runs - in CI,
+//              with no actions/cache step configured for it, every job run
+//              downloads fresh; locally, an npm ci in between runs deletes
+//              it too, since npm ci always wipes node_modules first - see
+//              scripts/check-slide-overflow.sh's Failure modes). Each deck
+//              gets its own fresh browser context + page - this is the sole
+//              load-bearing determinism mechanism (a reused page converges
+//              on wrong values, measured) - so runtime scales linearly with
+//              deck count, not sublinearly.
 
 'use strict';
 
@@ -68,6 +91,28 @@ const path = require('path');
 const TOLERANCE_PX = 2;
 const OVERFLOW_THRESHOLD_PX = 720 + TOLERANCE_PX;
 const SETTLE_ATTEMPTS = 5;
+
+// Skeptic CRIT-silent-exit (b): a completion sentinel. Reproduced with a
+// stubbed @puppeteer/browsers whose install() never resolves - main()'s
+// promise never settles, the event loop drains once nothing else is
+// pending, and node exits 0 with ZERO output (neither a verdict nor an
+// error is ever printed). `markCompleted()` is called on every genuine
+// verdict path (reportAndExit's two branches, the --dump-overflows path,
+// each early-return error path in main(), and the top-level main().catch()
+// handler). The process.on('exit', ...) handler below fires unconditionally
+// as the LAST thing node does before actually exiting; if the process is
+// about to exit 0 without ever having reached a verdict, that is itself a
+// bug class (an abandoned async operation) and must not report success.
+let completed = false;
+function markCompleted() {
+  completed = true;
+}
+process.on('exit', (code) => {
+  if (!completed && code === 0) {
+    console.error('check-slide-overflow: aborted before reaching a verdict');
+    process.exitCode = 1;
+  }
+});
 
 function parseArgs(argv) {
   const opts = {
@@ -84,7 +129,14 @@ function parseArgs(argv) {
     } else if (arg === '--baseline') {
       opts.baseline = argv[++i];
     } else if (arg === '--repeat') {
-      opts.repeat = parseInt(argv[++i], 10);
+      const raw = argv[++i];
+      const parsed = Number(raw);
+      if (!Number.isInteger(parsed) || parsed < 1) {
+        throw new Error(
+          `check-slide-overflow: --repeat requires a positive integer, got: ${raw}`
+        );
+      }
+      opts.repeat = parsed;
     } else if (arg === '--measurements-json') {
       opts.measurementsJson = argv[++i];
     } else if (arg === '--dump-overflows') {
@@ -92,6 +144,11 @@ function parseArgs(argv) {
     } else {
       throw new Error(`check-slide-overflow: unrecognized argument: ${arg}`);
     }
+  }
+  if (opts.dumpOverflows && opts.measurementsJson) {
+    throw new Error(
+      'check-slide-overflow: --dump-overflows and --measurements-json are mutually exclusive'
+    );
   }
   return opts;
 }
@@ -115,11 +172,14 @@ function deckBasename(deckPathOrName) {
 // decks' baseline entries are never evaluated).
 function compare(measurements, baseline, scopeDecks) {
   const failures = [];
-  const measuredDeckNames = new Set(measurements.map((m) => deckBasename(m.deck)));
+  const scopedMeasurements = scopeDecks
+    ? measurements.filter((m) => scopeDecks.includes(deckBasename(m.deck)))
+    : measurements;
+  const measuredDeckNames = new Set(scopedMeasurements.map((m) => deckBasename(m.deck)));
   let baselinedOverflowsStillPresent = 0;
   let totalSlides = 0;
 
-  for (const { deck, slides } of measurements) {
+  for (const { deck, slides } of scopedMeasurements) {
     const deckName = deckBasename(deck);
     const baselineIds = new Set(baseline[deckName] || []);
     const measuredIds = new Set();
@@ -172,7 +232,12 @@ function compare(measurements, baseline, scopeDecks) {
     }
   }
 
-  return { failures, totalSlides, baselinedOverflowsStillPresent };
+  return {
+    failures,
+    totalSlides,
+    baselinedOverflowsStillPresent,
+    deckCount: scopedMeasurements.length,
+  };
 }
 
 function dumpOverflowsJson(measurements) {
@@ -202,18 +267,38 @@ async function resolveChromeExecutablePath() {
     buildId,
     cacheDir,
   });
-  return installed.executablePath || computeExecutablePath({
-    browser: 'chrome',
-    buildId,
-    cacheDir,
-  });
+  const executablePath =
+    installed.executablePath ||
+    computeExecutablePath({
+      browser: 'chrome',
+      buildId,
+      cacheDir,
+    });
+  // Skeptic CRIT-silent-exit (a): a broken/partial install (e.g. an
+  // extraction that silently stalled and left an incomplete browser
+  // directory) can still return a path from computeExecutablePath - it is
+  // computed from the build id, not verified against disk. Fail loudly
+  // here instead of letting puppeteer-core's launch() fail in a way that
+  // risks never settling.
+  if (!fs.existsSync(executablePath)) {
+    throw new Error(
+      `check-slide-overflow: resolved Chrome executable does not exist on disk: ${executablePath} ` +
+        `(install()/extraction likely incomplete - try removing ${cacheDir} and re-running)`
+    );
+  }
+  return executablePath;
 }
 
 async function measureDeck(browser, deckPath, blockHosts) {
+  const context = await browser.createBrowserContext();
   if (process.env.AE_DEBUG_CONTEXT_COUNT === '1') {
+    // Written AFTER the createBrowserContext() await so this line observes
+    // an actual new context, not merely a measureDeck() call (Skeptic
+    // MAJ-context-count: writing this before the await made the selftest's
+    // guard decorative - it would print 2 for 2 decks even if context
+    // creation were hoisted out of the per-deck loop and shared).
     process.stderr.write('context-created\n');
   }
-  const context = await browser.createBrowserContext();
   try {
     const page = await context.newPage();
 
@@ -245,6 +330,13 @@ async function measureDeck(browser, deckPath, blockHosts) {
 
     let previous = null;
     let current = null;
+    // Running per-section max across ALL settle attempts, keyed by section
+    // id (Skeptic MAJ-max-fallback: the prior version compared `previous`
+    // to `current` where the loop had already set `previous = current`
+    // before exiting, so on the non-convergence path it computed
+    // Math.max(x, x) === x - inert exactly where the conservative fallback
+    // was supposed to matter). Updated every attempt, not just the last two.
+    const maxHeightById = new Map();
     for (let attempt = 0; attempt < SETTLE_ATTEMPTS; attempt++) {
       await page.evaluate(
         () =>
@@ -266,22 +358,27 @@ async function measureDeck(browser, deckPath, blockHosts) {
         });
       });
 
+      for (const slide of current) {
+        const prevMax = maxHeightById.get(slide.id);
+        if (prevMax === undefined || slide.scrollHeight > prevMax) {
+          maxHeightById.set(slide.id, slide.scrollHeight);
+        }
+      }
+
       if (previous && sameMeasurement(previous, current)) {
         break;
       }
       previous = current;
     }
 
-    // Conservative: if settle never fully converged, take the MAX per
-    // section across the attempts we have (previous vs current).
-    const finalSlides = current.map((slide, i) => {
-      const prevSlide = previous && previous[i];
-      const maxHeight =
-        prevSlide && prevSlide.id === slide.id
-          ? Math.max(prevSlide.scrollHeight, slide.scrollHeight)
-          : slide.scrollHeight;
-      return { id: slide.id, title: slide.title, scrollHeight: maxHeight };
-    });
+    // Conservative: use the running max across every attempt observed,
+    // not just the final one, so a transient overshoot on an earlier
+    // attempt is never silently discarded on the non-convergence path.
+    const finalSlides = current.map((slide) => ({
+      id: slide.id,
+      title: slide.title,
+      scrollHeight: maxHeightById.get(slide.id),
+    }));
 
     const fontCheck = await page.evaluate(() => {
       const faces = Array.from(document.fonts);
@@ -380,24 +477,26 @@ async function main() {
       console.error(
         `check-slide-overflow: --measurements-json file not found: ${opts.measurementsJson}`
       );
+      markCompleted();
       process.exitCode = 1;
       return;
     }
     const measurements = JSON.parse(fs.readFileSync(opts.measurementsJson, 'utf8'));
     const baseline = loadBaseline(opts.baseline);
     const scopeDecks = opts.decks.length > 0 ? opts.decks.map(deckBasename) : null;
-    const { failures, totalSlides, baselinedOverflowsStillPresent } = compare(
+    const { failures, totalSlides, baselinedOverflowsStillPresent, deckCount } = compare(
       measurements,
       baseline,
       scopeDecks
     );
-    reportAndExit(failures, measurements.length, totalSlides, baselinedOverflowsStillPresent);
+    reportAndExit(failures, deckCount, totalSlides, baselinedOverflowsStillPresent);
     return;
   }
 
   const deckPaths = opts.decks.length > 0 ? opts.decks : findDefaultDecks();
   if (deckPaths.length === 0) {
     console.error('check-slide-overflow: no docs/slides/*-slides.html decks found');
+    markCompleted();
     process.exitCode = 1;
     return;
   }
@@ -415,6 +514,7 @@ async function main() {
           console.error(
             `check-slide-overflow: MEASUREMENT UNSTABLE across N=${opts.repeat} runs - ${flapped} flapped between runs`
           );
+          markCompleted();
           process.exitCode = 3;
           return;
         }
@@ -423,6 +523,7 @@ async function main() {
   } catch (err) {
     if (err && err.isFontError) {
       console.error(err.message);
+      markCompleted();
       process.exitCode = 2;
       return;
     }
@@ -431,18 +532,19 @@ async function main() {
 
   if (opts.dumpOverflows) {
     console.log(JSON.stringify(dumpOverflowsJson(measurements), null, 2));
+    markCompleted();
     process.exitCode = 0;
     return;
   }
 
   const baseline = loadBaseline(opts.baseline);
   const scopeDecks = opts.decks.length > 0 ? opts.decks.map(deckBasename) : null;
-  const { failures, totalSlides, baselinedOverflowsStillPresent } = compare(
+  const { failures, totalSlides, baselinedOverflowsStillPresent, deckCount } = compare(
     measurements,
     baseline,
     scopeDecks
   );
-  reportAndExit(failures, measurements.length, totalSlides, baselinedOverflowsStillPresent);
+  reportAndExit(failures, deckCount, totalSlides, baselinedOverflowsStillPresent);
 }
 
 function diffOverflowKeys(a, b) {
@@ -459,6 +561,7 @@ function reportAndExit(failures, deckCount, slideCount, baselinedOverflowsStillP
     for (const f of failures) {
       console.error(f);
     }
+    markCompleted();
     process.exitCode = 1;
     return;
   }
@@ -466,10 +569,12 @@ function reportAndExit(failures, deckCount, slideCount, baselinedOverflowsStillP
     `check-slide-overflow: ${deckCount} decks, ${slideCount} slides, 0 new overflows, ` +
       `0 stale baseline entries (${baselinedOverflowsStillPresent} pre-existing baselined overflows still present)`
   );
+  markCompleted();
   process.exitCode = 0;
 }
 
 main().catch((err) => {
   console.error(`check-slide-overflow: ${err && err.stack ? err.stack : err}`);
+  markCompleted();
   process.exitCode = 1;
 });
