@@ -2361,7 +2361,7 @@ and proceeds (soft-fail).
 
 ## Purpose
 
-The conductor's default output is noise. Every operator turn read is attention spent; a status-only turn spends that attention for no return, and an unstructured turn forces the operator to rebuild context on every check-in - a cost multiplied across many concurrent sessions. This file exists to guard that attention. North Star pillar 1 states the requirement directly (`docs/overview/vision.md:19`):
+The conductor's default output is noise. Every operator turn read is attention spent; a status-only turn spends that attention for no return, and an unstructured turn forces the operator to rebuild context on every check-in - a cost multiplied across many concurrent sessions. This file exists to guard that attention. North Star pillar 1 states the requirement directly (`docs/overview/vision.md:16`):
 
 > "Guard operator attention. Surface decisions and work-stoppages, not status."
 
