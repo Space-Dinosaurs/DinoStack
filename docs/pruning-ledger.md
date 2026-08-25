@@ -117,13 +117,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/823
 
 ## PL-20260825-10
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/agents/release-orchestrator.md (Phases 6-8 self-spawn instructions)
 - Signal(s): Signal 5 (legacy text) + contradiction with live enforcement
 - Confidence: MEDIUM
 - Rationale: release-orchestrator is itself a subagent and subagents cannot spawn subagents (hooks/enforce-orchestrator-singularity.py denies exactly this), yet Phases 6-8 instruct it to spawn the debugger and qa-engineer. Approved: rewrite to hand failures and QA needs back to the conductor via structured returns. The singularity hook itself is a floor and is not a candidate.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/825
 
 ## PL-20260825-11
 - Status: REJECTED
