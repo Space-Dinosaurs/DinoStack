@@ -69,7 +69,13 @@
 //                produces output: a stalled/abandoned async
 //                operation (observed with a stubbed @puppeteer/browsers
 //                whose install() never resolves) used to let node drain
-//                the event loop and exit 0 with zero output.
+//                the event loop and exit 0 with zero output. The browser
+//                launch itself always passes `--no-sandbox
+//                --disable-setuid-sandbox` (see the launch() call site for
+//                the safety justification) - without it, ubuntu-24.04+ CI
+//                runners fail launch with "No usable sandbox!" (FATAL,
+//                zygote_host_impl_linux.cc, signal 6) since they block
+//                unprivileged user namespaces via AppArmor.
 //
 // Performance: cold run downloads Chrome-for-Testing (network; cached in
 //              scripts/node_modules/.chrome-for-testing-cache ONLY on a
@@ -421,7 +427,17 @@ function checkFontFailure(deckName, fontCheck) {
 async function liveMeasureAll(deckPaths) {
   const puppeteer = require('puppeteer-core');
   const executablePath = await resolveChromeExecutablePath();
-  const browser = await puppeteer.launch({ executablePath, headless: true });
+  // --no-sandbox/--disable-setuid-sandbox: this gate only ever loads
+  // repo-controlled local file:// HTML (rendered docs/slides/*.html), so
+  // Chromium's OS-level sandbox adds no protection here, and ubuntu-24.04+
+  // CI runners block unprivileged user namespaces via AppArmor, which
+  // otherwise fails Chrome launch with "No usable sandbox!" (FATAL,
+  // zygote_host_impl_linux.cc).
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
 
   const blockHosts = (process.env.AE_TEST_BLOCK_HOSTS || '')
     .split(',')
