@@ -3797,9 +3797,9 @@ This section holds the forensic/mechanical detail behind the background-by-defau
 
 ### design-goals
 
-# Design Goals — claude-protocols
+# Design Goals - DinoStack
 
-This document captures the design intent of the claude-protocols system. It is written for evaluators and auditors who need to understand **why** the system exists before examining how it works. Implementation details live in the canonical spec files. This document governs what those specs are trying to achieve.
+This document captures the design intent of the DinoStack system. It is written for evaluators and auditors who need to understand **why** the system exists before examining how it works. Implementation details live in the canonical spec files. This document governs what those specs are trying to achieve.
 
 ---
 
@@ -3834,7 +3834,7 @@ The Skeptic pattern counters this by introducing a genuinely independent reviewe
 - The main agent must pass the brief verbatim. Softening or summarizing the brief degrades adversarial independence just as continuing a prior Skeptic does.
 - The resolved issues preflight list prevents a fresh Skeptic from re-raising already-addressed findings as new Critical items — but it does not prevent the Skeptic from contesting a resolution it finds insufficient.
 - The sign-off format is required, not optional. It requires the Skeptic to explicitly state what it reviewed and attest to an active search for problems. A sign-off without these elements is not a valid sign-off.
-- The system uses two risk levels: Low (direct action with a brief inline self-check) and Elevated (Worker + fresh independent Skeptic, orchestrated by the main agent). There is no self-review path for Elevated work - adversarial independence requires a clean context that self-review cannot provide.
+- The system uses three risk tiers: Trivial (delegated to a worktree-isolated engineer, no Skeptic), Low (direct action with a brief inline self-check), and Elevated (Worker + fresh independent Skeptic, orchestrated by the main agent). There is no self-review path for Elevated work - adversarial independence requires a clean context that self-review cannot provide.
 
 **An evaluator should ask:** Is the Skeptic actually fresh each round? Is the adversarial brief being passed verbatim? Is the brief specific enough to catch real problems? Are Critical and Major findings being genuinely resolved or just rationalized away?
 
@@ -3850,7 +3850,7 @@ Context is managed in three complementary tiers, each with different characteris
 
 1. **Ephemeral turn-level context** (`.agentic/context.md`) - the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn; `.agentic/context.md` is then recomposed as a derived rollup of `.agentic/_wrap.md` plus the shard set. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is a derived rollup recomposed on every turn - never stale. The main agent reads this at session start and supplies its content to Workers at spawn time; a worktree-isolated Worker cannot read the path directly, since `.agentic/` is gitignored.
 
-2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/ds-memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
+2. **Decision log** (`decisions.md`, path resolved per-project - see `content/agents/wrap-ticket.md` Step 4) - persistent, version-controlled, auto-loaded at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Written via `/ds-memory-update` (spawns a background Worker with its own Skeptic loop to ensure accuracy before writing) and via the `wrap-ticket` agent's capped per-ticket learnings capture at `/ds-implement-ticket` Phase 11b. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
 
 3. **Architecture documentation** (`AGENTS.md`) - lean, auto-loaded, kept under ~40 lines for project roots. Architecture only - not decisions, not session state. The global `~/.claude/CLAUDE.md` is exempt from the line limit.
 
@@ -3858,13 +3858,13 @@ Context is managed in three complementary tiers, each with different characteris
 
 - The Stop hook runs silently after every turn. No user action is required to maintain turn-level context.
 - The main agent includes the project context file content in each Worker's spawn prompt. Workers must not be expected to self-direct reads — they may not have reliable path knowledge.
-- `/ds-memory-update` is the only write path to `decisions.md`. Direct edits bypass the Skeptic accuracy loop.
+- `/ds-memory-update` and the `wrap-ticket` agent are the sanctioned write paths to `decisions.md`, each gated by its own Skeptic accuracy loop. Direct edits bypass that loop.
 - `AGENTS.md` does not accumulate decisions. The separation between architecture (`AGENTS.md`) and decisions (`decisions.md`) is a deliberate design constraint, not a style preference.
 - `/ds-wrap` is available for richer on-demand context enrichment — e.g., before handing off complex in-progress work. It is not required for normal operation; the Stop hook provides sufficient baseline continuity.
 
 **An evaluator should ask:** Is the Stop hook actually firing and writing current context? Is `decisions.md` accurate and up-to-date — not stale or conflicted? Is `AGENTS.md` staying lean, or accumulating decisions it should not hold? Are Workers receiving context at spawn time?
 
-The "Decisions & Context" section of `~/.claude/CLAUDE.md` operationalizes this goal. That file is symlinked from the repo's `.claude/CLAUDE.md` by `install.sh`, so the repo is the canonical source. The Stop hook implementation lives in `claude-hooks/stop-context.js`.
+The project's own `AGENTS.md`/`CLAUDE.md`/`MEMORY.md` triad operationalizes this goal. The Stop hook implementation lives in `hooks/stop-context.js`.
 
 ---
 
@@ -3906,7 +3906,7 @@ The system deliberately does not attempt to:
 
 - **Replace proper documentation.** `decisions.md` is a decision log, not a design document, API reference, or user guide. The protocols do not generate or maintain project documentation — that remains the responsibility of the project's authors.
 
-- **Automate irreversible operations at the git or infrastructure boundary.** The system writes files and context automatically, but it does not commit to git, push code, merge PRs, or execute deployments on its own. Any action at a git or infrastructure boundary requires explicit human confirmation. The protocol's job is to produce correct, reviewed work product — not to push it anywhere without human direction.
+- **Skip verification at the git boundary.** The shipped `/ds-implement-ticket` workflow does commit, push, and auto-merge once CI is green and a fresh Skeptic has signed off - that is deliberate, not out of scope (see Goal 2's adversarial-review argument for why it is safe to automate). What stays out of scope is skipping the checks that make automation safe: no commit, push, or merge happens without passing quality gates and Skeptic review first, and failed CI or an unresolved Critical/Major finding is a hard stop, not something the system pushes through unattended. Infrastructure deployment (executing releases outside the repo's own CI/CD) remains out of scope.
 
 - **Guarantee correctness.** The Skeptic Protocol significantly reduces error rates by introducing adversarial independent review, but it does not eliminate errors. A Skeptic that shares the same training biases as the Worker may miss the same classes of errors. The protocol provides defense in depth, not a proof of correctness.
 
