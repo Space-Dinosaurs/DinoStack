@@ -41,7 +41,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - `git checkout <sha> -- <path>` inside a worktree resurrects files a later commit deleted (adds files present at `<sha>`, doesn't replay deletions). When basing a step on a non-`main` commit this way, `git rm` anything it deleted and gate on an exact `git ls-files` set.
 
 ## Deploy
-- Docs site deploy steps: `docs/technical/deploy.md` (local-only, not tracked upstream). Verify the linked project ID before `vercel --prod`.
+- The docs site (docs.dinostack.ai) auto-deploys on push to `main` via Vercel git integration (~3 min); verify with `curl -sI https://docs.dinostack.ai/<path> | grep last-modified`. There is no manual deploy step; do NOT run `vercel --prod` from a local CLI unless its authenticated scope demonstrably contains the `dinostack-docs` project (a mis-linked deploy once caused a live 404).
 - `dinostack-docs` Vercel project's Root Directory is `docs/`, so Vercel reads `docs/vercel.json` - repo-root `vercel.json` is ignored for redirects/rewrites/headers (once caused a live install-URL redirect to silently 404). Put Vercel redirect/rewrite/header changes in `docs/vercel.json`.
 
 ## Conventions
