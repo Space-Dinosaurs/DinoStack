@@ -54,13 +54,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/826
 
 ## PL-20260825-3
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
-- File(s): content/references/subagent-protocol.md (Section 12 sync targets; Section 11 path citation; Rule 4 / Section 4 agent-type tables; TaskOutput references)
+- File(s): content/references/subagent-protocol.md (Section 12 sync targets; Section 11 path citation; Rule 4 / Section 4 agent-type tables; TaskOutput references; line ~212 Section 0 citation)
 - Signal(s): Signal 5 (orphaned legacy text) + Signal 3 (contradiction with the named-agent roster)
 - Confidence: HIGH
 - Rationale: Section 12 instructs updating ~/.claude/CLAUDE.md risk tables that no longer exist post-DS-143; Section 11 cites nonexistent .claude/rules/decisions.md; TaskOutput references describe a replaced harness tool shape; Rule 4 and Section 4 tables recommend general-purpose Workers broadly, contradicting the named DinoStack agent roster. Approved for rewrite; the general-purpose guidance is to be scoped to harnesses lacking named agents (portability pillar), not deleted.
-- Disposition:
+- Disposition: Rewritten in https://github.com/Space-Dinosaurs/DinoStack/pull/827 - all five defects fixed (including a fifth, sibling-reported staleness at line ~212's Skeptic Protocol Section 0 citation). The general-purpose guidance was scoped, not deleted: verification found every spawn-capable adapter ships the full named-agent roster and Cursor has no spawning at all, so no live portability role exists today, but `general-purpose` remains an explicit fallback row for a harness that might need it in future.
 
 ## PL-20260825-4
 - Status: RAISED
