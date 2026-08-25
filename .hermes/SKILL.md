@@ -1146,7 +1146,7 @@ When spawning `release-orchestrator`, include:
 - The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
 - On a resumption spawn only (see below): the prior instance's verbatim `QA_NEEDED` release report plus the QA verdict and summary, as a fifth input
 
-**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
+**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, run the QA knowledge capture procedure (see `content/references/qa-gate.md` §"QA knowledge capture (canonical procedure)") against that return before doing anything else with it. Then the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
 
 When spawning `dependency-auditor`, include:
 - The scope: "full audit", a specific package name and version, or a before/after lockfile diff
@@ -13303,6 +13303,10 @@ Your spawn prompt must contain:
 
 Read all inputs before starting. Do not infer a target environment or deploy command - require them explicitly.
 
+**Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
+
+**Multi-track resolution.** If the root deploy.md is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index). Track-level reads also use the resolver: `<track>/.agentic/deploy.md` preferred, legacy `<track>/.claude/deploy.md` fallback.
+
 ## Resumption check (read this before Phase 1)
 
 **If input 5 is present, this is a resumption spawn.** Do NOT execute Phases 1-7 - the release already happened in the prior instance that produced the Phase 8 `QA_NEEDED` report now supplied to you as input 5. Re-running pre-flight, the version decision, changelog, version bump, tag, build, or deploy would ship a second, redundant deploy against an environment that is already live.
@@ -13313,10 +13317,6 @@ On a resumption spawn:
 3. Continue from there: produce the final release report (reusing the "Where it shipped" / "What shipped" facts from the prior report) on a PASS, or proceed to Phase 9 rollback on FAIL / BLOCKED.
 
 If input 5 is absent, this is a fresh release spawn - proceed with Phase 1 below in the normal order.
-
-**Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
-
-**Multi-track resolution.** If the root deploy.md is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index). Track-level reads also use the resolver: `<track>/.agentic/deploy.md` preferred, legacy `<track>/.claude/deploy.md` fallback.
 
 ## Pre-flight checklist
 
@@ -13463,7 +13463,7 @@ You cannot spawn the `qa-engineer` agent yourself. No subagent can spawn subagen
 
 The conductor spawns `qa-engineer` with this information, then re-invokes you (a fresh spawn) with this report verbatim plus the QA verdict and summary included in the spawn prompt as input 5 (see §Reading your spawn prompt and §Resumption check above) so you can resume at the routing step below without re-executing Phases 1-7.
 
-On resumption (reached either by falling through from a first pass immediately after Phase 7, or - the normal path - via the §Resumption check branch on a fresh spawn carrying input 5): if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
+On resumption (reached only via the §Resumption check branch, on a spawn carrying input 5): if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
 
 ### Phase 9 - Rollback decision point
 
@@ -13535,7 +13535,7 @@ Produce this report at the end of a successful release, at the point of failure 
 - Deployed at: <timestamp>
 
 ## Verification
-- QA result: PASS | FAIL | BLOCKED | not run (not yet run - awaiting conductor spawn of `qa-engineer`, i.e. Status is QA_NEEDED)
+- QA result: PASS | FAIL | BLOCKED | not run
 - QA report: <summary, capped at 200 chars, or "awaiting qa-engineer result" when QA_NEEDED>
 
 ## Rollback
@@ -13547,7 +13547,7 @@ Produce this report at the end of a successful release, at the point of failure 
 <If status is not SUCCESS: which gate failed, what the error was, what was done - capped at 500 chars>
 ```
 
-Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why.
+Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why. "QA result: not run" means QA has not yet been run - awaiting conductor spawn of `qa-engineer`, i.e. Status is QA_NEEDED.
 
 ## Boundaries
 
