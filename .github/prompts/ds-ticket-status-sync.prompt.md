@@ -5,7 +5,11 @@ description: "Reconcile a ticket's tracker status (column) with the actual state
 <!--
 Purpose: Reconciles a ticket's tracker column with the actual state of its code. Fires the Done
          (or other appropriate) transition that /ds-implement-ticket leaves unfired on the default
-         human-merge path (AUTO_MERGE_ON_CI_GREEN=false). --all mode additionally sweeps the whole
+         human-merge path (AUTO_MERGE_ON_CI_GREEN=false). That deferral is specific to the
+         human-merge path: an agent-performed merge outside /ds-implement-ticket Phase 12's
+         auto-merge block instead invokes this command immediately at merge time, as
+         /ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm, per the Merge-time
+         tracker writeback rule in content/rules/conventions.md § Git Workflow. --all mode additionally sweeps the whole
          tracker (not just .agentic/tasks.jsonl) for tickets whose work shipped in conductor-led
          sessions outside /ds-implement-ticket, where the tasks.jsonl pass alone can't see them.
 
@@ -20,6 +24,17 @@ Public API: /ds-ticket-status-sync <TICKET_ID>    — reconcile one ticket, prom
                                                     .agentic/ticket-ledger.jsonl) has since merged; transitions
                                                     without prompting; identity is pr_number-only, never a
                                                     title/branch text match
+            /ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER>
+                                                  - single-ticket mode only: supply the PR number explicitly
+                                                    instead of deriving it from .agentic/tasks.jsonl. Takes
+                                                    precedence over any folded tasks.jsonl pr_number. Silent
+                                                    no-op when passed with --all or --pending-merge.
+            /ds-ticket-status-sync <TICKET_ID> --no-confirm
+                                                  - single-ticket mode only: skip the [y/N] transition prompt.
+                                                    Unrelated to --force (which is the reserved --all
+                                                    confirmation-bypass alias). Silent no-op when passed with
+                                                    --all or --pending-merge, both of which already transition
+                                                    without prompting.
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
@@ -40,7 +55,10 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                .agentic/config.json key tracker_state_diagnostic (boolean toggle gating the writeback
                subagent's diagnostic-enrichment sub-step, read in Preflight).
 
-Downstream consumers: single-ticket and --all modes remain operator-invoked only; no programmatic consumers.
+Downstream consumers: single-ticket mode is operator-invokable and is additionally auto-invoked (as
+                      <TICKET_ID> --pr <PR_NUMBER> --no-confirm) immediately after an agent-performed
+                      gh pr merge that exits 0, per the Merge-time tracker writeback rule in
+                      content/rules/conventions.md § Git Workflow. --all remains operator-invoked only.
                       --pending-merge is additionally auto-invoked at session start by the conductor - see
                       content/rules/conventions.md § Session Context and Memory - and remains
                       operator-invokable on demand.
@@ -68,7 +86,7 @@ Performance: one gh CLI call + one tracker-writeback subagent spawn per ticket t
              or every recorded pair is already terminal.
 -->
 
-Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/ds-implement-ticket` exits before merge - the default human-merge flow leaves the final dev-complete transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/ds-implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
+Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/ds-implement-ticket` exits before merge - the default human-merge flow leaves the final dev-complete transition unfired until a human merges the PR, so the tracker can lag behind reality. **That lag is now specific to the human-merge path.** When an *agent* performs the merge outside `/ds-implement-ticket` Phase 12's auto-merge block, the dev-complete transition fires immediately at merge time via the **Merge-time tracker writeback** rule in `content/rules/conventions.md` §Git Workflow, which invokes this command as `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. The deferral above describes what still happens when a human merges the PR, or when the agent does not know both the ticket ID and the PR number. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/ds-implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
 
 ## When to use
 
@@ -80,7 +98,9 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 
 - `/ds-ticket-status-sync <TICKET_ID>` - reconcile one ticket. Prompts before transitioning.
 - `/ds-ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`, then sweep the tracker itself for non-terminal tickets outside that file (deterministic ID-match may transition; unmatched candidates are report-only). Transitions without prompting.
-- `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility.
+- `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility. `--force` remains the reserved `--all` confirmation-bypass alias and is unrelated to `--no-confirm`, which is single-ticket only; neither flag is an alias, a synonym, or a replacement for the other.
+- `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER>` - **single-ticket mode only.** Supply the merged (or open) PR number explicitly rather than deriving it from `.agentic/tasks.jsonl`. This is the "explicit PR number if the operator supplies one" input named in step 1 of the resolution algorithm, and it takes precedence over any `pr_number` the tasks.jsonl fold recorded. Passed alongside `--all` or `--pending-merge`, it is a **silent no-op** - those modes resolve identity from their own sources and never consult this flag.
+- `/ds-ticket-status-sync <TICKET_ID> --no-confirm` - **single-ticket mode only.** Skip the `[y/N]` confirmation prompt in step 6 and transition directly. Passed alongside `--all` or `--pending-merge`, it is a **silent no-op** - both of those modes already transition without prompting.
 - `/ds-ticket-status-sync --pending-merge` - reconcile only tickets whose PR was recorded in `.agentic/ticket-ledger.jsonl` and has since merged. Transitions without prompting. Auto-invoked at session start by the conductor (see `content/rules/conventions.md` § Session Context and Memory); also operator-invokable at any time. See `## Pending-merge sweep (--pending-merge mode)` below.
 
 ## Preflight
@@ -96,9 +116,11 @@ Additionally resolve `TRACKER_PIPELINE_ORDER` from the same `AGENTS.md` fields a
 
 ## Resolution algorithm (single ticket)
 
-1. **Read task state.** Apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and read the folded record for that `ticket_id` - never the most recent raw line, which can be a rejected or superseded transition under the fold. Capture `status` (pending | in_progress | done | failed | blocked | abandoned - the `tasks.jsonl` **writer** enum per `content/commands/ds-implement-ticket.md`, distinct from `batch-state.json`'s `tickets[]` enum) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or the fold has no record for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode.
+1. **Read task state.** Apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and read the folded record for that `ticket_id` - never the most recent raw line, which can be a rejected or superseded transition under the fold. Capture `status` (pending | in_progress | done | failed | blocked | abandoned - the `tasks.jsonl` **writer** enum per `content/commands/ds-implement-ticket.md`, distinct from `batch-state.json`'s `tickets[]` enum) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or the fold has no record for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode. **`--pr <N>` IS that explicit-PR-number input.** When `--pr <N>` is supplied in single-ticket mode it takes precedence over any `pr_number` the fold recorded for this ticket, and this precedence applies whether or not a task-state record exists - a folded record is never a reason to ignore the operator's explicit operand. When both are present and differ, print one line before continuing and use `<N>`:
+
+       [ticket-status-sync] <TICKET_ID>: --pr <N> overrides recorded pr_number <M>.
 2. **Read PR state.** If a PR number/branch is known: `gh pr view <N> --repo <GH_REPO> --json state,isDraft,mergeable,reviewDecision 2>/dev/null`. Determine: no PR / draft / open-ready / merged / closed.
-3. **Read branch state.** `git log origin/<branch> 2>/dev/null` to confirm the branch exists / was deleted (deleted often implies merged).
+3. **Read branch state.** `git log origin/<branch> 2>/dev/null` to confirm the branch exists / was deleted (deleted often implies merged). **Skip this step entirely when no branch name is known** - notably on the `--pr <N>`-only path, where the operator supplied a PR number and no `.agentic/tasks.jsonl` record contributed a `branch` field. This step has no defined operand there, and never substitutes a ticket-ID-derived or `headRefName`-derived branch name for the missing one. The `gh pr view <N>` result from step 2 alone is sufficient evidence for step 4's "PR merged" row; branch state is corroboration, never a requirement.
 4. **Compute expected tracker state** using this mapping (same target states as the `/ds-implement-ticket` writeback sites W1-W7):
 
    | Observed code state | Expected tracker state |
@@ -112,7 +134,7 @@ Additionally resolve `TRACKER_PIPELINE_ORDER` from the same `AGENTS.md` fields a
    | task `pending` / unknown | no transition (leave as-is) |
 
 5. **Apply forward-only guard.** Read the ticket's current tracker state (name AND category - both are required). **Do not restate or approximate the ranking rule here.** Read `content/references/tracker-writeback.md` `## Tracker Writeback Helper` -> "Subagent responsibilities" steps 1-5 in full and apply that algorithm exactly, including the same-category pipeline sub-rank and the Blocked always-permitted exception in both directions. This command already resolves all 6 `TRACKER_STATE_*` values in Preflight - pass them as `tracker_state_values` the same way the Tracker Writeback Helper does. State-read failure - skip silently.
-6. **Transition.** If a transition is warranted and (single-ticket mode) the operator confirms at the prompt `"Transition <TICKET_ID> from '<current>' to '<expected>'? [y/N]"`, spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/references/tracker-writeback.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in Preflight), `diagnostic_enabled` (`$TRACKER_STATE_DIAGNOSTIC` resolved in Preflight), `linear_team_key` (Linear only, `$TICKET_PREFIX`), and `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in Preflight). Soft-fail. Additionally, if the guard returns `unmatched_state_name` for this ticket, print the aggregate line (see Output section) - in single-ticket mode the "aggregate" is exactly this one ticket.
+6. **Transition.** If a transition is warranted and (single-ticket mode) the operator confirms at the prompt `"Transition <TICKET_ID> from '<current>' to '<expected>'? [y/N]"` - **unless `--no-confirm` was passed, in which case single-ticket mode skips the prompt and transitions directly.** Absent `--no-confirm`, confirmation remains required in single-ticket mode exactly as before; `--no-confirm` is the only thing that waives it, and it waives nothing else (the forward-only guard in step 5 still applies unchanged). Then spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/references/tracker-writeback.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 6 values resolved in Preflight), `diagnostic_enabled` (`$TRACKER_STATE_DIAGNOSTIC` resolved in Preflight), `linear_team_key` (Linear only, `$TICKET_PREFIX`), and `pipeline_order` (`$TRACKER_PIPELINE_ORDER` resolved in Preflight). Soft-fail. Additionally, if the guard returns `unmatched_state_name` for this ticket, print the aggregate line (see Output section) - in single-ticket mode the "aggregate" is exactly this one ticket.
 
 ## `--all` mode
 
@@ -173,7 +195,9 @@ Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gather
 
 ## Pending-merge sweep (--pending-merge mode)
 
-Purpose: close the gap `/ds-implement-ticket` leaves on the default human-merge path. That command writes a ticket to its dev-complete state (`$TRACKER_STATE_DEV_COMPLETE`) only via its Phase 9 auto-merge branch; with `AUTO_MERGE_ON_CI_GREEN=false` (the default), a ticket parks at QA until something reconciles it. This mode reconciles it automatically at session start, on a strict identity rule.
+Purpose: close the gap `/ds-implement-ticket` leaves on the default human-merge path. That command writes a ticket to its dev-complete state (`$TRACKER_STATE_DEV_COMPLETE`) only via its Phase 12 auto-merge branch; with `AUTO_MERGE_ON_CI_GREEN=false` (the default), a ticket parks at QA until something reconciles it. This mode reconciles it automatically at session start, on a strict identity rule.
+
+This sweep is the **backstop**, not the primary path, for merges an agent performed itself: the **Merge-time tracker writeback** rule in `content/rules/conventions.md` §Git Workflow fires the transition immediately when an agent merges a PR outside Phase 12's auto-merge block and knows both the ticket ID and the PR number. What still reaches this sweep is everything that rule cannot cover - a merge AE did not itself perform (a human merging the PR, a teammate, a merge queue, a `gh pr merge --auto` that queued rather than merged), or an agent-performed merge where the ticket ID or the PR number was unknown at merge time. It also remains a safety net for a merge-time invocation that soft-failed, since that rule never blocks the merge on its own failure.
 
 **Why the ledger is the identity source and a text/title match is not.** An earlier design discovered ticket keys by regex-matching merged PR titles and branch names. That was rejected on verified counterexamples: a docs PR can mention several ticket keys it does not implement (a survey/index PR listing DS-71/DS-69/DS-52 while implementing none of them); one ticket can span several merged PRs, so the first to merge would close it with the rest of its work unwritten; and a PR can self-declare partial completion in its own title. The dev-complete state sits at the top of the forward-only guard's ranking (see step 5 below), so the guard *permits* every one of those wrong transitions, and it equally forbids an automatic move back once wrongly applied - each wrong dev-complete becomes a manual operator repair in the tracker. **A dev-complete transition for ticket `<KEY>` may be driven ONLY by a `pr_number` recorded against `<KEY>` in `.agentic/ticket-ledger.jsonl`.** A ticket key appearing in a PR title, branch name, or commit message is never sufficient on its own here, and no future edit to this section may add title or `headRefName` extraction as even a corroborating signal. This is sound because the ledger's Phase 9 write derives `pr_number` live from the in-flight branch and skips the write entirely when that derivation yields nothing (`content/commands/ds-implement-ticket.md` § Ticket-rework ledger write) - every ledger record therefore carries a real PR number for a real ticket, never an inferred one.
 
