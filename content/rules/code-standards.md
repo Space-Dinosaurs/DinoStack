@@ -35,23 +35,7 @@ These rules complement the existing tool hierarchy above (Read/Glob/Grep over Ba
 
 ## Context Window Management
 
-**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
-
-Key tools and their uses:
-- `ctx_execute(language, code)` - run a single script; only stdout enters context
-- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
-
-> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
-
-- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
-- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
-- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
-
-> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
-
-**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
-
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** For tool usage detail, the create/modify-files prohibition, the `ctx_fetch_and_index`-over-`WebFetch` preference, and platform support: read `content/references/code-standards-detail.md` §Context Window Management.
 
 ## Module Manifests
 
@@ -83,8 +67,4 @@ Read `content/references/code-standards-detail.md` §Per-Language Strict Default
 
 ## Package Management
 
-- Always install the latest stable version of packages - never pin to an older version unless the project already has an explicit constraint
-- When a package is outdated and causing issues, upgrade to the latest stable version first before attempting any patches or workarounds
-- Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
-- When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
-- If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
+**Dependency versioning rules** - when adding a new dependency, upgrading an existing one, or encountering a bug in an already-installed outdated dependency: read `content/references/code-standards-detail.md` §Package Management for the latest-stable-version default, the no-hardcoded-version rule, the no-monkey-patch rule, and the existing-constraint exception.
