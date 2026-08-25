@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Purpose: PreToolUse hook that mechanically enforces the worktree-isolation
-         mandate in `content/sections/02-delegation.md:160-162` (restated in
+         mandate in `content/sections/02-delegation.md:178-180` (restated in
          `content/sections/11-worktree-lifecycle.md`): every `engineer`,
          `qa-engineer`, and `release-orchestrator` spawn MUST set
          `isolation: "worktree"` on the Agent tool call, with NO exception
@@ -48,7 +48,7 @@ Purpose: PreToolUse hook that mechanically enforces the worktree-isolation
          rather than a line number, which drifts on any surrounding edit.
 
          MANDATED_ROLES is a HARDCODED literal, matching the mandate's own
-         wording (`content/sections/02-delegation.md:160`, "Every concurrent
+         wording (`content/sections/02-delegation.md:178`, "Every concurrent
          `engineer`, `qa-engineer`, and `release-orchestrator` spawn") - it
          is not derived from any manifest or role-spec file because no
          single source of truth for "which roles require worktree

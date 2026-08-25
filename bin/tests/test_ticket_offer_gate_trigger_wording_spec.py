@@ -3,7 +3,7 @@
 Purpose: Regression guard for the stale ticket-offer-gate trigger wording
          defect (PR #755 round 1): a restatement of the OLD narrow trigger
          ("do not spawn any implementer" / "spawning the first implementer")
-         survived at content/sections/02-delegation.md:23 after the gate was
+         survived at content/sections/02-delegation.md:29 after the gate was
          widened to "first subagent spawn of any kind (exemptions apply)",
          and escaped four separate tree-wide searches before a manual rubric
          grade caught it. This test discovers gate-trigger CONTEXT lines by
