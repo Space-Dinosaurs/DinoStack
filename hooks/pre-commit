@@ -245,6 +245,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.cursor/commands/"*.md \
     "$REPO_DIR/.gemini/GEMINI.md" \
     "$REPO_DIR/.gemini/skills/dinostack/SKILL.md" \
+    "$REPO_DIR/.gemini/skills/dinostack/SKILL.full.md" \
     "$REPO_DIR/.gemini/references/"*.md \
     "$REPO_DIR/.gemini/commands/"*.toml \
     "$REPO_DIR/.gemini/agents/"*.md \
@@ -266,6 +267,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.pi/prompts/"*.md \
     "$REPO_DIR/.github/copilot-instructions.md" \
     "$REPO_DIR/.github/skills/dinostack/SKILL.md" \
+    "$REPO_DIR/.github/skills/dinostack/METHODOLOGY.full.md" \
     "$REPO_DIR/.github/agents/"*.md \
     "$REPO_DIR/.github/prompts/"*.prompt.md \
     "$REPO_DIR/.github/instructions/"*.md \

@@ -1185,7 +1185,7 @@
 
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
-  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/dinostack</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
+  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/dinostack</code> skill, which auto-triggers when engineering tasks are detected and loads the rules files plus the methodology kernel (a leaner "minimal corpus" body on supported adapters, with a generated pointer to the full unfiltered text when a deferred rule's trigger fires). This keeps always-loaded context small while giving the methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">

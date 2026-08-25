@@ -68,13 +68,19 @@ Purpose: Canonical body text for the dinostack skill loaded by AI coding agents.
 
 Public API: consumed as-is by adapter build scripts. For Claude, $AE_REPO_DIR/.claude/build.sh
             strips this manifest comment, prepends SKILL.frontmatter.yaml, and then
-            embeds $AE_CORE_SKILL_ROOT/METHODOLOGY.md plus content/rules/{code-standards,conventions}.md
+            embeds the MINIMAL-corpus methodology body (build-methodology.sh
+            --corpus minimal, DS-204) plus content/rules/{code-standards,conventions}.md
             verbatim to produce the final $AE_CORE_SKILL_ROOT/SKILL.md
             (this file accounts for a fraction of that assembled artifact's size -
-            see check-skill-embed-budget.sh). Other adapters differ in whether and
-            how they consume this file, and that set has changed as adapters were
-            added independently - check each adapter's own build.sh directly rather
-            than trusting an enumeration here, which has gone stale before.
+            see check-skill-embed-budget.sh); $AE_CORE_SKILL_ROOT/METHODOLOGY.md itself stays the FULL
+            corpus, the sibling file a "Deferred at this corpus" pointer block in
+            SKILL.md sends a reader to when a named trigger fires. .kimi and .gemini
+            follow the same minimal-embed-plus-full-sibling pattern (their own
+            build.sh); .github/skills (Copilot) does too via .copilot/build.sh. Other
+            adapters differ in whether and how they consume this file, and that set
+            has changed as adapters were added independently - check each adapter's
+            own build.sh directly rather than trusting an enumeration here, which has
+            gone stale before.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 

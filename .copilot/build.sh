@@ -9,7 +9,12 @@
 #          below),
 #          .github/skills/dinostack/SKILL.md (trigger-loaded methodology
 #          body - Copilot's native Agent Skills primitive; description-
-#          matched and injected on trigger rather than always-resident),
+#          matched and injected on trigger rather than always-resident;
+#          DS-204: this embed is the MINIMAL corpus, with a generated
+#          "Deferred at this corpus" pointer block per deferred section),
+#          .github/skills/dinostack/METHODOLOGY.full.md (FULL-corpus
+#          sibling - the fallback a reader opens when a pointer block's
+#          named trigger fires),
 #          .github/agents/*.md (18 agent files for Copilot agent picker),
 #          .github/prompts/*.prompt.md (one per content/commands/*.md),
 #          .github/instructions/content-engineering.instructions.md,
@@ -47,8 +52,9 @@ get_inode() {
 
 # ---------------------------------------------------------------------------
 # Step 1: Generate .github/copilot-instructions.md (stub, always-loaded) and
-#         .github/skills/dinostack/SKILL.md (full methodology body,
-#         trigger-loaded)
+#         .github/skills/dinostack/SKILL.md (minimal-corpus methodology
+#         body, trigger-loaded - DS-204; METHODOLOGY.full.md is the
+#         full-corpus sibling)
 #
 # VS Code Copilot loads .github/copilot-instructions.md automatically in
 # every chat session for the workspace, and separately reads
@@ -74,11 +80,14 @@ cat <<'STUB' > "$INSTRUCTIONS_MD"
 
 # Agentic Engineering Protocol
 
-This is a stub. The full agentic engineering methodology (delegation, risk
+This is a stub. The agentic engineering methodology (delegation, risk
 classification, adversarial review, quality gates - including the
 Activation preflight that decides whether the methodology is opt-in for
 this repo) loads on trigger via the `dinostack` Agent Skill at
-`.github/skills/dinostack/SKILL.md`.
+`.github/skills/dinostack/SKILL.md` - the minimal corpus, with a "Deferred
+at this corpus" pointer block naming any deferred rule's trigger. If a
+named trigger fires, read `.github/skills/dinostack/METHODOLOGY.full.md`
+for the full, unfiltered text.
 
 Before starting any task, check if the skill should be loaded:
 
@@ -99,6 +108,7 @@ echo "Built .github/copilot-instructions.md (stub)"
 SKILL_DST="$GH/skills/dinostack"
 mkdir -p "$SKILL_DST"
 SKILL_MD="$SKILL_DST/SKILL.md"
+SKILL_FULL_MD="$SKILL_DST/METHODOLOGY.full.md"
 
 {
   cat <<'HEADER'
@@ -127,7 +137,7 @@ to spawn named agents. Use `.github/prompts/` for slash-prompt commands.
 
 HEADER
 
-  bash "$REPO_DIR/scripts/build-methodology.sh"
+  bash "$REPO_DIR/scripts/build-methodology.sh" --corpus minimal --full-text-name METHODOLOGY.full.md
   echo ""
   echo "---"
   echo ""
@@ -186,6 +196,12 @@ FOOTER
 } > "$SKILL_MD"
 
 echo "Built .github/skills/dinostack/SKILL.md"
+
+# METHODOLOGY.full.md: FULL-corpus sibling - the fallback a reader opens
+# when a "Deferred at this corpus" pointer block in SKILL.md (minimal
+# corpus, DS-204) names a trigger that has fired.
+bash "$REPO_DIR/scripts/build-methodology.sh" --corpus full > "$SKILL_FULL_MD"
+echo "Built .github/skills/dinostack/METHODOLOGY.full.md"
 
 # ---------------------------------------------------------------------------
 # Step 2: Hardlink references/

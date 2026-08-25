@@ -95,6 +95,15 @@ SKILL_FLOOR=100000
 # SKILL.md ceiling: informational safety boundary, NOT a verified-safe
 # injection size for the Kimi harness - see the header comment above.
 # 153,205 B = ceil(139,277 B measured at gate creation * 1.1).
+#
+# DS-204 (unit B): SKILL.md's embed flipped from the full corpus to the
+# minimal corpus (a generated "Deferred at this corpus" pointer block
+# replaces deferred content; the full text is still reachable at the
+# unfiltered METHODOLOGY.md sibling, which this script does NOT measure -
+# it is never corpus-filtered). Measured default size moved from
+# 141,607 B (full corpus) to 127,746 B (minimal corpus, current default);
+# neither figure is a swept injection-safety measurement - both are
+# authoring-time headroom checks against the same unswept CEILING above.
 SKILL_CEILING=153205
 
 # AGENTS.md stub ceiling: catches an accidental re-embed of the

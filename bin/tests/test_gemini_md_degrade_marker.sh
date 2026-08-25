@@ -660,6 +660,7 @@ GIT_ADD_BLOCK="$(awk '/^  git add \\$/{f=1; print; next} f{print; if ($0 !~ /\\$
 for p in \
   '.gemini/GEMINI.md' \
   '.gemini/skills/dinostack/SKILL.md' \
+  '.gemini/skills/dinostack/SKILL.full.md' \
   '.gemini/references/' \
   '.gemini/commands/' \
   '.gemini/agents/'

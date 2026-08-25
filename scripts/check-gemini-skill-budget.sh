@@ -122,6 +122,14 @@ SKILL_FLOOR=100000
 # harness) - treat this CEILING with the same caveat the Claude gate's own
 # CEILING comment documents: a headroom boundary against known-good
 # measurements at authoring time, not a verified-safe injection size.
+#
+# DS-204 (unit B): SKILL.md's embed flipped from the full corpus to the
+# minimal corpus (a generated "Deferred at this corpus" pointer block
+# replaces deferred content; the full text is still reachable at the
+# unfiltered SKILL.full.md sibling). Measured default size moved from
+# 135,787 B (full corpus) to 121,600 B (minimal corpus, current default);
+# neither figure is a swept injection-safety measurement - both are
+# authoring-time headroom checks against the same unswept CEILING above.
 SKILL_CEILING=145000
 
 # Stub ceiling: .gemini/GEMINI.md must stay a small pointer. 10,000 B is

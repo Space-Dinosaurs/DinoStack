@@ -2402,16 +2402,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "3c5e0871aff4cd5bf66e4cff10da92aa55ca4e6dbeeb7cd0beff27f23c80d551",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "content/SKILL.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
       "expected_target": "brief",
       "generated_token": "$brief",
       "kind": "operational",
@@ -2500,6 +2490,16 @@
       "scope": "codex-harness",
       "source": "content/SKILL.md",
       "source_token": "Glob"
+    },
+    {
+      "expected_target": "METHODOLOGY.md",
+      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
+      "kind": "operational",
+      "occurrence_hash": "a0214837b140629374dccc3fcd645d589f475c342a95aef5dc39d10509c6045d",
+      "resolution_mode": "mapped-resource",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "shell",

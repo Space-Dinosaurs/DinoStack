@@ -3,11 +3,14 @@
 
 # Agentic Engineering Protocol
 
-This is a stub. The full agentic engineering methodology (delegation, risk
+This is a stub. The agentic engineering methodology (delegation, risk
 classification, adversarial review, quality gates - including the
 Activation preflight that decides whether the methodology is opt-in for
 this repo) loads on trigger via the `dinostack` Agent Skill at
-`.github/skills/dinostack/SKILL.md`.
+`.github/skills/dinostack/SKILL.md` - the minimal corpus, with a "Deferred
+at this corpus" pointer block naming any deferred rule's trigger. If a
+named trigger fires, read `.github/skills/dinostack/METHODOLOGY.full.md`
+for the full, unfiltered text.
 
 Before starting any task, check if the skill should be loaded:
 
