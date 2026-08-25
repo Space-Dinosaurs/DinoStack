@@ -1144,6 +1144,9 @@ When spawning `release-orchestrator`, include:
 - The changeset boundary: "since last tag", "since commit abc123", or a specific range
 - The deploy command or runbook reference: the exact command or a path to a runbook
 - The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
+- On a resumption spawn only (see below): the prior instance's verbatim `QA_NEEDED` release report plus the QA verdict and summary, as a fifth input
+
+**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, run the QA knowledge capture procedure (see `content/references/qa-gate.md` §"QA knowledge capture (canonical procedure)") against that return before doing anything else with it. Then the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
 
 When spawning `dependency-auditor`, include:
 - The scope: "full audit", a specific package name and version, or a before/after lockfile diff
@@ -5562,7 +5565,7 @@ fi
 
 **Structural properties that MUST hold** (all verified by execution - do not "improve" them): column 0 throughout including both `EOF` and `PY` heredoc terminators; the `# @harness:` marker is the first non-blank line inside the fence; zero shell-level `exit` statements (required by `bin/tests/lib/md_shell_extract.py`'s `COMPLETION_MARKER` precondition); `mktemp` uses trailing `X`s with NO suffix (BSD/macOS does not randomize non-trailing `X`s); every skip path prints a `WARNING:` and falls through; `rm -f` fires on every path where a temp file was created.
 
-**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these four points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), and the multi-PR fan-out (below, before worktree removal). It deliberately does NOT run for `release-orchestrator`'s Phase 8 post-deploy QA (a subagent context needing its own contract) or fully ad-hoc "run QA" spawns - knowledge from those paths continues to be dropped.
+**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these five points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), the multi-PR fan-out (below, before worktree removal), and `release-orchestrator`'s Phase 8 post-deploy QA - the conductor performs that `qa-engineer` spawn directly (see `content/references/agent-team.md` §"On a `QA_NEEDED` return"; `release-orchestrator` cannot spawn subagents itself), so it is a normal conductor-performed qa-engineer return like the other four and this procedure applies to it the same way. It deliberately does NOT run for fully ad-hoc "run QA" spawns - knowledge from that path continues to be dropped.
 
 ## Multi-PR / multi-ticket parallel-by-worktree
 
@@ -6111,61 +6114,13 @@ Performance: N/A - methodology document consumed by LLMs at spawn time.
 
 ## 0. Risk Assessment
 
-Before starting any task, the main agent performs a brief risk assessment. The primary outcome is **Low** or **Elevated**. An optional **Elevated + Cleanup** tier extends the Elevated path with a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
-
-### Risk signals
-
-**Elevated → Full Adversarial Review (Worker + fresh independent Skeptic)**
-Any single signal triggers:
-- Security / auth / crypto / payments / secrets
-- Irreversible operations (deletes, migrations, schema changes, force pushes)
-- Architecture decisions that constrain future choices
-- Modifies protocol or infrastructure files
-- Production or shared state
-- Multi-file changes (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes back to Elevated)
-- New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated in every profile)
-- Touches external APIs or services
-- Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem")
-- Logic with emergent/non-obvious cross-component interactions
-- User signals high stakes ("production", "critical", "don't mess this up")
-- Configuration changes
-- Research that produces a document, recommendation, plan, or anything to be acted on
-- Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius)
-- Anything where a mistake costs time or data
-
-**Low → Light Touch (direct action, brief inline self-check)**
-None of the above:
-- Single file, well-understood change in familiar code
-- Clearly reversible (e.g., file edits that haven't been committed or pushed, reads with no writes)
-- Exploration / research / draft work — **only when the output is understanding, not a decision-driving artifact.** If the research will produce a document, recommendation, plan, or anything that drives a subsequent decision or action, it is Elevated, not Low.
-- Read operations with minor targeted edits
-- **Targeted wording fix to already-reviewed content** - a change that adjusts phrasing only, where the substance was already reviewed and approved (e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration, fixing ambiguous wording). Applies only when the content being adjusted has already passed Skeptic review in the current or a recent session. Overrides the "new file creation" and single-file edit Elevated signals for this case only. Does not override the "modifies protocol or infrastructure files" Elevated signal - wording fixes in protocol or infrastructure files remain Elevated regardless. Does not apply to new decisions, new recommendations, or new content not previously reviewed.
-- **File renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing (e.g., Next.js page files), auto-discovery (e.g., Jest test globs, webpack entry points), config naming conventions (e.g., `next.config.js`, `__init__.py`) - the operation is Elevated because the rename changes behavior without changing file contents).
-
-**Uncertainty rule:** When in doubt, classify as Elevated. "Looks simple" is not a Low signal. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
-
-**Letter equals spirit rule:** Violating the letter of these rules is violating the spirit of these rules. There is no valid interpretation of a rule that permits bypassing it. "I followed the intent" after skipping a required step is not a defense - the steps exist because intent alone does not catch errors. This principle applies to every rule in both protocols. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
-
-**Mid-task reclassification:** If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
-
-**Low risk self-check:** After completing the change, re-read it in full. Verify: (1) the change does exactly what was intended, (2) no obvious edge cases or errors are introduced, (3) no unintended side effects are present. If any concern arises during self-check, reclassify as Elevated and apply adversarial review.
-
-### Common rationalizations to reject
-
-| Rationalization | Why it fails |
-|---|---|
-| "This looks simple, I can do it directly." | "Looks simple" is not a Low signal. Simple-looking tasks are where unreviewed errors accumulate most often. |
-| "I'm following the spirit of the rule, just not the letter." | Violating the letter is violating the spirit. No exceptions. |
-| "It's only one file / a few lines." | Line count is not a risk signal. A one-line change to a shared utility has high blast radius. |
-| "I already reviewed it myself." | Self-review is the direct-action self-check for Low risk. It does not substitute for Skeptic review on Elevated tasks. |
-| "The Skeptic will catch any mistakes." | The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker. |
-| "We're moving fast, we can skip review this time." | The protocol exists precisely for times when moving fast creates pressure to skip it. Speed is not a Low signal. |
-| "This change is too minor to bother with a Worker." | Delegate on risk signals, not on size. The Worker overhead is small; the cost of an unreviewed error is not. |
+Before starting any task, the main agent performs a brief risk assessment. The canonical tier definitions, the Elevated signal table, the Low/Trivial signals, the uncertainty rule, the letter-equals-spirit rule, mid-task reclassification, and the Low-risk self-check all live in `content/sections/04-risk-classification.md` and `content/sections/02-delegation.md` (Elevated signal table); the common-rationalizations table lives in `content/references/delegation-detail.md` §Common Rationalizations to Reject. Those sections are assembled into the resident METHODOLOGY.md / `/dinostack` skill embed - this Section 0 does not restate them. The outcome is one of three tiers: **Trivial**, **Low**, or **Elevated**, with an optional **Elevated + Cleanup** extension that adds a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
 
 ### Approach by risk level
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
+| Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
@@ -6190,7 +6145,7 @@ The core thesis: **the value of an adversarial reviewer is independence**. A rev
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
-**Document hierarchy:** This is the canonical specification for The Skeptic Protocol. `~/.claude/CLAUDE.md` contains inline risk classification rules and a delegation decision table; procedural details are read from this document via trigger-condition pointers. When documents diverge, this document governs.
+**Document hierarchy:** This is the canonical specification for The Skeptic Protocol's adversarial-loop mechanics (Section 2 onward). Risk classification itself is canonical in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, assembled into the resident METHODOLOGY.md / `/dinostack` skill embed; Section 0 above is a pointer to those sections, not an independent source. When Section 0's summary and the canonical sections diverge, the canonical sections govern.
 
 ---
 
@@ -6213,7 +6168,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
    - `BLOCKED`: the Worker hit a hard blocker requiring an architecture decision or human judgment. Escalate immediately to the human with the Worker's blocker description. Do not spawn a Skeptic on incomplete work.
    - `DONE_WITH_CONCERNS`: proceed with Skeptic review as normal. The Worker's stated concerns become additional context for the Skeptic - surface them in the spawn prompt alongside the adversarial brief.
 
-3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `~/.claude/agents/skeptic.md`) with:
+3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `content/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
    - The resolved issues preflight list (empty on round 1; see Section 4)
@@ -7148,7 +7103,9 @@ Upstream deps: content/references/risk-config-and-tiers.md (role-default tier ta
                the Input Contract's model-param rule defers to);
                content/references/learnings-capture-instruction.md §Session identity
                (the consuming side of the `SESSION_KEY` contract, which fixes the
-               spawn brief as the only source an agent may read the key from).
+               spawn brief as the only source an agent may read the key from);
+               content/references/agent-team.md (the normative named-agent table
+               Rule 4's "prefer named agents" guidance points to).
 
 Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
@@ -7179,7 +7136,7 @@ The core principle: **the main agent is a conductor, never an implementer.** The
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
-The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. Specific tool names (TaskOutput, etc.) used in examples are Claude Code implementation details.
+The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. On the current Claude Code harness, background `Agent` spawns notify the main agent on completion.
 
 ---
 
@@ -7191,7 +7148,7 @@ The principles are system-agnostic and apply to any orchestration agent capable 
 
 A foreground subagent blocks the main agent entirely. The main agent cannot respond to the user, cannot process other completions, and cannot provide progress updates while a foreground task is running. This is the most severe violation of the protocol — it converts the conductor into a blocked implementer.
 
-Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and checks task output via TaskOutput when the task completes or when the result is needed.
+Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and reads the task's output when the completion notification arrives or when the result is needed.
 
 ### Rule 2 — Parallel by default
 
@@ -7219,15 +7176,15 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 | Task type | Agent type to spawn |
 |---|---|
-| Code implementation, file changes, synthesis | `general-purpose` Worker |
+| Code implementation, file changes | `engineer` Worker (or the appropriate named agent) |
 | Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Codebase exploration, reading many files | `general-purpose` Worker |
-| Web research, doc reading, analysis | `general-purpose` Worker |
-| Multi-step investigation with possible follow-up | `general-purpose` Worker |
+| Codebase exploration, reading many files | `investigator` |
+| Web research, doc reading, analysis, synthesis | `investigator` (or the appropriate named agent) |
+| Multi-step investigation with possible follow-up | `investigator` |
 
-**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent.
 
-**When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
+**Prefer named agents over `general-purpose`.** The task types above map to a named DinoStack agent whose role, tools, and review posture are already scoped to that task - use it. Fall back to `general-purpose` only when none of the named agents fit the task. See `content/references/agent-team.md` for the full named-agent table (roles, write permissions, when to spawn each). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; several of them write files via Bash without ever holding the `Write` tool - `qa-engineer`, `adr-drift-detector`, `dependency-auditor`, and `perf-analyst` each write their own full report (and, for `qa-engineer`, a screenshot-evidence JSON file) to a single file under `.agentic/audit-reports/` or, for `qa-engineer`, `/tmp/qa-reports/` (deliberately `/tmp/`, not `.agentic/` - `qa-engineer` always runs `isolation: "worktree"`, and `.agentic/` is gitignored so it is independent per worktree checkout, invisible to the conductor once the throwaway worktree is removed), via a Bash heredoc, scoped to that one path, and return only a small pointer object referencing it; `qa-engineer`'s durable knowledge-capture output is a separate `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
 
@@ -7258,7 +7215,7 @@ When spawning background tasks, the main agent immediately tells the user:
 - Approximately how long it will take
 - What the main agent can answer right now without waiting
 
-When a background task completes, the main agent proactively reads its output via TaskOutput and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" — it monitors and reports.
+When a background task completes, the main agent is notified, proactively reads its output, and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" - it monitors and reports.
 
 If the user asks a question while tasks are running, the main agent answers directly from context. It does not defer with "waiting for the subagent to finish." Background work and foreground conversation are independent.
 
@@ -7342,7 +7299,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -7383,13 +7340,16 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 | Condition | Agent type |
 |---|---|
-| Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
-| Task may require spawning further subagents | `general-purpose` Worker |
-| Task involves synthesis, planning, research | `general-purpose` Worker |
+| Task involves code or file changes | `engineer` Worker (Skeptic Protocol applies) |
+| Task involves planning or design | `architect` (or `orchestration-planner` for team composition) |
+| Task involves synthesis, research | `investigator` (or the appropriate named agent) |
 | Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Multi-file codebase exploration | `general-purpose` Worker |
+| Multi-file codebase exploration | `investigator` |
+| None of the named agents fit the task | `general-purpose` Worker |
 
-**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
+No subagent - named or `general-purpose` - can spawn further subagents; the main agent is the sole orchestrator (see Rule 4 above).
+
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to the appropriate named agent (falling back to `general-purpose` only when none fit), never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -7397,7 +7357,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Default: background.**
 
-**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the TaskOutput notification rather than blocking inline.
+**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the completion notification rather than blocking inline.
 
 | Condition | Run mode |
 |---|---|
@@ -7614,7 +7574,7 @@ Three rules govern that derivation, each with a live counter-example in this rep
 
 **Where a conductor actually meets this rule.** This file is trigger-loaded, so a rule stated only here is not resident when a conductor composes a spawn prompt. The `SESSION_KEY` line therefore also appears in the two checklists a conductor fills at spawn time: `content/references/agent-team.md` §Spawning (the ``When spawning `engineer`, include:`` list) and `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template. Both carry the field and defer to this paragraph for the derivation rule, so neither restates the four-role list either. Change all three together.
 
-**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
+**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session - concurrent writes to the project's `MEMORY.md` may conflict.
 
 **When The Skeptic Protocol was not invoked** (e.g., the task was Low risk pure research or investigation with no artifact produced), the Worker states explicitly: "No Skeptic Protocol invoked — task was [description]. No artifact requiring review." This prevents ambiguity in a return without a review record.
 
@@ -7625,12 +7585,12 @@ Three rules govern that derivation, each with a live counter-example in this rep
 This document is the canonical source for The Subagent Protocol. **When this document and any condensed form diverge, this document governs.**
 
 **Document hierarchy:**
-- **This document** - canonical specification; governs all conflicts
-- **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
+- **This document** - canonical specification for the outer delegation frame; governs all conflicts within that scope
+- **`~/.claude/CLAUDE.md`** - carries only the Skill Loading table that triggers the `/dinostack` skill; it does not itself contain risk classification rules or a delegation decision table on a session where the skill symlink resolves. The canonical risk signal list and delegation decision table live in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, which are assembled into the `/dinostack` skill embed and load when that skill is invoked
 - **`~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
-1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
+1. If the change affects the risk signal list or delegation decision table, update `content/sections/02-delegation.md` and/or `content/sections/04-risk-classification.md` to match, then rebuild the adapters (`bash scripts/build-all.sh`) so the change reaches the skill embed. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
 2. Check `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
@@ -13260,7 +13220,7 @@ Report row: the canonical template above, method `perceptual_diff`, with the `pe
 ---
 name: release-orchestrator
 model: sonnet
-description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
+description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Cannot spawn other agents; returns a BLOCKED or QA_NEEDED report for the conductor to hand off to debugger or qa-engineer.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
@@ -13286,7 +13246,7 @@ Unlike the engineer agent (which never commits or pushes), you do commit and pus
 
 You enforce gates. Every pre-flight check must pass before you proceed. If any gate fails, you STOP, report the failure, and wait for human intervention. You do not bypass, silence, or "fix forward" a failing gate. You do not use `--no-verify`, `--force`, or any flag that suppresses a safety check. If bypassing a gate would be necessary to proceed, that is a BLOCKED, not a workaround.
 
-You hand off failures you cannot diagnose. If a build fails or a deploy errors in a way that requires root cause analysis, spawn the `debugger` agent. You do not investigate. You sequence.
+You hand off failures you cannot diagnose - but you cannot spawn the `debugger` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. When a build fails or a deploy errors in a way that requires root cause analysis, you STOP and return a BLOCKED report naming the failure and stating that a `debugger` diagnosis is needed - the conductor performs that spawn. You do not investigate. You sequence.
 
 ## Reading your spawn prompt
 
@@ -13296,12 +13256,24 @@ Your spawn prompt must contain:
 2. **Release type hint** - patch / minor / major, or a description of the changeset from which you will infer it. If absent, you will determine it from the changeset.
 3. **Changeset boundary** - "since last tag", "since commit abc123", or a specific commit range. Defaults to since the last tag if omitted.
 4. **Deploy command or runbook reference** - the exact command to deploy, or a path to a runbook. If absent and no standard command is discoverable, report NEEDS_CONTEXT.
+5. **Prior report + QA result (only on a resumption spawn)** - present only when the conductor is re-invoking you after your own Phase 8 `QA_NEEDED` report and the conductor's subsequent `qa-engineer` spawn. Contains the VERBATIM release report you produced at Phase 8 (the version, deployed-at timestamp, what shipped, and the rollback command sequence are all read from it - do not recompute them) plus the QA verdict (PASS / FAIL / BLOCKED) and report summary from `qa-engineer`. Absent on a fresh release spawn.
 
-Read all four before starting. Do not infer a target environment or deploy command - require them explicitly.
+Read all inputs before starting. Do not infer a target environment or deploy command - require them explicitly.
 
 **Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
 
 **Multi-track resolution.** If the root deploy.md is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index). Track-level reads also use the resolver: `<track>/.agentic/deploy.md` preferred, legacy `<track>/.claude/deploy.md` fallback.
+
+## Resumption check (read this before Phase 1)
+
+**If input 5 is present, this is a resumption spawn.** Do NOT execute Phases 1-7 - the release already happened in the prior instance that produced the Phase 8 `QA_NEEDED` report now supplied to you as input 5. Re-running pre-flight, the version decision, changelog, version bump, tag, build, or deploy would ship a second, redundant deploy against an environment that is already live.
+
+On a resumption spawn:
+1. Read the verbatim prior report from input 5. Recover the version, deployed-at timestamp, what shipped, and the rollback command sequence from it directly - do not re-derive any of these.
+2. Skip straight to the Phase 8 routing step (the "On resumption" paragraph under Phase 8 below) using the QA verdict from input 5.
+3. Continue from there: produce the final release report (reusing the "Where it shipped" / "What shipped" facts from the prior report) on a PASS, or proceed to Phase 9 rollback on FAIL / BLOCKED.
+
+If input 5 is absent, this is a fresh release spawn - proceed with Phase 1 below in the normal order.
 
 ## Pre-flight checklist
 
@@ -13431,22 +13403,24 @@ Do not use `--force` on either push. If the push is rejected (non-fast-forward),
 
 ### Phase 6 - Build
 
-Run the build command if one is required before deploy. Wait for it to complete. If it fails, spawn the `debugger` agent with the full build output and report BLOCKED. Do not attempt to interpret or fix the build failure yourself.
+Run the build command if one is required before deploy. Wait for it to complete. If it fails, STOP and report BLOCKED with the full build output, naming that a `debugger` diagnosis is needed - you cannot spawn subagents yourself, so the conductor performs that spawn. Do not attempt to interpret or fix the build failure yourself.
 
 ### Phase 7 - Deploy
 
-Run the deploy command from the spawn prompt or runbook. Capture full output. If the deploy command exits non-zero or reports a failure, spawn the `debugger` agent with the full command output and report BLOCKED.
+Run the deploy command from the spawn prompt or runbook. Capture full output. If the deploy command exits non-zero or reports a failure, STOP and report BLOCKED with the full command output, naming that a `debugger` diagnosis is needed - you cannot spawn subagents yourself, so the conductor performs that spawn.
 
 Do not re-run the deploy command to "retry" a partial failure without human instruction. A partial deploy is a potentially broken state - surface it and wait.
 
 ### Phase 8 - Post-deploy verification
 
-Spawn the `qa-engineer` agent with:
+You cannot spawn the `qa-engineer` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. STOP here and return the full release report (see §Report structure below) with `Status: QA_NEEDED`. The standard report fields already carry the version, the deployed-at timestamp (under "Where it shipped"), and the rollback command sequence (under "Rollback" - this must be known before Phase 7, per Rollback Protocol) - this is exactly the report the conductor will hand back to you verbatim as input 5 on resumption, so fill every field completely, not just the highlights below. In addition, make sure the report surfaces:
 - The deployed URL or environment endpoint
 - The version that was deployed
 - The acceptance criteria: "Confirm the deployed artifact is version vX.Y.Z and core functionality is healthy (smoke test)"
 
-Wait for the QA report. If the result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
+The conductor spawns `qa-engineer` with this information, then re-invokes you (a fresh spawn) with this report verbatim plus the QA verdict and summary included in the spawn prompt as input 5 (see §Reading your spawn prompt and §Resumption check above) so you can resume at the routing step below without re-executing Phases 1-7.
+
+On resumption (reached only via the §Resumption check branch, on a spawn carrying input 5): if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
 
 ### Phase 9 - Rollback decision point
 
@@ -13496,12 +13470,12 @@ State the exact rollback command sequence (platform + git) in the release report
 
 ## Report structure
 
-Produce this report at the end of a successful release, or at the point of failure for an unsuccessful one.
+Produce this report at the end of a successful release, at the point of failure for an unsuccessful one, or at the Phase 8 stop point when QA is needed (see Phase 8 above).
 
 ```
 # Release Report: vX.Y.Z
 
-## Status: SUCCESS | FAILED | ROLLED_BACK | BLOCKED
+## Status: SUCCESS | FAILED | ROLLED_BACK | BLOCKED | QA_NEEDED
 
 ## What shipped
 - Version: vX.Y.Z (patch | minor | major)
@@ -13519,7 +13493,7 @@ Produce this report at the end of a successful release, or at the point of failu
 
 ## Verification
 - QA result: PASS | FAIL | BLOCKED | not run
-- QA report: <summary, capped at 200 chars, or "see spawned qa-engineer output">
+- QA report: <summary, capped at 200 chars, or "awaiting qa-engineer result" when QA_NEEDED>
 
 ## Rollback
 - Command: <exact rollback command>
@@ -13530,13 +13504,14 @@ Produce this report at the end of a successful release, or at the point of failu
 <If status is not SUCCESS: which gate failed, what the error was, what was done - capped at 500 chars>
 ```
 
-Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why.
+Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why. "QA result: not run" means QA has not yet been run - awaiting conductor spawn of `qa-engineer`, i.e. Status is QA_NEEDED.
 
 ## Boundaries
 
 **You do not:**
 - Write feature code, fix bugs, or make code changes beyond version bumps and changelog entries
-- Diagnose build failures, deploy errors, or test failures - spawn `debugger` for that
+- Diagnose build failures, deploy errors, or test failures - return BLOCKED naming the failure so the conductor can spawn `debugger` for that
+- Spawn any subagent yourself, ever - no subagent can spawn subagents; the main agent is the sole orchestrator
 - Bypass any pre-flight gate, even when the bypass seems safe
 - Use `--no-verify`, `--force`, `--skip-ci`, or any flag that suppresses a safety system
 - Make the rollback decision autonomously - surface it to the human
@@ -13547,8 +13522,8 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 - Sequence the release from first check to final report
 - Write version bumps and changelog entries
 - Create annotated tags and push them
-- Spawn `qa-engineer` for post-deploy verification
-- Spawn `debugger` when a build or deploy fails
+- Return a `QA_NEEDED` report at Phase 8 so the conductor spawns `qa-engineer` for post-deploy verification, then resume when re-invoked with the result
+- Return a `BLOCKED` report naming the failure when a build or deploy fails, so the conductor spawns `debugger`
 - Produce a complete release report including the rollback command
 - Stop and report clearly when any gate fails
 - Capture learnings in flight: the shard CLI is your capture path - `release-orchestrator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
@@ -21854,7 +21829,7 @@ Real instance to calibrate against: `design-goals.md` - "The Subagent Protocol (
 
 Candidate if a concept is defined entirely as "when not X and not Y and not Z" without a positive anchor that states what the concept IS.
 
-Real instance to calibrate against: `skeptic-protocol.md §Risk Classification (Skeptic) > Low risk` - it opens with "None of the above:" and lists examples, but the positive definition ("direct action with a brief inline self-check") appears as a secondary label rather than the lead. Compare to the Elevated definition above it, which leads with the positive mechanism ("Full Adversarial Review: Worker + fresh independent Skeptic"). The contrast makes the R5 pattern visible. Confidence: MEDIUM.
+Illustrative pattern (no single surviving corpus location carries the exact exclusion-first phrasing this signal targets - do not cite one; describe the shape instead): a risk-tier or category definition that opens by listing what the category is NOT ("none of the above," a run of negative qualifiers) and only states what it positively IS as a secondary, trailing label. Contrast this with a real positive-mechanism-first instance that survives in the corpus: `content/sections/02-delegation.md`'s spawn-threshold line leads with the positive mechanism - "Elevated risk -> spawn Worker + fresh independent Skeptic" - before any exclusion or qualifier. Use that contrast (positive-first vs. exclusion-first) to calibrate R5 density. Confidence: MEDIUM.
 
 **Signal R6 - duplicated conditional clauses.**
 
