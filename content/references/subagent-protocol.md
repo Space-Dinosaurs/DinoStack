@@ -46,7 +46,7 @@ The core principle: **the main agent is a conductor, never an implementer.** The
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
-The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. Specific tool names (TaskOutput, etc.) used in examples are Claude Code implementation details.
+The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. Background `Agent` spawns notify the main agent on completion - there is no separate output-polling tool to invoke.
 
 ---
 
@@ -58,7 +58,7 @@ The principles are system-agnostic and apply to any orchestration agent capable 
 
 A foreground subagent blocks the main agent entirely. The main agent cannot respond to the user, cannot process other completions, and cannot provide progress updates while a foreground task is running. This is the most severe violation of the protocol — it converts the conductor into a blocked implementer.
 
-Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and checks task output via TaskOutput when the task completes or when the result is needed.
+Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and reads the task's output when the completion notification arrives or when the result is needed.
 
 ### Rule 2 — Parallel by default
 
@@ -86,15 +86,15 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 | Task type | Agent type to spawn |
 |---|---|
-| Code implementation, file changes, synthesis | `general-purpose` Worker |
+| Code implementation, file changes | `engineer` Worker (or the appropriate named agent) |
 | Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Codebase exploration, reading many files | `general-purpose` Worker |
-| Web research, doc reading, analysis | `general-purpose` Worker |
-| Multi-step investigation with possible follow-up | `general-purpose` Worker |
+| Codebase exploration, reading many files | `investigator` |
+| Web research, doc reading, analysis, synthesis | `investigator` (or the appropriate named agent) |
+| Multi-step investigation with possible follow-up | `investigator` |
 
-**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent.
 
-**When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
+**Prefer named agents over `general-purpose`.** Every task type above has a named DinoStack agent whose role, tools, and review posture are already scoped to that task - use it. Fall back to `general-purpose` only when none of the named agents fit the task. See `content/references/agent-team.md` for the full named-agent table (roles, write permissions, when to spawn each). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; several of them write files via Bash without ever holding the `Write` tool - `qa-engineer`, `adr-drift-detector`, `dependency-auditor`, and `perf-analyst` each write their own full report (and, for `qa-engineer`, a screenshot-evidence JSON file) to a single file under `.agentic/audit-reports/` or, for `qa-engineer`, `/tmp/qa-reports/` (deliberately `/tmp/`, not `.agentic/` - `qa-engineer` always runs `isolation: "worktree"`, and `.agentic/` is gitignored so it is independent per worktree checkout, invisible to the conductor once the throwaway worktree is removed), via a Bash heredoc, scoped to that one path, and return only a small pointer object referencing it; `qa-engineer`'s durable knowledge-capture output is a separate `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
 
@@ -125,7 +125,7 @@ When spawning background tasks, the main agent immediately tells the user:
 - Approximately how long it will take
 - What the main agent can answer right now without waiting
 
-When a background task completes, the main agent proactively reads its output via TaskOutput and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" — it monitors and reports.
+When a background task completes, the main agent is notified, proactively reads its output, and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" - it monitors and reports.
 
 If the user asks a question while tasks are running, the main agent answers directly from context. It does not defer with "waiting for the subagent to finish." Background work and foreground conversation are independent.
 
@@ -209,7 +209,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the resident METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -250,13 +250,16 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 | Condition | Agent type |
 |---|---|
-| Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
-| Task may require spawning further subagents | `general-purpose` Worker |
-| Task involves synthesis, planning, research | `general-purpose` Worker |
+| Task involves code or file changes | `engineer` Worker (Skeptic Protocol applies) |
+| Task involves planning or design | `architect` (or `orchestration-planner` for team composition) |
+| Task involves synthesis, research | `investigator` (or the appropriate named agent) |
 | Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Multi-file codebase exploration | `general-purpose` Worker |
+| Multi-file codebase exploration | `investigator` |
+| None of the named agents fit the task | `general-purpose` Worker |
 
-**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
+No subagent - named or `general-purpose` - can spawn further subagents; the main agent is the sole orchestrator (see Rule 4 above).
+
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to the appropriate named agent (falling back to `general-purpose` only when none fit), never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -481,7 +484,7 @@ Three rules govern that derivation, each with a live counter-example in this rep
 
 **Where a conductor actually meets this rule.** This file is trigger-loaded, so a rule stated only here is not resident when a conductor composes a spawn prompt. The `SESSION_KEY` line therefore also appears in the two checklists a conductor fills at spawn time: `content/references/agent-team.md` §Spawning (the ``When spawning `engineer`, include:`` list) and `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template. Both carry the field and defer to this paragraph for the derivation rule, so neither restates the four-role list either. Change all three together.
 
-**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
+**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session - concurrent writes to the project's `MEMORY.md` may conflict.
 
 **When The Skeptic Protocol was not invoked** (e.g., the task was Low risk pure research or investigation with no artifact produced), the Worker states explicitly: "No Skeptic Protocol invoked — task was [description]. No artifact requiring review." This prevents ambiguity in a return without a review record.
 
@@ -492,12 +495,12 @@ Three rules govern that derivation, each with a live counter-example in this rep
 This document is the canonical source for The Subagent Protocol. **When this document and any condensed form diverge, this document governs.**
 
 **Document hierarchy:**
-- **This document** - canonical specification; governs all conflicts
-- **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
+- **This document** - canonical specification for the outer delegation frame; governs all conflicts within that scope
+- **`~/.claude/CLAUDE.md`** - carries only the Skill Loading table that triggers the `/dinostack` skill; it does not itself contain risk classification rules or a delegation decision table on a session where the skill symlink resolves. The canonical risk signal list and delegation decision table live in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, which are assembled into the `/dinostack` skill embed and are already resident every session
 - **`~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
-1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
+1. If the change affects the risk signal list or delegation decision table, update `content/sections/02-delegation.md` and/or `content/sections/04-risk-classification.md` to match, then rebuild the adapters (`bash scripts/build-all.sh`) so the change reaches the skill embed. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
 2. Check `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
