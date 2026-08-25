@@ -79,7 +79,7 @@ Real instance to calibrate against: `design-goals.md` - "The Subagent Protocol (
 
 Candidate if a concept is defined entirely as "when not X and not Y and not Z" without a positive anchor that states what the concept IS.
 
-Real instance to calibrate against: `skeptic-protocol.md §Risk Classification (Skeptic) > Low risk` - it opens with "None of the above:" and lists examples, but the positive definition ("direct action with a brief inline self-check") appears as a secondary label rather than the lead. Compare to the Elevated definition above it, which leads with the positive mechanism ("Full Adversarial Review: Worker + fresh independent Skeptic"). The contrast makes the R5 pattern visible. Confidence: MEDIUM.
+Illustrative pattern (no single surviving corpus location carries the exact exclusion-first phrasing this signal targets - do not cite one; describe the shape instead): a risk-tier or category definition that opens by listing what the category is NOT ("none of the above," a run of negative qualifiers) and only states what it positively IS as a secondary, trailing label. Contrast this with a real positive-mechanism-first instance that survives in the corpus: `content/sections/02-delegation.md`'s spawn-threshold line leads with the positive mechanism - "Elevated risk -> spawn Worker + fresh independent Skeptic" - before any exclusion or qualifier. Use that contrast (positive-first vs. exclusion-first) to calibrate R5 density. Confidence: MEDIUM.
 
 **Signal R6 - duplicated conditional clauses.**
 
