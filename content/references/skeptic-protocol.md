@@ -545,7 +545,7 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
 
-**An abstraction serving only one call site or a hypothetical requirement is a finding.** This is the DRY review's counterweight sub-category: a helper, wrapper, or config layer with no second real caller and no stated requirement is premature, not a virtue. See `content/agents/skeptic.md` Step 2.5 "Unnecessary abstraction" for the check and severity default (Minor, Major when it adds a public surface), and `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and its precedence over "Helper extraction opportunities."
+**An abstraction serving only one call site or a hypothetical requirement is a finding.** This is the DRY review's counterweight sub-category: a helper, wrapper, or config layer with no second real caller and no stated requirement is premature, not a virtue. See `content/agents/skeptic.md` Step 2.5 "Unnecessary abstraction" for the check and severity default (Minor, Major when it adds a public surface), and `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and the precedence table separating it from Duplication.
 
 ### Review depth
 
