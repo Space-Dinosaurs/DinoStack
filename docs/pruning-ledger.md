@@ -36,13 +36,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 ---
 
 ## PL-20260825-1
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/design-goals.md (title line; Goal 2; Goal 3; Non-Goals section)
 - Signal(s): Signal 5 (orphaned legacy text) + internal contradiction with the live corpus
 - Confidence: HIGH
 - Rationale: Title still reads "claude-protocols" (pre-rename); Goal 3 cites two nonexistent paths (.claude/rules/decisions.md, claude-hooks/stop-context.js) and a false "/ds-memory-update is the only write path to decisions.md" claim; Goal 2 enumerates two risk levels omitting Trivial; Non-Goals ("does not commit, push, merge") contradict the shipped /ds-implement-ticket Phases 8-12 auto-merge workflow. Approved for rewrite, not deletion; Goal 4 (three-question partition test) is canonical per AGENTS.md and must be preserved verbatim.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/824
 
 ## PL-20260825-2
 - Status: RAISED
