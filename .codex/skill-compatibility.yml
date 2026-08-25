@@ -12,6 +12,16 @@
       "source_token": ".codex/skills/**"
     },
     {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "03704f4305a3a216864291fec7e1256be89f995351867aa98d195bef61922caf",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "content/commands/ds-implement-ticket.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
       "kind": "operational",
@@ -290,16 +300,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/capture-classification.md"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "1c3161e8afa2b73ea858ec2157cdce1cfadc39327075016c948caa8e15944f27",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -652,16 +652,6 @@
       "source_token": "content/sections/02-delegation.md"
     },
     {
-      "expected_target": "hooks/enforce-skeptic-round-cap.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
-      "kind": "operational",
-      "occurrence_hash": "4b084fbbe9b754d1b5583fcfcd69c2b000161cac04bf0931857a63f757cee0ca",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-skeptic-round-cap.py"
-    },
-    {
       "expected_target": "content/SKILL.md",
       "generated_token": "$AE_REPO_DIR",
       "kind": "operational",
@@ -920,16 +910,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Task"
-    },
-    {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "657acea2e0a7840009b62edbea0757fb2b28256e6cbb932e653c3e71c2113b30",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -1195,16 +1175,6 @@
       "expected_target": "apply_patch",
       "generated_token": "Edit",
       "kind": "semantic-reference",
-      "occurrence_hash": "83fcce76d6ebd3004546213641578c3704503e370a72779dd8a2b702570b8312",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Edit"
-    },
-    {
-      "expected_target": "apply_patch",
-      "generated_token": "Edit",
-      "kind": "semantic-reference",
       "occurrence_hash": "852e86fa5fbef582ad5cfb399bd4183bc1324f8f18e16f12920c493f254423b7",
       "resolution_mode": "compatibility-preamble",
       "scope": "codex-harness",
@@ -1240,6 +1210,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/qa-regressions.md"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "899fff93fa31ae83a3021738da6be3d2188bfa4e82c4dd8e58de0bd3d657455d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -1500,6 +1480,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/commands/ds-brief.md"
+    },
+    {
+      "expected_target": "hooks/enforce-skeptic-round-cap.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
+      "kind": "operational",
+      "occurrence_hash": "a44b6f7e35a093e127b1756757b2e2d5b807c818eeabef7a62f08a1a296fe255",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/enforce-skeptic-round-cap.py"
     },
     {
       "expected_target": "dinostack",

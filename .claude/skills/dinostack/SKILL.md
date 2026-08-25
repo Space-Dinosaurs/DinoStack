@@ -542,7 +542,7 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 **Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
 
-**At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops directly; `/ds-implement-ticket` Phase 6's cap_reached step's own PROSE is not yet updated to describe the ship branch and still reads as an unconditional escalate at cap - until that prose is updated, treat option (a) inside Phase 6 as a conductor override the operator must approve, not an automatic path. This gap is prose-only, not mechanical: `hooks/enforce-skeptic-round-cap.py` denies a 4th Skeptic spawn for the same unit (keyed off a stable token supplied in, or normalized from, the reviewed diff identity in the spawn prompt, not the conductor's own branch) regardless of which command initiated it, so a Phase 6 loop hitting the cap is mechanically blocked exactly like an ad-hoc loop - the hook does not distinguish caller context. This deny is conditional on the spawn prompt's "Diff under review" line being present, recognizable, and unambiguous; when it is not, the hook fails open with no state written rather than blocking. Known residual: two different units both expressed as a bare `git diff <same-base>..<head>` SHA range (no branch/PR token) key off the same base SHA and share one counter - accepted, not fixed, per the hook's own docstring. A second, separate residual: the stable-key shape gate's file-path check only rejects a first path with an extension-shaped suffix, so a first path lacking one (e.g. `LICENSE | a.py`) still passes and becomes a wrong-but-stable key shared across units - also accepted, not fixed, per the hook's own docstring. **The round-count cap is mechanically enforced; the Critical-never-ships rule is not.** `unresolved_critical` inside the hook's state file is written by the conductor's own Edit, never derived from an actual Skeptic finding - the hook enforces that a recorded `ship` decision cannot silently override a Critical the conductor has already flagged, not that no Critical exists. The remaining gap is that Phase 6's own step text does not yet walk the conductor through recording a ship decision to satisfy the hook. Full policy, including the value-per-round gate that governs whether a round is spawned at all and the ordering rule for enforcement-only units, is in `content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
+**At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available, and CI cycle time when the unit has an open PR - each additional round re-runs the full required-check suite) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops directly; `/ds-implement-ticket` Phase 6's cap_reached step's own PROSE is not yet updated to describe the ship branch and still reads as an unconditional escalate at cap - until that prose is updated, treat option (a) inside Phase 6 as a conductor override the operator must approve, not an automatic path. **The round-count cap is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` regardless of caller; the Critical-never-ships rule is not.** Full policy - including the hook's fail-open condition, its two known residuals, the value-per-round gate that governs whether a round is spawned at all, and the ordering rule for enforcement-only units - is in `content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
 
 **Convergence failure.** A convergence failure occurs when a Skeptic raises the same finding unchanged after the Engineer claimed to have addressed it. Convergence failures bypass the remaining iteration budget and escalate immediately. They indicate either a misunderstanding between the Engineer and the finding, or a design-level conflict that requires human arbitration. Within the persistence loop, one re-raise after a claimed fix is sufficient (overrides the 2-re-route rule in skeptic-protocol.md Section 5 - see that section for the override note).
 
@@ -679,23 +679,7 @@ These rules complement the existing tool hierarchy above (Read/Glob/Grep over Ba
 
 ## Context Window Management
 
-**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
-
-Key tools and their uses:
-- `ctx_execute(language, code)` - run a single script; only stdout enters context
-- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
-
-> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
-
-- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
-- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
-- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
-
-> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
-
-**Raw Bash remains appropriate per the Tool Discipline rule above** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
-
-**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline above.
+**Context-mode tools (`ctx_execute`, `ctx_batch_execute`, and related)** - when `ctx_execute` is present as a callable tool in the session: read `content/references/code-standards-detail.md` §Context Window Management for tool usage, the create/modify-files prohibition, the `ctx_fetch_and_index`-over-`WebFetch` preference, and platform support.
 
 ## Module Manifests
 
@@ -727,11 +711,7 @@ Read `content/references/code-standards-detail.md` §Per-Language Strict Default
 
 ## Package Management
 
-- Always install the latest stable version of packages - never pin to an older version unless the project already has an explicit constraint
-- When a package is outdated and causing issues, upgrade to the latest stable version first before attempting any patches or workarounds
-- Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
-- When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
-- If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
+**Dependency versioning rules** - when adding a new dependency or upgrading an existing one: read `content/references/code-standards-detail.md` §Package Management for the latest-stable-version default, the no-hardcoded-version rule, the no-monkey-patch rule, and the existing-constraint exception.
 
 ### rules/conventions.md
 

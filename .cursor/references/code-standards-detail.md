@@ -3,9 +3,11 @@ Purpose: Detailed code-standards reference blocks extracted from
          content/rules/code-standards.md. Contains: the verbose Per-language
          strict defaults block (TypeScript/JS, Python, Go, Rust, Next.js
          strict settings), the Browser Verification block (agent-browser
-         CLI usage for all browser verification tasks), and the
+         CLI usage for all browser verification tasks), the
          Discovery-Based Check Discipline block (mandated hard-fail forms
-         for any check whose result depends on a discovered set of items).
+         for any check whose result depends on a discovered set of items),
+         the Context Window Management block (ctx_* MCP tool usage detail),
+         and the Package Management block (dependency-versioning rules).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
@@ -13,12 +15,15 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
-               Context Window Management, Module Manifests, DRY, Code
-               Quality Gates preamble, and Package Management rules).
+               Module Manifests, DRY, and Code Quality Gates preamble
+               rules).
 
 Downstream consumers: engineer agents (run per-language quality gates
-                      after every implementation); content/sections/
-                      12-protocol-details.md (code standards reference).
+                      after every implementation; consult Context Window
+                      Management when ctx_* tools are present, and Package
+                      Management when adding/upgrading a dependency);
+                      content/sections/12-protocol-details.md (code
+                      standards reference).
 
 Failure modes: Prose + code blocks; does not auto-execute. Per-language
                defaults are pinned to the tool versions current at time
@@ -29,7 +34,7 @@ Failure modes: Prose + code blocks; does not auto-execute. Per-language
 Performance: Standard.
 -->
 
-> Parent rules file: `content/rules/code-standards.md`. Read that file first for Documentation Lookups, Tool Discipline, Context Window Management, Module Manifests, DRY, and Package Management rules.
+> Parent rules file: `content/rules/code-standards.md`. Read that file first for Documentation Lookups, Tool Discipline, Module Manifests, DRY, and Code Quality Gates rules.
 
 ## Per-Language Strict Defaults
 
@@ -67,3 +72,31 @@ Every discovery-based check MUST hard-fail on zero discovered items, and MUST do
 A docstring reference to a guard's failure phrase (documenting what the guard does, or citing it as precedent for a sibling check) is the only sanctioned way to mention the phrase outside an actual guard - it is classified DOCUMENTATION, not a violation and not a guard, and does not count toward a check's live-guard total. A phrase mention anywhere else that is not a docstring (a `#` comment, a non-first-statement string, ordinary prose) reports as NON-CONFORMING; this is deliberate, not an oversight, so route future mentions of a guard phrase into a docstring or an actual guard.
 
 Reference implementations that conform: the `hooks-python-tests`, `bin-sh-tests`, `hooks-js-tests`, and `hooks-sh-tests` CI jobs, and `hooks/tests/test-hooks-pep604-guard.py`'s Form-B guards.
+
+## Context Window Management
+
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+
+Key tools and their uses:
+- `ctx_execute(language, code)` - run a single script; only stdout enters context
+- `ctx_execute_file(path, language, code)` - analyze a file for inspection only; use `Read` instead when you intend to subsequently `Edit` the file
+
+> Never use `ctx_execute` or `ctx_execute_file` to create or modify files - these tools are for analysis, processing, and computation only. Use the native `Write`/`Edit` tools for all file writes.
+
+- `ctx_batch_execute(commands, queries)` - run multiple commands and search results in one call; replaces 10-30 Bash + search steps
+- `ctx_index(content, source)` / `ctx_search(queries)` - build and query a knowledge base from arbitrary content
+- `ctx_fetch_and_index(url, source)` - fetch a URL, index it, cache for 24 hours
+
+> When ctx tools are available, prefer `ctx_fetch_and_index` over `WebFetch` for URL fetches - `WebFetch` pulls full page content into context.
+
+**Raw Bash remains appropriate per the Tool Discipline rule in `content/rules/code-standards.md`** - `git`, builds, installs, process management, and any operation that needs direct filesystem side effects.
+
+**Platform support:** fully supported on Claude Code, Cursor, Codex CLI, OpenCode, Kimi, and oh-my-pi. The tools are available when `ctx_execute` is present as a callable tool in the session. When unavailable, fall back to the `Read`/`Glob`/`Grep` tool-discipline in `content/rules/code-standards.md`.
+
+## Package Management
+
+- Always install the latest stable version of packages - never pin to an older version unless the project already has an explicit constraint
+- When a package is outdated and causing issues, upgrade to the latest stable version first before attempting any patches or workarounds
+- Never monkey-patch or work around bugs in an outdated package version; upgrade the package instead
+- When adding a new dependency, do not hardcode a version number - use the package manager's default latest resolution (e.g., `npm install pkg`, `pip install pkg`, `go get pkg@latest`)
+- If a version constraint already exists in the project, respect it - do not silently downgrade, but flag it to the user if it's causing a problem
