@@ -361,6 +361,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-nested-worktree-spawn.py",
     "enforce-orchestrator-singularity.py",
     "enforce-shippable-edit.py",
+    "enforce-skeptic-neutrality.py",
     "enforce-skeptic-round-cap.py",
     "enforce-ticket-batching.py",
     "enforce-worktree-isolation-spawn.py",
