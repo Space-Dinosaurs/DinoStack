@@ -1032,6 +1032,9 @@ hr {
 <div class="callout">
 <strong>NOT Trivial even if it feels small:</strong> edits to <code>tailwind.config.*</code>, theme files, CSS variables, or any shared token file; any change touching 2+ files; anything in auth, payments, or data-handling paths; renames, even local ones.
 </div>
+<div class="callout">
+<strong>Implicit Trivial batching.</strong> A series of related Trivial tweaks can share one draft PR: the first push opens it, later related tweaks continue the same branch via detached-HEAD seeding, and an explicit or implicit ship trigger merges it. Full mechanism in the worktree-lifecycle reference doc.
+</div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
 section {

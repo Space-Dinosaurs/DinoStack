@@ -58,6 +58,8 @@ ALL must hold - any single disqualifier pushes to Elevated: touches exactly one 
 
 **Conductor rule for Trivial:** The conductor delegates the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file) regardless of subagent state; the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
 
+**Implicit Trivial-tier batching.** A series of individually-Trivial changes to the same surface may commit and push immediately without opening a fresh PR per change: the first tweak opens a draft PR, and each subsequent related tweak continues that same branch until an explicit or implicit ship trigger fires. This is a pointer only - the full mechanism (the pre-spawn continuation judgment, detached-HEAD seeding, crash-path handling, discovery, concurrency, draft-PR rationale, and binding announcement wording) lives at exactly one canonical site: `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push.
+
 **Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
 
 ### Simple/targeted unit (mechanical metric)

@@ -308,6 +308,10 @@ ALL of the following must hold - any single disqualifier pushes to Elevated:
 <strong>NOT Trivial even if it feels small:</strong> edits to <code>tailwind.config.*</code>, theme files, CSS variables, or any shared token file; any change touching 2+ files; anything in auth, payments, or data-handling paths; renames, even local ones.
 </div>
 
+<div class="callout">
+<strong>Implicit Trivial batching.</strong> A series of related Trivial tweaks can share one draft PR: the first push opens it, later related tweaks continue the same branch via detached-HEAD seeding, and an explicit or implicit ship trigger merges it. Full mechanism in the worktree-lifecycle reference doc.
+</div>
+
 ---
 
 ## The Low path and context preservation

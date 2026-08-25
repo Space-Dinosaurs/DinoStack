@@ -385,6 +385,51 @@ Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touch
 
 ---
 
+## Implicit Trivial batching: open the PR at first push
+
+<style scoped>
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:
+
+- The first tweak commits, pushes, and opens a **draft** PR immediately - CI runs on every push, nothing is deferred
+- Every continuation detaches the engineer's OWN harness isolation worktree onto the batch's fetched remote tip (`git checkout --detach origin/chore/tweak-<key>`), gated by a mandatory `git status --porcelain` empty-check first (a fresh worktree is clean by construction - free on the normal path, catches a stray rider file otherwise) - no nested worktree, no separate directory; every edit lands inside caller_root by construction, so the write/read isolation hooks admit it trivially
+- A detached worktree's bare branch-name push either fails loudly (no local branch) or silently pushes the wrong ref (a stale local branch) - the explicit `HEAD:refs/heads/chore/tweak-<key>` refspec form is mandatory in both cases
+- After the push lands, the engineer re-attaches (`git checkout worktree-agent-<id>`) - `resolve_branch_worktree` intentionally never matches a detached HEAD, so skipping this silently defeats the harness's own cleanup lookup
+- Draft state mechanically blocks merge (both plain and `--admin` forms) until `gh pr ready` - verified live against this repo (PR #815)
+- Two concurrency fixes: a session-scoped `<key>` token so two sessions minting for the same file can never converge, and an origin-visible `tweak-claim:` PR comment so two sessions continuing the same batch don't collide
+- Ship triggers: explicit ship-language, a new non-Trivial request (async - the batch ships while the new spawn starts immediately), an end-of-session signal, or next-session rediscovery (a persisted draft PR is never silently lost)
+
+<div class="callout">
+Canonical mechanism: content/references/worktree-lifecycle.md §Implicit Trivial batching: open the PR at first push. gh unavailable or under-scoped degrades gracefully - never blocks, never silently unclaims a continuation.
+</div>
+
+---
+
+## SKIP_UNREFERENCED_COMMIT: a distinct crash residual
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+A crashed continuation leaves ONE artifact - its own harness isolation worktree, detached, possibly with an unpushed commit. No nested worktree, no orphaned second entry.
+
+- `head_reachable` (the fact that would let a pushed-already leftover auto-sweep) is dead code in `bin/ds-cleanup-worktrees` - hardcoded `"not_checked"` at every construction site - so **every** detached leftover, pushed or not, resolves `SKIP_UNREFERENCED_COMMIT` today, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
+- Triage manually: `git -C <path> branch -r --contains "$(git -C <path> rev-parse HEAD)"` - nonempty means the work already reached `origin` and is safe; empty means this worktree is the sole copy
+- Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
+- Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
+
+<div class="callout">
+This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one, let the session-start prune or reap resolve it once the lock releases.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Isolated. Pruned. Clean.

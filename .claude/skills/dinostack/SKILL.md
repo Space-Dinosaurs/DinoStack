@@ -458,6 +458,8 @@ ALL must hold - any single disqualifier pushes to Elevated: touches exactly one 
 
 **Conductor rule for Trivial:** The conductor delegates the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file) regardless of subagent state; the conductor never edits the shippable tree directly (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). A commit message is still required. If a Worker discovers mid-task that the change is not actually Trivial (e.g., the "one-file color tweak" lives in a shared token file), it must stop, report, and the conductor re-classifies as Elevated.
 
+**Implicit Trivial-tier batching.** A series of individually-Trivial changes to the same surface may commit and push immediately without opening a fresh PR per change: the first tweak opens a draft PR, and each subsequent related tweak continues that same branch until an explicit or implicit ship trigger fires. This is a pointer only - the full mechanism (the pre-spawn continuation judgment, detached-HEAD seeding, crash-path handling, discovery, concurrency, draft-PR rationale, and binding announcement wording) lives at exactly one canonical site: `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push.
+
 **Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
 
 ### Simple/targeted unit (mechanical metric)
@@ -874,7 +876,7 @@ git branch -d <branch-name>
 
 **Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
 
-**Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes.
+**Commit each fix immediately during testing.** Never accumulate uncommitted changes during live testing sessions. After each validated fix: commit, PR, merge, pull - then start the next fix. Do not batch multiple unrelated fixes. **Exception - Implicit Trivial batching:** a series of individually-Trivial-classified tweaks to the same surface may share one draft PR across multiple pushes instead of a fresh commit-PR-merge-pull cycle per tweak; the pre-spawn continuation judgment (see `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push) is the discriminator that decides whether a given tweak continues an open batch or starts a new one - the file-overlap scope test that runs on return is rare-miss verification only, never the batching decision itself. Genuinely distinct fixes - unrelated files, unrelated intent, a topic switch - still follow the full commit-PR-merge-pull cycle per fix; "related" is defined by that same continuation judgment, not by file adjacency.
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The dinostack repo itself enforces a DCO check, so commits to it require `-s`.
 
