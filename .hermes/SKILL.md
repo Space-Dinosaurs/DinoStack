@@ -8817,11 +8817,27 @@ branch/PR rather than risk colliding with an unrelated batch).
 **Continuation** (an existing batch): the Trivial engineer is briefed in
 plain prose (per `:1545`'s form) to run, directly inside its own
 harness-provided isolation worktree - no nested worktree, no separate
-directory:
+directory.
+
+**Cleanliness precheck, mandatory, immediately before the detach:**
+`:1545`'s own porcelain precheck was written for a `checkout -B`
+force-moving a shared branch ref and is inapplicable to that case - but
+this in-place `git checkout --detach` re-invalidates that reasoning for a
+different reason: any untracked file already present in the worktree (a
+stray build artifact, this repo's own known absolutized-symlink artifact
+class) rides along onto the detached HEAD unnoticed and can land in the
+tweak commit. Require `git status --porcelain` to print EMPTY output
+immediately before running the detach:
 
 ```bash
+[ -z "$(git status --porcelain)" ] || { echo "BLOCKED: worktree not clean before detach"; exit 1; }
 git fetch origin && git checkout --detach origin/chore/tweak-<key>
 ```
+
+Nonempty output is a hard stop - report `BLOCKED`, do not proceed with
+the detach. A freshly-spawned isolation worktree is clean by
+construction, so this check costs nothing on the normal path; it exists
+only to catch the abnormal one.
 
 [verified-by-execution, own worktree, git 2.55.0]: `git checkout --detach
 origin/main` succeeds; `git symbolic-ref -q HEAD` afterward exits nonzero
@@ -8865,16 +8881,36 @@ that sequence's worker-pushes-then-conductor-acts SEQUENCE carries over
 this same explicit-refspec form for the same underlying reason), its push
 FORM does not.
 
-The engineer returns the already-landed SHA as confirmation once the push
-succeeds - there is no separate removal step, since there was never a
-second worktree to remove; the harness's own isolation-worktree cleanup
-(§Isolation worktree cleanup commands above, "once the branch has been
-pushed") handles the engineer's worktree exactly as it would for any
-other Trivial spawn. **The conductor pushes nothing on this path** - its
-role is to open the draft PR (minting) or note the landed push
-(continuation); push-by-SHA from the primary checkout is reserved for the
-§Round-N rework mechanic's recovery procedure above, never used routinely
-here.
+**Re-attach immediately after the push succeeds, mandatory:**
+
+```bash
+git checkout worktree-agent-<id>
+```
+
+**Why this exists - never simplify it away:** §Isolation worktree cleanup
+commands above resolves the worktree to remove via
+`resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME"`
+(`scripts/lib/worktree.sh`), whose own module docstring states verbatim
+"Intentionally does not match detached-HEAD worktrees or remote-tracking
+refs" (`:24`). Left detached, that resolver returns an empty path for
+THIS worktree on every subsequent lookup, and the cleanup block's
+`[ -n "$WORKTREE_PATH" ]` guards both the status check and the removal -
+so cleanup silently no-ops forever, not just once. Re-attaching to the
+engineer's own harness branch (`worktree-agent-<id>` - confirmed above to
+survive the detach) restores the resolver's visibility and makes the
+worktree an ordinary, cleanable branch-based entry again before the
+engineer returns.
+
+The engineer returns the already-landed SHA as confirmation once the
+re-attach completes - there is no separate removal step, since there was
+never a second worktree to remove; the harness's own isolation-worktree
+cleanup (§Isolation worktree cleanup commands above, "once the branch has
+been pushed") handles the engineer's worktree exactly as it would for any
+other Trivial spawn, now that it is branch-resolvable again. **The
+conductor pushes nothing on this path** - its role is to open the draft
+PR (minting) or note the landed push (continuation); push-by-SHA from the
+primary checkout is reserved for the §Round-N rework mechanic's recovery
+procedure above, never used routinely here.
 
 **New work (minting):** an ordinary base-seeded Trivial spawn - the
 engineer pushes `HEAD:refs/heads/chore/tweak-<key>` from its own harness

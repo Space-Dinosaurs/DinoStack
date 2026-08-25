@@ -396,8 +396,9 @@ Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touch
 A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:
 
 - The first tweak commits, pushes, and opens a **draft** PR immediately - CI runs on every push, nothing is deferred
-- Every continuation detaches the engineer's OWN harness isolation worktree onto the batch's fetched remote tip (`git checkout --detach origin/chore/tweak-<key>`) - no nested worktree, no separate directory; every edit lands inside caller_root by construction, so the write/read isolation hooks admit it trivially
+- Every continuation detaches the engineer's OWN harness isolation worktree onto the batch's fetched remote tip (`git checkout --detach origin/chore/tweak-<key>`), gated by a mandatory `git status --porcelain` empty-check first (a fresh worktree is clean by construction - free on the normal path, catches a stray rider file otherwise) - no nested worktree, no separate directory; every edit lands inside caller_root by construction, so the write/read isolation hooks admit it trivially
 - A detached worktree's bare branch-name push either fails loudly (no local branch) or silently pushes the wrong ref (a stale local branch) - the explicit `HEAD:refs/heads/chore/tweak-<key>` refspec form is mandatory in both cases
+- After the push lands, the engineer re-attaches (`git checkout worktree-agent-<id>`) - `resolve_branch_worktree` intentionally never matches a detached HEAD, so skipping this silently defeats the harness's own cleanup lookup
 - Draft state mechanically blocks merge (both plain and `--admin` forms) until `gh pr ready` - verified live against this repo (PR #815)
 - Two concurrency fixes: a session-scoped `<key>` token so two sessions minting for the same file can never converge, and an origin-visible `tweak-claim:` PR comment so two sessions continuing the same batch don't collide
 - Ship triggers: explicit ship-language, a new non-Trivial request (async - the batch ships while the new spawn starts immediately), an end-of-session signal, or next-session rediscovery (a persisted draft PR is never silently lost)
