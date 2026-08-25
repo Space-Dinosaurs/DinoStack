@@ -8796,10 +8796,11 @@ Deliberately unchanged by this mechanic: Skeptic review rigor (a fresh Skeptic i
 ## Implicit Trivial batching: open the PR at first push
 
 A Trivial-classified change (`content/sections/04-risk-classification.md` §Trivial
-signals) commits and pushes immediately, from a fresh, disposable
-`isolation:"worktree"` Trivial-path engineer spawn (the Trivial tier's real
-contract is plain prose per `content/commands/ds-implement-ticket.md:1545` -
-the tier carries no `worktree_setup` field; the Elevated-only contract at
+signals) commits and pushes immediately, from a fresh, disposable,
+worktree-isolated Trivial-path engineer spawn (per the delegation
+kernel's existing spawn contract - the Trivial tier's real contract is
+plain prose per `content/commands/ds-implement-ticket.md:1545`; the tier
+carries no `worktree_setup` field; the Elevated-only contract at
 `:1543`/`:1615`/`:1621` is not used here). The **first** tweak to a surface
 opens a **draft** PR immediately. Every continuation is seeded via a
 detached-HEAD checkout of the batch's fetched remote tip. CI runs on every
