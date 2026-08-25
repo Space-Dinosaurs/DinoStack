@@ -81,9 +81,17 @@
 #                tree, and the subprocess itself genuinely fails - that
 #                combination is an actionable signal, not noise. This call
 #                site NEVER removes a worktree regardless of the count
-#                (report-only; removal remains operator-invoked via
-#                `/ds-cleanup-worktrees` or a bare `ds-cleanup-worktrees`
-#                with no --dry-run). The machine-wide worst-project nudge
+#                (report-only for THIS --count-only call site; this is
+#                UNCHANGED by DS-196, which adds a SEPARATE, mutating,
+#                backgrounded session-start invocation of
+#                ds-cleanup-worktrees documented in
+#                content/references/worktree-lifecycle.md (§Session-start
+#                prune script) - a plain shell block in the conductor
+#                preflight prose, not a hook. Removal from THAT call site is
+#                now automatic and unattended, suppressible via
+#                AE_WORKTREE_REAP_DISABLE=1; see the worktree-accumulation
+#                nudge comment below for the full cross-reference). The
+#                machine-wide worst-project nudge
 #                (DS-189 Unit B, opt-in) is fully fail-open on every path:
 #                absent ~/.agentic/cleanup-worktrees.json, unresolved
 #                DS_CLEANUP_BIN, exit code outside {0,1} (this includes the
@@ -369,7 +377,15 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # SessionStart call site NEVER removes anything, per the worktree-reaper
   # ticket's explicit requirement (passive triggers report; only an
   # explicit invocation of ds-cleanup-worktrees or /ds-cleanup-worktrees
-  # removes). Resolved the same way as ds-defer above: AE_REPO_DIR (already
+  # removes). This --count-only call site is UNCHANGED by DS-196, which adds
+  # a SEPARATE, mutating, backgrounded session-start invocation of
+  # ds-cleanup-worktrees documented in content/references/worktree-lifecycle.md
+  # (§Session-start prune script) - a plain shell block in the conductor
+  # preflight prose, not a hook. That invocation is suppressible via
+  # AE_WORKTREE_REAP_DISABLE=1; note this is a session-start-SCRIPT kill
+  # switch referenced from this hook's comment for cross-reference, not a
+  # hook-enforced guard itself - this SessionStart hook has no mutating
+  # behavior to gate in the first place. Resolved the same way as ds-defer above: AE_REPO_DIR (already
   # resolved by resolve_ae_repo_dir_with_fallback for the defer nudge)
   # first, PATH fallback second - the deployed hooks-snapshot layout does
   # NOT include the rest of bin/, so DS_CLEANUP_BIN is very commonly absent

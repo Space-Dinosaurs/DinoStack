@@ -181,6 +181,41 @@ git worktree list --porcelain | awk '
   [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
 done
 git worktree prune
+# Automatic worktree reap (DS-196): runs bin/ds-cleanup-worktrees's full evidence-gated
+# disposition (origin-reachability, activity liveness, dirty/locked/age/protected-content
+# gates - see "The unproven class" and bin/ds-cleanup-worktrees's own docstring for the
+# full predicate) against the CURRENT repo, backgrounded so this preflight never blocks
+# on worktree count. `git rev-parse --show-toplevel` resolves the repo root explicitly
+# rather than using $(pwd) - `.agentic/` is root-anchored in .gitignore, so a non-root
+# cwd would otherwise create a stray, non-ignored `.agentic/` directory. Note: when this
+# preflight itself runs from inside a worktree (rather than the main checkout),
+# `--show-toplevel` returns THAT WORKTREE's own root, not the main checkout's - this is
+# expected and acceptable, since the reap then scopes to that worktree's own repo view;
+# the main-checkout session-start invocation is the normal case. The log is APPENDED
+# (never truncated) with a per-run header line (UTC timestamp + pid) so DIFFERENT
+# concurrent sessions interleave identifiably in `.agentic/worktree-reap.log` rather
+# than clobbering the only record of a mutating removal pass. Corrected claim
+# (round-2 Minor 6): `$$` in a backgrounded subshell expands to the PARENT shell's
+# own pid, not a fresh subshell pid (verified in both bash and zsh) - a same-session
+# 30-minute-idle re-fire (see below) shares this pid across every run and is
+# distinguished by its timestamp alone, not by pid; pid only distinguishes a
+# genuinely different session's own shell process. Suppress entirely with
+# `AE_WORKTREE_REAP_DISABLE=1`; PATH-absence degrades to a warning, same discipline
+# as the branch-prune guard below:
+if [ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]; then
+  if command -v ds-cleanup-worktrees >/dev/null 2>&1; then
+    REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || REPO_ROOT=""
+    if [ -n "$REPO_ROOT" ]; then
+      mkdir -p "$REPO_ROOT/.agentic" 2>/dev/null || true
+      ( echo "=== reap $(date -u +%Y-%m-%dT%H:%M:%SZ) pid $$ ===" >> "$REPO_ROOT/.agentic/worktree-reap.log"
+        ds-cleanup-worktrees --repo "$REPO_ROOT" \
+          >> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) &
+    fi
+    # else: --show-toplevel failed (not a git repo) - skip silently, nothing to reap.
+  else
+    echo "WARNING: ds-cleanup-worktrees not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Session-start worktree reap skipped this session." >&2
+  fi
+fi
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
 # Local branch prune (four-layer subsumption predicate - ancestry, squash-patch
 # equivalence, tip-subsumption, content-on-main; see §Branch prune below) runs
@@ -194,6 +229,8 @@ else
 fi
 ```
 
+**Residual, named not fixed (round-2 Minor 4): undisclosed reap/branch-prune concurrency.** The automatic reap above is backgrounded (`&`) while `ds-branch-prune` immediately following it in the same script runs synchronously - the two race for the remainder of this preflight. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both already soft-fail by design (the reap's subprocess appends its own errors to the log via `|| true`, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the reap can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion - but this is the one accepted trade-off in this change that was not previously disclosed anywhere in this document.
+
 ## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
 
 `/ds-implement-ticket` Phase 8's own cleanup block (§Isolation worktree cleanup commands above) only fires on that command's own success path - after a push succeeds on the ticket flow. Any ad-hoc isolation-worktree spawn made OUTSIDE that flow (a Worker per `AGENTS.md` §Workflow, a scratch investigation spawn, a one-off fix not run through `/ds-implement-ticket`) has no equivalent automatic trigger and is the single largest confirmed source of orphaned worktrees in practice - measured against this repo's own history, branches like `worktree-agent-<id>` (default-named, never renamed) and abandoned rework rounds (`ds-round8`..`ds-round12`, `work-round7`, `fix-gigi-round5` - legacy remnants that predate the round-N rework mechanic below and would not recur under it) accounted for the majority of accumulated non-root worktrees.
@@ -202,11 +239,13 @@ fi
 
 **Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
 
-**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, or surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
+**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - run automatically and unattended by the backgrounded session-start reap above, a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
-Even with every prior gate passing (clean, unlocked, past the age floor, not self, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone, `SKIP_UNPROVEN` worktrees never resolve - they simply persist.
+Even with every prior gate passing (clean, unlocked, past the age floor, not self, not protected-content), `bin/ds-cleanup-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone by this predicate, `SKIP_UNPROVEN` worktrees do not resolve on their own. **This is now qualified, not absolute (DS-196):** a `SKIP_UNPROVEN` branch that has since been pushed to `origin` and reached a resolved (non-open) PR state can resolve via the separate `origin_reachable` evidence source (see the session-start reap above), which is LENIENT-only and evaluated after `pr_state` - `SKIP_UNPROVEN` itself, produced by the STRICT branch-deletion path, is untouched by this; only the worktree-removal path gains the new resolution route. A branch that is genuinely unpushed, with no PR, still never resolves.
+
+**`SKIP_RECENT_ACTIVITY` masking note:** the new file-activity liveness gate (`--activity-window-hours`, default 3.0) is checked immediately after the age floor and before the dirty/locked checks, so a worktree that is BOTH recently active AND dirty or locked reports only `SKIP_RECENT_ACTIVITY` in a plain run - the dirty/locked facts are still true but not the reported reason. This is the same masking class as the pre-existing `SKIP_TOO_YOUNG` age-floor gate; `--explain` surfaces the full evidence for a given entry regardless of which single-reason bucket it lands in.
 
 This repo already solved the identical problem for BRANCHES: a 2026-08-11 manual one-off operator sweep (DS-153) archived 75 branches its own four-layer subsumption predicate could not prove into one verified `git bundle` (`.agentic/branch-archive/`) before deleting them, rather than leaving them unresolved forever - `bin/ds-branch-prune` itself does not call `git bundle`. `bin/ds-cleanup-worktrees --archive-unproven` extends that exact pattern to WORKTREES - OPT-IN, never the default:
 
@@ -250,6 +289,29 @@ These are authorized once, for every session, and are never an operator choice:
 - Removing an isolation or feature worktree per §Isolation worktree cleanup
   commands / §Feature worktree cleanup commands above.
 - Running the session-start worktree prune, branch prune, and `git fetch --prune`.
+  Note: `git fetch --prune` removes stale remote-tracking refs, and origin-
+  reachability evidence (see the session-start reap below) depends on those
+  refs surviving locally - as `fetch.prune` runs, coverage for this evidence
+  source shrinks toward pre-DS-196 behavior (fail-closed, no data loss), not
+  silently wrong; this is a consequence of an already-standing authorization,
+  not a hypothetical.
+- Running the automatic, backgrounded session-start worktree reap
+  (`bin/ds-cleanup-worktrees`, invoked from the session-start prune block
+  above) against worktrees other than the current session's own -
+  suppressible via `AE_WORKTREE_REAP_DISABLE=1`. This authorization also
+  covers its 30-minute-idle preflight re-run (per `content/sections/11-worktree-lifecycle.md`):
+  every gate re-evaluates fresh git/filesystem state on each invocation, so
+  a re-fire cannot remove anything a fresh run would not independently judge
+  safe at that moment - a worktree that became active in the interim is
+  re-protected by the activity gate. **Residual, named not fixed:** a live
+  session's own or a second live session's clean, pushed, idle-past-window
+  worktree (including the current session's own non-cwd feature worktree,
+  reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
+  cwd worktree) can be reaped out from under it - the harness lock covers
+  only RUNNING agents. No commits are ever lost (removal is worktree-only,
+  evidence-gated); the activity window is the deliberate defense; no
+  cross-session-branch-skip gate is added, since the tool has no visibility
+  into other sessions' branches beyond the locked flag.
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in

@@ -69,6 +69,11 @@ _spec = _ilu.spec_from_loader("ds_cleanup_worktrees", _loader)
 ds_cleanup_worktrees = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
 _loader.exec_module(ds_cleanup_worktrees)
 
+import worktree_model  # noqa: E402 - DS-196: needed directly for the
+# in-process mutation scenarios below (monkeypatching _EVIDENCE_CHECKS_LENIENT
+# entries and building WorktreeEntry literals), which the module-level
+# `ds_cleanup_worktrees` re-export set above does not carry.
+
 
 # --------------------------------------------------------------------------
 # git helpers
@@ -135,6 +140,7 @@ def run_reap(
     no_gh: bool = True,
     base: str = "main",
     min_age_hours: str = "0",
+    activity_window_hours: str = "0",
     extra=None,
     cwd: Path = None,
     gh_dir: Path = None,
@@ -149,7 +155,15 @@ def run_reap(
     `_fake_git_dir_remove_fails` below), is prepended ahead of `gh_dir` so a
     stub `git` that intercepts only `git worktree remove` (passing every
     other invocation through to the real binary) can force a removal
-    failure deterministically."""
+    failure deterministically.
+
+    `activity_window_hours` (DS-196) defaults to `"0"`, mirroring
+    `min_age_hours`'s own default: every worktree this suite creates is
+    freshly minted (files touched seconds ago), so the real 3.0h default
+    would otherwise mask every other gate under test, exactly like the
+    age floor's own rationale above. Pass `None` to omit the flag entirely
+    (falls back to the CLI's own 3.0 default) for scenarios that
+    specifically exercise the activity gate itself."""
     cmd = [sys.executable, str(SCRIPT), "--repo", str(repo), "--base", base, "--explain"]
     if dry_run:
         cmd.append("--dry-run")
@@ -157,6 +171,8 @@ def run_reap(
         cmd.append("--no-gh")
     if min_age_hours is not None:
         cmd += ["--min-age-hours", min_age_hours]
+    if activity_window_hours is not None:
+        cmd += ["--activity-window-hours", activity_window_hours]
     if extra:
         cmd += extra
     env = None
@@ -1954,7 +1970,43 @@ def test_too_young_note_line_printed_when_nonzero(tmp_path):
     # print `too_young_count + 1` (a deliberately wrong count) still passed
     # every assertion in the pre-fix version of this test.
     assert "NOTE: 1 worktree(s) skipped because they are younger than" in proc.stdout, proc.stdout
-    assert "--min-age-hours 0" in proc.stdout
+    # DS-196 round-4 Minor 3: the prior version of this NOTE claimed
+    # "Pass --min-age-hours 0 to lift this specific floor for them" -
+    # false, since `age_hours is None or age_hours < min_age_hours` still
+    # fails CLOSED on a None reading at min_age_hours=0.
+    # DS-196 round-5 Major 1: round-4's replacement ("See --help for
+    # --min-age-hours' exact semantics") was itself false - `--help` on
+    # this parser carries no `help=` text for any flag, verified by
+    # executing `python3 bin/ds-cleanup-worktrees --help` and finding no
+    # `add_argument` call with a `help=` string. Deleted the pointer
+    # outright rather than supply a third unverified replacement; this
+    # assertion is narrowed to what the NOTE can actually support -
+    # naming the gate as one of several, not a guarantee of removal.
+    assert "--min-age-hours" in proc.stdout
+    assert "only one of several gates" in proc.stdout
+    assert "See --help" not in proc.stdout
+    assert str(wt) in worktree_paths(repo)
+
+
+# DS-196 round-5 Minor 4: the SKIP_TOO_YOUNG NOTE has a positive presence
+# assertion above (test_too_young_note_line_printed_when_nonzero); its
+# sibling SKIP_RECENT_ACTIVITY NOTE had none until now - round-4 converted
+# the activity NOTE's only assertion from a presence check into an absence
+# check (`'to narrow this floor to' not in stdout`), so blanking the NOTE's
+# `print(...)` entirely still passed every assertion touching it. Confirmed
+# failing pre-fix: blanking the NOTE's `print(...)` call to `print("")` in
+# a scratch copy left every existing test at 184 passed, this one included
+# only after being added and asserted to redden against that same mutation.
+def test_recent_activity_note_line_printed_when_nonzero(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-activity-note", "worktree-agent-activity-note", push=False)
+
+    proc = run_reap(repo, dry_run=True, activity_window_hours="1000000")
+    assert proc.returncode == 0, proc.stderr
+    assert "skipped-recent-activity=1" in summary_line(proc.stdout)
+    assert "NOTE:" in proc.stdout and "activity window" in proc.stdout, proc.stdout
+    assert "NOTE: 1 worktree(s) skipped because a file inside them was touched" in proc.stdout, proc.stdout
+    assert "--activity-window-hours" in proc.stdout
     assert str(wt) in worktree_paths(repo)
 
 
@@ -2843,4 +2895,318 @@ def test_archive_bundle_skips_exclusion_when_branch_shares_no_history_with_base(
     assert not any(line.startswith(b"-") for line in header_lines), (
         f"expected NO prerequisite header line when the branch shares no history "
         f"with the exclude ref, got: {header_lines!r}"
+    )
+
+
+# --------------------------------------------------------------------------
+# DS-196: origin-reachability evidence + recent-activity gate. Fork-point-
+# explicit fixture scenarios (a)-(e) per the architect plan's step 7.
+# --------------------------------------------------------------------------
+
+
+def _worktree_entry(wt_path: Path, branch: str) -> "worktree_model.WorktreeEntry":
+    """Builds a `WorktreeEntry` literal directly (rather than round-tripping
+    through `parse_porcelain`) for the in-process `evaluate_entry` calls
+    below - simpler, and this suite already exercises `parse_porcelain`
+    itself elsewhere."""
+    head_sha = _git(wt_path, "rev-parse", "HEAD").stdout.strip()
+    return worktree_model.WorktreeEntry(
+        path=str(wt_path), head=head_sha, branch=branch, is_detached=False
+    )
+
+
+def _backdate_worktree_files(wt_path: Path, hours_ago: float) -> None:
+    """Sets every FILE's mtime under `wt_path` to `hours_ago` in the past,
+    skipping `.git` - mirrors `_worktree_activity_hours`'s own prune-dir
+    set closely enough for this fixture's purpose (this suite never
+    exercises the OTHER pruned dirs, e.g. node_modules, since none of its
+    fixtures create them)."""
+    target = time.time() - hours_ago * 3600.0
+    for dirpath, dirnames, filenames in os.walk(wt_path):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        for filename in filenames:
+            os.utime(os.path.join(dirpath, filename), (target, target))
+
+
+# --------------------------------------------------------------------------
+# 35. DS-196 scenario (a): reachable-not-ancestor -> REMOVE via
+#     origin-reachable. Named mutation: force `_check_origin_reachable` to
+#     return `None` unconditionally (NEVER delete it - deleting it raises
+#     NameError/KeyError, not a clean fallback) - confirms the identical
+#     facts redden to SKIP_UNPROVEN.
+# --------------------------------------------------------------------------
+
+
+def test_ds196_scenario_a_reachable_not_ancestor_removed_via_origin_reachable(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-196a", "worktree-agent-196a", push=False)
+    (wt / "unique.txt").write_text("unique work, pushed but not merged into main\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unique work")
+    _git(wt, "push", "-q", "-u", "origin", "worktree-agent-196a")
+
+    fake_gh_dir = _fake_gh_dir(tmp_path)
+    monkeypatch.setenv("PATH", f"{fake_gh_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(wt, "worktree-agent-196a")
+    kwargs = dict(
+        gh_ok=True,
+        allow_network=True,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+        no_origin_reachable_evidence=False,
+    )
+    result = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert result["outcome"] == "REMOVE", result
+    assert result["reason"] == "origin-reachable"
+
+    monkeypatch.setitem(worktree_model._EVIDENCE_CHECKS_LENIENT, "origin_reachable", lambda facts: None)
+    mutated = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert mutated["outcome"] == "SKIP_UNPROVEN", mutated
+
+
+# --------------------------------------------------------------------------
+# 36. DS-196 scenario (b): unreachable, unpushed tip -> stays SKIP_UNPROVEN.
+#     Keeps run_reap's default (no_gh=True, per the plan's Minor 1 note).
+# --------------------------------------------------------------------------
+
+
+def test_ds196_scenario_b_unreachable_unpushed_stays_unproven(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-196b", "worktree-agent-196b", push=False)
+    (wt / "unique.txt").write_text("never pushed anywhere - no origin/* ref can ever contain it\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unpushed unique work")
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+    assert str(wt) in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 37. DS-196 scenario (c): round-N-in-review - clean, idle-past-window,
+#     origin-reachable, pr_state == "OPEN" -> stays SKIP_PR_OPEN
+#     (Critical-fix regression, QA scenario 7). Named mutation: reordering
+#     origin_reachable BEFORE pr_state reddens the identical facts to
+#     REMOVE.
+# --------------------------------------------------------------------------
+
+
+def test_ds196_scenario_c_open_pr_wins_over_origin_reachable(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-196c", "worktree-agent-196c", push=False)
+    (wt / "unique.txt").write_text("work behind an open PR, already pushed\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unique work")
+    _git(wt, "push", "-q", "-u", "origin", "worktree-agent-196c")
+
+    proc = run_reap(repo, dry_run=False, no_gh=False, gh_dir=_fake_gh_dir(tmp_path, pr_state="OPEN"))
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_PR_OPEN)"
+    assert str(wt) in worktree_paths(repo)
+
+
+def test_ds196_scenario_c_reorder_mutation_reddens_to_remove(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-196c2", "worktree-agent-196c2", push=False)
+    (wt / "unique.txt").write_text("work behind an open PR, already pushed\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unique work")
+    _git(wt, "push", "-q", "-u", "origin", "worktree-agent-196c2")
+
+    fake_gh_dir = _fake_gh_dir(tmp_path, pr_state="OPEN")
+    monkeypatch.setenv("PATH", f"{fake_gh_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(wt, "worktree-agent-196c2")
+    kwargs = dict(
+        gh_ok=True,
+        allow_network=True,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+        no_origin_reachable_evidence=False,
+    )
+    baseline = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert baseline["outcome"] == "SKIP_UNPROVEN"
+    assert baseline["reason"] == "SKIP_PR_OPEN"
+
+    mutated_order = (
+        "merge_evidence",
+        "content_subsumption",
+        "origin_reachable",
+        "pr_state",
+        "ls_remote_status",
+    )
+
+    def _mutated_disposition_for(entry_, wt_class_, facts_, **kw):
+        kw.setdefault("merge_evidence_order", mutated_order)
+        return worktree_model.disposition_for(entry_, wt_class_, facts_, **kw)
+
+    monkeypatch.setattr(mod, "disposition_for", _mutated_disposition_for)
+    mutated = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert mutated["outcome"] == "REMOVE", mutated
+
+
+# --------------------------------------------------------------------------
+# 38. DS-196 scenario (d): stale-remote-tracking-ref caveat - after the
+#     origin branch is deleted upstream (but the LOCAL origin/<branch>
+#     remote-tracking ref is never pruned) plus reflog-expire-before-gc on
+#     BOTH the working repo and the bare origin, origin_reachable still
+#     reports "reachable" via the surviving local ref (QA scenario 9).
+# --------------------------------------------------------------------------
+
+
+def test_ds196_scenario_d_stale_remote_tracking_ref_still_reachable(tmp_path):
+    repo, origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-196d"
+    wt = add_worktree(repo, ".claude/worktrees/agent-196d", branch, push=False)
+    (wt / "unique.txt").write_text("squash-merged upstream; origin branch later deleted\n")
+    _git(wt, "add", "unique.txt")
+    _git(wt, "commit", "-q", "-m", "unique work")
+    _git(wt, "push", "-q", "-u", "origin", branch)
+
+    # Delete the branch DIRECTLY on the bare origin repo (simulating a
+    # squash-merge-and-delete upstream flow performed by someone else, or
+    # via the GitHub UI/API) rather than `git push origin --delete` FROM
+    # `repo` - measured: `push --delete` from the owning repo also deletes
+    # that repo's OWN local `origin/<branch>` remote-tracking ref as a
+    # side effect of the push round-trip, defeating the very staleness
+    # this scenario needs. Deleting on the bare repo directly leaves
+    # `repo`'s local `origin/<branch>` ref untouched (no `git remote
+    # prune origin` ever runs here) - which is exactly what
+    # `_compute_origin_reachable`'s `git branch -r --contains` reads (a
+    # purely local git call, no network round-trip).
+    subprocess.run(["git", "-C", str(origin), "branch", "-D", branch], capture_output=True, text=True, check=True)
+
+    # Reflog-expire BEFORE gc on BOTH repos (`git gc --prune=now` alone
+    # does NOT expire reflog entries - see this file's DS-191 comment
+    # above) - proves the surviving reachability comes from the real
+    # origin/<branch> ref, not from reflog-only reachability that a gc
+    # would otherwise have left dangling.
+    subprocess.run(
+        ["git", "-C", str(origin), "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all"],
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["git", "-C", str(origin), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+    _git(repo, "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+    subprocess.run(["git", "-C", str(repo), "gc", "--prune=now", "--aggressive"], capture_output=True, text=True)
+
+    proc = run_reap(repo, dry_run=False, no_gh=False, gh_dir=_fake_gh_dir(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "REMOVE (origin-reachable)", result
+    assert str(wt) not in worktree_paths(repo)
+
+
+# --------------------------------------------------------------------------
+# 39. DS-196 scenario (e): recent-activity gate - a worktree with a file
+#     touched inside `--activity-window-hours` is SKIP_RECENT_ACTIVITY
+#     regardless of otherwise-trivial REMOVE-eligible evidence; once idle
+#     past the window (backdated mtimes) it proceeds to REMOVE. Named
+#     mutation: defeating `_worktree_activity_hours` (simulating the gate
+#     being removed) reddens the pre-window assertion.
+# --------------------------------------------------------------------------
+
+
+def test_ds196_scenario_e_recent_activity_gated_then_removed(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # Zero unique commits - trivially REMOVE-eligible via ancestor-of-base
+    # once the activity gate clears, isolating this test to the activity
+    # gate alone.
+    wt = add_worktree(repo, ".claude/worktrees/agent-196e", "worktree-agent-196e", push=False)
+
+    proc_inside_window = run_reap(repo, dry_run=True, activity_window_hours="1000000")
+    assert proc_inside_window.returncode == 0, proc_inside_window.stderr
+    result_inside = outcomes(proc_inside_window.stdout)
+    assert result_inside[str(wt)] == "SKIP_RECENT_ACTIVITY"
+    assert str(wt) in worktree_paths(repo)
+
+    _backdate_worktree_files(wt, hours_ago=20.0)
+    proc_after = run_reap(repo, dry_run=False, activity_window_hours="1")
+    assert proc_after.returncode == 0, proc_after.stderr
+    result_after = outcomes(proc_after.stdout)
+    assert result_after[str(wt)] == "REMOVE (ancestor-of-base)"
+    assert str(wt) not in worktree_paths(repo)
+
+
+def test_ds196_scenario_e_mutation_defeating_activity_gate_reddens(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-196e2", "worktree-agent-196e2", push=False)
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(wt, "worktree-agent-196e2")
+    kwargs = dict(
+        gh_ok=False,
+        allow_network=False,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=1000000.0,
+        no_origin_reachable_evidence=False,
+    )
+    baseline = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert baseline["outcome"] == "SKIP_RECENT_ACTIVITY"
+
+    # Named mutation: simulates the gate being removed/defeated by forcing
+    # the underlying activity reading to always report an ancient elapsed
+    # time, regardless of real file mtimes.
+    monkeypatch.setattr(mod, "_worktree_activity_hours", lambda path: 1e9)
+    mutated = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.ISOLATION, "main", **kwargs)
+    assert mutated["outcome"] == "REMOVE", mutated
+
+
+# --------------------------------------------------------------------------
+# 40. DS-196: bucket-sum-equals-entries invariant extended to
+#     SKIP_RECENT_ACTIVITY (QA scenario 4). Mutation: renaming the bucket
+#     off the SKIP_ prefix reddens this test's own `startswith("skipped-")`
+#     filter, proving the naming convention this filter (and the real
+#     tool's `_field_name` helper) depends on is load-bearing.
+# --------------------------------------------------------------------------
+
+
+def test_ds196_bucket_sum_includes_recent_activity(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt_remove = add_worktree(repo, ".claude/worktrees/agent-196f-remove", "worktree-agent-196f-remove", push=False)
+    _backdate_worktree_files(wt_remove, hours_ago=2000.0)
+    add_worktree(repo, ".claude/worktrees/agent-196f-active", "worktree-agent-196f-active", push=False)
+
+    proc = run_reap(repo, dry_run=True, activity_window_hours="1000")
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    entries = counts.pop("entries")
+    removed = counts.pop("removed")
+    counts.pop("pruned-admin", None)
+    assert counts.get("skipped-recent-activity", 0) >= 1
+    skip_sum = sum(v for k, v in counts.items() if k.startswith("skipped-"))
+    assert removed + skip_sum == entries, f"bucket sum {removed + skip_sum} != entries {entries} (line: {line})"
+
+
+def test_ds196_bucket_sum_mutation_renaming_off_skip_prefix_reddens(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt_remove = add_worktree(repo, ".claude/worktrees/agent-196g-remove", "worktree-agent-196g-remove", push=False)
+    _backdate_worktree_files(wt_remove, hours_ago=2000.0)
+    add_worktree(repo, ".claude/worktrees/agent-196g-active", "worktree-agent-196g-active", push=False)
+
+    proc = run_reap(repo, dry_run=True, activity_window_hours="1000")
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    entries = counts.pop("entries")
+    removed = counts.pop("removed")
+    counts.pop("pruned-admin", None)
+
+    if "skipped-recent-activity" in counts:
+        counts["recent-activity"] = counts.pop("skipped-recent-activity")
+    skip_sum = sum(v for k, v in counts.items() if k.startswith("skipped-"))
+    assert removed + skip_sum != entries, (
+        "expected the bucket-sum invariant to break once the bucket is renamed off the "
+        "SKIP_ prefix - if this holds, the invariant silently tolerates a non-conforming "
+        "outcome name"
     )
