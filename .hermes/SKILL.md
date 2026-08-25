@@ -7103,7 +7103,9 @@ Upstream deps: content/references/risk-config-and-tiers.md (role-default tier ta
                the Input Contract's model-param rule defers to);
                content/references/learnings-capture-instruction.md §Session identity
                (the consuming side of the `SESSION_KEY` contract, which fixes the
-               spawn brief as the only source an agent may read the key from).
+               spawn brief as the only source an agent may read the key from);
+               content/references/agent-team.md (the normative named-agent table
+               Section 4's "prefer named agents" rule points to).
 
 Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
@@ -7134,7 +7136,7 @@ The core principle: **the main agent is a conductor, never an implementer.** The
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
-The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. Background `Agent` spawns notify the main agent on completion - there is no separate output-polling tool to invoke.
+The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. On the current Claude Code harness, background `Agent` spawns notify the main agent on completion - there is no separate output-polling tool to invoke.
 
 ---
 
@@ -7355,7 +7357,7 @@ No subagent - named or `general-purpose` - can spawn further subagents; the main
 
 **Default: background.**
 
-**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the TaskOutput notification rather than blocking inline.
+**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the completion notification rather than blocking inline.
 
 | Condition | Run mode |
 |---|---|
@@ -7584,7 +7586,7 @@ This document is the canonical source for The Subagent Protocol. **When this doc
 
 **Document hierarchy:**
 - **This document** - canonical specification for the outer delegation frame; governs all conflicts within that scope
-- **`~/.claude/CLAUDE.md`** - carries only the Skill Loading table that triggers the `/dinostack` skill; it does not itself contain risk classification rules or a delegation decision table on a session where the skill symlink resolves. The canonical risk signal list and delegation decision table live in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, which are assembled into the `/dinostack` skill embed and are already resident every session
+- **`~/.claude/CLAUDE.md`** - carries only the Skill Loading table that triggers the `/dinostack` skill; it does not itself contain risk classification rules or a delegation decision table on a session where the skill symlink resolves. The canonical risk signal list and delegation decision table live in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, which are assembled into the `/dinostack` skill embed and load when that skill is invoked
 - **`~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
