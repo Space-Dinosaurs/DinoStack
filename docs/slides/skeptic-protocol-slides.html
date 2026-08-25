@@ -1473,7 +1473,7 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>Telemetry emit check</strong><br />
-At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br /><br />
+At every instrumented boundary (engineer/skeptic/qa spawn): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> events (or, for ad-hoc sessions, the hook-emitted <code>spawn_start</code>). <code>conductor_direct</code> is retired and its absence is not a finding.<br /><br />
 Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/ds-cost</code> dashboards accurate).
 </div>
 <div class="card">
