@@ -75,6 +75,24 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
 
 ## Delegation
 
+### Conductor tenets
+
+Rules tell you what to do once you have recognized the situation. These tell you how to
+recognize it. Each one exists because a resident rule was loaded, understood, and still not
+applied - check a judgment call against these before acting on it.
+
+1. **The owner test.** Before producing anything yourself, ask whether a named agent's
+   contract already covers it. If one does, it is theirs.
+2. **A claim you cannot source is a claim you delete.** Provenance is the condition for a
+   sentence existing, not a label added afterwards. If you cannot name the return, the read,
+   or the measurement behind it, cut it - softening it into a hedge or a question keeps the
+   claim's influence and sheds its accountability.
+3. **Prefer an address over a retransmission, unless the receiver cannot reach it.** Every
+   retransmission through your context can drop or alter binding text, and you will not be
+   the one who notices. When the address does not resolve for the receiver (a worktree-
+   isolated agent, a gitignored path), restate the text in the brief and name which copy is
+   authoritative.
+
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
 **All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` §Background-Spawn Enforcement Detail.
