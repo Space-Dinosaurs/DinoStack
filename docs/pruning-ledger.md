@@ -35,4 +35,110 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 
 ---
 
-No entries yet. The first `/ds-prune-harness` or `/ds-representation-audit` run whose candidates the user approves, defers, or rejects appends below this line.
+## PL-20260825-1
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/design-goals.md (title line; Goal 2; Goal 3; Non-Goals section)
+- Signal(s): Signal 5 (orphaned legacy text) + internal contradiction with the live corpus
+- Confidence: HIGH
+- Rationale: Title still reads "claude-protocols" (pre-rename); Goal 3 cites two nonexistent paths (.claude/rules/decisions.md, claude-hooks/stop-context.js) and a false "/ds-memory-update is the only write path to decisions.md" claim; Goal 2 enumerates two risk levels omitting Trivial; Non-Goals ("does not commit, push, merge") contradict the shipped /ds-implement-ticket Phases 8-12 auto-merge workflow. Approved for rewrite, not deletion; Goal 4 (three-question partition test) is canonical per AGENTS.md and must be preserved verbatim.
+- Disposition:
+
+## PL-20260825-2
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/skeptic-protocol.md (Section 0 "Risk Assessment"; "Document hierarchy" passage; ~/.claude/agents/skeptic.md citation)
+- Signal(s): Signal 3 (verbatim duplication) + Signal 5 (orphaned legacy text)
+- Confidence: HIGH
+- Rationale: Section 0 duplicates the Elevated-signal and common-rationalizations tables canonical in content/sections/02-delegation.md, 04-risk-classification.md, and delegation-detail.md (a known DS-48 multi-copy drift hazard); states risk is "Low or Elevated" only, missing Trivial; the "~/.claude/CLAUDE.md contains inline risk classification rules" hierarchy claim is stale post-DS-143. Approved for pointer-izing after confirming the skeptic agent's read chain resolves the canonical table.
+- Disposition:
+
+## PL-20260825-3
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/subagent-protocol.md (Section 12 sync targets; Section 11 path citation; Rule 4 / Section 4 agent-type tables; TaskOutput references)
+- Signal(s): Signal 5 (orphaned legacy text) + Signal 3 (contradiction with the named-agent roster)
+- Confidence: HIGH
+- Rationale: Section 12 instructs updating ~/.claude/CLAUDE.md risk tables that no longer exist post-DS-143; Section 11 cites nonexistent .claude/rules/decisions.md; TaskOutput references describe a replaced harness tool shape; Rule 4 and Section 4 tables recommend general-purpose Workers broadly, contradicting the named DinoStack agent roster. Approved for rewrite; the general-purpose guidance is to be scoped to harnesses lacking named agents (portability pillar), not deleted.
+- Disposition:
+
+## PL-20260825-4
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/tier-map-example.yml (model id entries)
+- Signal(s): Signal 1 (explicit model-version reference)
+- Confidence: HIGH
+- Rationale: Example tier map names gpt-4o-mini, gpt-4o, o3, gemini-2.0-* era models, stale relative to current provider lineups. The file self-disclaims ("examples only, not kept current"), so this is a refresh, not a behavioral premise on a dead model. Operator decision 2026-08-25: explicitly deferred - the disclaimer is accepted as sufficient for now; refresh in a later pass.
+- Disposition:
+
+## PL-20260825-5
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/conductor-turn-format.md (retired-mechanism passages: _status_only_flag, _answer_relevance_flag, volume check, WAITING_LINE_MAX_CHARS, residuals kept "for the git-blame trail", historical Known-uncovered-shapes rows)
+- Signal(s): Signal 5 (orphaned legacy text) + Signal 6 (complexity)
+- Confidence: MEDIUM
+- Rationale: DS-171 deleted these checks from hooks/enforce-turn-shape.py; the reference doc retains history-of-deleted-code prose that git history already archives. Operator decision 2026-08-25: deferred (not in the approved first wave); carries over to the next run.
+- Disposition:
+
+## PL-20260825-6
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/events-log.md (the deprecated conductor_direct event documentation block)
+- Signal(s): Signal 5 (orphaned legacy text)
+- Confidence: MEDIUM
+- Rationale: Block is self-labeled deprecated and historical-only; nothing emits or consumes the event (2026-06-27 decision: a deterministic hook cannot detect an LLM-semantic event). Approved for deletion, optionally leaving a one-line legacy-name note for log parsers reading old events.jsonl files.
+- Disposition:
+
+## PL-20260825-7
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/regression-test-obligation.md + content/references/qa-regression-obligation.md + content/agents/skeptic.md Step 9 (triplicated pre-fix-failure verification procedure)
+- Signal(s): Signal 3 (verbatim duplication)
+- Confidence: MEDIUM
+- Rationale: The same scratch-worktree pre-fix-failure verification procedure is maintained near-verbatim in three places, a silent-drift hazard. Operator decision 2026-08-25: explicitly deferred - consolidation has higher mechanical cost (every citing spawn-brief template must still resolve one Read away) and is not in the approved first wave.
+- Disposition:
+
+## PL-20260825-8
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/conventions-detail.md (Project Config catalog) + content/references/risk-config-and-tiers.md (Config Toggle Catalog)
+- Signal(s): Signal 3 (verbatim duplication)
+- Confidence: MEDIUM
+- Rationale: The full 24-toggle catalog is maintained twice; both manifests admit the sync burden, and the count appears in four surface forms across 8 CI-pinned prose sites. Operator decision 2026-08-25: explicitly deferred - consolidating moves the pinned sites and must update bin/tests/test_tracker_writeback_ranking_spec.py in the same PR; not in the approved first wave.
+- Disposition:
+
+## PL-20260825-9
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/agents/adr-drift-detector.md (4 copies) + content/agents/adr-generator.md (5 copies, one inside the fenced ADR template) + smaller repetition in sibling agent files
+- Signal(s): Signal 3 (verbatim duplication within single files)
+- Confidence: MEDIUM
+- Rationale: The /dinostack prerequisite blockquote is repeated 4-5 times within single agent files; one top-of-file copy is the intentional pattern. The copy inside adr-generator.md's fenced ADR template is an outright defect - every generated ADR ships a skill-load instruction in its front matter. Approved: dedupe to one copy per file and remove the in-fence copy as a bug fix.
+- Disposition:
+
+## PL-20260825-10
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/agents/release-orchestrator.md (Phases 6-8 self-spawn instructions)
+- Signal(s): Signal 5 (legacy text) + contradiction with live enforcement
+- Confidence: MEDIUM
+- Rationale: release-orchestrator is itself a subagent and subagents cannot spawn subagents (hooks/enforce-orchestrator-singularity.py denies exactly this), yet Phases 6-8 instruct it to spawn the debugger and qa-engineer. Approved: rewrite to hand failures and QA needs back to the conductor via structured returns. The singularity hook itself is a floor and is not a candidate.
+- Disposition:
+
+## PL-20260825-11
+- Status: REJECTED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/references/wrap-context-format.md (10-branch merge ladder)
+- Signal(s): Signal 6 (complexity, consider-simplifying only)
+- Confidence: LOW
+- Rationale: The merge ladder is intricate but byte-pinned from its NORMATIVE marker to EOF by hooks/tests/test-wrap-context-format-golden.js; simplification is a deliberate gate-updating change with high cost against uncertain benefit.
+- Disposition: Rejected 2026-08-25 - leave as is unless a concrete wrap defect ever traces to ladder complexity; recorded so future runs do not re-litigate from scratch.
+
+## PL-20260825-12
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
+- File(s): content/commands/ds-cost.md (V1 "instruments engineer/skeptic/qa only" scope footer)
+- Signal(s): Signal 5 (possible staleness)
+- Confidence: LOW
+- Rationale: events-log.md documents hook-emitted spawn_start telemetry for every subagent spawn (DS-160), but whether the footer describes the emit sites or ds-cost's aggregation logic was not determinable from prose alone. Operator decision 2026-08-25: deferred pending verification against bin/'s cost aggregation; no standalone ticket warranted.
+- Disposition:
