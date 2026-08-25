@@ -67,6 +67,11 @@ docs/technical/
 docs/operations/
 docs/overview/*
 !docs/overview/vision.md
+# The directory negation lets git descend; the `_proposed/*` re-exclusion is load-bearing because a
+# broader negation would be a later match than the .env/.DS_Store rules above and override them.
+!docs/overview/_proposed/
+docs/overview/_proposed/*
+!docs/overview/_proposed/*.md
 docs/_archive/session-learnings/
 
 # Stray .agentic/ runtime working dirs created when a command/subagent runs with a non-root cwd.
