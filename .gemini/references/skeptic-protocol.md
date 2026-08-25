@@ -541,6 +541,12 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Major).
 
+**A plan component with no stated requirement is a finding, on a plan review.** Before probing plan correctness, the Skeptic asks whether the plan's own "Simplest viable alternative" would satisfy the acceptance criteria, and requires each component beyond it to be tied to a stated requirement rather than an inferred motivation. See `content/agents/skeptic.md` Step 0.5 for the check (plan-review only) and severity default (Major).
+
+**An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
+
+**An abstraction serving only one call site or a hypothetical requirement is a finding.** This is the DRY review's counterweight sub-category: a helper, wrapper, or config layer with no second real caller and no stated requirement is premature, not a virtue. See `content/agents/skeptic.md` Step 2.5 "Unnecessary abstraction" for the check and severity default (Minor, Major when it adds a public surface), and `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and its precedence over "Helper extraction opportunities."
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.
