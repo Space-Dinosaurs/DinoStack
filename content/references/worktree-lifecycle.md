@@ -22,7 +22,15 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          one-off operator sweep already established for branches
          (DS-153; bin/ds-branch-prune itself does not call `git bundle`)
          from branches to worktrees, for the `SKIP_UNPROVEN` class that
-         every other gate cannot resolve).
+         every other gate cannot resolve), the Implicit Trivial batching
+         section (the canonical single-source mechanism for opening one
+         draft PR at the first push of a Trivial-tier tweak and
+         continuing it via detached-HEAD nested-worktree seeding across
+         subsequent related tweaks, referenced by a pointer from
+         content/sections/04-risk-classification.md §Trivial signals),
+         and the SKIP_UNREFERENCED_COMMIT section (the distinct
+         detached-HEAD-unpushed-commit disposition that mechanism's
+         crash-before-push path produces).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -32,7 +40,11 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md §Standing authorizations,
             content/references/conductor-operating-rules.md:20,
             content/rules/conventions.md §Git Workflow (rework-vs-superseding
-            bullet points here for the round-N mechanic).
+            bullet points here for the round-N mechanic; also the
+            Implicit Trivial batching exception at §Commit each fix
+            immediately during testing),
+            content/sections/04-risk-classification.md §Trivial signals
+            (pointer to the Implicit Trivial batching section).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -163,6 +175,229 @@ Failure-mode table:
 
 Deliberately unchanged by this mechanic: Skeptic review rigor (a fresh Skeptic invocation still reviews the same open PR's branch on round N - see `content/references/skeptic-protocol.md`), the CI check set, strict required-checks + near-merge rebase policy, the force-push prohibition, and DCO. Superseding (a wholesale approach replacement) still closes + rebases per `content/rules/conventions.md` §Git Workflow - this mechanic applies to rework only. DS-123 (the harness worktree-fallback quirk) remains open and unresolved by this mechanic; the recovery procedure above is mitigation, not a fix.
 
+## Implicit Trivial batching: open the PR at first push
+
+A Trivial-classified change (`content/sections/04-risk-classification.md` §Trivial
+signals) commits and pushes immediately, from a fresh, disposable
+`isolation:"worktree"` Trivial-path engineer spawn (the Trivial tier's real
+contract is plain prose per `content/commands/ds-implement-ticket.md:1545` -
+the tier carries no `worktree_setup` field; the Elevated-only contract at
+`:1543`/`:1615`/`:1621` is not used here). The **first** tweak to a surface
+opens a **draft** PR immediately. Every continuation is seeded via a
+detached-HEAD checkout of the batch's fetched remote tip. CI runs on every
+push; nothing is deferred or skipped.
+
+### Pre-spawn continuation judgment
+
+Before spawning, the conductor decides continuation vs. new work from
+conversational context - the same judgment class as the precedence rules
+below. Ambiguity fails closed to not-a-continuation (mint a fresh
+branch/PR rather than risk colliding with an unrelated batch).
+
+### Seeding mechanics
+
+**Continuation** (an existing batch): the Trivial engineer is briefed in
+plain prose (per `:1545`'s form) to run, inside its harness-provided
+worktree:
+
+```bash
+git -C "$REPO" fetch origin && git -C "$REPO" worktree add "$WORKTREE_PATH" "origin/chore/tweak-<key>"
+```
+
+(bare form - detached HEAD at the fetched tip). `$WORKTREE_PATH` MUST be a
+sibling path under the `.claude/worktrees/` prefix (e.g.
+`.claude/worktrees/agent-<id>-nested`), so a crash leftover classifies
+ISOLATION (path-prefix-only classification), never UNMANAGED.
+
+The engineer edits, commits (`git -C "$WORKTREE_PATH" commit -s`), then
+**pushes from inside the worktree, BEFORE removal**:
+
+```bash
+git -C "$WORKTREE_PATH" push origin "HEAD:refs/heads/chore/tweak-<key>"
+```
+
+**Binding constraint - braced variables always, and the explicit refspec
+is mandatory:** a detached worktree's bare branch-name push
+(`git push -u origin <branch-name>`) is a **silent no-op** - a detached
+HEAD has no branch for git to infer, so nothing is pushed. Do not simplify
+this to a bare branch-name form, and **do not substitute `AGENTS.md:53`'s
+literal** (`git push -u origin <branch-name>`) here - that sequence's
+worker-pushes-then-conductor-acts SEQUENCE carries over, its push FORM
+does not.
+
+Only after the push succeeds does the engineer run `git worktree remove`
+on its own nested worktree and return the already-landed SHA as
+confirmation. **The conductor pushes nothing on this path** - its role is
+to open the draft PR (minting) or note the landed push (continuation);
+push-by-SHA from the primary checkout is reserved for the §Round-N rework
+mechanic's recovery procedure above, never used routinely here.
+
+**New work (minting):** an ordinary base-seeded Trivial spawn - no nesting
+needed, since there is no existing tip to detach against. The engineer
+pushes `HEAD:refs/heads/chore/tweak-<key>` from its own harness worktree;
+the conductor then opens the draft PR against the already-pushed branch, a
+direct instance of the standard worker-pushes-then-conductor-acts
+sequence. On return, the file-overlap scope test
+(`git diff --name-only HEAD~1 HEAD` in the engineer's worktree) runs as
+**verification only, never the batching decision** - the pre-spawn
+continuation judgment above is what decides whether to batch. Unexpected
+overlap with another open batch's files recovers via the §Round-N rework
+mechanic's scratch-worktree cherry-pick recovery row above (the
+main-based-engineer-worktree row of that table); a conflict during that
+recovery is re-delegated to a fresh engineer, never resolved
+conductor-side.
+
+### Crash paths (stated honestly)
+
+- **Crash after push, before self-removal:** the leftover's detached HEAD
+  is reachable via `origin`, so `disposition_for`'s detached-HEAD branch
+  resolves `head_reachable == "reachable"` -> `ELIGIBLE`, and the existing
+  session-start reap genuinely sweeps it.
+- **Crash before push:** the leftover holds an unpushed detached commit ->
+  `SKIP_UNREFERENCED_COMMIT`, refused by design (the same work-preserving
+  family as `SKIP_UNPROVEN` below, but a distinct disposition - see
+  §SKIP_UNREFERENCED_COMMIT below for its own documentation and manual
+  recovery procedure). This design creates the first route to that state;
+  nothing else in the methodology makes detached engineer worktrees.
+
+### Discovery: draft-only, with a bounded backstop
+
+Primary: `gh pr list --state open --json headRefName,number,files,isDraft`
+filtered to `chore/tweak-*` AND `isDraft: true` - a non-draft open tweak
+PR is mid-ship, never a continuation target.
+
+Backstop (covers a create-failure where the push landed but no PR exists
+yet): a branch qualifies only when ALL of: (a) `gh pr list --state all`
+shows no PR of any state for it (a branch whose PR was explicitly closed
+is never a backstop candidate); (b) the tip's author matches the
+session's resolved identity; (c) the tip is within the shared recency
+window. Read empty stdout, never exit status.
+
+### Concurrency: two routes, two matched fixes
+
+- **Route (i), two sessions minting for the same file:** the
+  session-scoped `<key>` token (`<file-basename-slug>-<session-token>`,
+  minted only at new-branch time) means the two branches can never
+  converge - cost is two draft PRs, a cheap visible failure.
+- **Route (ii), two sessions continuing the SAME batch:** an
+  origin-visible claim comment. Before continuing, read the PR's comments
+  (`gh pr view <n> --json comments`); take the **latest** comment matching
+  the `tweak-claim:` pattern, using that comment's own `createdAt` (never
+  `updatedAt`, which moves on unrelated PR activity) as the freshness
+  signal against the shared recency window. A live foreign claim
+  (different token, within the window) -> fail closed to minting a new
+  branch. Free or stale -> post
+  `gh pr comment <n> --body "tweak-claim:<session-token>"` and continue.
+  **Release at ship:** post a `tweak-release:` comment - a **distinct
+  pattern from `tweak-claim:`**, never `tweak-claim:released` - so an
+  interrupted ship's release comment can never parse as a fresh foreign
+  claim (or simply rely on the merge itself removing the PR from the
+  open/draft discovery set).
+
+### Draft-PR rationale and the un-draft corollary
+
+The PR opens `--draft`. [verified-by-execution, live probe PR #815, this
+repo, 2026-08-25]: both `gh pr merge --squash` and
+`gh pr merge --squash --admin` on a draft PR exit 1 with
+`GraphQL: Pull Request is still a draft (mergePullRequest)`; draft
+enforcement is at the GraphQL mutation layer, upstream of `--admin`'s
+bypass scope - so the standing auto-merge-on-CI-green instruction cannot
+merge a tweak batch prematurely, and a non-draft open tweak PR would
+falsely signal "ready for review" to a human reviewer. **Binding
+corollary:** `gh pr ready <number>` MUST precede any merge attempt -
+`--admin` never implicitly un-drafts a PR; a merge failing with
+`GraphQL: Pull Request is still a draft` means "forgot to un-draft," not a
+mystery to investigate.
+
+### Ship-with-teardown
+
+`gh pr ready <number>`, then `gh pr merge --squash --delete-branch`
+(`--admin` where required). Post the `tweak-release:` comment (or rely on
+the PR leaving the discovery set). **Teardown:** `--delete-branch` deletes
+the branch the visibility worktree (if any - see below) has checked out,
+so ship re-points or removes it:
+`git -C <visibility-worktree> fetch origin && git -C <visibility-worktree> checkout $BASE_BRANCH && git -C <visibility-worktree> pull --ff-only`,
+or remove it per §Feature worktree cleanup commands above.
+
+### Operator visibility (recommendation, not machinery)
+
+Optionally, `git worktree add` the `chore/tweak-<key>` branch under
+`.agentic/worktrees/` (branch-name-prefix classified per §Feature
+worktree cleanup commands above), which a dev server can point at,
+fast-forwarded after each push - or simpler, pull the branch into the
+main checkout between tweaks. **Created only after the PR is confirmed
+`OPEN`** (`gh pr view <branch> --json state -q '.state'` returning the
+literal `OPEN`) - the pushed-no-PR window is reap-`ELIGIBLE`, so creating
+it earlier risks the reap removing it out from under the operator.
+`AE_WORKTREE_REAP_DISABLE=1` is available to suppress the reap while a
+visibility worktree is in active use. Dev-server hot-reload against an
+externally fast-forwarded checkout is a flagged environment assumption.
+The visibility worktree (a branch checkout) never collides with
+continuation engineers, which are always detached.
+
+### Pillar 4 degradation path
+
+All mechanics are `gh` invocations against a GitHub-backed remote.
+**`gh` unavailable, unauthenticated, or a non-GitHub forge -> batching is
+inert**: every Trivial change follows today's unbatched pipeline (commit,
+push, PR, merge, pull, per change). **Narrower case: `gh` present but
+under-scoped for PR comments** (a restricted token) - discovery and the
+draft-PR mechanism still function (read + create/edit), but route (ii)'s
+claiming falls back to fail-closed-to-new-branch when a comment-post
+fails on permissions - degrading toward the already-accepted "extra
+branch" cost, never toward blocking or a silent unclaimed continuation.
+
+### Precedence rules
+
+1. Explicit ship-language anywhere -> ships this turn.
+2. Explicit urgent/escape-hatch language -> that request skips batching
+   entirely.
+3. Any Trivial-shaped request never triggers a ship.
+4. A non-Trivial request alongside or after an open batch -> **marks the
+   batch ready and merges asynchronously** while the non-Trivial spawn
+   starts immediately (within seconds, not after the async merge
+   completes). Disclosed costs: (i) an ordering gap - the non-Trivial
+   branch will not contain the tweaks unless it rebases or they merge
+   first; (ii) a base-move hazard - the tweak PR merging mid-flight moves
+   the non-Trivial PR's base, requiring `gh pr update-branch --rebase`
+   and a full required-checks re-run under strict checks (force-push is
+   denied; the default merge-update form fails DCO). This is a disclosed
+   cost, not a gate: a pre-spawn file-disjointness gate would need the
+   non-Trivial unit's file set before it is spawned - the same
+   pre-spawn-guess shape this design rejects elsewhere.
+5. A pure question is never a trigger. A compound request ("why...? make
+   it 1px") is evaluated on its change-request half only.
+
+### Ship triggers
+
+(a) explicit ship-language; (b) a new non-Trivial request (rule 4, async);
+(c) an explicit end-of-session signal; (d) abrupt session end - **NOT**
+shipped; the draft PR persists and is surfaced by rediscovery next
+session (see §Session-start prune script below).
+
+### Announcement wording (binding)
+
+- Tweak-1 PR-open success: `Opened a draft PR for <what/file> (not ready
+  to merge) - say "ship it" to mark it ready, or I'll do it when we move
+  to unrelated work or you wrap the session.`
+- Tweak-1 PR-open failure: `Committed and pushed <what/file>, but
+  couldn't open the PR (<short reason>) - I'll retry automatically; say
+  "ship it" to retry now.`
+- Reuse (tweak 2+): **silent** - no announcement.
+- Rediscovery (see §Session-start prune script below): `Picked up an open
+  draft PR from a prior session: <title> (#<number>). Say "ship it" to
+  mark it ready and merge, say "not now" and I won't ask again about this
+  one, or it folds into the next related change.` An explicit decline
+  writes `dismissed pr:<number>` to the tracker.
+
+### Scope
+
+Trivial tier only. The urgent-language escape hatch (precedence rule 2)
+exits batching entirely. Theme/token/config/CI files are already excluded
+from the Trivial tier by the classifier (§Trivial signals in
+`content/sections/04-risk-classification.md`) and therefore never reach
+this mechanism.
+
 ## Session-start prune script
 
 Run at session start (conductor preflight) - ONCE per session, not before every subagent spawn:
@@ -231,6 +466,28 @@ fi
 
 **Residual, named not fixed (round-2 Minor 4): undisclosed reap/branch-prune concurrency.** The automatic reap above is backgrounded (`&`) while `ds-branch-prune` immediately following it in the same script runs synchronously - the two race for the remainder of this preflight. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both already soft-fail by design (the reap's subprocess appends its own errors to the log via `|| true`, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the reap can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion - but this is the one accepted trade-off in this change that was not previously disclosed anywhere in this document.
 
+**Tweak-PR rediscovery.** Runs in the same preflight, modeled on the
+skill-candidate sweep's `open`/`dismissed` idiom
+(`content/rules/conventions.md` §Session Context and Memory,
+skill-candidate sweep) - co-located here rather than restated there
+because both are worktree/branch lifecycle facts, not session-context
+facts: `gh pr list --state open --json headRefName,number,title,isDraft`
+filtered to `chore/tweak-*`, plus the bounded backstop (see §Implicit
+Trivial batching: open the PR at first push above), diffed against the
+session-scoped, gitignored tracker `.agentic/.tweak-pr-surfaced`
+(`<session_id> pr:<number>` - announced this session;
+`<session_id> branch:<name>` - create-failure backstop record;
+`dismissed pr:<number>` - permanent cross-session suppression on an
+explicit operator decline). Lookup order: `dismissed` -> permanently
+suppressed; else a current-session line -> suppressed this session; else
+announce once (the Rediscovery wording in §Implicit Trivial batching
+above) and append. Entries whose PR is no longer open are pruned each
+preflight, keeping the tracker bounded. **Pagination is explicitly
+waived here**, unlike the meta-divergence and skill-candidate sweeps: the
+donor set (`gh pr list --state open`, filtered to one narrow branch
+prefix) is inherently small and remote-bounded, not a locally-growing log
+file, so there is no vicious-loop risk to defend against.
+
 ## Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
 
 `/ds-implement-ticket` Phase 8's own cleanup block (§Isolation worktree cleanup commands above) only fires on that command's own success path - after a push succeeds on the ticket flow. Any ad-hoc isolation-worktree spawn made OUTSIDE that flow (a Worker per `AGENTS.md` §Workflow, a scratch investigation spawn, a one-off fix not run through `/ds-implement-ticket`) has no equivalent automatic trigger and is the single largest confirmed source of orphaned worktrees in practice - measured against this repo's own history, branches like `worktree-agent-<id>` (default-named, never renamed) and abandoned rework rounds (`ds-round8`..`ds-round12`, `work-round7`, `fix-gigi-round5` - legacy remnants that predate the round-N rework mechanic below and would not recur under it) accounted for the majority of accumulated non-root worktrees.
@@ -240,6 +497,13 @@ fi
 **Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - run automatically and unattended by the backgrounded session-start reap above, a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
+
+Per-tweak disposable nested worktrees created during Implicit Trivial
+batching (§Implicit Trivial batching: open the PR at first push above)
+are instances of this same obligation and its "once the branch is
+pushed" trigger - the engineer's own push-then-remove sequence already
+satisfies it on the success path; a crash instead leaves the
+`SKIP_UNREFERENCED_COMMIT` residual documented below.
 
 ## The unproven class, and archiving it (`--archive-unproven`)
 
@@ -258,6 +522,45 @@ This repo already solved the identical problem for BRANCHES: a 2026-08-11 manual
 `.agentic/worktree-archive/` is gitignored (the existing `/.agentic/*` umbrella already covers it - no new carve-out) and grows unbounded, exactly like `.agentic/branch-archive/` before it - pruning it is the operator's own responsibility, not something either tool does automatically. Without `--archive-unproven`, `SKIP_UNPROVEN` entries are reported and never touched - this is unchanged default behavior. See `bin/ds-cleanup-worktrees`'s own module docstring ("Archiving unproven branches") for the full mechanism.
 
 Not every non-`ELIGIBLE` branch-evidence outcome lands in `SKIP_UNPROVEN`, and `--archive-unproven` only ever considers entries that do. A worktree whose `gh pr list` query genuinely FAILED for that one branch (rate limit, auth hiccup, network blip - `gh` itself remains available) resolves to its own `SKIP_PR_QUERY_ERROR` outcome instead, on every run mode, not only under `--archive-unproven` - a query failure is a distinct fact from "no PR exists" and treating it as absence would let a worktree behind a live OPEN PR be silently archived (or, on the lenient MERGED-is-sufficient worktree-removal path, removed outright with no flags at all). See `bin/ds-cleanup-worktrees`'s own module docstring, Removal predicate gate 9, for the full mechanism.
+
+## `SKIP_UNREFERENCED_COMMIT`: a distinct unpushed-detached-commit class
+
+Implicit Trivial batching (§Implicit Trivial batching: open the PR at
+first push above) is the first place in the methodology that creates
+detached, nested engineer worktrees
+(`.claude/worktrees/agent-<id>-nested`) whose spawn can crash BEFORE its
+push lands. That leftover is a distinct disposition from `SKIP_UNPROVEN`
+above - it is not a checked-out branch with unproven ancestry, it is a
+**detached HEAD holding a commit that exists nowhere else**.
+`disposition_for` reports it as `SKIP_UNREFERENCED_COMMIT`, refused by
+the same work-preserving discipline as `SKIP_UNPROVEN`: the leftover is
+the operator's sole copy of that work, so auto-deleting it is never
+acceptable.
+
+**Manual recovery/discard procedure:**
+
+1. Inspect the committed tip: `git -C <path> log -1`.
+2. Recover the work either by pushing it to its intended destination from
+   inside the worktree - `git -C <path> push origin "HEAD:refs/heads/<intended-branch>"`
+   (braced variables, explicit refspec - the same binding constraint as
+   the routine push in §Implicit Trivial batching above) - or by
+   cherry-picking the commit onto wherever it belongs.
+3. **Discard via plain `git worktree remove <path>` FIRST** - never reach
+   for `--force` as the first move. A refusal naming "modified or
+   untracked files" means there is uncommitted work that step 1's
+   `log -1` inspection structurally cannot show (a detached HEAD's
+   committed tip says nothing about the working tree on top of it). On
+   that refusal, inspect `git -C <path> status --porcelain` and
+   `git -C <path> diff` before deciding what to do with the uncommitted
+   content, and only then run `git worktree remove --force <path>`.
+
+**Note:** `--force` here is unrelated to, and not licensed by, §Guardrail:
+never force-override the harness lock above - an engineer-created nested
+worktree is never locked (the harness lock applies to isolation
+worktrees created by the harness itself, not to a nested `worktree add`
+an engineer runs inside one), so the only thing a plain `remove` ever
+refuses on here is uncommitted work, which is precisely the signal
+recovery step 3 exists to preserve.
 
 ### Advisory: sharing node_modules across worktrees (pnpm)
 

@@ -1818,7 +1818,7 @@
         <span class="flow-box" style="background: var(--bg-surface); color: var(--text-muted); border: 1px solid var(--border-faint);">done (commit required)</span>
       </div>
       <div class="flow-row" style="margin-left: 0; margin-top: 4px;">
-        <span class="flow-label">Bypasses Skeptic entirely. Conductor availability drives the Worker/direct split.</span>
+        <span class="flow-label">Bypasses Skeptic entirely. Conductor availability drives the Worker/direct split. A series of related Trivial tweaks can implicitly batch: the first push opens one draft PR, and later related tweaks push to the same branch instead of opening a fresh PR each - see the worktree-lifecycle reference doc for the full mechanism.</span>
       </div>
     </div>
   </div>

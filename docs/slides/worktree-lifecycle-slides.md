@@ -385,6 +385,50 @@ Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touch
 
 ---
 
+## Implicit Trivial batching: open the PR at first push
+
+<style scoped>
+  ul { font-size: 0.84em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:
+
+- The first tweak commits, pushes, and opens a **draft** PR immediately - CI runs on every push, nothing is deferred
+- Every continuation is seeded via a detached-HEAD nested worktree at the fetched remote tip; the engineer **pushes from inside it, before removing it** - the commit is never locally-unreachable
+- A detached worktree's bare branch-name push is a silent no-op - the explicit `HEAD:refs/heads/chore/tweak-<key>` refspec form is mandatory
+- Draft state mechanically blocks merge (both plain and `--admin` forms) until `gh pr ready` - verified live against this repo (PR #815)
+- Two concurrency fixes: a session-scoped `<key>` token so two sessions minting for the same file can never converge, and an origin-visible `tweak-claim:` PR comment so two sessions continuing the same batch don't collide
+- Ship triggers: explicit ship-language, a new non-Trivial request (async - the batch ships while the new spawn starts immediately), an end-of-session signal, or next-session rediscovery (a persisted draft PR is never silently lost)
+
+<div class="callout">
+Canonical mechanism: content/references/worktree-lifecycle.md §Implicit Trivial batching: open the PR at first push. gh unavailable or under-scoped degrades gracefully - never blocks, never silently unclaims a continuation.
+</div>
+
+---
+
+## SKIP_UNREFERENCED_COMMIT: a distinct crash residual
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+Implicit Trivial batching is the first mechanism that creates detached, nested engineer worktrees - and the first to crash BEFORE its push lands, not just before removal.
+
+- A leftover whose push already landed is reachable via `origin` - `disposition_for` resolves it `ELIGIBLE` and the session-start reap sweeps it, same as any other reachable detached HEAD
+- A leftover from a crash BEFORE push holds a commit that exists nowhere else - `disposition_for` reports `SKIP_UNREFERENCED_COMMIT`, refused by design, same work-preserving discipline as `SKIP_UNPROVEN`
+- Recovery: inspect the tip (`git -C <path> log -1`), then push it to its intended branch or cherry-pick it where it belongs
+- Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
+
+<div class="callout">
+--force here is unrelated to the harness-lock guardrail - an engineer-created nested worktree is never locked, so the only thing a plain remove ever refuses on is uncommitted work.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Isolated. Pruned. Clean.
