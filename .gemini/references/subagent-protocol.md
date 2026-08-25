@@ -17,7 +17,7 @@ Upstream deps: content/references/risk-config-and-tiers.md (role-default tier ta
                (the consuming side of the `SESSION_KEY` contract, which fixes the
                spawn brief as the only source an agent may read the key from);
                content/references/agent-team.md (the normative named-agent table
-               Section 4's "prefer named agents" rule points to).
+               Rule 4's "prefer named agents" guidance points to).
 
 Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
@@ -48,7 +48,7 @@ The core principle: **the main agent is a conductor, never an implementer.** The
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
-The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. On the current Claude Code harness, background `Agent` spawns notify the main agent on completion - there is no separate output-polling tool to invoke.
+The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. On the current Claude Code harness, background `Agent` spawns notify the main agent on completion.
 
 ---
 
@@ -96,7 +96,7 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 **Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent.
 
-**Prefer named agents over `general-purpose`.** Every task type above has a named DinoStack agent whose role, tools, and review posture are already scoped to that task - use it. Fall back to `general-purpose` only when none of the named agents fit the task. See `content/references/agent-team.md` for the full named-agent table (roles, write permissions, when to spawn each). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
+**Prefer named agents over `general-purpose`.** The task types above map to a named DinoStack agent whose role, tools, and review posture are already scoped to that task - use it. Fall back to `general-purpose` only when none of the named agents fit the task. See `content/references/agent-team.md` for the full named-agent table (roles, write permissions, when to spawn each). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; several of them write files via Bash without ever holding the `Write` tool - `qa-engineer`, `adr-drift-detector`, `dependency-auditor`, and `perf-analyst` each write their own full report (and, for `qa-engineer`, a screenshot-evidence JSON file) to a single file under `.agentic/audit-reports/` or, for `qa-engineer`, `/tmp/qa-reports/` (deliberately `/tmp/`, not `.agentic/` - `qa-engineer` always runs `isolation: "worktree"`, and `.agentic/` is gitignored so it is independent per worktree checkout, invisible to the conductor once the throwaway worktree is removed), via a Bash heredoc, scoped to that one path, and return only a small pointer object referencing it; `qa-engineer`'s durable knowledge-capture output is a separate `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
 
@@ -211,7 +211,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the resident METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
