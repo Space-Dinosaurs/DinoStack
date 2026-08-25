@@ -9656,8 +9656,6 @@ List all `.md` files in the found directory. If multiple directories exist, use 
 
 ---
 
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Phase 2: Detect Project Identity
 
 To populate the report header, detect the project name:
@@ -9742,8 +9740,6 @@ Be conservative: if you cannot determine a reliable search strategy, classify as
 
 ---
 
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Phase 4: Build and Execute Search Strategies
 
 For each auditable ADR, design targeted searches. Execute them with Bash, Grep, or Glob.
@@ -9818,8 +9814,6 @@ Based on gathered evidence, assign one classification:
 **UNVERIFIABLE**: Decision is about process/human behavior, or search strategies cannot produce reliable signal either way without deeper semantic analysis. Provide a brief reason.
 
 ---
-
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Phase 6: Produce the Drift Report
 
@@ -9975,8 +9969,6 @@ Create an ADR as a markdown file following the standardized format below with th
 
 ---
 
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Required ADR Structure (template)
 
 ### Front Matter
@@ -9991,8 +9983,6 @@ tags: ["architecture", "decision"]
 supersedes: ""
 superseded_by: ""
 ---
-
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 ```
 
 ### Document Sections
@@ -10110,8 +10100,6 @@ All ADRs must be saved in: `docs/adr/`
 
 ---
 
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
-
 ## Quality Checklist
 
 Before finalizing the ADR, verify:
@@ -10148,8 +10136,6 @@ Before finalizing the ADR, verify:
 10. **Capture Learnings In Flight**: the shard CLI is your capture path - `adr-generator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
-
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Agent Success Criteria
 

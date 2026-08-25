@@ -108,13 +108,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260825-9
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
-- File(s): content/agents/adr-drift-detector.md (4 copies) + content/agents/adr-generator.md (5 copies, one inside the fenced ADR template) + smaller repetition in sibling agent files
+- File(s): content/agents/adr-drift-detector.md (4 copies) + content/agents/adr-generator.md (5 copies, one inside the fenced ADR template)
 - Signal(s): Signal 3 (verbatim duplication within single files)
 - Confidence: MEDIUM
 - Rationale: The /dinostack prerequisite blockquote is repeated 4-5 times within single agent files; one top-of-file copy is the intentional pattern. The copy inside adr-generator.md's fenced ADR template is an outright defect - every generated ADR ships a skill-load instruction in its front matter. Approved: dedupe to one copy per file and remove the in-fence copy as a bug fix.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/823
 
 ## PL-20260825-10
 - Status: RAISED
