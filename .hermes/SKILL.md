@@ -609,7 +609,7 @@ These rules complement the existing tool hierarchy above (Read/Glob/Grep over Ba
 
 ## Context Window Management
 
-**Context-mode tools (`ctx_execute`, `ctx_batch_execute`, and related)** - when `ctx_execute` is present as a callable tool in the session: read `content/references/code-standards-detail.md` §Context Window Management for tool usage, the create/modify-files prohibition, the `ctx_fetch_and_index`-over-`WebFetch` preference, and platform support.
+**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** For tool usage detail, the create/modify-files prohibition, the `ctx_fetch_and_index`-over-`WebFetch` preference, and platform support: read `content/references/code-standards-detail.md` §Context Window Management.
 
 ## Module Manifests
 
@@ -641,7 +641,7 @@ Read `content/references/code-standards-detail.md` §Per-Language Strict Default
 
 ## Package Management
 
-**Dependency versioning rules** - when adding a new dependency or upgrading an existing one: read `content/references/code-standards-detail.md` §Package Management for the latest-stable-version default, the no-hardcoded-version rule, the no-monkey-patch rule, and the existing-constraint exception.
+**Dependency versioning rules** - when adding a new dependency, upgrading an existing one, or encountering a bug in an already-installed outdated dependency: read `content/references/code-standards-detail.md` §Package Management for the latest-stable-version default, the no-hardcoded-version rule, the no-monkey-patch rule, and the existing-constraint exception.
 
 ---
 
