@@ -15,12 +15,7 @@
 #               new file is written - a plain `>` redirect through that tracked symlink would
 #               otherwise write THROUGH it into content/SKILL.md, corrupting the canonical
 #               source. Also removes stale .kimi/skills/<name>/ directories whose basename no
-#               longer matches any content/commands/*.md source. METHODOLOGY.md itself is
-#               always the FULL corpus (unchanged sibling file, the shipped fallback); the
-#               SKILL.md embed under "Embedded Resident Content" is the MINIMAL corpus instead
-#               (DS-204) with a generated "Deferred at this corpus" pointer block per deferred
-#               section, and the SKILL.md footer instructs the reader to open METHODOLOGY.md in
-#               the same skill directory when a named trigger fires.
+#               longer matches any content/commands/*.md source.
 # Performance: standard.
 
 set -euo pipefail
@@ -109,14 +104,7 @@ if [[ -L "$SKILL_DST/SKILL.md" ]]; then
 fi
 
 METHODOLOGY_DST="$SKILL_DST/METHODOLOGY.md"
-# Always the FULL corpus - the shipped fallback a reader opens when a
-# minimal-corpus "Deferred at this corpus" pointer block fires (see the
-# SKILL.md embed below, which uses the minimal corpus instead).
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$METHODOLOGY_DST"
-
-# Minimal-corpus stream for the SKILL.md embed below (not written to disk as
-# its own file).
-METHODOLOGY_MINIMAL="$(bash "$REPO_DIR/scripts/build-methodology.sh" --corpus minimal --full-text-name METHODOLOGY.md)"
 
 FRONTMATTER="$SKILL_DST/SKILL.frontmatter.yaml"
 if [[ ! -f "$FRONTMATTER" ]]; then
@@ -141,9 +129,9 @@ fi
   echo ""
   echo "## Embedded Resident Content"
   echo ""
-  echo "### METHODOLOGY.md (minimal corpus - see note below)"
+  echo "### METHODOLOGY.md"
   echo ""
-  printf '%s\n' "$METHODOLOGY_MINIMAL"
+  cat "$METHODOLOGY_DST"
   echo ""
   while IFS= read -r f; do
     name=$(basename "$f")
@@ -155,9 +143,9 @@ fi
   echo ""
   echo "## Note for this Kimi build"
   echo ""
-  echo "The rules files named above (rules/code-standards.md, rules/conventions.md) are embedded verbatim under 'Embedded Resident Content' - already in context now that this skill has been invoked. Do not issue a separate Read for them."
-  echo ""
-  echo "The methodology body embedded above is the MINIMAL corpus: some rules are deferred and replaced by a \"Deferred at this corpus\" pointer block naming a trigger event. If a pointer block's named trigger fires during a task, DO read METHODOLOGY.md in this same skill directory - it carries the full, unfiltered text. That Read is REQUIRED in that case, not redundant."
+  echo "The rules and methodology files named above under 'Rules (read these files)'"
+  echo "(METHODOLOGY.md, rules/code-standards.md, rules/conventions.md) are embedded"
+  echo "verbatim above under 'Embedded Resident Content' - they are already in context now that this skill has been invoked. Do not issue a separate Read for them."
 } >> "$SKILL_DST/SKILL.md"
 
 echo "Built SKILL.md (embedded methodology body)"

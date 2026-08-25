@@ -74,13 +74,16 @@ Public API: consumed as-is by adapter build scripts. For Claude, $AE_REPO_DIR/.c
             (this file accounts for a fraction of that assembled artifact's size -
             see check-skill-embed-budget.sh); $AE_CORE_SKILL_ROOT/METHODOLOGY.md itself stays the FULL
             corpus, the sibling file a "Deferred at this corpus" pointer block in
-            SKILL.md sends a reader to when a named trigger fires. .kimi and .gemini
-            follow the same minimal-embed-plus-full-sibling pattern (their own
-            build.sh); .github/skills (Copilot) does too via .copilot/build.sh. Other
-            adapters differ in whether and how they consume this file, and that set
-            has changed as adapters were added independently - check each adapter's
-            own build.sh directly rather than trusting an enumeration here, which has
-            gone stale before.
+            SKILL.md sends a reader to when a named trigger fires. .gemini follows the
+            same minimal-embed-plus-full-sibling pattern (its own build.sh). .kimi and
+            .copilot (.github/skills) were flipped the same way and then HELD BACK in
+            the same DS-204 round (runtime QA came back INCONCLUSIVE for both - no
+            drivable runtime on the verification host) - both embed the full corpus
+            unconditionally, pending a live-runtime verification path. Other adapters
+            differ in whether and how they consume this file, and that set has changed
+            as adapters were added independently - check each adapter's own build.sh
+            directly rather than trusting an enumeration here, which has gone stale
+            before.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 

@@ -34,9 +34,7 @@ Run with: python3 bin/tests/test_corpus_headings_retained.py
 
 from __future__ import annotations
 
-import re
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
@@ -45,8 +43,6 @@ _SECTIONS_DIR = _REPO_DIR / "content" / "sections"
 _RULES_DIR = _REPO_DIR / "content" / "rules"
 _BUILD_METHODOLOGY = _REPO_DIR / "scripts" / "build-methodology.sh"
 _CLAUDE_SKILL_MD = _REPO_DIR / ".claude" / "skills" / "dinostack" / "SKILL.md"
-
-_HEADING_RE = re.compile(r"^#{1,2} .+$", re.MULTILINE)
 
 
 def _first_top_level_heading(text: str) -> str:

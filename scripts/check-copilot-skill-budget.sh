@@ -112,14 +112,6 @@ STUB_FILE="$REPO_DIR/.github/copilot-instructions.md"
 # methodology body into SKILL.md). 100,000 B is far below any realistic
 # embedded size (run `wc -c .github/skills/dinostack/SKILL.md` for the
 # live figure) and far above what a pointer-only skill would ever measure.
-#
-# DS-204 (unit B): SKILL.md's embed flipped from the full corpus to the
-# minimal corpus (a generated "Deferred at this corpus" pointer block
-# replaces deferred content; the full text is still reachable at the
-# unfiltered METHODOLOGY.full.md sibling this script does NOT measure - it
-# is never corpus-filtered). Measured default size moved from 137,851 B
-# (full corpus) to 123,681 B (minimal corpus, current default); this gate
-# has no separate upper CEILING for SKILL.md, only this FLOOR.
 FLOOR=100000
 
 # Stub ceiling: catches the accidental-re-embed regression on the OTHER

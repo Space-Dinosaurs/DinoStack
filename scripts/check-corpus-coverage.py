@@ -28,7 +28,14 @@ Failure modes: exits 1 and lists every offending file if any file has
                block, or if any corpus:begin block's trigger clause is
                missing when required (surfaced by re-raising
                CorpusFilterError from the upstream parser, prefixed with the
-               file name). Exits 1 if sections_dir does not exist or has no
+               file name). A file containing only a malformed marker - e.g.
+               a lone, unbalanced corpus:end with no matching corpus:begin -
+               is routed to the same re-raised-CorpusFilterError path
+               (file_has_posture() treats any corpus:begin/corpus:end/
+               corpora: marker line as evidence of an attempted partition,
+               not just a valid one) and reports the real malformation by
+               name, rather than being misreported as "no corpus posture
+               declared". Exits 1 if sections_dir does not exist or has no
                matching files (an empty section set is itself a defect, not
                a vacuous pass). Read-only; never mutates content/sections/.
 
