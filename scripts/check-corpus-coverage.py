@@ -53,9 +53,18 @@ _spec.loader.exec_module(cf)
 
 def file_has_posture(text: str) -> bool:
     """A file declares a posture if it carries a file-level corpora: marker
-    on any line, or contains at least one corpus:begin block."""
+    on any line, or contains any corpus:begin/corpus:end marker line -
+    including a lone, unbalanced corpus:end, which is not a valid posture on
+    its own but IS evidence of an attempted (malformed) partition. Detecting
+    it here routes the file to the real parser below instead of a generic
+    "no posture declared" message that would mask the actual malformation
+    (DS-204 round-1 Skeptic finding coverage-diagnostic-masked, Minor)."""
     for line in text.splitlines():
-        if cf.CORPORA_FILE_RE.match(line) or cf.CORPUS_BEGIN_RE.match(line):
+        if (
+            cf.CORPORA_FILE_RE.match(line)
+            or cf.CORPUS_BEGIN_RE.match(line)
+            or cf.CORPUS_END_RE.match(line)
+        ):
             return True
     return False
 

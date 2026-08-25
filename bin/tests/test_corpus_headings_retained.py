@@ -18,6 +18,17 @@ A redden-able mutation exists for each of the 14: temporarily removing (or
 renaming) the heading line in its source file drops the assertion for that
 file specifically, without affecting the other 13.
 
+DS-204 round-1 Skeptic finding (tests-mutate-live-repo, Major): this suite
+must never invoke an adapter build.sh - doing so regenerates tracked
+artifacts in the live checkout (and can prune stale files), silently
+repairing adapter drift and defeating a later `git diff --exit-code`
+adapter-drift check. `RulesHeadingsInBuiltSkillTests` therefore READS the
+already-committed `.claude/skills/dinostack/SKILL.md` as-is and refuses
+(asserts, naming the exact rebuild command) if it is missing, rather than
+building it. `SectionHeadingsAtMinimalTests` was already safe - it invokes
+`scripts/build-methodology.sh --corpus minimal` with no `--output`, which
+writes only to stdout and touches no file on disk - and is unchanged.
+
 Run with: python3 bin/tests/test_corpus_headings_retained.py
 """
 
@@ -33,7 +44,6 @@ _REPO_DIR = Path(__file__).parent.parent.parent
 _SECTIONS_DIR = _REPO_DIR / "content" / "sections"
 _RULES_DIR = _REPO_DIR / "content" / "rules"
 _BUILD_METHODOLOGY = _REPO_DIR / "scripts" / "build-methodology.sh"
-_CLAUDE_BUILD = _REPO_DIR / ".claude" / "build.sh"
 _CLAUDE_SKILL_MD = _REPO_DIR / ".claude" / "skills" / "dinostack" / "SKILL.md"
 
 _HEADING_RE = re.compile(r"^#{1,2} .+$", re.MULTILINE)
@@ -90,7 +100,12 @@ for _section_file in sorted(_SECTIONS_DIR.glob("[0-9][0-9]-*.md")):
 class RulesHeadingsInBuiltSkillTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        subprocess.run(["bash", str(_CLAUDE_BUILD)], check=True, cwd=str(_REPO_DIR))
+        # Read the already-committed artifact as-is; never build it here
+        # (see module docstring - tests-mutate-live-repo, Major).
+        assert _CLAUDE_SKILL_MD.is_file(), (
+            f"{_CLAUDE_SKILL_MD} does not exist - run `bash .claude/build.sh` "
+            "before this test"
+        )
         cls.skill_md = _CLAUDE_SKILL_MD.read_text(encoding="utf-8")
 
     def test_code_standards_heading_present(self):

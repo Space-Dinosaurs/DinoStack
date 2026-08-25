@@ -76,6 +76,20 @@ class FixtureTests(unittest.TestCase):
         self.assertIn("03-fake.md", problems[0])
         self.assertIn("no corpus posture declared", problems[0])
 
+    def test_unbalanced_corpus_end_reports_the_real_malformation(self):
+        # DS-204 round-1 Skeptic finding coverage-diagnostic-masked (Minor):
+        # a lone, unbalanced corpus:end (no matching corpus:begin) must NOT
+        # be misreported as "no corpus posture declared" - that message
+        # masks the real parse error. file_has_posture() must detect the
+        # corpus:end marker and route to the real parser, which reports the
+        # actual unbalanced-marker malformation.
+        self._write("06-fake.md", "Body.\n<!-- corpus:end -->\n")
+        problems = ccc.check_file(self.sections_dir / "06-fake.md")
+        self.assertEqual(len(problems), 1)
+        self.assertIn("06-fake.md", problems[0])
+        self.assertNotIn("no corpus posture declared", problems[0])
+        self.assertIn("no matching corpus:begin", problems[0])
+
     def test_missing_trigger_fails(self):
         self._write(
             "04-fake.md",

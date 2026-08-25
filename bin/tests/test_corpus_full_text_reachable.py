@@ -14,13 +14,20 @@ Covers, per adapter:
   - all 12 section files' (+ the 2 rules files, where the sibling carries
     them) first top-level headings are present in the sibling
 
+All assertions read the already-committed adapter artifacts as-is; this
+suite never invokes an adapter build.sh (DS-204 round-1 Skeptic finding
+tests-mutate-live-repo, Major - doing so regenerates tracked artifacts in
+the live checkout, silently repairing adapter drift and defeating a later
+`git diff --exit-code` adapter-drift check). Any missing artifact is a
+refusal naming the exact rebuild command, matching
+bin/tests/test_command_picker_descriptions.py's convention.
+
 Run with: python3 bin/tests/test_corpus_full_text_reachable.py
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -84,26 +91,38 @@ def _first_top_level_heading(text: str) -> str:
 
 
 class FullTextReachableTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        # Rebuild all 4 flipped adapters once so the assertions below run
-        # against fresh output, not a possibly-stale prior build.
-        for adapter in _ADAPTERS:
-            subprocess.run(["bash", str(adapter["build_sh"])], check=True, cwd=str(_REPO_DIR))
+    """Reads the already-committed adapter artifacts as-is; never builds
+    them (see module docstring - tests-mutate-live-repo, Major)."""
 
 
 def _make_exists_nonempty_test(adapter):
     def test(self):
         sibling = adapter["full_sibling"]
-        self.assertTrue(sibling.is_file(), f"{adapter['name']}: missing sibling {sibling}")
+        self.assertTrue(
+            sibling.is_file(),
+            f"{adapter['name']}: missing sibling {sibling} - run "
+            f"`bash {adapter['build_sh'].relative_to(_REPO_DIR)}` before this test",
+        )
         self.assertGreater(sibling.stat().st_size, 0, f"{adapter['name']}: empty sibling {sibling}")
 
     return test
 
 
+def _read_sibling_or_fail(self, adapter):
+    """Reads the committed sibling artifact, refusing (never building) if
+    it is missing - shared by every test factory below that reads it."""
+    sibling = adapter["full_sibling"]
+    self.assertTrue(
+        sibling.is_file(),
+        f"{adapter['name']}: missing sibling {sibling} - run "
+        f"`bash {adapter['build_sh'].relative_to(_REPO_DIR)}` before this test",
+    )
+    return sibling.read_text(encoding="utf-8")
+
+
 def _make_zero_deferred_test(adapter):
     def test(self):
-        text = adapter["full_sibling"].read_text(encoding="utf-8")
+        text = _read_sibling_or_fail(self, adapter)
         self.assertEqual(
             text.count("Deferred at this corpus"),
             0,
@@ -134,7 +153,7 @@ def _make_basename_match_test(adapter):
 
 def _make_headings_present_test(adapter):
     def test(self):
-        text = adapter["full_sibling"].read_text(encoding="utf-8")
+        text = _read_sibling_or_fail(self, adapter)
         for section_file in sorted(_SECTIONS_DIR.glob("[0-9][0-9]-*.md")):
             heading = _first_top_level_heading(section_file.read_text(encoding="utf-8"))
             self.assertIn(

@@ -35,10 +35,20 @@
 #          checked only that a non-symlink real file existed with the
 #          marker as its first line, never that the full methodology body
 #          actually arrived after it - a mutation replacing install.sh's
-#          `cat "$SKILL_SRC/SKILL.md"` with a placeholder string passed all
-#          27 assertions unchanged. `assert_body_delivered()` below (size
+#          degrade-body source with a placeholder string passed all 27
+#          assertions unchanged. `assert_body_delivered()` below (size
 #          floor + a body-only token) is now called from each of those four
 #          scenarios.
+#
+#          DS-204 round 1 (Skeptic finding gemini-degrade-no-gate, Major):
+#          once .gemini/skills/dinostack/SKILL.md itself was flipped to the
+#          MINIMAL corpus, the degrade-body source became
+#          `cat "$SKILL_SRC/SKILL.full.md"` (the full-corpus sibling) -
+#          `assert_body_delivered()` gained FULL_ONLY_TOKEN plus a
+#          zero-"Deferred at this corpus"-markers check, since the prior
+#          size/BODY_TOKEN checks alone are also satisfied by the (smaller
+#          but still >20000 B) minimal SKILL.md and would not catch a
+#          reversion back to it.
 #
 #          Scenarios (M4's explicit minimum list):
 #            1. A foreign symlink at the GEMINI.md destination is preserved
@@ -157,12 +167,34 @@ MARKER='<!-- dinostack:gemini-degrade-generated -->'
 BODY_TOKEN='Risk Classification'
 BODY_MIN_BYTES=20000
 
+# FULL_ONLY_TOKEN: DS-204 round-1 Skeptic finding (gemini-degrade-no-gate,
+# Major). Since DS-204 flips .gemini/skills/dinostack/SKILL.md itself to the
+# MINIMAL corpus, BODY_TOKEN/BODY_MIN_BYTES alone no longer distinguish "the
+# degrade path delivered the FULL body" from "it delivered the (smaller but
+# still >20000 B, still containing 'Risk Classification') minimal SKILL.md" -
+# a mutation reverting install.sh's degrade source back to `cat
+# "$SKILL_SRC/SKILL.md"` (the minimal file) would pass every existing
+# assertion. FULL_ONLY_TOKEN is a verbatim phrase from inside a corpus:begin
+# block deferred at minimal (04-risk-classification.md's "Post-debugger Low
+# classification" paragraph) - present in SKILL.full.md, verified ABSENT
+# from the minimal SKILL.md (verified: `grep -c` returns 0 hits on the live
+# minimal build, 1 hit on the live full build).
+FULL_ONLY_TOKEN='Post-debugger-brief bug fixes that are single-file'
+
 # Asserts $1 (a GEMINI.md path) is a real file whose size is at least
-# BODY_MIN_BYTES and which contains BODY_TOKEN - i.e. the full methodology
-# body was actually written, not just the marker/stub. $2 is the scenario
-# label used in pass/fail messages. Mutation that reddens every caller of
-# this helper: replacing install.sh's `cat "$SKILL_SRC/SKILL.md"` (the body
-# source in _write_gemini_md_degrade_body) with a short placeholder string.
+# BODY_MIN_BYTES, which contains BODY_TOKEN, AND which contains
+# FULL_ONLY_TOKEN plus zero occurrences of "Deferred at this corpus" - i.e.
+# the FULL (not minimal) methodology body was actually written, not just
+# the marker/stub and not the minimal corpus's own pointer-block body. $2 is
+# the scenario label used in pass/fail messages. Mutations that redden
+# every caller of this helper: (a) replacing install.sh's `cat
+# "$SKILL_SRC/SKILL.full.md"` (the body source in
+# _write_gemini_md_degrade_body) with a short placeholder string - caught
+# by the size/BODY_TOKEN checks, as before; (b) reverting that same source
+# back to `cat "$SKILL_SRC/SKILL.md"` (the MINIMAL file) - caught by the
+# FULL_ONLY_TOKEN and zero-deferred-marker checks added here, which (a)
+# alone did not catch (verified: pointing install.sh at SKILL.md instead of
+# SKILL.full.md reddens this helper, restored after confirming).
 assert_body_delivered() {
   local file="$1" label="$2" size
   if [[ ! -f "$file" ]]; then
@@ -174,8 +206,12 @@ assert_body_delivered() {
     fail "$label: $file is only $size bytes (< $BODY_MIN_BYTES) - body likely not delivered"
   elif ! grep -qF "$BODY_TOKEN" "$file"; then
     fail "$label: $file does not contain the expected body token '$BODY_TOKEN' - body likely not delivered"
+  elif grep -qF '**Deferred at this corpus.**' "$file"; then
+    fail "$label: $file contains a '**Deferred at this corpus.**' pointer block - the MINIMAL corpus was delivered, not the FULL body the degrade path must ship"
+  elif ! grep -qF "$FULL_ONLY_TOKEN" "$file"; then
+    fail "$label: $file does not contain the full-corpus-only token '$FULL_ONLY_TOKEN' - the FULL body likely was not delivered"
   else
-    pass "$label: $file carries the full methodology body ($size bytes, token found)"
+    pass "$label: $file carries the full methodology body ($size bytes, token found, zero deferred markers, full-only content present)"
   fi
 }
 
