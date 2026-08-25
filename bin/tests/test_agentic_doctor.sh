@@ -2679,6 +2679,59 @@ fi
 rm -rf "$T21_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 22: MANAGED_HOOK_BASENAMES' enforce-*.py entries must exactly match
+# the enforce-*.py basenames that actually exist under hooks/ on disk
+# (PR #821 round 2 fix, Skeptic Major finding: no regression test existed -
+# reverting the whole PR #821 diff left this suite green).
+#
+# Both operands are derived mechanically rather than hand-typed, and from
+# independent sources, so this assertion cannot be unfalsifiable:
+#   - disk set:       hooks_dir.glob("enforce-*.py") against the live tree
+#   - frozenset set:  parsed out of bin/ds-doctor's MANAGED_HOOK_BASENAMES
+#                      source literal via ast.literal_eval
+# The check is bidirectional: an enforce-*.py file on disk missing from the
+# frozenset, OR a frozenset enforce-*.py entry with no file on disk, both
+# fail it.
+# ---------------------------------------------------------------------------
+T22_OUT="$(python3 - "$SCRIPT_DIR" <<'PYEOF'
+import ast
+import re
+import sys
+from pathlib import Path
+
+bin_dir = Path(sys.argv[1])
+repo_root = bin_dir.parent
+hooks_dir = repo_root / "hooks"
+doctor_src = (bin_dir / "ds-doctor").read_text()
+
+disk = {p.name for p in hooks_dir.glob("enforce-*.py")}
+
+m = re.search(r"MANAGED_HOOK_BASENAMES.*?frozenset\(\[(.*?)\]\)", doctor_src, re.DOTALL)
+if not m:
+    print("PARSE_ERROR: could not locate MANAGED_HOOK_BASENAMES frozenset literal")
+    sys.exit(1)
+items = ast.literal_eval("[" + m.group(1) + "]")
+declared = {name for name in items if name.startswith("enforce-") and name.endswith(".py")}
+
+missing_from_frozenset = sorted(disk - declared)
+missing_from_disk = sorted(declared - disk)
+
+if missing_from_frozenset:
+    print("MISSING_FROM_FROZENSET:" + ",".join(missing_from_frozenset))
+if missing_from_disk:
+    print("MISSING_FROM_DISK:" + ",".join(missing_from_disk))
+if not missing_from_frozenset and not missing_from_disk:
+    print("OK")
+PYEOF
+)"
+
+if [[ "$T22_OUT" == "OK" ]]; then
+  _pass "T22 MANAGED_HOOK_BASENAMES: enforce-*.py disk set matches frozenset set (bidirectional, derived)"
+else
+  _fail "T22 MANAGED_HOOK_BASENAMES: disk-vs-frozenset enforce-*.py mismatch\n$T22_OUT"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
