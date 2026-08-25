@@ -1,3 +1,4 @@
+<!-- corpora: minimal medium full -->
 ## Worktree Lifecycle
 
 **Two classes of worktree, two cleanup triggers.**

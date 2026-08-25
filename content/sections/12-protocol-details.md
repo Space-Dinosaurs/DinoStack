@@ -1,3 +1,4 @@
+<!-- corpora: minimal medium full -->
 ## Protocol Details (read on trigger)
 
 | Topic | Trigger | Reference |

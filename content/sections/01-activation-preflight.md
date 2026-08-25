@@ -1,3 +1,4 @@
+<!-- corpora: minimal medium full -->
 ## Activation preflight
 
 Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `ds-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/ds-migrate` scaffolding sync.

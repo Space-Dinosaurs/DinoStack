@@ -1,3 +1,4 @@
+<!-- corpora: minimal medium full -->
 ## QA Gate
 
 **QA fires for every Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `.agentic/config.json` is reserved and inert (canonical definition in `content/references/planning-artifacts.md`).
