@@ -234,12 +234,6 @@ EXPECTED_TRACKER_STATE_FILES = {
     "content/references/events-log.md",
     "content/references/risk-config-and-tiers.md",
     "content/references/tracker-writeback.md",
-    # DS-202: the Merge-time tracker writeback rule in § Git Workflow names
-    # $TRACKER_STATE_DEV_COMPLETE (as the unchanged transition target) and
-    # TRACKER_STATE_DONE (as the value AE never writes). Neither is in a
-    # `target:`/`target_state:` position, so this file contributes zero
-    # TARGET_RE matches - it widens the universe without changing the outcome.
-    "content/rules/conventions.md",
 }
 
 

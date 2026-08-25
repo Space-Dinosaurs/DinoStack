@@ -786,7 +786,7 @@ git branch -d <branch-name>
 
 **Merging:** After Skeptic sign-off, subagent branches merge back into the conductor's current branch. The conductor's branch (not the individual subagent branch) then opens a PR into `main`. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
-**Merge-time tracker writeback.** When an agent merges a PR **outside** `/ds-implement-ticket` Phase 12's auto-merge block (that block owns its own writeback decision at site W7 and MUST NOT also fire this rule), and `gh pr merge` exits 0, and the agent knows **both** the ticket ID and the merged PR number, immediately run `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. A `gh pr merge --auto` call exiting 0 means QUEUED, not merged, and does NOT trigger this rule. If either the ticket ID or the PR number is unknown, do nothing here - the automatic backstop is the session-start `--pending-merge` sweep, and `/ds-ticket-status-sync --all` remains available on operator invocation. Soft-fail: a failure logs one line and never blocks the merge or any following step. `TRACKER == none` is a silent no-op. This does not change what state is written - the transition target is still `$TRACKER_STATE_DEV_COMPLETE`; AE still never writes the terminal `TRACKER_STATE_DONE` at any site.
+**Merge-time tracker writeback.** An agent's own `gh pr merge` exiting 0 outside `/ds-implement-ticket` Phase 12 auto-merge fires `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. `--auto` exiting 0 means QUEUED, not merged, and does not fire it. Full: `content/references/conventions-detail.md` §Merge-Time Tracker Writeback.
 
 **Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
 
@@ -2679,8 +2679,12 @@ Purpose: Detailed conventions reference blocks extracted from
          section (artifact list, intent debt, Project Overview Layer,
          Project Config toggle prose, and Ubiquitous Language); the
          Session-Start Sweeps detail (knowledge-strand sweep mechanics);
-         a one-sentence pointer to the Merge-Time Tracker Writeback rule
-         (canonical text lives in content/rules/conventions.md, not here);
+         the full Merge-Time Tracker Writeback rule (its short resident
+         rule-statement, with the trigger, the exact invocation and the
+         --auto carve-out, lives in content/rules/conventions.md
+         § Git Workflow; the operand preconditions, soft-fail behavior,
+         TRACKER == none no-op and target-state clause live here - the two
+         are one rule split by load tier, not two rules);
          the Context Economy rules; and the External Comment Discipline
          rules.
 
@@ -2816,7 +2820,9 @@ Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-str
 
 ## Merge-Time Tracker Writeback
 
-An agent-performed `gh pr merge` outside `/ds-implement-ticket` Phase 12's auto-merge block fires the dev-complete transition at merge time rather than deferring it to the session-start pending-merge sweep; the rule, its operand preconditions, and its soft-fail behavior are stated once and only once in `content/rules/conventions.md` §Git Workflow ("Merge-time tracker writeback") - read it there.
+Parent rule: `content/rules/conventions.md` §Git Workflow ("Merge-time tracker writeback") carries the trigger, the exact invocation, and the `--auto` carve-out in resident form. This section is the full rule; the two are one rule split by load tier, never two rules.
+
+When an agent merges a PR **outside** `/ds-implement-ticket` Phase 12's auto-merge block (that block owns its own writeback decision at site W7 and MUST NOT also fire this rule), and `gh pr merge` exits 0, and the agent knows **both** the ticket ID and the merged PR number, immediately run `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. A `gh pr merge --auto` call exiting 0 means QUEUED, not merged, and does NOT trigger this rule. If either the ticket ID or the PR number is unknown, do nothing here - the automatic backstop is the session-start `--pending-merge` sweep, and `/ds-ticket-status-sync --all` remains available on operator invocation. Soft-fail: a failure logs one line and never blocks the merge or any following step. `TRACKER == none` is a silent no-op. This does not change what state is written - the transition target is still `$TRACKER_STATE_DEV_COMPLETE`; AE still never writes the terminal `TRACKER_STATE_DONE` at any site.
 
 ## Context Economy
 

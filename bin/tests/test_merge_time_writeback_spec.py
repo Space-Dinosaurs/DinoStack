@@ -265,88 +265,173 @@ def test_pending_merge_purpose_cites_phase_12_not_phase_9():
 
 
 # ---------------------------------------------------------------------------
-# B1 - the canonical rule paragraph, with both required carve-outs.
+# B1/B2 - the rule is ONE rule split across two load tiers.
+#
+# The resident tier (content/rules/conventions.md § Git Workflow) is embedded
+# verbatim into the generated .claude/skills/dinostack/SKILL.md and is therefore
+# charged against scripts/check-skill-embed-budget.sh's CEILING. The full-text
+# tier (content/references/conventions-detail.md) is trigger-loaded and is NOT
+# embedded. Measured on this branch: the full 1,005 B rule in the resident tier
+# put SKILL.md 445 B ABOVE CEILING, with only 560 B of headroom available on
+# origin/main. That is why the split exists, and why the size cap below is a
+# real assertion rather than style policing.
+#
+# RESIDENT_RULE_MAX_BYTES is a ceiling on this one paragraph, independent of the
+# whole-artifact gate. It ratchets DOWNWARD like every other budget in this repo.
 # ---------------------------------------------------------------------------
 
-def test_conventions_carries_the_merge_time_writeback_rule():
-    """Reddening mutation: delete the rule paragraph from § Git Workflow."""
+RESIDENT_RULE_MAX_BYTES = 350
+
+RESIDENT_LABEL = "**Merge-time tracker writeback.**"
+DETAIL_HEADING = "## Merge-Time Tracker Writeback"
+
+
+def _resident_rule() -> str:
     text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    assert "**Merge-time tracker writeback.**" in text
+    idx = text.index(RESIDENT_LABEL)
+    return text[idx:text.index("\n\n", idx)]
+
+
+def _detail_section() -> str:
+    text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
+    start = text.index(DETAIL_HEADING)
+    end = text.index("\n## ", start + len(DETAIL_HEADING))
+    return text[start:end]
+
+
+def test_resident_rule_carries_the_four_resident_tier_clauses():
+    """Reddening mutation: delete any one of the four clauses from the resident
+    rule - the trigger, the exact invocation, the `--auto` carve-out, or the
+    pointer. Each is asserted separately, so no single deletion passes."""
+    rule = _resident_rule()
+    # 1. Trigger.
+    assert "`gh pr merge` exiting 0 outside" in rule
+    assert "Phase 12 auto-merge" in rule
+    # 2. Exact invocation.
+    assert (
+        "`/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`" in rule
+    )
+    # 3. --auto carve-out.
+    assert "`--auto` exiting 0 means QUEUED, not merged, and does not fire it" in rule
+    # 4. Pointer to the full rule.
+    assert "`content/references/conventions-detail.md`" in rule
+    assert DETAIL_HEADING.removeprefix("## ") in rule
+
+
+def test_resident_rule_stays_within_its_byte_ceiling():
+    """Reddening mutation: paste the full rule text back into § Git Workflow.
+
+    That is the exact regression this guards - it is what put the generated
+    SKILL.md 445 B above the skill-embed CEILING on this branch's first attempt.
+    """
+    size = len(_resident_rule().encode("utf-8")) + 2  # + blank-line separator
+    assert size <= RESIDENT_RULE_MAX_BYTES, (
+        f"resident rule is {size} B, over the {RESIDENT_RULE_MAX_BYTES} B ceiling; "
+        "move detail into content/references/conventions-detail.md rather than "
+        "raising this number"
+    )
+
+
+def test_detail_holds_the_full_rule_not_a_pointer():
+    """Reddening mutation: replace the detail section with a one-sentence pointer
+    back to conventions.md - every clause below would then live nowhere."""
+    section = _detail_section()
     assert (
         "immediately run `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> "
         "--no-confirm`"
-        in text
+        in section
     )
 
 
-def test_rule_carries_the_auto_is_not_merged_carve_out():
-    """Reddening mutation: delete the `--auto` sentence - the rule would then fire on
-    a merge that was only QUEUED."""
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
+def test_detail_carries_the_auto_is_not_merged_carve_out():
+    """Reddening mutation: delete the `--auto` sentence from the detail section -
+    the full rule would then permit firing on a merge that was only QUEUED."""
     assert (
         "A `gh pr merge --auto` call exiting 0 means QUEUED, not merged, and does "
         "NOT trigger this rule."
-        in text
+        in _detail_section()
     )
 
 
-def test_rule_carries_the_phase_12_exclusion():
+def test_detail_carries_the_phase_12_exclusion():
     """Reddening mutation: delete the Phase 12 exclusion - W7 would then double-fire."""
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    assert (
-        "outside** `/ds-implement-ticket` Phase 12's auto-merge block" in text
-    )
-    assert "MUST NOT also fire this rule" in text
+    section = _detail_section()
+    assert "outside** `/ds-implement-ticket` Phase 12's auto-merge block" in section
+    assert "MUST NOT also fire this rule" in section
 
 
-def test_rule_is_soft_fail_and_no_op_without_a_tracker():
+def test_detail_carries_the_unknown_operand_backstop():
+    """Reddening mutation: delete the unknown-operand sentence - the rule would
+    then be silent on what happens when the ticket ID or PR number is missing."""
+    section = _detail_section()
+    assert "If either the ticket ID or the PR number is unknown, do nothing here" in section
+    assert "the automatic backstop is the session-start `--pending-merge` sweep" in section
+
+
+def test_detail_is_soft_fail_and_no_op_without_a_tracker():
     """Reddening mutation: delete the soft-fail sentence, making a tracker outage
     able to block the merge."""
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    assert "never blocks the merge or any following step" in text
-    assert "`TRACKER == none` is a silent no-op." in text
+    section = _detail_section()
+    assert "never blocks the merge or any following step" in section
+    assert "`TRACKER == none` is a silent no-op." in section
 
 
-def test_rule_does_not_change_the_target_state():
+def test_detail_does_not_change_the_target_state():
     """Reddening mutation: change the stated target to the terminal Done state.
 
     AE never writes `TRACKER_STATE_DONE`; this pin exists so a future edit cannot
     quietly retarget the merge-time path at it.
     """
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    idx = text.index("**Merge-time tracker writeback.**")
-    para = text[idx:text.index("\n\n", idx)]
-    assert "the transition target is still `$TRACKER_STATE_DEV_COMPLETE`" in para
-    assert "AE still never writes the terminal `TRACKER_STATE_DONE` at any site" in para
+    section = _detail_section()
+    assert "the transition target is still `$TRACKER_STATE_DEV_COMPLETE`" in section
+    assert (
+        "AE still never writes the terminal `TRACKER_STATE_DONE` at any site"
+        in section
+    )
 
 
-def test_rule_paragraph_appears_exactly_once_across_content():
-    """Reddening mutation: paste a second verbatim copy into another content/ file.
+def test_no_normative_clause_was_dropped_in_the_split():
+    """Reddening mutation: delete any clause from the detail section without
+    moving it into the resident rule.
 
-    The rule is single-canonical-site by design; a second copy drifts silently.
+    The split was a relocation, not a reduction. Every clause of the original
+    single-paragraph rule must be present in exactly one of the two tiers.
     """
+    combined = _resident_rule() + "\n" + _detail_section()
+    for clause in (
+        "Phase 12",                       # trigger scope
+        "--pr <PR_NUMBER> --no-confirm",  # exact invocation
+        "QUEUED, not merged",             # --auto carve-out
+        "MUST NOT also fire this rule",   # W7 double-fire exclusion
+        "is unknown, do nothing here",    # unknown-operand behavior
+        "--pending-merge` sweep",         # backstop
+        "remains available on operator invocation",   # --all escape hatch
+        "never blocks the merge",         # soft-fail
+        "`TRACKER == none` is a silent no-op",        # no-tracker no-op
+        "$TRACKER_STATE_DEV_COMPLETE",    # unchanged target
+        "terminal `TRACKER_STATE_DONE`",  # never-written terminal state
+    ):
+        assert clause in combined, f"clause lost in the split: {clause!r}"
+
+
+def test_resident_label_appears_exactly_once_across_content():
+    """Reddening mutation: paste a second copy of the bolded rule label into
+    another content/ file - two rule-statements drift silently."""
     hits = [
         p
         for p in (REPO_ROOT / "content").rglob("*.md")
-        if "**Merge-time tracker writeback.**" in p.read_text(encoding="utf-8")
+        if RESIDENT_LABEL in p.read_text(encoding="utf-8")
     ]
     assert hits == [CONVENTIONS_PATH], hits
 
 
-# ---------------------------------------------------------------------------
-# B2 - conventions-detail.md holds a pointer, never a copy.
-# ---------------------------------------------------------------------------
-
-def test_conventions_detail_holds_a_pointer_not_a_copy():
-    """Reddening mutation: replace the pointer with the verbatim rule text (which
-    also reddens `test_rule_paragraph_appears_exactly_once_across_content`), or
-    delete the pointer entirely."""
-    text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
-    assert "## Merge-Time Tracker Writeback" in text
-    assert "content/rules/conventions.md` §Git Workflow" in text
-    # The pointer must not restate the invocation or the operand preconditions.
-    assert "--no-confirm`" not in text
-    assert "means QUEUED, not merged" not in text
+def test_the_two_tiers_point_at_each_other():
+    """Reddening mutation: delete either direction of the cross-reference - a
+    reader landing on one tier would not learn the other exists."""
+    assert "`content/references/conventions-detail.md`" in _resident_rule()
+    section = _detail_section()
+    assert "content/rules/conventions.md` §Git Workflow" in section
+    assert "one rule split by load tier" in section
 
 
 # ---------------------------------------------------------------------------
