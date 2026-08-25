@@ -75,7 +75,7 @@ Reference implementations that conform: the `hooks-python-tests`, `bin-sh-tests`
 
 ## Context Window Management
 
-**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
+**See `content/rules/code-standards.md` §Context Window Management for the inline output-size threshold that triggers preferring `ctx_execute`/`ctx_batch_execute` over raw `Bash`.** Raw Bash output enters the context window in full; context-mode tools sandbox execution into isolated subprocesses and only let stdout enter context - reducing context consumption by up to 98%.
 
 Key tools and their uses:
 - `ctx_execute(language, code)` - run a single script; only stdout enters context
