@@ -4,6 +4,12 @@ Purpose: Detailed conventions reference blocks extracted from
          section (artifact list, intent debt, Project Overview Layer,
          Project Config toggle prose, and Ubiquitous Language); the
          Session-Start Sweeps detail (knowledge-strand sweep mechanics);
+         the full Merge-Time Tracker Writeback rule (its short resident
+         rule-statement, with the trigger, the exact invocation and the
+         --auto carve-out, lives in content/rules/conventions.md
+         § Git Workflow; the operand preconditions, soft-fail behavior,
+         TRACKER == none no-op and target-state clause live here - the two
+         are one rule split by load tier, not two rules);
          the Context Economy rules; and the External Comment Discipline
          rules.
 
@@ -136,6 +142,12 @@ KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /d
 ```
 
 Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`); file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
+
+## Merge-Time Tracker Writeback
+
+Parent rule: `content/rules/conventions.md` §Git Workflow ("Merge-time tracker writeback") carries the trigger, the exact invocation, and the `--auto` carve-out in resident form. This section is the full rule; the two are one rule split by load tier, never two rules.
+
+When an agent merges a PR **outside** `/ds-implement-ticket` Phase 12's auto-merge block (that block owns its own writeback decision at site W7 and MUST NOT also fire this rule), and `gh pr merge` exits 0, and the agent knows **both** the ticket ID and the merged PR number, immediately run `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. A `gh pr merge --auto` call exiting 0 means QUEUED, not merged, and does NOT trigger this rule. If either the ticket ID or the PR number is unknown, do nothing here - the automatic backstop is the session-start `--pending-merge` sweep, and `/ds-ticket-status-sync --all` remains available on operator invocation. Soft-fail: a failure logs one line and never blocks the merge or any following step. `TRACKER == none` is a silent no-op. This does not change what state is written - the transition target is still `$TRACKER_STATE_DEV_COMPLETE`; AE still never writes the terminal `TRACKER_STATE_DONE` at any site.
 
 ## Context Economy
 
