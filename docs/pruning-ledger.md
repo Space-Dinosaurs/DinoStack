@@ -81,13 +81,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260825-6
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/events-log.md (the deprecated conductor_direct event documentation block)
 - Signal(s): Signal 5 (orphaned legacy text)
 - Confidence: MEDIUM
 - Rationale: Block is self-labeled deprecated and historical-only; nothing emits or consumes the event (2026-06-27 decision: a deterministic hook cannot detect an LLM-semantic event). Approved for deletion, optionally leaving a one-line legacy-name note for log parsers reading old events.jsonl files.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/829
 
 ## PL-20260825-7
 - Status: RAISED
