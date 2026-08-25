@@ -272,11 +272,12 @@ export const SessionContextPlugin: Plugin = async ({
 
   /**
    * Aggregate spawn_complete events from events.jsonl for the current
-   * session and append a session_total rollup. Counts conductor-emitted
-   * spawn_complete only; does NOT implement stop-context.js's DS-160
-   * hook-telemetry double-count guard or its ad-hoc spawn_start dedup
-   * (see hooks/stop-context.js:686-751 for that logic). Silent failure on
-   * every error path.
+   * session and append a session_total rollup. Counts every spawn_complete
+   * regardless of data.source (conductor- and hook-emitted alike);
+   * implements neither stop-context.js's DS-160 hook-telemetry double-count
+   * guard nor its ad-hoc spawn_start dedup (see hooks/stop-context.js
+   * scanSessionAggregate for that logic). Silent failure on every error
+   * path.
    */
   async function writeSessionTotal(cwd: string, sessionID: string | null) {
     // M4: Reject cwd values with traversal components before any path join.

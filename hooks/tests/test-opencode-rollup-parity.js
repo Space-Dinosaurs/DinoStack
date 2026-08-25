@@ -173,12 +173,12 @@ console.log('\n--- retired semantics stay retired ---');
 }
 
 // ---------------------------------------------------------------------------
-// retired conductor_direct event filter must not come back
+// retired conductor_direct event name must not come back anywhere in the file
 // ---------------------------------------------------------------------------
-console.log('\n--- retired conductor_direct event filter ---');
+console.log('\n--- retired conductor_direct event name ---');
 {
-  assert(!/ev\s*!==\s*["']conductor_direct["']/.test(ts),
-    'TS: writeSessionTotal event filter has no conductor_direct exclusion arm (retired event name, PL-20260825-6)');
+  assert(!ts.includes('conductor_direct'),
+    'TS: the plugin file contains no occurrence of the retired event name "conductor_direct" (PL-20260825-6), not just no filter-arm shape');
 }
 
 console.log(`\n${passed} passed, ${failed} failed.`);
