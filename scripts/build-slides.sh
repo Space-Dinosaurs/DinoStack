@@ -6,13 +6,16 @@
 # Public API: bash scripts/build-slides.sh
 #
 # Upstream deps: docs/slides/*-slides.md (deck sources); scripts/package.json +
-#                scripts/package-lock.json; npm; @marp-team/marp-cli@4.3.1
+#                scripts/package-lock.json; npm; @marp-team/marp-cli@4.4.0
 #                (EXACT pin, see scripts/package.json); bash; awk; coreutils
 #                find+sort+mktemp+cmp.
 #
 # Downstream consumers: .github/workflows/slides-sync.yml (drift gate);
 #                       content/commands/ds-update-agentic-engineering.md slide
-#                       step; contributors regenerating decks locally.
+#                       step; contributors regenerating decks locally;
+#                       scripts/check-slide-overflow.sh (default mode invokes
+#                       this script to (re)render docs/slides/*.html before
+#                       measuring).
 #
 # Failure modes: exits non-zero on zero-glob (no decks found), marp render
 #                failure, or missing render output. Idempotent and read-only
