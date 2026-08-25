@@ -60,7 +60,9 @@ ALL must hold - any single disqualifier pushes to Elevated: touches exactly one 
 
 **Implicit Trivial-tier batching.** A series of individually-Trivial changes to the same surface may commit and push immediately without opening a fresh PR per change: the first tweak opens a draft PR, and each subsequent related tweak continues that same branch until an explicit or implicit ship trigger fires. This is a pointer only - the full mechanism (the pre-spawn continuation judgment, detached-HEAD seeding, crash-path handling, discovery, concurrency, draft-PR rationale, and binding announcement wording) lives at exactly one canonical site: `content/references/worktree-lifecycle.md` §Implicit Trivial batching: open the PR at first push.
 
+<!-- corpus:begin full medium | trigger: a debugger has just produced a bug-fix brief and the resulting fix is being classified -->
 **Post-debugger Low classification.** Post-debugger-brief bug fixes that are single-file and exercised by an existing test may be classified Low if they meet all Trivial signals; otherwise standard Elevated applies.
+<!-- corpus:end -->
 
 ### Simple/targeted unit (mechanical metric)
 
@@ -80,11 +82,17 @@ After completing a Low-risk change, re-read it in full. Verify intent, edge case
 
 The conductor reads `.agentic/config.json` to resolve twenty-four project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
+<!-- corpus:begin full medium | trigger: a fresh GRAPH_REPORT.md exists at the repo root and risk classification needs to check it -->
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
+<!-- corpus:end -->
 
+<!-- corpus:begin full medium | trigger: docs/overview/vision.md or docs/overview/requirements.md is present and needs to be consulted during risk classification -->
 Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (silent no-op when absent, surfaces a genuine conflict in its return summary rather than stopping); agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
+<!-- corpus:end -->
 
+<!-- corpus:begin full medium | trigger: a mandatory learnings-capture trigger event has just fired and needs a Capture: MUST/SHOULD/SKIP declaration -->
 **Capture classification** is the learnings analogue to risk classification: just as every Elevated task triggers a risk declaration, every mandatory trigger event triggers a `Capture: MUST/SKIP` declaration. See `content/references/capture-classification.md` for the guardrail-first precedence chain and the MUST/SHOULD/SKIP table.
+<!-- corpus:end -->
 
 ### Declaration format
 
@@ -116,8 +124,10 @@ Applying adversarial review.
 
 Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
 
+<!-- corpus:begin full medium | trigger: a per-spawn capability bundle (preset) needs to be resolved before a spawn -->
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
+<!-- corpus:end -->
 
 For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.

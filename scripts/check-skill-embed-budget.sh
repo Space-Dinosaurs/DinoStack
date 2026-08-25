@@ -180,9 +180,25 @@ FLOOR=100000
 # intact injection is 130,015 B (DS-146: canaries present at head and
 # tail, no truncation, no performance warning - see
 # .agentic/learnings.md KNW-20260811-004 and
-# docs/skill-embed-injection-sweep.md). The live payload on main now
-# measures 138,990 B. The region above 130,015 B is unswept, regardless
-# of where CEILING sits above it.
+# docs/skill-embed-injection-sweep.md). The live payload on main measured
+# 138,990 B before DS-204. DS-204 (unit B) flips this adapter's SKILL.md
+# embed from the full corpus to the minimal corpus (a generated "Deferred
+# at this corpus" pointer block replaces deferred content, with the full
+# text still reachable at the unfiltered METHODOLOGY.md sibling) - the new
+# measured default is 127,753 B. This is NOT a new injection-verified
+# figure - no sweep has been run against it - but it is materially
+# favorable versus the prior state: 127,753 B is the first live default on
+# record that sits BELOW the 130,015 B largest-recorded-intact-injection
+# figure above, rather than above it (138,990 B was 8,975 B over that
+# figure; 127,753 B is 2,262 B under it). That does not make 127,753 B a
+# verified-safe size on its own - only a fresh sweep does that, per the
+# DS-45 procedure below - it only means the gap this gate's CEILING has
+# been silently papering over (see the 2026-08-19 raise paragraph below)
+# is, for the first time, not also a gap the live default itself falls
+# into. The region strictly above 130,015 B remains unswept regardless of
+# where CEILING (145,000 B, unrelated to and well above both the
+# injection figure and the live default) sits above it, or which corpus
+# produced the measured size.
 #
 # 2026-08-19 raise: CEILING moved from 139,160 B to 145,000 B by explicit
 # operator decision, to unblock work. This was not done on the basis of a

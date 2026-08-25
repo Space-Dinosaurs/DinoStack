@@ -1,3 +1,4 @@
+<!-- corpora: minimal medium full -->
 <!--
 Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
          sits between orchestration-planner output and the first engineer

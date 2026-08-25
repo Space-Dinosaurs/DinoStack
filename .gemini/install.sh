@@ -520,7 +520,7 @@ _write_gemini_md_degrade_body() {
     echo "full methodology body is appended below directly, rather than left"
     echo "reachable only via a broken trigger-load pointer."
     echo ""
-    cat "$SKILL_SRC/SKILL.md"
+    cat "$SKILL_SRC/SKILL.full.md"
   } > "$GEMINI_MD_DST"
   echo "  + ~/.gemini/GEMINI.md written with full methodology body appended (degrade path)"
   GEMINI_MD_DEGRADE_WRITTEN=true
