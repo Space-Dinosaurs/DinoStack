@@ -228,6 +228,9 @@ When spawning `release-orchestrator`, include:
 - The changeset boundary: "since last tag", "since commit abc123", or a specific range
 - The deploy command or runbook reference: the exact command or a path to a runbook
 - The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
+- On a resumption spawn only (see below): the prior instance's verbatim `QA_NEEDED` release report plus the QA verdict and summary, as a fifth input
+
+**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
 
 When spawning `dependency-auditor`, include:
 - The scope: "full audit", a specific package name and version, or a before/after lockfile diff

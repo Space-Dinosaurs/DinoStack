@@ -1144,6 +1144,9 @@ When spawning `release-orchestrator`, include:
 - The changeset boundary: "since last tag", "since commit abc123", or a specific range
 - The deploy command or runbook reference: the exact command or a path to a runbook
 - The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
+- On a resumption spawn only (see below): the prior instance's verbatim `QA_NEEDED` release report plus the QA verdict and summary, as a fifth input
+
+**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
 
 When spawning `dependency-auditor`, include:
 - The scope: "full audit", a specific package name and version, or a before/after lockfile diff
@@ -5562,7 +5565,7 @@ fi
 
 **Structural properties that MUST hold** (all verified by execution - do not "improve" them): column 0 throughout including both `EOF` and `PY` heredoc terminators; the `# @harness:` marker is the first non-blank line inside the fence; zero shell-level `exit` statements (required by `bin/tests/lib/md_shell_extract.py`'s `COMPLETION_MARKER` precondition); `mktemp` uses trailing `X`s with NO suffix (BSD/macOS does not randomize non-trailing `X`s); every skip path prints a `WARNING:` and falls through; `rm -f` fires on every path where a temp file was created.
 
-**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these four points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), and the multi-PR fan-out (below, before worktree removal). It deliberately does NOT run for `release-orchestrator`'s Phase 8 post-deploy QA (a subagent context needing its own contract) or fully ad-hoc "run QA" spawns - knowledge from those paths continues to be dropped.
+**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these five points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), the multi-PR fan-out (below, before worktree removal), and `release-orchestrator`'s Phase 8 post-deploy QA - the conductor performs that `qa-engineer` spawn directly (see `content/references/agent-team.md` §"On a `QA_NEEDED` return"; `release-orchestrator` cannot spawn subagents itself), so it is a normal conductor-performed qa-engineer return like the other four and this procedure applies to it the same way. It deliberately does NOT run for fully ad-hoc "run QA" spawns - knowledge from that path continues to be dropped.
 
 ## Multi-PR / multi-ticket parallel-by-worktree
 
@@ -13296,9 +13299,20 @@ Your spawn prompt must contain:
 2. **Release type hint** - patch / minor / major, or a description of the changeset from which you will infer it. If absent, you will determine it from the changeset.
 3. **Changeset boundary** - "since last tag", "since commit abc123", or a specific commit range. Defaults to since the last tag if omitted.
 4. **Deploy command or runbook reference** - the exact command to deploy, or a path to a runbook. If absent and no standard command is discoverable, report NEEDS_CONTEXT.
-5. **QA result (only on a resumption spawn)** - present only when the conductor is re-invoking you after your own Phase 8 `QA_NEEDED` report and the conductor's subsequent `qa-engineer` spawn. Contains the QA verdict (PASS / FAIL / BLOCKED) and report summary. Absent on a fresh release spawn.
+5. **Prior report + QA result (only on a resumption spawn)** - present only when the conductor is re-invoking you after your own Phase 8 `QA_NEEDED` report and the conductor's subsequent `qa-engineer` spawn. Contains the VERBATIM release report you produced at Phase 8 (the version, deployed-at timestamp, what shipped, and the rollback command sequence are all read from it - do not recompute them) plus the QA verdict (PASS / FAIL / BLOCKED) and report summary from `qa-engineer`. Absent on a fresh release spawn.
 
 Read all inputs before starting. Do not infer a target environment or deploy command - require them explicitly.
+
+## Resumption check (read this before Phase 1)
+
+**If input 5 is present, this is a resumption spawn.** Do NOT execute Phases 1-7 - the release already happened in the prior instance that produced the Phase 8 `QA_NEEDED` report now supplied to you as input 5. Re-running pre-flight, the version decision, changelog, version bump, tag, build, or deploy would ship a second, redundant deploy against an environment that is already live.
+
+On a resumption spawn:
+1. Read the verbatim prior report from input 5. Recover the version, deployed-at timestamp, what shipped, and the rollback command sequence from it directly - do not re-derive any of these.
+2. Skip straight to the Phase 8 routing step (the "On resumption" paragraph under Phase 8 below) using the QA verdict from input 5.
+3. Continue from there: produce the final release report (reusing the "Where it shipped" / "What shipped" facts from the prior report) on a PASS, or proceed to Phase 9 rollback on FAIL / BLOCKED.
+
+If input 5 is absent, this is a fresh release spawn - proceed with Phase 1 below in the normal order.
 
 **Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
 
@@ -13442,14 +13456,14 @@ Do not re-run the deploy command to "retry" a partial failure without human inst
 
 ### Phase 8 - Post-deploy verification
 
-You cannot spawn the `qa-engineer` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. STOP here and return a report with `Status: QA_NEEDED` containing:
+You cannot spawn the `qa-engineer` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. STOP here and return the full release report (see §Report structure below) with `Status: QA_NEEDED`. The standard report fields already carry the version, the deployed-at timestamp (under "Where it shipped"), and the rollback command sequence (under "Rollback" - this must be known before Phase 7, per Rollback Protocol) - this is exactly the report the conductor will hand back to you verbatim as input 5 on resumption, so fill every field completely, not just the highlights below. In addition, make sure the report surfaces:
 - The deployed URL or environment endpoint
 - The version that was deployed
 - The acceptance criteria: "Confirm the deployed artifact is version vX.Y.Z and core functionality is healthy (smoke test)"
 
-The conductor spawns `qa-engineer` with this information, then re-invokes you (a fresh spawn, same target environment and version) with the QA result included in the spawn prompt as a fifth input (see §Reading your spawn prompt) so you can resume at the routing step below.
+The conductor spawns `qa-engineer` with this information, then re-invokes you (a fresh spawn) with this report verbatim plus the QA verdict and summary included in the spawn prompt as input 5 (see §Reading your spawn prompt and §Resumption check above) so you can resume at the routing step below without re-executing Phases 1-7.
 
-On resumption: if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
+On resumption (reached either by falling through from a first pass immediately after Phase 7, or - the normal path - via the §Resumption check branch on a fresh spawn carrying input 5): if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
 
 ### Phase 9 - Rollback decision point
 
@@ -13521,7 +13535,7 @@ Produce this report at the end of a successful release, at the point of failure 
 - Deployed at: <timestamp>
 
 ## Verification
-- QA result: PASS | FAIL | BLOCKED | QA_NEEDED (not yet run - awaiting conductor spawn of `qa-engineer`) | not run
+- QA result: PASS | FAIL | BLOCKED | not run (not yet run - awaiting conductor spawn of `qa-engineer`, i.e. Status is QA_NEEDED)
 - QA report: <summary, capped at 200 chars, or "awaiting qa-engineer result" when QA_NEEDED>
 
 ## Rollback
