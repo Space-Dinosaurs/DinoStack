@@ -1649,8 +1649,8 @@ hr {
 <p>A series of individually-Trivial changes to the same surface can share one draft PR instead of one PR per tweak:</p>
 <ul>
 <li>The first tweak commits, pushes, and opens a <strong>draft</strong> PR immediately - CI runs on every push, nothing is deferred</li>
-<li>Every continuation is seeded via a detached-HEAD nested worktree at the fetched remote tip; the engineer <strong>pushes from inside it, before removing it</strong> - the commit is never locally-unreachable</li>
-<li>A detached worktree's bare branch-name push is a silent no-op - the explicit <code>HEAD:refs/heads/chore/tweak-&lt;key&gt;</code> refspec form is mandatory</li>
+<li>Every continuation is seeded via a detached-HEAD nested worktree created INSIDE the engineer's own worktree (<code>$CALLER_ROOT/.tweak-nested</code>, never a sibling - the write/read isolation hooks admit only paths inside caller_root); the engineer <strong>pushes from inside it, before removing it</strong></li>
+<li>A detached worktree's bare branch-name push either fails loudly (no local branch) or silently pushes the wrong ref (a stale local branch) - the explicit <code>HEAD:refs/heads/chore/tweak-&lt;key&gt;</code> refspec form is mandatory in both cases</li>
 <li>Draft state mechanically blocks merge (both plain and <code>--admin</code> forms) until <code>gh pr ready</code> - verified live against this repo (PR #815)</li>
 <li>Two concurrency fixes: a session-scoped <code>&lt;key&gt;</code> token so two sessions minting for the same file can never converge, and an origin-visible <code>tweak-claim:</code> PR comment so two sessions continuing the same batch don't collide</li>
 <li>Ship triggers: explicit ship-language, a new non-Trivial request (async - the batch ships while the new spawn starts immediately), an end-of-session signal, or next-session rediscovery (a persisted draft PR is never silently lost)</li>
@@ -1810,10 +1810,10 @@ hr {
 ;" data-marpit-pagination-total="12">
 <h2 id="skip_unreferenced_commit-a-distinct-crash-residual">SKIP_UNREFERENCED_COMMIT: a distinct crash residual</h2>
 
-<p>Implicit Trivial batching is the first mechanism that creates detached, nested engineer worktrees - and the first to crash BEFORE its push lands, not just before removal.</p>
+<p>Implicit Trivial batching is the first mechanism that creates detached, nested engineer worktrees.</p>
 <ul>
-<li>A leftover whose push already landed is reachable via <code>origin</code> - <code>disposition_for</code> resolves it <code>ELIGIBLE</code> and the session-start reap sweeps it, same as any other reachable detached HEAD</li>
-<li>A leftover from a crash BEFORE push holds a commit that exists nowhere else - <code>disposition_for</code> reports <code>SKIP_UNREFERENCED_COMMIT</code>, refused by design, same work-preserving discipline as <code>SKIP_UNPROVEN</code></li>
+<li><code>head_reachable</code> (the fact that would let a pushed-already leftover auto-sweep) is dead code in <code>bin/ds-cleanup-worktrees</code> - hardcoded <code>&quot;not_checked&quot;</code> at every construction site - so <strong>every</strong> detached leftover, pushed or not, resolves <code>SKIP_UNREFERENCED_COMMIT</code> today, refused by design, same work-preserving discipline as <code>SKIP_UNPROVEN</code></li>
+<li>Triage manually: <code>git -C &lt;path&gt; branch -r --contains &quot;$(git -C &lt;path&gt; rev-parse HEAD)&quot;</code> - nonempty means the work already reached <code>origin</code> and is safe; empty means this worktree is the sole copy</li>
 <li>Recovery: inspect the tip (<code>git -C &lt;path&gt; log -1</code>), then push it to its intended branch or cherry-pick it where it belongs</li>
 <li>Discard via <strong>plain <code>git worktree remove &lt;path&gt;</code> first</strong> - a refusal naming uncommitted files means there's working-tree content <code>log -1</code> couldn't show; inspect <code>status --porcelain</code> and <code>diff</code> before deciding, only then <code>--force</code></li>
 </ul>
