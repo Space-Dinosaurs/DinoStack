@@ -50,7 +50,7 @@ For non-interactive use - useful in scripts or automated onboarding - pass assig
 ```bash
 bin/ds-team configure \
   --non-interactive \
-  --assign architect=claude:claude-opus-4-5 \
+  --assign architect=claude \
   --assign engineer=omp:kimi/kimi-k2.7 \
   --assign debugger=kimi:kimi-k2.7 \
   --assign skeptic=pi \
