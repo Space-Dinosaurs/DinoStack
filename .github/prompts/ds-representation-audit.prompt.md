@@ -83,7 +83,7 @@ Illustrative pattern (no single surviving corpus location carries the exact excl
 
 Candidate if the same qualifier phrase appears 2+ times in the same document where a single anchored reference would suffice. Repetition that serves a genuine cross-reference purpose is excluded (see Non-Signals).
 
-Real instance to calibrate against: `METHODOLOGY.md §Delegation > spawn-threshold table` and `METHODOLOGY.md §Risk Classification > Low signals` - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in the Documentation-only creation bullet, the targeted wording fix bullet, the file renaming bullet, and again in the Low signals paragraph. Four occurrences of the same qualifier in the same document. This is the calibration specimen for R6. Confidence: MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in both the targeted wording fix bullet and the file renaming bullet within the same Low signals paragraph. Multiple occurrences of the same qualifier in the same document (grep `content/sections/04-risk-classification.md` to confirm the current count - it has drifted before and will again). This is the calibration specimen for R6. Confidence: MEDIUM.
 
 **Signal R7 - rationale buried after mechanism.**
 

@@ -84,7 +84,7 @@ The project's own `AGENTS.md`/`CLAUDE.md`/`MEMORY.md` triad operationalizes this
 
 **An evaluator should ask:** Would removing this line from the always-loaded file cause the agent to make a wrong classification or miss a behavioral rule on any task? If yes, it stays inline. If no, it should be a pointer.
 
-The trigger-pointer pattern in `~/.claude/CLAUDE.md` operationalizes this goal. Risk signals and the delegation decision table are inline; protocol procedural details are pointers to canonical specs read on trigger.
+The trigger-pointer pattern in the methodology kernel operationalizes this goal. The kernel itself loads on the `/dinostack` trigger rather than sitting inline in `~/.claude/CLAUDE.md`, which carries only the Skill Loading table; risk signals and the delegation decision table are inline within the loaded kernel, and protocol procedural details are pointers to canonical specs read on trigger.
 
 Runtime context management complements structural delegation: the conductor defines context budgets, exchange log compression, and memory retrieval to manage its own context window. See `content/references/subagent-protocol.md` Section 13.
 

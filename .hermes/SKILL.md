@@ -3889,7 +3889,7 @@ The project's own `AGENTS.md`/`CLAUDE.md`/`MEMORY.md` triad operationalizes this
 
 **An evaluator should ask:** Would removing this line from the always-loaded file cause the agent to make a wrong classification or miss a behavioral rule on any task? If yes, it stays inline. If no, it should be a pointer.
 
-The trigger-pointer pattern in `~/.claude/CLAUDE.md` operationalizes this goal. Risk signals and the delegation decision table are inline; protocol procedural details are pointers to canonical specs read on trigger.
+The trigger-pointer pattern in the methodology kernel operationalizes this goal. The kernel itself loads on the `/dinostack` trigger rather than sitting inline in `~/.claude/CLAUDE.md`, which carries only the Skill Loading table; risk signals and the delegation decision table are inline within the loaded kernel, and protocol procedural details are pointers to canonical specs read on trigger.
 
 Runtime context management complements structural delegation: the conductor defines context budgets, exchange log compression, and memory retrieval to manage its own context window. See `content/references/subagent-protocol.md` Section 13.
 
@@ -6120,7 +6120,7 @@ Performance: N/A - methodology document consumed by LLMs at spawn time.
 
 ## 0. Risk Assessment
 
-Before starting any task, the main agent performs a brief risk assessment. The canonical tier definitions, the Elevated signal table, the Low/Trivial signals, the uncertainty rule, the letter-equals-spirit rule, mid-task reclassification, and the Low-risk self-check all live in `content/sections/04-risk-classification.md` and `content/sections/02-delegation.md` (Elevated signal table); the common-rationalizations table lives in `content/references/delegation-detail.md` §Common Rationalizations to Reject. Those sections are assembled into the resident METHODOLOGY.md / `/dinostack` skill embed - this Section 0 does not restate them. The outcome is one of three tiers: **Trivial**, **Low**, or **Elevated**, with an optional **Elevated + Cleanup** extension that adds a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
+Before starting any task, the main agent performs a brief risk assessment. The canonical tier definitions, the Elevated signal table, the Low/Trivial signals, the uncertainty rule, the letter-equals-spirit rule, mid-task reclassification, and the Low-risk self-check all live in `content/sections/04-risk-classification.md` and `content/sections/02-delegation.md` (Elevated signal table); the common-rationalizations table lives in `content/references/delegation-detail.md` §Common Rationalizations to Reject. Those sections are assembled into the METHODOLOGY.md / `/dinostack` skill embed - this Section 0 does not restate them. The outcome is one of three tiers: **Trivial**, **Low**, or **Elevated**, with an optional **Elevated + Cleanup** extension that adds a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
 
 ### Approach by risk level
 
@@ -6151,7 +6151,7 @@ The core thesis: **the value of an adversarial reviewer is independence**. A rev
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
-**Document hierarchy:** This is the canonical specification for The Skeptic Protocol's adversarial-loop mechanics (Section 2 onward). Risk classification itself is canonical in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, assembled into the resident METHODOLOGY.md / `/dinostack` skill embed; Section 0 above is a pointer to those sections, not an independent source. When Section 0's summary and the canonical sections diverge, the canonical sections govern.
+**Document hierarchy:** This is the canonical specification for The Skeptic Protocol's adversarial-loop mechanics (Section 2 onward). Risk classification itself is canonical in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, assembled into the METHODOLOGY.md / `/dinostack` skill embed; Section 0 above is a pointer to those sections, not an independent source. When Section 0's summary and the canonical sections diverge, the canonical sections govern.
 
 ---
 
@@ -6602,7 +6602,7 @@ The Global-context input set (Section 4.5) and the adversarial brief exist to gi
 - **Completeness** (Section 4.5 Step 0): every mandated field must be present, and every `n/a` must carry a specific, truthful reason. An incomplete brief is a BLOCKED spawn regardless of neutrality.
 - **Neutrality** (this rule): the brief and field 7 carry no conductor hypothesis, suspicion, or attention-steer - no sentence naming a suspected root cause, a specific file or path the conductor believes is wrong, or an instruction to "look hard at" one area over another. A brief can be complete and neutral at once; omitting a mandated field is never a route to neutrality, and adding a steer is never a route to completeness.
 
-Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the provenance test (`content/sections/04-risk-classification.md` §The provenance test) - it discloses provenance-tagged FACTUAL claims the conductor already asserted elsewhere in the spawn prompt (a value, path, count, or resolved-issue rationale), auditable per `content/agents/skeptic.md` Step 3.7. It is not a channel for new claims composed for the review itself. Inside a Skeptic or reviewer spawn brief specifically, an untagged hypothesis is omitted entirely, never rephrased as a question - see `content/sections/04-risk-classification.md` §The provenance test for the resident-surface statement of this rule.
+Field 7 (conductor spawn brief, claim-bearing text only) exists to satisfy the provenance test (`content/sections/04-risk-classification.md` §The provenance test) - it discloses provenance-tagged FACTUAL claims the conductor already asserted elsewhere in the spawn prompt (a value, path, count, or resolved-issue rationale), auditable per `content/agents/skeptic.md` Step 3.7. It is not a channel for new claims composed for the review itself. Inside a Skeptic or reviewer spawn brief specifically, an untagged hypothesis is omitted entirely, never rephrased as a question - see `content/sections/04-risk-classification.md` §The provenance test for the canonical statement of this rule.
 
 **The banned shape.** A conductor-composed pre-formed conclusion about what is specifically wrong - naming a location, file, function, or root cause the conductor itself believes to be broken - is banned, whether stated as fact, as suspicion, or as a leading question. This is the CONDUCTOR-COMPOSED test: the defect is the conductor composing an unverified belief and injecting it as if it were independent input, not the mere presence of a specific location in the text.
 
@@ -21854,7 +21854,7 @@ Illustrative pattern (no single surviving corpus location carries the exact excl
 
 Candidate if the same qualifier phrase appears 2+ times in the same document where a single anchored reference would suffice. Repetition that serves a genuine cross-reference purpose is excluded (see Non-Signals).
 
-Real instance to calibrate against: `METHODOLOGY.md §Delegation > spawn-threshold table` and `METHODOLOGY.md §Risk Classification > Low signals` - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in the Documentation-only creation bullet, the targeted wording fix bullet, the file renaming bullet, and again in the Low signals paragraph. Four occurrences of the same qualifier in the same document. This is the calibration specimen for R6. Confidence: MEDIUM.
+Real instance to calibrate against: `METHODOLOGY.md §Risk Classification > Low signals` - the phrase "does not override the 'modifies protocol or infrastructure files' Elevated signal" appears in both the targeted wording fix bullet and the file renaming bullet within the same Low signals paragraph. Multiple occurrences of the same qualifier in the same document (grep `content/sections/04-risk-classification.md` to confirm the current count - it has drifted before and will again). This is the calibration specimen for R6. Confidence: MEDIUM.
 
 **Signal R7 - rationale buried after mechanism.**
 
