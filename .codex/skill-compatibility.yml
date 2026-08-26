@@ -5972,6 +5972,16 @@
       "source_token": "true"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "2dde3909605b81c6d6a2d22ebc69936eac6ab5b5ecac90a711a963ebfb3b28a2",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "done",
       "generated_token": "done",
       "kind": "operational",
