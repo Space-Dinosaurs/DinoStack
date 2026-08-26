@@ -951,6 +951,7 @@ upsert_hook(
 ENFORCE_BG_CMD = f"python3 {hooks_root}/hooks/enforce-background-spawn.py"
 ENFORCE_SINGULARITY_CMD = f"python3 {hooks_root}/hooks/enforce-orchestrator-singularity.py"
 ENFORCE_TIER_CMD = f"python3 {hooks_root}/hooks/enforce-tier.py"
+
 # Uses a GUARDED command string (like enforce-turn-shape.py, unlike its
 # bare-`python3 {path}` siblings above): `python3 <missing path>` exits 2
 # (BLOCKING on PreToolUse), so if this file were ever removed while the

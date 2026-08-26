@@ -64,6 +64,7 @@ Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
               FAIL <kind>: <detail>
               FIX symlink: <dst> : <old/broken target> -> <new target>
               FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+              FIX hooks: <settings_path>: <old command> -> <new command>
               FIX hooks_snapshot [<state>]: <message>
               SKIP <kind>: <dst> (reason)
             Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
@@ -783,30 +784,82 @@ def check_hook_paths(doc: Doctor) -> None:
         return
 
     for old_cmd, new_cmd in drift:
-        doc.repoint_symlink("hooks", settings_path, old_cmd, Path(new_cmd))
+        # NOT doc.repoint_symlink(): settings_path is a regular file, never
+        # a symlink, so repoint_symlink's os.symlink() call would raise
+        # FileExistsError (os.path.islink is False, nothing is removed) and
+        # force a FAIL + mark_unfixable (exit 2) on every successful repair
+        # here - the DS-206 Amendment 1 regression. Emit the FIX finding
+        # directly instead; it still counts toward has_unresolved_findings()
+        # in read-only/dry-run mode, and the real write happens below via
+        # _atomic_patch_settings, which emits its own OK/FAIL on completion.
+        doc._emit("FIX", f"hooks: {settings_path}: {old_cmd} -> {new_cmd}")
 
     if doc.fix:
         _atomic_patch_settings(doc, settings_path, data, {old: new for old, new in drift})
 
 
 def _hook_replacement(cmd: str, repo_dir: Path) -> str | None:
-    """If cmd references a managed hook at the wrong path, return the fixed cmd."""
+    """Converge every stale, DinoStack-shaped occurrence of every managed
+    hook basename present in cmd onto repo_dir/hooks/<basename>, across ALL
+    basenames referenced in cmd (result/changed hoisted above the basename
+    loop so frozenset iteration order is never load-bearing).
+
+    Returns the accumulated command when at least one occurrence was
+    rewritten, else None.
+
+    Known limitations, unreachable from any current .claude/install.sh-
+    authored registration (both cited producer paths are space-delimited,
+    with no adjacent punctuation, and always normalized):
+
+    1. A token whose string form does not exactly match
+       repo_dir/hooks/<basename> due to a normalization difference (e.g. a
+       non-normalized path with doubled separators) is not found by
+       str.replace, so that occurrence stays stale. When it is the ONLY
+       stale occurrence in the command, `changed` never becomes True, the
+       function returns None, and `check_hook_paths` reports "OK hooks:
+       ... all managed hook paths reference repo_dir" - a healthy verdict
+       for a command that is not actually correct. When ANOTHER occurrence
+       in the same command rewrites cleanly, `changed` becomes True from
+       that occurrence and the function returns the partially-repaired
+       command string, with the normalization-mismatched occurrence still
+       present in it - `check_hook_paths` then reports the command as
+       repaired even though one occurrence remains stale.
+    2. An adjacent-punctuation stale token in a FOREIGN (non-install.sh)
+       settings.json entry - e.g. `python3 <OLD>; echo done` or `sh -c
+       "python3 <OLD>"` - gets replaced by `str(Path(token))`, which
+       silently DROPS the punctuation - corruption, not omission -
+       producing `python3 <NEW> echo done` or a string missing its
+       closing quote. This requires a DinoStack-shaped stale path AND a
+       managed basename inside a foreign, punctuation-adjacent command
+       string; no such entry is known to exist in practice today, but
+       `_hook_replacement` walks every `command` string in
+       ~/.claude/settings.json, not only install.sh-authored ones, so the
+       reachability argument is scoped to install.sh's own registrations
+       only, not to the full input space this function actually walks.
+
+    Both are out of scope for this ticket; revisit either if a future
+    hook-registration producer (install.sh-authored or foreign) can emit
+    such a token.
+    """
+    result = cmd
+    changed = False
     for basename in MANAGED_HOOK_BASENAMES:
         if basename not in cmd:
             continue
-        tokens = cmd.split()
-        for token in tokens:
+        for token in cmd.split():
             if basename not in token:
                 continue
             token_path = Path(token)
-            expected = repo_dir / "hooks" / basename
             if _is_relative_to(token_path, repo_dir):
-                return None  # already correct
+                continue
             # Only fix paths that look like a DinoStack install
             if any(p == "DinoStack" or p.endswith("-DinoStack") for p in token_path.parts):
-                return cmd.replace(str(token_path), str(expected), 1)
-        break
-    return None
+                expected = repo_dir / "hooks" / basename
+                new_result = result.replace(str(token_path), str(expected))
+                if new_result != result:
+                    result = new_result
+                    changed = True
+    return result if changed else None
 
 
 def _atomic_patch_settings(
