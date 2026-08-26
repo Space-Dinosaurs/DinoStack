@@ -131,15 +131,9 @@ This section is the single source of truth for the on-disk artifacts that drive 
 
 **2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/ds-wrap` (sync or background enrichment) last successfully wrote `_wrap.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
 
-**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** **No longer produced.** Spillover existed only because a held `wrap/lock` made a per-turn writer SKIP its `context.md` write; per-turn writers now write session-private shards and are never skipped, so nothing is deferred. The drain below is RETAINED so records written before that change are not orphaned, and it folds them into `_wrap.md`'s curated `## Recent Focus` region. Historical record schema, for readers of an existing file:
+**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** **No longer produced.** The historical record schema and the drain procedure are NORMATIVE in `content/references/wrap-context-format.md` §"Spillover-drain procedure" - not restated here.
 
-    {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
-
-**Pinned header prefix (NORMATIVE).** Exactly one byte-exact prefix is the contract between writer and matcher:
-
-    # Session Context\n*Written by /ds-wrap
-
-This is what `hooks/stop-context.js` and `.opencode/plugins/session-context.ts` test via `startsWith`, and what every `/ds-wrap` Output-1 / merge write must emit as its first two lines. The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /ds-wrap on YYYY-MM-DD. ...` exactly as the Output-1 template (Step 1) reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (Part A) is preserved unchanged.
+**Pinned header prefix (NORMATIVE).** NORMATIVE in `content/references/wrap-context-format.md` §"Pinned header prefix (NORMATIVE)" - the byte-exact prefix, the date-format caveat, and the matcher contract are not restated here.
 
 **Step 0a - Stage the deferred-wrap safety-net** (runs BEFORE Step 0).
 

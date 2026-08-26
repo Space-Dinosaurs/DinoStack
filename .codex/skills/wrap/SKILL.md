@@ -186,15 +186,9 @@ This section is the source of truth for the Claude-only deferred-wrap marker sch
 
 **2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** This project-local sentinel is written only after a successful `$wrap` Part A write. Claude and OpenCode marker consumers use it for staging suppression. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not consume this sentinel; migration is deferred to `context-writer-migration`.
 
-**3. `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl` (the spillover log).** **No longer produced.** Spillover existed only because a held `wrap/lock` made a per-turn writer SKIP its `context.md` write; per-turn writers now write session-private shards and are never skipped, so nothing is deferred. The drain below is RETAINED so records written before that change are not orphaned, and it folds them into `_wrap.md`'s curated `## Recent Focus` region. Historical record schema, for readers of an existing file:
+**3. `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl` (the spillover log).** **No longer produced.** The historical record schema and the drain procedure are NORMATIVE in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"Spillover-drain procedure" - not restated here.
 
-    {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
-
-**Pinned header prefix (NORMATIVE).** Exactly one byte-exact prefix is the contract between writer and matcher:
-
-    # Session Context\n*Written by $wrap
-
-This is what `$AE_REPO_DIR/hooks/stop-context.js` and `.opencode/plugins/session-context.ts` test via `startsWith`, and what every `$wrap` Output-1 / merge write must emit as its first two lines. The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by $wrap on YYYY-MM-DD. ...` exactly as the Output-1 template (Step 1) reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (Part A) is preserved unchanged.
+**Pinned header prefix (NORMATIVE).** NORMATIVE in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"Pinned header prefix (NORMATIVE)" - the byte-exact prefix, the date-format caveat, and the matcher contract are not restated here.
 
 **Step 0a - Stage the deferred-wrap safety-net** (runs BEFORE Step 0).
 
