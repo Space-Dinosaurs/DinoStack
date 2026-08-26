@@ -304,6 +304,59 @@ def test_lone_token_normalization_mismatch_reports_false_healthy(tmp_path):
     )
 
 
+def test_multi_occurrence_partial_repair_leaves_mismatch_stale(tmp_path):
+    """CHARACTERIZATION TEST, not a supported-behavior guard: pins the
+    MEASURED pre-fix/post-fix EQUIVALENCE (not a difference) for the
+    multi-occurrence, same-basename, guarded-form shape - the only
+    realistic shape a normalization-mismatched token could co-occur with a
+    cleanly-repairable one in.
+
+    Measured identically against both origin/main's pre-fix
+    _hook_replacement and this file's live (post-fix) function: a guarded
+    command with one normalization-mismatched occurrence of a basename and
+    one cleanly-stale occurrence of the SAME basename returns a non-None,
+    partially-repaired string in which the mismatched occurrence is still
+    present verbatim. Pre-fix's `cmd.replace(..., count=1)` already
+    rewrote the clean occurrence and returned a non-None string with the
+    mismatched one untouched; post-fix's accumulator does the same. This
+    shape did NOT change between rounds - see Known limitation #1 in
+    _hook_replacement's own docstring, which now describes only this
+    present-tense behavior with no pre-fix/post-fix provenance claim.
+
+    Reddening mutation (VERIFIED by execution, not merely named): revert
+    _hook_replacement to its pre-fix body - confirmed to produce the SAME
+    non-None/mismatch-still-present result for this exact input, so this
+    test does NOT redden on that specific revert (that is the point: it
+    pins an equivalence, not a difference). It DOES redden on changing the
+    replace target from the Path-normalized `str(token_path)` to the raw
+    `token` substring - i.e. `result.replace(token, str(expected))`
+    instead of `result.replace(str(token_path), str(expected))` - because
+    the raw token string (still containing the doubled separator) exists
+    verbatim in `result`/`cmd`, so that mutation makes the mismatched
+    occurrence get silently rewritten too, failing this test's "still
+    present" assertion. Confirmed against a mutated copy of ds-doctor
+    before this test was finalized.
+    """
+    repo = _mkrepo(tmp_path)
+    old_repo = tmp_path / "old-DinoStack"
+    # Doubled separator - never matched by str.replace (Known limitation #1).
+    mismatched = f"{old_repo}//hooks/enforce-tier.py"
+    clean_stale = old_repo / "hooks" / "enforce-tier.py"
+    cmd = f"test -f {mismatched} && python3 {clean_stale} || exit 0"
+    result = _hook_replacement(cmd, repo)
+    assert result is not None, (
+        "the clean occurrence alone should make changed True even though "
+        "the mismatched occurrence cannot be rewritten"
+    )
+    assert mismatched in result, (
+        "the normalization-mismatched occurrence must remain verbatim in "
+        "the returned command - if it is gone, str.replace started "
+        "matching it, which is a real behavior change requiring a "
+        "docstring update"
+    )
+    assert str(clean_stale) not in result
+
+
 def test_non_dinostack_shaped_path_untouched(tmp_path):
     """Negative case: a non-DinoStack-shaped stale path is left alone.
 

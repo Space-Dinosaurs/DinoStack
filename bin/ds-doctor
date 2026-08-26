@@ -814,29 +814,16 @@ def _hook_replacement(cmd: str, repo_dir: Path) -> str | None:
     1. A token whose string form does not exactly match
        repo_dir/hooks/<basename> due to a normalization difference (e.g. a
        non-normalized path with doubled separators) is not found by
-       str.replace and stays unrewritten for that occurrence. MEASURED
-       BEHAVIOR CHANGE introduced by this diff (not pre-existing): for a
-       command with MULTIPLE occurrences where at least one other
-       occurrence rewrites cleanly, `changed` still becomes True and the
-       caller reports the command as repaired even though the
-       normalization-mismatched occurrence remains stale - a silent
-       partial-repair report. For a command with only ONE occurrence
-       total (the lone-token case) the effect is worse and different in
-       kind: pre-fix, the old body returned `cmd.replace(...)`
-       unconditionally once the DinoStack-shape test passed, so a
-       normalization-mismatched lone token was returned UNCHANGED
-       (non-None) - this entered `drift`, so the operator saw a visible
-       but no-op `FIX hooks` line and read-only mode exited 1. Post-fix,
-       the `if new_result != result` guard correctly leaves `changed`
-       False for that same input, the function returns None, and
-       `check_hook_paths` takes its `if not drift` branch and reports "OK
-       hooks: ... all managed hook paths reference repo_dir" - exit 0.
-       This diff therefore converts a visible-but-useless drift signal
-       into a silent, positive false-healthy verdict for that specific
-       unreachable input. The input remains unreachable from any current
-       producer, which is the basis for accepting rather than closing
-       this gap, but the change in observable behavior for it is real and
-       is disclosed here rather than characterized as unchanged.
+       str.replace, so that occurrence stays stale. When it is the ONLY
+       stale occurrence in the command, `changed` never becomes True, the
+       function returns None, and `check_hook_paths` reports "OK hooks:
+       ... all managed hook paths reference repo_dir" - a healthy verdict
+       for a command that is not actually correct. When ANOTHER occurrence
+       in the same command rewrites cleanly, `changed` becomes True from
+       that occurrence and the function returns the partially-repaired
+       command string, with the normalization-mismatched occurrence still
+       present in it - `check_hook_paths` then reports the command as
+       repaired even though one occurrence remains stale.
     2. An adjacent-punctuation stale token in a FOREIGN (non-install.sh)
        settings.json entry - e.g. `python3 <OLD>; echo done` or `sh -c
        "python3 <OLD>"` - gets replaced by `str(Path(token))`, which
