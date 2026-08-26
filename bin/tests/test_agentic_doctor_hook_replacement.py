@@ -8,82 +8,17 @@ form's `test -f <NEW> && python3 <OLD> || exit 0` half-fixed.
 
 Run with: python3 -m pytest bin/tests/test_agentic_doctor_hook_replacement.py -x
 
-Test-first ordering (DS-206 spawn brief): this file was written and run
-against the UNMODIFIED (pre-fix) _hook_replacement before the fix landed.
-Expected red/green table per case, verified by that pre-fix run (round 1),
-and re-verified for the round-2 fixture rework (below):
-
-  - test_fully_stale_guarded_form            RED pre-fix / GREEN post-fix
-  - test_half_fixed_guarded_form             RED pre-fix / GREEN post-fix
-  - test_mixed_stale_path_guarded_form       RED pre-fix / GREEN post-fix
-  - test_two_managed_basenames_one_command   RED pre-fix / GREEN post-fix
-                                              (round 2: rewritten to a
-                                              space-delimited `&&`-joined
-                                              fixture with an exact-string
-                                              assertion - the original `;`-
-                                              joined form silently exercised
-                                              the punctuation-loss path
-                                              disclosed in Known limitation
-                                              #2 and did not pin it)
-  - test_three_distinct_stale_occurrences    RED pre-fix / GREEN post-fix
-                                              (round 2: same rework as above)
-  - test_adjacent_punctuation_token_loses_punctuation (round 2, new)
-                                              GREEN both pre-fix and post-fix
-                                              (characterization test for the
-                                              pre-existing, disclosed, out-
-                                              of-scope corruption path -
-                                              unaffected by this diff)
-  - test_bare_single_occurrence_stale_form   GREEN both pre-fix and post-fix
-                                              (already worked under count=1)
-  - test_already_correct_guarded_form        GREEN both pre-fix and post-fix
-                                              (returns None both ways)
-  - test_lone_token_normalization_mismatch_reports_false_healthy (round 2, new)
-                                              RED pre-fix (returns non-None,
-                                              a visible no-op FIX) / GREEN
-                                              post-fix (returns None, the
-                                              disclosed silent false-healthy
-                                              verdict - see Known limitation
-                                              #1 in _hook_replacement's own
-                                              docstring)
-  - test_non_dinostack_shaped_path_untouched GREEN both pre-fix and post-fix
-                                              (negative case; returns None)
-  - test_caller_writes_fully_converged_command_to_disk
-                                              RED pre-fix / GREEN post-fix
-  - test_repair_exits_zero_with_no_fail_line (Amendment 1)
-                                              RED pre-fix (would FAIL/exit 2)
-                                              / GREEN post-fix
-
-Round-2 fix pass (Skeptic review of commit 91b2d7d6, both Majors
-confirmed by independent measurement before this rework):
-
-  - MAJOR 1: _hook_replacement's docstring understated the lone-token
-    normalization-mismatch behavior as merely "pre-existing" - measured,
-    this diff changes it from a visible no-op FIX (pre-fix) to a silent
-    false-healthy OK (post-fix) for that unreachable input. Docstring
-    corrected; test_lone_token_normalization_mismatch_reports_false_healthy
-    added to pin the corrected, disclosed post-fix behavior.
-  - MAJOR 2: test_two_managed_basenames_one_command and
-    test_three_distinct_stale_occurrences used `;`-joined fixtures, which
-    measurably drop both semicolons in the repaired output (turning two
-    sequential hook invocations into one nonsense command) while still
-    passing on substring-only assertions. Reworked to the space-delimited
-    `&&`-joined shape real .claude/install.sh registrations actually use,
-    with an exact-string assertion. The punctuation-loss behavior itself
-    is now explicitly pinned, separately, by
-    test_adjacent_punctuation_token_loses_punctuation - named so a reader
-    cannot mistake it for a supported case.
-
-Reddening mutation for every round-2-touched case: revert
-_hook_replacement to its pre-fix body (single first-basename-then-break
-loop, unconditional `cmd.replace(str(token_path), str(expected), 1)`).
-Verified by running this file against a loader pointed at the pre-fix
-source (origin/main's ds-doctor, commit 91b2d7d6's parent): 8 of 12 cases
-fail, all on the stated stale-path / None / exact-string assertions (see
-round-2 fix-pass return for the full list); the 4 that stay green both
-ways are test_bare_single_occurrence_stale_form,
-test_already_correct_guarded_form,
-test_adjacent_punctuation_token_loses_punctuation, and
-test_non_dinostack_shaped_path_untouched.
+Test-first ordering (DS-206): this file was written and run against the
+UNMODIFIED (pre-fix) _hook_replacement before the fix landed, and against
+the live (post-fix) function after. Each test's own docstring states its
+expected pre-fix/post-fix status (RED pre-fix / GREEN post-fix, or GREEN
+both ways for a characterization test) and, where the case is a
+characterization test rather than a plain regression case, its verified
+reddening mutation - deliberately not duplicated here, since a second copy
+of that information drifts independently of the code and the tests
+themselves (this file has already gone through three review rounds where
+a hand-maintained summary of this kind went stale on the round it was
+supposed to describe).
 """
 
 from __future__ import annotations
@@ -128,6 +63,9 @@ def _mkrepo(tmp_path: Path) -> Path:
 
 
 def test_fully_stale_guarded_form(tmp_path):
+    """RED pre-fix / GREEN post-fix: both the `test -f` and `python3`
+    clauses of a guarded form point at the same stale basename occurrence
+    (the simplest fully-unconverted case)."""
     repo = _mkrepo(tmp_path)
     old_repo = tmp_path / "old-DinoStack"
     old = old_repo / "hooks" / "enforce-turn-shape.py"
@@ -139,7 +77,8 @@ def test_fully_stale_guarded_form(tmp_path):
 
 
 def test_half_fixed_guarded_form(tmp_path):
-    """The bug's own residue: test -f already points at NEW, python3 still OLD."""
+    """RED pre-fix / GREEN post-fix. The bug's own residue: test -f already
+    points at NEW, python3 still OLD."""
     repo = _mkrepo(tmp_path)
     old_repo = tmp_path / "old-DinoStack"
     new = repo / "hooks" / "enforce-turn-shape.py"
@@ -152,7 +91,8 @@ def test_half_fixed_guarded_form(tmp_path):
 
 
 def test_mixed_stale_path_guarded_form(tmp_path):
-    """Two distinct old locations for the same basename in one command."""
+    """RED pre-fix / GREEN post-fix. Two distinct old locations for the
+    same basename in one command."""
     repo = _mkrepo(tmp_path)
     old_repo_a = tmp_path / "old-a-DinoStack"
     old_repo_b = tmp_path / "old-b-DinoStack"
@@ -167,11 +107,12 @@ def test_mixed_stale_path_guarded_form(tmp_path):
 
 
 def test_two_managed_basenames_one_command(tmp_path):
-    """Space-delimited, `&&`-joined shape - what .claude/install.sh's own
-    guarded multi-hook registrations actually look like. NOT semicolon-
-    joined: a `;`-adjacent stale token is a distinct, disclosed corruption
-    path (see test_adjacent_punctuation_token_loses_punctuation below) and
-    must not be conflated with ordinary multi-basename convergence.
+    """RED pre-fix / GREEN post-fix. Space-delimited, `&&`-joined shape -
+    what .claude/install.sh's own guarded multi-hook registrations
+    actually look like. NOT semicolon-joined: a `;`-adjacent stale token
+    is a distinct, disclosed corruption path (see
+    test_adjacent_punctuation_token_loses_punctuation below) and must not
+    be conflated with ordinary multi-basename convergence.
     """
     repo = _mkrepo(tmp_path)
     old_repo = tmp_path / "old-DinoStack"
@@ -192,8 +133,9 @@ def test_two_managed_basenames_one_command(tmp_path):
 
 
 def test_three_distinct_stale_occurrences(tmp_path):
-    """Space-delimited, `&&`-joined shape (see test_two_managed_basenames_
-    one_command's docstring for why `;` is deliberately not used here)."""
+    """RED pre-fix / GREEN post-fix. Space-delimited, `&&`-joined shape
+    (see test_two_managed_basenames_one_command's docstring for why `;`
+    is deliberately not used here)."""
     repo = _mkrepo(tmp_path)
     old_repo = tmp_path / "old-DinoStack"
     old1 = old_repo / "hooks" / "enforce-background-spawn.py"
@@ -212,7 +154,8 @@ def test_three_distinct_stale_occurrences(tmp_path):
 
 
 def test_adjacent_punctuation_token_loses_punctuation(tmp_path):
-    """CHARACTERIZATION TEST, not a supported-behavior guard: pins the
+    """GREEN both pre-fix and post-fix. CHARACTERIZATION TEST, not a
+    supported-behavior guard: pins the
     disclosed, accepted corruption in _hook_replacement's Known limitations
     #2 - a stale token immediately followed by punctuation (here, a `;`
     with no separating space) is replaced via `str(Path(token))`, which
@@ -268,11 +211,11 @@ def test_already_correct_guarded_form(tmp_path):
 
 
 def test_lone_token_normalization_mismatch_reports_false_healthy(tmp_path):
-    """CHARACTERIZATION TEST for the Major-1 fix-round-2 disclosure, not a
-    supported-behavior guard: pins the MEASURED pre-fix vs post-fix
-    difference for a lone (single-occurrence) token whose string form has
-    a normalization difference from repo_dir/hooks/<basename> (here, a
-    doubled path separator).
+    """RED pre-fix / GREEN post-fix. CHARACTERIZATION TEST for the Major-1
+    fix-round-2 disclosure, not a supported-behavior guard: pins the
+    MEASURED pre-fix vs post-fix difference for a lone (single-occurrence)
+    token whose string form has a normalization difference from
+    repo_dir/hooks/<basename> (here, a doubled path separator).
 
     Pre-fix (verified against origin/main at commit 91b2d7d6's parent):
     the old body returned `cmd.replace(...)` unconditionally once the
@@ -305,11 +248,10 @@ def test_lone_token_normalization_mismatch_reports_false_healthy(tmp_path):
 
 
 def test_multi_occurrence_partial_repair_leaves_mismatch_stale(tmp_path):
-    """CHARACTERIZATION TEST, not a supported-behavior guard: pins the
-    MEASURED pre-fix/post-fix EQUIVALENCE (not a difference) for the
-    multi-occurrence, same-basename, guarded-form shape - the only
-    realistic shape a normalization-mismatched token could co-occur with a
-    cleanly-repairable one in.
+    """GREEN both pre-fix and post-fix. CHARACTERIZATION TEST, not a
+    supported-behavior guard: pins the MEASURED pre-fix/post-fix
+    EQUIVALENCE (not a difference) for the multi-occurrence,
+    same-basename, guarded-form shape.
 
     Measured identically against both origin/main's pre-fix
     _hook_replacement and this file's live (post-fix) function: a guarded
@@ -358,7 +300,8 @@ def test_multi_occurrence_partial_repair_leaves_mismatch_stale(tmp_path):
 
 
 def test_non_dinostack_shaped_path_untouched(tmp_path):
-    """Negative case: a non-DinoStack-shaped stale path is left alone.
+    """GREEN both pre-fix and post-fix. Negative case: a non-DinoStack-
+    shaped stale path is left alone.
 
     The accumulator replaced an early `return None` with full iteration over
     all tokens and all managed basenames, widening the predicate's blast
@@ -381,6 +324,11 @@ def test_non_dinostack_shaped_path_untouched(tmp_path):
 
 
 def test_caller_writes_fully_converged_command_to_disk(tmp_path, monkeypatch):
+    """RED pre-fix / GREEN post-fix. Verifies AC1's actual caller contract:
+    check_hook_paths/_atomic_patch_settings write a fully-converged command
+    to disk (a guarded Stop-hook entry plus a separate PreToolUse entry,
+    two different basenames), not merely that the unit function returns
+    one."""
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     monkeypatch.setenv("HOME", str(fake_home))
@@ -432,7 +380,9 @@ def test_caller_writes_fully_converged_command_to_disk(tmp_path, monkeypatch):
 
 
 def test_repair_exits_zero_with_no_fail_line(tmp_path, monkeypatch):
-    """Amendment 1 regression guard: a successful repair must not also
+    """RED pre-fix (Amendment 1's own defect, introduced by the accumulator
+    widening drift's reach, fixed in the same commit) / GREEN post-fix.
+    Amendment 1 regression guard: a successful repair must not also
     report itself as an unfixable FAIL via repoint_symlink's os.symlink
     call against settings.json (a regular file, not a symlink) raising
     FileExistsError.
