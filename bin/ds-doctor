@@ -807,32 +807,52 @@ def _hook_replacement(cmd: str, repo_dir: Path) -> str | None:
     Returns the accumulated command when at least one occurrence was
     rewritten, else None.
 
-    Known limitations (pre-existing, unreachable from any current
-    producer):
+    Known limitations, unreachable from any current .claude/install.sh-
+    authored registration (both cited producer paths are space-delimited,
+    with no adjacent punctuation, and always normalized):
 
     1. A token whose string form does not exactly match
        repo_dir/hooks/<basename> due to a normalization difference (e.g. a
        non-normalized path with doubled separators) is not found by
-       str.replace and stays unrewritten for that occurrence, while another
-       occurrence in the same command may still cause `changed` to become
-       True - the caller then reports the command as repaired even though
-       one occurrence remains stale. For a command with only ONE
-       occurrence total (the lone-token case), the effect is different and
-       worse: `changed` stays False, the function returns None, and the
-       caller reports "OK hooks: ... all managed hook paths reference
-       repo_dir" - an already-correct verdict on a command that is not
-       actually correct.
-    2. An adjacent-punctuation stale token (e.g. `python3 <OLD>; echo
-       done` or `sh -c "python3 <OLD>"`) gets replaced by
-       `str(Path(token))`, which silently DROPS the punctuation -
-       corruption, not omission - producing `python3 <NEW> echo done` or a
-       string missing its closing quote.
+       str.replace and stays unrewritten for that occurrence. MEASURED
+       BEHAVIOR CHANGE introduced by this diff (not pre-existing): for a
+       command with MULTIPLE occurrences where at least one other
+       occurrence rewrites cleanly, `changed` still becomes True and the
+       caller reports the command as repaired even though the
+       normalization-mismatched occurrence remains stale - a silent
+       partial-repair report. For a command with only ONE occurrence
+       total (the lone-token case) the effect is worse and different in
+       kind: pre-fix, the old body returned `cmd.replace(...)`
+       unconditionally once the DinoStack-shape test passed, so a
+       normalization-mismatched lone token was returned UNCHANGED
+       (non-None) - this entered `drift`, so the operator saw a visible
+       but no-op `FIX hooks` line and read-only mode exited 1. Post-fix,
+       the `if new_result != result` guard correctly leaves `changed`
+       False for that same input, the function returns None, and
+       `check_hook_paths` takes its `if not drift` branch and reports "OK
+       hooks: ... all managed hook paths reference repo_dir" - exit 0.
+       This diff therefore converts a visible-but-useless drift signal
+       into a silent, positive false-healthy verdict for that specific
+       unreachable input. The input remains unreachable from any current
+       producer, which is the basis for accepting rather than closing
+       this gap, but the change in observable behavior for it is real and
+       is disclosed here rather than characterized as unchanged.
+    2. An adjacent-punctuation stale token in a FOREIGN (non-install.sh)
+       settings.json entry - e.g. `python3 <OLD>; echo done` or `sh -c
+       "python3 <OLD>"` - gets replaced by `str(Path(token))`, which
+       silently DROPS the punctuation - corruption, not omission -
+       producing `python3 <NEW> echo done` or a string missing its
+       closing quote. This requires a DinoStack-shaped stale path AND a
+       managed basename inside a foreign, punctuation-adjacent command
+       string; no such entry is known to exist in practice today, but
+       `_hook_replacement` walks every `command` string in
+       ~/.claude/settings.json, not only install.sh-authored ones, so the
+       reachability argument is scoped to install.sh's own registrations
+       only, not to the full input space this function actually walks.
 
-    No current producer (.claude/install.sh's f"{hooks_root}/hooks/{name}"
-    form) emits a token in either shape - both are space-delimited with no
-    adjacent punctuation and always normalized - so neither is reachable
-    today. Out of scope for this ticket; revisit if a future hook-
-    registration producer can emit such a token.
+    Both are out of scope for this ticket; revisit either if a future
+    hook-registration producer (install.sh-authored or foreign) can emit
+    such a token.
     """
     result = cmd
     changed = False
