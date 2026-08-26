@@ -72,13 +72,13 @@ Before including any candidate, apply the floor-vs-dial test from `content/refer
 
 The analyst applies each signal to every file in scope and flags candidates as they are found. No signal is skipped except Signal 4 when findings.md is absent at both resolver paths (see Signal 4).
 
-**Signal 1 - explicit model-version reference.** Candidate if the named version is older than the current deployed model. NOTE: on the current corpus, no model-version references exist in rules/references/agents - this signal is primarily a forward-looking guard. If it fires, flag with HIGH confidence.
+**Signal 1 - explicit model-version reference.** Candidate if the named version is older than the current deployed model. If it fires, flag with HIGH confidence.
 
 **Signal 2 - "because the model forgets" framing.** Candidate if that failure class has not appeared in findings.md (resolved via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback) in the last 6 months, or the rule has no known firing instance. MEDIUM confidence.
 
 **Signal 3 - verbatim duplication across files.** Flag the duplicate, not the canonical (usually the longer or more detailed version). EXCEPTION: cross-reference duplication is NOT a candidate. Intentional repetition - a preamble appearing in both a rule file AND the command that instructs agents to follow the rule, the execution contract appearing in both `METHODOLOGY.md` AND `implement-ticket.md`, the Skeptic sign-off format appearing in both `skeptic-protocol.md` AND `METHODOLOGY.md` - is load-bearing structural redundancy, not accidental bloat. The analyst must explicitly test: "would deleting this copy break a cross-reference another doc depends on?" If yes, not a candidate. MEDIUM confidence when the duplication is genuinely accidental.
 
-**Signal 4 - contradiction with findings.md entries.** Resolve findings.md via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback. If neither path exists (as is currently the case for this repo), SKIP this signal entirely and note "Signal 4 skipped: findings.md does not exist at either resolver path in this repo" in the proposal's signal summary. Do not produce false candidates.
+**Signal 4 - contradiction with findings.md entries.** Resolve findings.md via `.agentic/findings.md` preferred, legacy `.claude/findings.md` fallback. If neither path exists, SKIP this signal entirely and note "Signal 4 skipped: findings.md does not exist at either resolver path in this repo" in the proposal's signal summary. Do not produce false candidates.
 
 **Signal 5 - orphaned fallback text.** Sections labeled "fallback", "legacy", or "if the agent cannot" where the older behavior no longer occurs. MEDIUM confidence.
 
