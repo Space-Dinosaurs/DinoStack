@@ -7,9 +7,10 @@
 # To enable tier routing:
 #   1. Copy this file to ~/.agentic/tier-map.yml (or .agentic/tier-map.yml
 #      in a project root for project-specific overrides).
-#   2. Edit the model names below to match your provider's current catalog.
-#      The names here are examples only and are not kept current with
-#      provider releases - edit to suit your needs.
+#   2. Replace each placeholder below with a real model id from your
+#      provider's current catalog. This file intentionally uses
+#      placeholders instead of concrete model ids so it never goes stale
+#      as providers release and retire models - edit to suit your needs.
 #   3. Restart the session. No rebuild needed.
 #
 # If no tier map exists when a Codex/Gemini agent is spawned, the conductor
@@ -24,12 +25,12 @@
 
 codex:
   tiers:
-    1: gpt-4o-mini      # example, edit to suit your needs
-    2: gpt-4o           # example, edit to suit your needs
-    3: o3               # example, edit to suit your needs
+    1: <cheap-fast-model-id>      # tier 1, replace with a real model id
+    2: <balanced-model-id>        # tier 2, replace with a real model id
+    3: <max-capability-model-id>  # tier 3, replace with a real model id
 
 gemini:
   tiers:
-    1: gemini-2.0-flash # example, edit to suit your needs
-    2: gemini-2.0-pro   # example, edit to suit your needs
-    3: gemini-ultra-2   # example, edit to suit your needs
+    1: <cheap-fast-model-id>      # tier 1, replace with a real model id
+    2: <balanced-model-id>        # tier 2, replace with a real model id
+    3: <max-capability-model-id>  # tier 3, replace with a real model id
