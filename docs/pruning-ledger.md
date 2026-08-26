@@ -68,8 +68,8 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - File(s): content/references/tier-map-example.yml (model id entries)
 - Signal(s): Signal 1 (explicit model-version reference)
 - Confidence: HIGH
-- Rationale: Example tier map names gpt-4o-mini, gpt-4o, o3, gemini-2.0-* era models, stale relative to current provider lineups. The file self-disclaims ("examples only, not kept current"), so this is a refresh, not a behavioral premise on a dead model. Operator decision 2026-08-26: approved under the don't-pin-models directive - neutralized to placeholders (`<cheap-fast-model-id>`, `<balanced-model-id>`, `<max-capability-model-id>`) rather than refreshed to a new set of concrete ids, so the file cannot go stale again.
-- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/841
+- Rationale: Example tier map names gpt-4o-mini, gpt-4o, o3, gemini-2.0-* era models, stale relative to current provider lineups. The file self-disclaims ("examples only, not kept current"), so this is a refresh, not a behavioral premise on a dead model. Operator decision 2026-08-25: explicitly deferred - the disclaimer is accepted as sufficient for now; refresh in a later pass. Operator decision 2026-08-26: approved under the don't-pin-models directive.
+- Disposition: Neutralized to placeholders rather than refreshed to a new set of concrete ids, so the file cannot go stale again. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/841
 
 ## PL-20260825-5
 - Status: RAISED
