@@ -168,7 +168,7 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Signal(s): Signal 1
 - Confidence: HIGH
 - Rationale: Non-interactive wizard example pins claude-opus-4-5 with no disclaimer. Approved; neutralize to a placeholder per the "don't pin models" directive.
-- Disposition: Dropped the pinned model id, keeping `--assign architect=claude` (harness default, per the file's own documented `--assign` optional-model semantics). Non-Claude cross-provider ids in this file were swept and left as out-of-scope. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/837
+- Disposition: Neutralized all three pinned model ids in the non-interactive `--assign` example block (`architect=claude`, `debugger=kimi`, `engineer=omp:REPLACE_WITH_MODEL_ID`) per the "don't pin models" directive. The disclaimed interactive-wizard transcript ids ("shown for reference only") were deliberately retained. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/837
 
 ## PL-20260826-4
 - Status: ACTIONED
