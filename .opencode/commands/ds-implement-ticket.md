@@ -2354,6 +2354,7 @@ else
   NL=$'
 '
   # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
+  # Do not append any Co-Authored-By, Generated-with, or other AI-attribution trailer to the commit message - harness defaults that add one are overridden here.
   COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
   git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
 fi
