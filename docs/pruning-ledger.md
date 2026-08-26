@@ -171,13 +171,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260826-4
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-prune-harness.md (lines ~71 and ~77)
 - Signal(s): Signal 4 (contradiction with live state) + falsified Signal-1 NOTE
 - Confidence: MEDIUM
 - Rationale: Two parenthetical self-claims are now false: "no model-version references exist in rules/references/agents" (falsified by tier-map-example.yml among others) and "findings.md does not exist at either resolver path" (.agentic/findings.md exists, 7 entries). The 2026-08-25 run had to override its own contract because of the second. Approved: delete both stale asides per the prefer-deletion rule.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/839
 
 ## PL-20260826-5
 - Status: RAISED
