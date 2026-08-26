@@ -68,6 +68,9 @@ Use this exact structure. Do not rename or reorder sections.
 ### Approach [MECHANICAL, cap: 400 chars]
 [Open with one plain-language sentence restating the feature's core goal - what problem this solves and for whom - then the core design decision, and a one-line confirmation that the design serves that goal. On a revision, also confirm in one line that the core goal is unchanged from the prior plan. This restatement is cheap insurance against drifting away from what was actually asked for.]
 
+### Simplest viable alternative [MECHANICAL, cap: 400 chars]
+[State the most naive implementation that would satisfy the literal acceptance criteria - then, for each component the Approach above adds beyond it, one line tying that component to a specific stated requirement (Brief/ticket acceptance criteria, an explicit constraint, or a named non-functional need). A component justified only by an inferred motivation (e.g. "the user said this is for testing, so they'll need N of them") is not justified - either find the stated requirement it derives from, or cut the component.]
+
 ### Codebase context [MECHANICAL, cap: 600 chars]
 [What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow. Collapse to a one-line null form (e.g. "No additional context beyond the spawn prompt") when there is nothing beyond what was already given. Kept MECHANICAL despite having no grep-matchable downstream consumer: omitting it forces the engineer (or the conductor re-reading the plan) to re-derive file paths and existing patterns the Architect already found - a directly measurable autonomy loss (repeated investigation work), which is the stated bar in `content/references/subagent-return-contract.md` for a no-consumer KEEP.]
 

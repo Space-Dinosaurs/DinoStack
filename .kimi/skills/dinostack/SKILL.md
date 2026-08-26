@@ -694,8 +694,11 @@ These rules complement the existing tool hierarchy above (Read/Glob/Grep over Ba
 - **Existing utilities first** — before writing new code, grep the codebase for functions that already solve the sub-problem. Prefer calling an existing utility over reimplementing it.
 - **Follow established patterns** — if the codebase has a convention for this class of problem (validation schemas, error wrappers, React hooks, data transformers), use it.
 - **Intentional exceptions** — if duplication is genuinely appropriate (the two paths are about to diverge significantly, or extraction would obscure meaning), state the reason explicitly in the output.
+- **Unnecessary abstraction** - the counterweight to the "Repeated logic" rule above: an abstraction serving only a single call site, or built only for a hypothetical future requirement, is itself a finding, not a virtue. Do not extract a helper, wrapper, or config layer until a second real caller exists or a stated requirement needs it.
 
-The Skeptic review layer enforces this: duplication and missed abstractions are **Major** findings that block sign-off unless justified.
+**Precedence: exactly one rule governs each state.** (1) One call site, no second call site anywhere (in this diff or the codebase), nothing extracted - no finding. (2) That same single call site with an abstraction extracted anyway - "Unnecessary abstraction" governs, never "Repeated logic" (which requires the block to actually appear more than once). (3) A second occurrence of the block arrives in the same diff, or the pattern already exists elsewhere in the codebase - the block now appears more than once either way, so "Repeated logic" governs and "Unnecessary abstraction" does not apply (a real second occurrence is not a hypothetical future requirement). No state satisfies both rules at once. Note "call site" and "occurrence of the block" are not synonyms: a correctly extracted helper called from two places is two call sites but one occurrence, so it is not state (3) and produces no finding.
+
+The Skeptic review layer enforces both directions: duplication and missed abstractions are **Major** findings that block sign-off unless justified; an unnecessary abstraction is **Minor** by default, **Major** when it adds a public surface (a new exported function, module, or API with only one caller).
 
 ## Code Quality Gates
 
