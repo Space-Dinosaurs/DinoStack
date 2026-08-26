@@ -70,7 +70,9 @@ The project's own `AGENTS.md`/`CLAUDE.md`/`MEMORY.md` triad operationalizes this
 
 ## Goal 4 - Context window efficiency
 
-**Always-loaded instruction files must be as small as possible while preserving correct autonomous behavior.** The global `~/.claude/CLAUDE.md` is loaded into every conversation. Every line consumes context on every task, whether relevant or not. The system separates content into two categories using a trigger-pointer pattern:
+**Always-loaded instruction files must be as small as possible while preserving correct autonomous behavior.** The global `~/.claude/CLAUDE.md` is loaded into every conversation. Every line consumes context on every task, whether relevant or not. The system separates content into two categories using a trigger-pointer pattern.
+
+**Scope note:** for the rest of this section, "the always-loaded file" means the session-loaded kernel tier - the methodology content pulled in by the `/dinostack` trigger (embedded verbatim in `.claude/skills/dinostack/SKILL.md`) - not `~/.claude/CLAUDE.md` itself. Since DS-143, `~/.claude/CLAUDE.md` carries only the Skill Loading table (see the closing paragraph of this section); it is the kernel, not the CLAUDE.md file, that is now the resident/deferred boundary this section describes.
 
 **Inline content** - present in the always-loaded file because the agent needs it before making any decision. This includes: risk signal lists, delegation decision tables, core behavioral rules (conductor/implementer, background-by-default), and cross-cutting conventions (writing style, tool usage). These pass the chicken-and-egg test: removing them would cause the agent to miss a risk signal or behavioral rule before it knows to read anything else.
 
