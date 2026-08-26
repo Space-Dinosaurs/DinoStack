@@ -162,13 +162,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: Replaced pinned model ids with `<model-id-1>`/`<model-id-2>` placeholders and added the tier-map-example.yml-style illustrative-example disclaimer. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/840
 
 ## PL-20260826-3
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-configure-team.md (line ~47)
 - Signal(s): Signal 1
 - Confidence: HIGH
 - Rationale: Non-interactive wizard example pins claude-opus-4-5 with no disclaimer. Approved; neutralize to a placeholder per the "don't pin models" directive.
-- Disposition:
+- Disposition: Dropped the pinned model id, keeping `--assign architect=claude` (harness default, per the file's own documented `--assign` optional-model semantics). Non-Claude cross-provider ids in this file were swept and left as out-of-scope. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/837
 
 ## PL-20260826-4
 - Status: ACTIONED
