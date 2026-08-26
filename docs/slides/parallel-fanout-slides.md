@@ -255,7 +255,7 @@ Workers return their summaries in the normal return path. Conductor handles all 
   blockquote { font-size: 0.8em; margin: 0.2em 0; padding-left: 0.8em; }
 </style>
 
-The planner classifies each parallel group and sets `skeptic_strategy`:
+The planner classifies per unit (per group for `integration`) and sets `skeptic_strategy`:
 
 <div class="columns-3">
 <div class="card">
