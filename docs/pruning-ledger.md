@@ -144,13 +144,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260826-1
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-implement-ticket.md (line ~2353, Phase 8 COMMIT_MSG template)
 - Signal(s): Signal 1 (explicit model-version reference)
 - Confidence: HIGH
 - Rationale: The Phase 8 commit template hardcodes the trailer "Co-Authored-By: Claude Sonnet 4.6" - a live template, not an example, so every current-model session misattributes its commits. Operator decision 2026-08-26: approved; per the operator's standing directive there is to be NO Claude attribution in PRs or commits, so the trailer is deleted outright rather than parameterized.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/838
 
 ## PL-20260826-2
 - Status: RAISED
