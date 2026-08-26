@@ -142,3 +142,66 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Confidence: LOW
 - Rationale: events-log.md documents hook-emitted spawn_start telemetry for every subagent spawn (DS-160), but whether the footer describes the emit sites or ds-cost's aggregation logic was not determinable from prose alone. Operator decision 2026-08-25: deferred pending verification against bin/'s cost aggregation; no standalone ticket warranted.
 - Disposition:
+
+## PL-20260826-1
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/commands/ds-implement-ticket.md (line ~2353, Phase 8 COMMIT_MSG template)
+- Signal(s): Signal 1 (explicit model-version reference)
+- Confidence: HIGH
+- Rationale: The Phase 8 commit template hardcodes the trailer "Co-Authored-By: Claude Sonnet 4.6" - a live template, not an example, so every current-model session misattributes its commits. Operator decision 2026-08-26: approved; per the operator's standing directive there is to be NO Claude attribution in PRs or commits, so the trailer is deleted outright rather than parameterized.
+- Disposition:
+
+## PL-20260826-2
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/commands/ds-cost.md (lines ~64-77, pricing.yml example)
+- Signal(s): Signal 1
+- Confidence: HIGH
+- Rationale: Example pricing config pins claude-sonnet-4-6 and claude-opus-4-7 with concrete per-token rates and no disclaimer. Operator decision 2026-08-26: approved; per the "don't pin models" directive, neutralize ids to placeholders.
+- Disposition:
+
+## PL-20260826-3
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/commands/ds-configure-team.md (line ~47)
+- Signal(s): Signal 1
+- Confidence: HIGH
+- Rationale: Non-interactive wizard example pins claude-opus-4-5 with no disclaimer. Approved; neutralize to a placeholder per the "don't pin models" directive.
+- Disposition:
+
+## PL-20260826-4
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/commands/ds-prune-harness.md (lines ~71 and ~77)
+- Signal(s): Signal 4 (contradiction with live state) + falsified Signal-1 NOTE
+- Confidence: MEDIUM
+- Rationale: Two parenthetical self-claims are now false: "no model-version references exist in rules/references/agents" (falsified by tier-map-example.yml among others) and "findings.md does not exist at either resolver path" (.agentic/findings.md exists, 7 entries). The 2026-08-25 run had to override its own contract because of the second. Approved: delete both stale asides per the prefer-deletion rule.
+- Disposition:
+
+## PL-20260826-5
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/commands/ds-wrap.md (lines ~127-135, Deferred-enrichment data model section)
+- Signal(s): Signal 3 (verbatim duplication)
+- Confidence: MEDIUM
+- Rationale: ds-wrap.md carries verbatim copies of the pinned header prefix block and the spillover record schema whose declared single normative home is content/references/wrap-context-format.md ("Edit the algorithm here, not in either consumer"). Nothing depends on ds-wrap.md's copies. Approved: consolidate to pointers, keeping the pending-<session_id>.json marker schema that ds-wrap.md genuinely owns.
+- Disposition:
+
+## PL-20260826-6
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/references/wrap-context-format.md (lines ~93-113, ten-bullet rolling-label enumeration)
+- Signal(s): Signal 6 (complexity, consider-simplifying only)
+- Confidence: LOW
+- Rationale: Nine of ten bullets are one parametric sentence instantiated for N=2..9; a parametric rule plus two special cases would express the same algorithm in ~4 bullets. The file is sha256-pinned by test-wrap-context-format-golden.js and the enumeration may be deliberate few-shot scaffolding. Operator decision 2026-08-26: deferred - not actioned without an explicit judgment that the enumeration is not load-bearing.
+- Disposition:
+
+## PL-20260826-7
+- Status: RAISED
+- Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
+- File(s): content/references/events-log.md (lines ~83-90, hook-emitted-variant schema bullets)
+- Signal(s): Signal 6 (complexity, consider-simplifying only)
+- Confidence: LOW
+- Rationale: Schema bullets carry round-by-round development narratives ("round-2 fix...", "round-5 correction...") that are git-blame material, though some double as do-not-regress warnings and schema drift here silently miscounts ds-cost output. Operator decision 2026-08-26: deferred - simplification requires preserving the normative warnings; not actioned this run.
+- Disposition:

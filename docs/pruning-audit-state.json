@@ -1,7 +1,7 @@
 {
   "last_run": {
     "command": "ds-prune-harness",
-    "date": "2026-08-25",
+    "date": "2026-08-26",
     "model_self_reported": "claude-fable-5",
     "note": "self-reported by the conductor session that ran the audit; not independently verified"
   }
