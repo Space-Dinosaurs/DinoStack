@@ -37,7 +37,7 @@ The `NN` prefix is dense (no gaps) at any given commit. To insert a new section 
 
 ## Assembly contract
 
-The assembled METHODOLOGY.md body is the deterministic concatenation of every `*.md` file in this directory in `LC_ALL=C` sorted order, with a single blank line between files. The assembly is performed by `scripts/build-methodology.sh`. The drift check (`scripts/check-methodology-drift.sh`) derives its file set from `bash scripts/build-methodology.sh --list-files` - the same `LC_ALL=C find|sort` glob - and hashes each section file directly; it never re-implements concatenation.
+The assembled METHODOLOGY.md body is the deterministic concatenation of every `*.md` file in this directory in `LC_ALL=C` sorted order, with a single blank line between files, each file passed through `scripts/lib/corpus-filter.py` for the active `--corpus` tier (see "Corpus markers (DS-204)" below; `--corpus full`, the default, is byte-identical to the pre-DS-204 concatenation). The assembly is performed by `scripts/build-methodology.sh`. The drift check (`scripts/check-methodology-drift.sh`) derives its file set from `bash scripts/build-methodology.sh --list-files` - the same `LC_ALL=C find|sort` glob, corpus-agnostic - and hashes each section file directly; it never re-implements concatenation.
 
 ```bash
 # Equivalent shell expression (do not duplicate this in adapters; call the script):
@@ -83,4 +83,15 @@ If you previously installed the dinostack skill (via `bash .claude/install.sh`),
 
 `scripts/.methodology-baseline.sha256` is a per-file manifest: one `<basename> <sha256>` line per `content/sections/[0-9][0-9]-*.md` file, headed by a fixed comment line, written atomically and verbatim by `bash scripts/check-methodology-drift.sh --regenerate`. It is equivalent in intent to the single assembled-output hash it replaced: both pin the section files so that unintentional drift fails the `methodology-drift` CI gate. The per-file form keeps the gate meaningful across assembly-logic changes - a change to the concatenation in `scripts/build-methodology.sh` that leaves every section file untouched would trip a whole-output baseline but is covered instead by the `adapter-sync` gate, which rebuilds every adapter from the same script and fails on any drift.
 
-Section content is kernel-only (always-loaded). Detail passing the three-question partition test (see `content/references/design-goals.md` Goal 4) belongs in `content/references/**`, reached by a read-on-trigger pointer in `12-protocol-details.md`.
+Section content is kernel content, loaded at every corpus tier by default (see "Corpus markers (DS-204)" below for the one exception). Detail passing the three-question partition test (see `content/references/design-goals.md` Goal 4) belongs in `content/references/**`, reached by a read-on-trigger pointer in `12-protocol-details.md`.
+
+## Corpus markers (DS-204)
+
+A section file may declare a corpus posture via one of two mechanisms, defined in `scripts/lib/corpus-filter.py` (the single source of truth for marker syntax - never re-derive it):
+
+- A line-1 file-level `<!-- corpora: minimal medium full -->` marker: the whole file loads at every corpus (the common case; most section files carry this).
+- One or more `<!-- corpus:begin <space-separated corpus list> | trigger: <text> --> ... <!-- corpus:end -->` blocks: the wrapped content loads only when the active corpus is in `<corpus list>`. At a non-matching corpus, the block is replaced by a generated "Deferred at this corpus" pointer block naming each excluded block's `trigger:` text - a concrete, recognizable event, not a topic. The `trigger:` clause is mandatory unless the list is exactly `minimal medium full` (in which case the block is never excluded).
+
+Every section file MUST declare a posture one way or the other - `scripts/check-corpus-coverage.py` (wired into `.github/workflows/methodology-drift.yml`) fails CI on a file with neither. A partitioned file's own first top-level (`##`) heading must never sit inside a `corpus:begin` block - it must always be reachable, at every corpus. Marker lines themselves are always stripped from assembled output, at every corpus, so `--corpus full` output is byte-identical to the pre-DS-204 assembly.
+
+`.claude/` and `.gemini/` each build a MINIMAL-corpus embed for their trigger-loaded skill body, alongside an unfiltered FULL-corpus sibling file the pointer blocks name. `.kimi/` and `.copilot/` (`.github/skills/`) were flipped the same way and then HELD BACK in the same DS-204 round (runtime QA came back INCONCLUSIVE for both - no drivable runtime on the verification host) - both assemble the full corpus unconditionally, pending a live-runtime verification path. `.codex/` and the remaining adapters are unaffected - they still assemble the full corpus.

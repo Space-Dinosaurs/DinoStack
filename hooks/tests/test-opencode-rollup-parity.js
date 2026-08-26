@@ -28,6 +28,12 @@
  * the actual regression, and it fails loudly when either side gains a constant
  * the other lacks.
  *
+ * This file ALSO carries one narrow telemetry-filter pin (see "retired
+ * conductor_direct event filter" below): a structural regex check that the
+ * plugin's writeSessionTotal event filter has no conductor_direct special
+ * case, since that event name is retired and re-adding a filter arm for it
+ * is the exact class of silent regression this suite exists to catch.
+ *
  * Run with: node hooks/tests/test-opencode-rollup-parity.js
  * Argument-free invocation runs everything (auto-discovered by the
  * hooks/tests/test-*.js glob in .github/workflows/hooks-tests.yml).
@@ -164,6 +170,15 @@ console.log('\n--- retired semantics stay retired ---');
     'TS: the region boundary is found from the LAST sentinel, matching the JS lib');
   assert(/lastIndexOf\(ACTIVITY_SENTINEL\)/.test(js),
     'JS: the region boundary is found from the LAST sentinel');
+}
+
+// ---------------------------------------------------------------------------
+// retired conductor_direct event name must not come back anywhere in the file
+// ---------------------------------------------------------------------------
+console.log('\n--- retired conductor_direct event name ---');
+{
+  assert(!ts.includes('conductor_direct'),
+    'TS: the plugin file contains no occurrence of the retired event name "conductor_direct" (PL-20260825-6), not just no filter-arm shape');
 }
 
 console.log(`\n${passed} passed, ${failed} failed.`);

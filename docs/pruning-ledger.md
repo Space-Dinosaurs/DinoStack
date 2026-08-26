@@ -45,22 +45,22 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/824
 
 ## PL-20260825-2
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/skeptic-protocol.md (Section 0 "Risk Assessment"; "Document hierarchy" passage; ~/.claude/agents/skeptic.md citation)
 - Signal(s): Signal 3 (verbatim duplication) + Signal 5 (orphaned legacy text)
 - Confidence: HIGH
 - Rationale: Section 0 duplicates the Elevated-signal and common-rationalizations tables canonical in content/sections/02-delegation.md, 04-risk-classification.md, and delegation-detail.md (a known DS-48 multi-copy drift hazard); states risk is "Low or Elevated" only, missing Trivial; the "~/.claude/CLAUDE.md contains inline risk classification rules" hierarchy claim is stale post-DS-143. Approved for pointer-izing after confirming the skeptic agent's read chain resolves the canonical table.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/826
 
 ## PL-20260825-3
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
-- File(s): content/references/subagent-protocol.md (Section 12 sync targets; Section 11 path citation; Rule 4 / Section 4 agent-type tables; TaskOutput references)
+- File(s): content/references/subagent-protocol.md (Section 12 sync targets; Section 11 path citation; Rule 4 / Section 4 agent-type tables; TaskOutput references; line ~212 Section 0 citation)
 - Signal(s): Signal 5 (orphaned legacy text) + Signal 3 (contradiction with the named-agent roster)
 - Confidence: HIGH
 - Rationale: Section 12 instructs updating ~/.claude/CLAUDE.md risk tables that no longer exist post-DS-143; Section 11 cites nonexistent .claude/rules/decisions.md; TaskOutput references describe a replaced harness tool shape; Rule 4 and Section 4 tables recommend general-purpose Workers broadly, contradicting the named DinoStack agent roster. Approved for rewrite; the general-purpose guidance is to be scoped to harnesses lacking named agents (portability pillar), not deleted.
-- Disposition:
+- Disposition: Rewritten in https://github.com/Space-Dinosaurs/DinoStack/pull/827 - all five defects fixed (including a fifth, sibling-reported staleness at line ~212's Skeptic Protocol Section 0 citation). The general-purpose guidance was scoped, not deleted: verification found every spawn-capable adapter ships the full named-agent roster and Cursor has no spawning at all, so no live portability role exists today, but `general-purpose` remains an explicit fallback row for a harness that might need it in future. Note on axis substitution: the Rationale above calls for scoping this guidance "to harnesses lacking named agents" (a portability axis), but the implementation scoped it on task-fit instead ("use a named agent unless none of the named agents fit the task"). The harness-lineup check found every spawn-capable adapter ships the named roster, so the portability axis had no live referent to scope against; the kernel's own task-fit fallback wording was used instead.
 
 ## PL-20260825-4
 - Status: RAISED
@@ -81,13 +81,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260825-6
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/events-log.md (the deprecated conductor_direct event documentation block)
 - Signal(s): Signal 5 (orphaned legacy text)
 - Confidence: MEDIUM
 - Rationale: Block is self-labeled deprecated and historical-only; nothing emits or consumes the event (2026-06-27 decision: a deterministic hook cannot detect an LLM-semantic event). Approved for deletion, optionally leaving a one-line legacy-name note for log parsers reading old events.jsonl files.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/829
 
 ## PL-20260825-7
 - Status: RAISED
@@ -117,13 +117,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/823
 
 ## PL-20260825-10
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/agents/release-orchestrator.md (Phases 6-8 self-spawn instructions)
 - Signal(s): Signal 5 (legacy text) + contradiction with live enforcement
 - Confidence: MEDIUM
 - Rationale: release-orchestrator is itself a subagent and subagents cannot spawn subagents (hooks/enforce-orchestrator-singularity.py denies exactly this), yet Phases 6-8 instruct it to spawn the debugger and qa-engineer. Approved: rewrite to hand failures and QA needs back to the conductor via structured returns. The singularity hook itself is a floor and is not a candidate.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/825
 
 ## PL-20260825-11
 - Status: REJECTED

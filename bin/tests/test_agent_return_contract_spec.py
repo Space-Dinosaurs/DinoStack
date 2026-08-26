@@ -1653,6 +1653,46 @@ def test_shape4_release_orchestrator_is_now_compliant():
     assert violations == [], violations
 
 
+def test_release_orchestrator_resumption_entry_is_sole_and_precedes_phase1():
+    """Round-3 regression pin for the round-1 Critical (a first-pass
+    instance re-executing a production deploy on resumption). Asserts
+    three structural properties of release-orchestrator.md:
+
+    (a) a resumption-skip instruction exists, matched on a distinctive
+        multi-word phrase (not a bare identifier) so the pin resists a
+        substring-containment bypass;
+    (b) that instruction physically precedes the '### Phase 1' heading,
+        so a fresh spawn cannot reach Phase 1 without first passing the
+        resumption check;
+    (c) the Phase 8 routing text does NOT name first-pass fall-through
+        as a valid entry path - only the §Resumption check branch is
+        named as the entry point.
+    """
+    text = (AGENTS_DIR / "release-orchestrator.md").read_text()
+
+    resumption_phrase = "Do NOT execute Phases 1-7"
+    resumption_idx = text.find(resumption_phrase)
+    assert resumption_idx != -1, (
+        "expected the resumption-skip instruction "
+        f"({resumption_phrase!r}) to be present in release-orchestrator.md"
+    )
+
+    phase1_idx = text.find("### Phase 1")
+    assert phase1_idx != -1, "expected a '### Phase 1' heading"
+    assert resumption_idx < phase1_idx, (
+        "the resumption-skip instruction must physically precede the "
+        "'### Phase 1' heading, so a fresh spawn cannot reach Phase 1 "
+        "without first passing the resumption check"
+    )
+
+    forbidden_fallthrough_phrase = "falling through from a first pass"
+    assert forbidden_fallthrough_phrase not in text, (
+        "the Phase 8 routing text must not name first-pass fall-through "
+        "as a valid entry path - only the §Resumption check branch "
+        "may be named as the entry point"
+    )
+
+
 def test_shape2_dependency_auditor_is_now_compliant():
     """Unit 4 (return-contract migration) retired dependency-auditor.md's
     free-prose '## Report structure' (Summary/Findings/Upgrade plan/Open

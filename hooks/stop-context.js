@@ -762,7 +762,15 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
 
 /**
  * Append a single session_total event to .agentic/events.jsonl summing
- * spawn_complete + conductor_direct events for the current session.
+ * spawn activity for the current session (conductor_direct is a retired
+ * event name and is no longer counted - see :555 above). In a ticketed
+ * session (any conductor-emitted spawn_complete present), only those
+ * conductor-emitted spawn_complete events are summed - all hook-emitted
+ * telemetry is excluded as a double-count guard. In a pure ad-hoc session
+ * (no conductor-emitted spawn_complete), hook-emitted spawn_start events
+ * are deduped by spawn_id and counted instead, so spawn_count can be
+ * nonzero with zero spawn_complete events present. See scanSessionAggregate
+ * (:686-751) for the full branch logic.
  * Best-effort: any fs / parse failure is swallowed silently.
  *
  * @param {string} cwd - Verified project directory.

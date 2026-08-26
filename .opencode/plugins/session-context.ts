@@ -271,9 +271,13 @@ export const SessionContextPlugin: Plugin = async ({
   (globalThis as any)[PLUGIN_INSTANCE_KEY] = true;
 
   /**
-   * Aggregate spawn_complete + conductor_direct events from events.jsonl for
-   * the current session and append a session_total rollup. Mirrors
-   * hooks/stop-context.js writeSessionTotal. Silent failure on every error path.
+   * Aggregate spawn_complete events from events.jsonl for the current
+   * session and append a session_total rollup. Counts every spawn_complete
+   * regardless of data.source (conductor- and hook-emitted alike);
+   * implements neither stop-context.js's DS-160 hook-telemetry double-count
+   * guard nor its ad-hoc spawn_start dedup (see hooks/stop-context.js
+   * scanSessionAggregate for that logic). Silent failure on every error
+   * path.
    */
   async function writeSessionTotal(cwd: string, sessionID: string | null) {
     // M4: Reject cwd values with traversal components before any path join.
@@ -338,7 +342,7 @@ export const SessionContextPlugin: Plugin = async ({
           continue;
         }
         const ev = obj && obj.event;
-        if (ev !== "spawn_complete" && ev !== "conductor_direct") continue;
+        if (ev !== "spawn_complete") continue;
         const data = (obj && obj.data) || {};
         // Filter to current session when session_uuid is present on the
         // event payload. Events without session_uuid are included

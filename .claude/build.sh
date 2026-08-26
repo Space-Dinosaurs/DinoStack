@@ -11,9 +11,14 @@
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
 # Side-effects: removes stale .claude/commands/*.md files whose basename no longer matches any
 #               content/commands/*.md source (e.g. after a command rename or deletion upstream).
-#               Also embeds METHODOLOGY.md and content/rules/*.md (except module-manifest.md)
-#               verbatim into the generated SKILL.md body under an "Embedded Resident Content"
-#               section, so the full methodology loads on skill invocation without relying on
+#               METHODOLOGY.md itself is always the FULL corpus (unchanged sibling file, the
+#               shipped fallback). The SKILL.md embed under "Embedded Resident Content" is the
+#               MINIMAL corpus instead (DS-204): content wrapped in a deferred corpus:begin block
+#               is replaced there by a generated "Deferred at this corpus" pointer block naming
+#               each trigger; the SKILL.md footer instructs the reader to open METHODOLOGY.md in
+#               the same skill directory when a named trigger fires. content/rules/*.md (except
+#               module-manifest.md) are still embedded verbatim (not corpus-filtered) so the full
+#               methodology-plus-rules loads on skill invocation without relying on
 #               ~/.claude/CLAUDE.md's @-import lines.
 # Performance: standard.
 
@@ -36,8 +41,15 @@ get_inode() {
 }
 
 # Methodology: assemble content/sections/*.md into a single METHODOLOGY.md.
+# This sibling file is always the FULL corpus - it is the shipped fallback a
+# reader opens when a minimal-corpus "Deferred at this corpus" pointer block
+# fires (see the SKILL.md embed below, which uses the minimal corpus instead).
 mkdir -p "$SKILL_DST"
 bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
+
+# Minimal-corpus stream for the SKILL.md embed below (NOT written to disk as
+# its own file - it exists only as the embedded body inside SKILL.md).
+METHODOLOGY_MINIMAL="$(bash "$REPO_DIR/scripts/build-methodology.sh" --corpus minimal --full-text-name METHODOLOGY.md)"
 
 # SKILL.md: assemble from adapter-private frontmatter + canonical content/SKILL.md body.
 # content/SKILL.md may begin with an HTML comment manifest block (<!-- ... -->); strip it
@@ -67,9 +79,9 @@ fi
   echo ""
   echo "## Embedded Resident Content"
   echo ""
-  echo "### METHODOLOGY.md"
+  echo "### METHODOLOGY.md (minimal corpus - see note below)"
   echo ""
-  cat "$SKILL_DST/METHODOLOGY.md"
+  printf '%s\n' "$METHODOLOGY_MINIMAL"
   echo ""
   for f in "$CONTENT/rules/"*.md; do
     name=$(basename "$f")
@@ -82,9 +94,9 @@ fi
   echo ""
   echo "## Note for this Claude Code build"
   echo ""
-  echo "The rules and methodology files named above under 'Rules (read these files)'"
-  echo "(METHODOLOGY.md, rules/code-standards.md, rules/conventions.md) are embedded"
-  echo "verbatim above under 'Embedded Resident Content' - they are already in context now that this skill has been invoked. Do not issue a separate Read for them."
+  echo "The rules files named above (rules/code-standards.md, rules/conventions.md) are embedded verbatim under 'Embedded Resident Content' - already in context now that this skill has been invoked. Do not issue a separate Read for them."
+  echo ""
+  echo "The methodology body embedded above is the MINIMAL corpus: some rules are deferred and replaced by a \"Deferred at this corpus\" pointer block naming a trigger event. If a pointer block's named trigger fires during a task, DO read METHODOLOGY.md in this same skill directory - it carries the full, unfiltered text. That Read is REQUIRED in that case, not redundant."
 } >> "$SKILL_DST/SKILL.md"
 
 # Commands: prepend prerequisite blockquote. If an adapter-private frontmatter

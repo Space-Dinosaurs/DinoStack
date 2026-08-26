@@ -504,7 +504,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-l
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`, `conductor_overreach`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is retired; a one-line legacy note remains there for parsers.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -556,7 +556,7 @@ Claude Code locks each isolation worktree while its agent is running, so git ref
 | **Doc-sync obligation** | a change alters a count, list, path, convention, or behavior an intent-layer doc asserts | `~/DinoStack/.claude/skills/dinostack/references/doc-sync-obligation.md` - trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, tiered Skeptic verification rule |
 | **Capability preflight** | before every Agent spawn | `content/sections/06-capability-preflight.md` - when preflight runs, advisory vs blocking mode, absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, cache schema: `content/references/capability-preflight.md` |
 | **QA gate** | Skeptic sign-off is granted on a UI-visible change | `content/sections/05-qa-gate.md` - QA-fires invariant, skip enums, diff-read rule, re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, dev-server boot pattern: `content/references/qa-gate.md` |
-| **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.) |
+| **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is retired; a one-line legacy note remains in `content/references/events-log.md` for parsers.) |
 | **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, two-class summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
 | **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
 | **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
@@ -624,8 +624,11 @@ These rules complement the existing tool hierarchy above (Read/Glob/Grep over Ba
 - **Existing utilities first** — before writing new code, grep the codebase for functions that already solve the sub-problem. Prefer calling an existing utility over reimplementing it.
 - **Follow established patterns** — if the codebase has a convention for this class of problem (validation schemas, error wrappers, React hooks, data transformers), use it.
 - **Intentional exceptions** — if duplication is genuinely appropriate (the two paths are about to diverge significantly, or extraction would obscure meaning), state the reason explicitly in the output.
+- **Unnecessary abstraction** - the counterweight to the "Repeated logic" rule above: an abstraction serving only a single call site, or built only for a hypothetical future requirement, is itself a finding, not a virtue. Do not extract a helper, wrapper, or config layer until a second real caller exists or a stated requirement needs it.
 
-The Skeptic review layer enforces this: duplication and missed abstractions are **Major** findings that block sign-off unless justified.
+**Precedence: exactly one rule governs each state.** (1) One call site, no second call site anywhere (in this diff or the codebase), nothing extracted - no finding. (2) That same single call site with an abstraction extracted anyway - "Unnecessary abstraction" governs, never "Repeated logic" (which requires the block to actually appear more than once). (3) A second occurrence of the block arrives in the same diff, or the pattern already exists elsewhere in the codebase - the block now appears more than once either way, so "Repeated logic" governs and "Unnecessary abstraction" does not apply (a real second occurrence is not a hypothetical future requirement). No state satisfies both rules at once. Note "call site" and "occurrence of the block" are not synonyms: a correctly extracted helper called from two places is two call sites but one occurrence, so it is not state (3) and produces no finding.
+
+The Skeptic review layer enforces both directions: duplication and missed abstractions are **Major** findings that block sign-off unless justified; an unnecessary abstraction is **Minor** by default, **Major** when it adds a public surface (a new exported function, module, or API with only one caller).
 
 ## Code Quality Gates
 
@@ -1144,6 +1147,9 @@ When spawning `release-orchestrator`, include:
 - The changeset boundary: "since last tag", "since commit abc123", or a specific range
 - The deploy command or runbook reference: the exact command or a path to a runbook
 - The `.claude/release.md` config (if it exists) for environment, version scheme, and rollback info
+- On a resumption spawn only (see below): the prior instance's verbatim `QA_NEEDED` release report plus the QA verdict and summary, as a fifth input
+
+**On a `QA_NEEDED` return.** `release-orchestrator` cannot spawn `qa-engineer` itself - the conductor performs that spawn using the QA inputs (deployed URL, version, acceptance criteria) from the report, exactly as for any other `qa-engineer` spawn per this section. Once `qa-engineer` returns, run the QA knowledge capture procedure (see `content/references/qa-gate.md` §"QA knowledge capture (canonical procedure)") against that return before doing anything else with it. Then the conductor re-invokes `release-orchestrator` (a fresh spawn) with the prior report verbatim plus the QA verdict and summary as the fifth input above - this is what lets the resumed instance skip straight to routing (release report on PASS, rollback decision on FAIL/BLOCKED) instead of re-running the release from Phase 1.
 
 When spawning `dependency-auditor`, include:
 - The scope: "full audit", a specific package name and version, or a before/after lockfile diff
@@ -4036,9 +4042,8 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
          field-level data shapes for all active event types (spawn_start,
          spawn_complete, meta_review_complete, session_total,
-         tool_failure_workaround, tracker_writeback, conductor_overreach)
-         plus the deprecated conductor_direct block kept for historical
-         reference, append discipline, atomicity, retention, and consumer
+         tool_failure_workaround, tracker_writeback, conductor_overreach),
+         append discipline, atomicity, retention, and consumer
          notes. Also documents the per-developer session log
          (.agentic/session-log/) written by the Stop hook, and the
          enforcement fire log (.agentic/.enforcement-fires.jsonl) written by
@@ -4089,7 +4094,11 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       bin/ds-agentic-repair (checks for the FILENAME
                       `.enforcement-fires.jsonl` as one of several runtime-state
                       markers used to classify a phantom `.agentic/` tree as a
-                      stray - existence-only, never reads or parses its content).
+                      stray - existence-only, never reads or parses its content);
+                      .opencode/plugins/session-context.ts (reads spawn_complete
+                      events.jsonl records unconditionally to append its own
+                      session_total rollup - a hand-authored OpenCode-adapter
+                      parser, not regenerated by any build script).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes
@@ -4112,7 +4121,7 @@ Performance: Standard.
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
   - **Hook-emitted variant (DS-160)**: both `spawn_start` and `spawn_complete` now also have a deterministic, hook-emitted variant (`data.source:"hook"`), independent of the conductor-emitted schema above; the two variants may coexist for the same spawn on disk, but consumers do NOT sum them additively - `hooks/stop-context.js` `scanSessionAggregate()` and `bin/ds-cost`'s `_aggregate_by_agent()` both apply a double-count guard: when a session has at least one conductor-emitted (non-hook) `spawn_complete`, ALL hook-emitted telemetry for that session (both `spawn_start` and `spawn_complete`) is excluded from the count entirely, since the conductor-emitted record is treated as authoritative for that spawn. In a session with NO conductor-emitted `spawn_complete` (a pure ad-hoc session), a hook-emitted `spawn_start` is the sole authoritative "this spawn happened" signal and is deduped by `data.spawn_id` so each real spawn contributes exactly once, including a spawn whose `SubagentStop` never fires. A hook-emitted `spawn_complete` NEVER creates a spawn count of its own (round-2 fix: an earlier version counted an unresolvable `spawn_complete` as its own spawn, which double-counted whenever its matching `spawn_start` was still visible to the consumer) - it only ENRICHES an already-counted spawn's `wall_seconds` when its `data.paired_spawn_id` resolves to a `spawn_start` already seen in that session; an unpaired or unresolvable `spawn_complete` contributes nothing to the aggregate and is available only as raw forensic data directly in `events.jsonl`. `hooks/pre-tool-use-spawn-emit.js` (`PreToolUse(Task/Agent)`) emits hook-sourced `spawn_start` on every subagent spawn with `data.spawn_id` (a fresh `crypto.randomUUID()`, always present - the correlation key for pairing), `data.tool_use_id` (best-effort, from the PreToolUse payload's top-level `tool_use_id` field), and `data.parent_agent_id` (best-effort, from the payload's top-level `agent_id` field; present only for a nested spawn issued from inside a running subagent, else `null`), and `data.tokens_note: "unavailable (harness)"` unconditionally (tokens genuinely do not exist yet at spawn-LAUNCH time - unlike `spawn_complete`'s tokens_note, this is not a resolvable-but-failed state, it is a harness-ceiling fact that never resolves). `data.agentic_root_drift_levels` (int, hook-emitted `spawn_start` only) is how many directory levels `hooks/pre-tool-use-spawn-emit.js` had to walk up from the payload's `cwd` to find the `.agentic/` write location (`hooks/lib/repo-root.js`'s `resolveAgenticCwdWithDiagnostics`); `data.agentic_root_found_git` (boolean) is `false` when no `.git` ancestor was found at all, in which case the write fell back to the (realpath'd) payload `cwd` unchanged rather than a resolved repo root - a fallback that must be distinguishable from a successful resolution, which is the entire reason these two diagnostic fields exist (DS-171: months of silent phantom `.agentic/` trees at drifted cwd locations went unnoticed precisely because no telemetry field ever recorded whether resolution actually succeeded). `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`) emits hook-sourced `spawn_complete` deterministically when a subagent actually finishes (unlike `PostToolUse(Task/Agent)`, which fires at spawn launch, not completion) with `data.paired_spawn_id` (the matched `spawn_start`'s `data.spawn_id`, or `null` if unmatched - pairing requires a same-session exact `data.tool_use_id` match first, falling back to same-session FIFO oldest-unmatched-spawn_start; it never pairs across sessions or when `session_id` is absent on either side) and a real `data.wall_seconds` (`null` if unmatched, OR if a match was found but the implied duration exceeds a 24h sanity ceiling - see `data.suspect` below); the event is always emitted even when pairing fails. `data.suspect` (boolean, hook-emitted `spawn_complete` only) is `true` when a pairing was found but produced an implausible (>86400s) duration - almost certainly a stale/mismatched pair rather than a genuine 24h+ subagent run; `data.wall_seconds` is `null` (never a fabricated ceiling value) whenever `data.suspect` is `true`, and consumers naturally contribute 0 wall-time for it (`Number(null)||0`) while still counting the spawn via its paired `spawn_start`. Both hook-emitted events carry `data.session_uuid`. `hooks/subagent-stop-spawn-emit.js` also resolves `data.tokens` (`{input, output, cache_creation, cache_read}`, summed from the subagent's own transcript JSONL under the active harness config dir - see `hooks/lib/config-dir.js` - via `bin/ds-parse-subagent-usage`'s sibling resolution logic) when at least one assistant record contributes a usable numeric usage field to that transcript; `data.tokens` is ABSENT (never zero-filled) and `data.tokens_note` explains why when it is not: `"unavailable (transcript not found)"` (the transcript file itself could not be located), `"unavailable (transcript unreadable)"` (round-2 fix: the file WAS located but yielded zero assistant records contributing a usable field - an empty file, a wholly malformed/non-JSONL file, and a genuinely turn-less transcript are all reported identically here rather than as a fabricated real-zero measurement; round-3 fix: "usable field" now means a real, non-negative NUMBER, not merely a present `usage` object - a transcript whose assistant records all carry `usage: {}`, or only non-numeric usage values, is reported the same way, and a negative usage value is never summed), or `"skipped (transcript too large)"` (the transcript is at or above 20 MiB and is never partial-summed). A transcript mixing valid and malformed/truncated lines is summed from the valid lines only, with NO disclosure that some lines were dropped (documented, accepted blemish - see `hooks/subagent-stop-spawn-emit.js`'s header comment). `tokens` and `tokens_note` are mutually exclusive on a given event. The conductor-emitted `spawn_complete` schema (`tier`/`agent_id`/`model`/`tokens`/`status`/calibration fields) above is unchanged by this addition.
   - **Hook-emitted calibration fields (DS-178 unit A).** `data.agent_source` (string, hook-emitted `spawn_complete` only, always present) records the PROVENANCE OF THE `agent` LABEL - `"sidecar"` (the harness-written `.meta.json` sidecar's `agentType` resolved it), `"paired_start"` (the sidecar carried no `agentType`, so the label fell through to the matched `spawn_start`'s own `agent`), or `"unknown"` (neither resolved). This is the label's provenance, NOT which tier paired the spawn - a sidecar can pair the spawn via its `toolUseId` while the LABEL still falls through to `paired_start`, and vice versa; `agent_source` always agrees with where `agent` actually came from. `data.tool_use_id` on a hook-emitted `spawn_complete` (distinct from the payload-sourced field of the same name on a hook-emitted `spawn_start`, described earlier in this bullet) is now sourced from the SIDECAR's own `toolUseId` field first, falling back to the SubagentStop payload's own (measured unreliable) `tool_use_id` only when no sidecar resolves - not the payload field directly, as an earlier version of this hook used. `data.agent_note` (string, optional) is emitted only when the transcript's own `attributionAgent` field (present on every record type in a live transcript) DISAGREES with the resolved `agent` - a cross-check the hook computes but does not otherwise act on; absent when they agree or when either side is unavailable. `data.model`/`data.model_note` (mutually exclusive) resolve a Skeptic-or-any-agent's model: sidecar `model` field first (present on ~6-8% of real sidecars), falling back to the transcript's own `message.model`; absent-with-note on any resolution failure, using the same notes as `tokens_note`. For a Skeptic completion specifically (`agent === "skeptic"` after the precedence above), `data` additionally attempts `data.unit_key`/`data.iteration` (via an O(1) lookup against `.agentic/skeptic-tuid-index.json`, maintained by `hooks/enforce-skeptic-round-cap.py` - `iteration` is the round number PINNED at spawn time, not re-derived from the unit's live round-state at completion time), `data.findings_count`/`data.signed_off`/`data.findings_parse_ambiguous` (parsed from the LAST assistant message's mandated sign-off format; `findings_parse_ambiguous:true` when more than one `Findings:` line appears and the last one had to be used as a tie-break), and `data.diff_lines` (integer; a best-effort `git diff --shortstat` measurement of the range named in the spawn's own "Diff under review:" line, resolved from the subagent's own transcript prompt - genuinely not derivable from the SubagentStop payload alone). `diff_lines`'s miss clause distinguishes ITS OWN sub-causes by note text, four in total (round-5 correction: the prior wording here named only two): "no spawn prompt found in transcript" (the transcript itself did not yield a prompt to search), "no diff range found in spawn prompt" (a prompt was found but carries no "Diff under review:" line, or that line has no recognizable `ref1..ref2` range in it), "diff range rejected: option-shaped value" (round-4 fix - a range WAS found but starts with `-`, which git would otherwise consume as a flag rather than a ref, so it is rejected before the subprocess call rather than risking a fabricated result), and "git diff resolution failed" (a well-shaped range was found and passed to `git diff --shortstat`, but the subprocess call itself failed - e.g. the range does not resolve in this working tree) - a consumer distinguishing these four causes must read the note text, not just the field's absence. `data.calibration_note` (string, optional) is a SINGLE SHARED field across all three calibration misses above (tuid-index miss, sign-off parse miss, diff-range resolution miss) - when more than one miss occurs on the same completion, each contributes its own labeled clause (`"<field>: <reason>"`), joined with `"; "`, so no miss is silently dropped by another miss's note. **`calibration_note`'s presence does NOT imply every calibration field is absent** - the three misses it names are resolved independently, so a completion can carry a populated `findings_count`/`signed_off` (the sign-off parsed cleanly) alongside a `calibration_note` naming only the `unit_key`/`iteration` and/or `diff_lines` misses; a consumer must read `calibration_note` as "these specific named fields missed," never as "no calibration data resolved." None of these calibration fields are attempted for a non-Skeptic completion (not a "miss" in that case - simply not applicable, and no `calibration_note` either). See `scripts/verify-spawn-attribution-contract.js` for the standalone R1 verification tool that re-runs the shipped hook against real `.meta.json` sidecars; run it live before changing `findMatch()`'s pairing precedence or the sidecar-vs-paired-start label precedence.
-- `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
+- `conductor_direct` is a retired legacy event name that may appear in old `events.jsonl` files; parsers should ignore it.
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, a `by_agent` rollup, and (DS-171) `agentic_root_drift_levels` (int) / `agentic_root_found_git` (boolean) - the same diagnostics form documented under `spawn_start` above, computed by `writeSessionTotal` from `hooks/lib/repo-root.js`'s `resolveAgenticCwdWithDiagnostics` for the `.agentic/events.jsonl` write this event itself is appended to. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below) via `bin/ds-identity write-hook` - this mirror does NOT carry the two `agentic_root_*` fields. `write-hook` performs its own independent repo-root resolution (round-2 rework, DS-171 Major 1: it previously used the raw harness-payload cwd verbatim and was the single highest-frequency phantom-`.agentic/` producer in the repo) and returns a non-zero exit / skips the write entirely when neither a `.git` ancestor nor an `.agentic/` directory already present AT the cwd itself is found, rather than falling back to an unresolved path (round-3 rework, DS-171 Critical: the `.agentic/`-marker fallback previously walked UPWARD from cwd looking for any ancestor `.agentic/` directory, which reliably resolved to the always-present global `~/.agentic/` store for an orphan cwd anywhere under `$HOME` and silently poisoned the global session log with a fabricated `project_slug`; it never climbs past the starting cwd now) - so an existing line in this mirror does correctly imply resolution succeeded for that write. The two diagnostic fields are simply not threaded through from `writeSessionTotal`'s own resolution (computed for the separate `.agentic/events.jsonl` write) into the request payload `write-hook` receives; they would be redundant with the skip-on-failure behavior described above, not evidence of a different discipline. `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
@@ -5562,7 +5571,7 @@ fi
 
 **Structural properties that MUST hold** (all verified by execution - do not "improve" them): column 0 throughout including both `EOF` and `PY` heredoc terminators; the `# @harness:` marker is the first non-blank line inside the fence; zero shell-level `exit` statements (required by `bin/tests/lib/md_shell_extract.py`'s `COMPLETION_MARKER` precondition); `mktemp` uses trailing `X`s with NO suffix (BSD/macOS does not randomize non-trailing `X`s); every skip path prints a `WARNING:` and falls through; `rm -f` fires on every path where a temp file was created.
 
-**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these four points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), and the multi-PR fan-out (below, before worktree removal). It deliberately does NOT run for `release-orchestrator`'s Phase 8 post-deploy QA (a subagent context needing its own contract) or fully ad-hoc "run QA" spawns - knowledge from those paths continues to be dropped.
+**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these five points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), the multi-PR fan-out (below, before worktree removal), and `release-orchestrator`'s Phase 8 post-deploy QA - the conductor performs that `qa-engineer` spawn directly (see `content/references/agent-team.md` §"On a `QA_NEEDED` return"; `release-orchestrator` cannot spawn subagents itself), so it is a normal conductor-performed qa-engineer return like the other four and this procedure applies to it the same way. It deliberately does NOT run for fully ad-hoc "run QA" spawns - knowledge from that path continues to be dropped.
 
 ## Multi-PR / multi-ticket parallel-by-worktree
 
@@ -6111,61 +6120,13 @@ Performance: N/A - methodology document consumed by LLMs at spawn time.
 
 ## 0. Risk Assessment
 
-Before starting any task, the main agent performs a brief risk assessment. The primary outcome is **Low** or **Elevated**. An optional **Elevated + Cleanup** tier extends the Elevated path with a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
-
-### Risk signals
-
-**Elevated → Full Adversarial Review (Worker + fresh independent Skeptic)**
-Any single signal triggers:
-- Security / auth / crypto / payments / secrets
-- Irreversible operations (deletes, migrations, schema changes, force pushes)
-- Architecture decisions that constrain future choices
-- Modifies protocol or infrastructure files
-- Production or shared state
-- Multi-file changes (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes back to Elevated)
-- New file creation (a new colocated test/fixture/snapshot accompanying an existing Low-tier edit rides that edit's tier - Low, never auto-Trivial; a new file that exports a public symbol, a shared utility, a protocol/infrastructure file, or a new top-level module remains Elevated in every profile)
-- Touches external APIs or services
-- Unfamiliar codebase area ("haven't Read this file in the current conversation", "Read it earlier but it changed since", "first time working in this subsystem")
-- Logic with emergent/non-obvious cross-component interactions
-- User signals high stakes ("production", "critical", "don't mess this up")
-- Configuration changes
-- Research that produces a document, recommendation, plan, or anything to be acted on
-- Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius)
-- Anything where a mistake costs time or data
-
-**Low → Light Touch (direct action, brief inline self-check)**
-None of the above:
-- Single file, well-understood change in familiar code
-- Clearly reversible (e.g., file edits that haven't been committed or pushed, reads with no writes)
-- Exploration / research / draft work — **only when the output is understanding, not a decision-driving artifact.** If the research will produce a document, recommendation, plan, or anything that drives a subsequent decision or action, it is Elevated, not Low.
-- Read operations with minor targeted edits
-- **Targeted wording fix to already-reviewed content** - a change that adjusts phrasing only, where the substance was already reviewed and approved (e.g., syncing parallel descriptions, adding a clarifying phrase to an existing enumeration, fixing ambiguous wording). Applies only when the content being adjusted has already passed Skeptic review in the current or a recent session. Overrides the "new file creation" and single-file edit Elevated signals for this case only. Does not override the "modifies protocol or infrastructure files" Elevated signal - wording fixes in protocol or infrastructure files remain Elevated regardless. Does not apply to new decisions, new recommendations, or new content not previously reviewed.
-- **File renaming** (renaming or moving files via `git mv` or equivalent, with no content changes to any file - neither the renamed file nor any other file; overrides the "new file creation", "multi-file changes", and "Bash with side effects" Elevated signals for this case only; does not override the "modifies protocol or infrastructure files" Elevated signal - renaming protocol or infrastructure files remains Elevated regardless; if any other files reference the renamed path - imports, cross-references, config entries - the operation is Elevated because those reference updates constitute content changes in other files; if the file's name or path has behavioral significance by convention - framework routing (e.g., Next.js page files), auto-discovery (e.g., Jest test globs, webpack entry points), config naming conventions (e.g., `next.config.js`, `__init__.py`) - the operation is Elevated because the rename changes behavior without changing file contents).
-
-**Uncertainty rule:** When in doubt, classify as Elevated. "Looks simple" is not a Low signal. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
-
-**Letter equals spirit rule:** Violating the letter of these rules is violating the spirit of these rules. There is no valid interpretation of a rule that permits bypassing it. "I followed the intent" after skipping a required step is not a defense - the steps exist because intent alone does not catch errors. This principle applies to every rule in both protocols. This is not in tension with the downward tie-break counterweight above: affirmatively satisfying a named override's full definition, exclusions included, is applying the letter of that override - not bending it.
-
-**Mid-task reclassification:** If a task initially classified as Low reveals Elevated signals during execution, stop, reclassify as Elevated, and apply adversarial review from that point.
-
-**Low risk self-check:** After completing the change, re-read it in full. Verify: (1) the change does exactly what was intended, (2) no obvious edge cases or errors are introduced, (3) no unintended side effects are present. If any concern arises during self-check, reclassify as Elevated and apply adversarial review.
-
-### Common rationalizations to reject
-
-| Rationalization | Why it fails |
-|---|---|
-| "This looks simple, I can do it directly." | "Looks simple" is not a Low signal. Simple-looking tasks are where unreviewed errors accumulate most often. |
-| "I'm following the spirit of the rule, just not the letter." | Violating the letter is violating the spirit. No exceptions. |
-| "It's only one file / a few lines." | Line count is not a risk signal. A one-line change to a shared utility has high blast radius. |
-| "I already reviewed it myself." | Self-review is the direct-action self-check for Low risk. It does not substitute for Skeptic review on Elevated tasks. |
-| "The Skeptic will catch any mistakes." | The Skeptic reviews Worker output. It does not excuse skipping risk classification or spawning a Worker. |
-| "We're moving fast, we can skip review this time." | The protocol exists precisely for times when moving fast creates pressure to skip it. Speed is not a Low signal. |
-| "This change is too minor to bother with a Worker." | Delegate on risk signals, not on size. The Worker overhead is small; the cost of an unreviewed error is not. |
+Before starting any task, the main agent performs a brief risk assessment. The canonical tier definitions, the Elevated signal table, the Low/Trivial signals, the uncertainty rule, the letter-equals-spirit rule, mid-task reclassification, and the Low-risk self-check all live in `content/sections/04-risk-classification.md` and `content/sections/02-delegation.md` (Elevated signal table); the common-rationalizations table lives in `content/references/delegation-detail.md` §Common Rationalizations to Reject. Those sections are assembled into the resident METHODOLOGY.md / `/dinostack` skill embed - this Section 0 does not restate them. The outcome is one of three tiers: **Trivial**, **Low**, or **Elevated**, with an optional **Elevated + Cleanup** extension that adds a `/simplify` cleanup pass and narrow-scope second review for substantial implementations (see Section 12).
 
 ### Approach by risk level
 
 | Level | Delegation | Review | Declaration |
 |---|---|---|---|
+| Trivial | Worktree-isolated `engineer` (no Skeptic, no brief file) | None | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
 | Elevated + Cleanup | Worker | Skeptic → `/simplify` → Skeptic (narrow) | Stated before starting |
@@ -6190,7 +6151,7 @@ The core thesis: **the value of an adversarial reviewer is independence**. A rev
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
-**Document hierarchy:** This is the canonical specification for The Skeptic Protocol. `~/.claude/CLAUDE.md` contains inline risk classification rules and a delegation decision table; procedural details are read from this document via trigger-condition pointers. When documents diverge, this document governs.
+**Document hierarchy:** This is the canonical specification for The Skeptic Protocol's adversarial-loop mechanics (Section 2 onward). Risk classification itself is canonical in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, assembled into the resident METHODOLOGY.md / `/dinostack` skill embed; Section 0 above is a pointer to those sections, not an independent source. When Section 0's summary and the canonical sections diverge, the canonical sections govern.
 
 ---
 
@@ -6213,7 +6174,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
    - `BLOCKED`: the Worker hit a hard blocker requiring an architecture decision or human judgment. Escalate immediately to the human with the Worker's blocker description. Do not spawn a Skeptic on incomplete work.
    - `DONE_WITH_CONCERNS`: proceed with Skeptic review as normal. The Worker's stated concerns become additional context for the Skeptic - surface them in the spawn prompt alongside the adversarial brief.
 
-3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `~/.claude/agents/skeptic.md`) with:
+3. **Primary agent spawns a fresh Skeptic** (background, using the `skeptic` agent at `content/agents/skeptic.md`) with:
    - The adversarial brief verbatim
    - The Worker's complete output (inline or as file paths)
    - The resolved issues preflight list (empty on round 1; see Section 4)
@@ -6609,6 +6570,12 @@ When reviewing, check spec compliance first - does the implementation do what wa
 **Fire-and-forget async work without an error path is a finding.** Passing typecheck and unit tests does not establish that an un-awaited async call handles failure - those gates do not exercise the rejection path. See `content/agents/skeptic.md` Step 4.6 for the check and severity default (Major).
 
 **A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Major).
+
+**A plan component with no stated requirement is a finding, on a plan review.** Before probing plan correctness, the Skeptic asks whether the plan's own "Simplest viable alternative" would satisfy the acceptance criteria, and requires each component beyond it to be tied to a stated requirement rather than an inferred motivation. See `content/agents/skeptic.md` Step 0.5 for the check (plan-review only) and severity default (Major).
+
+**An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).
+
+**An abstraction serving only one call site or a hypothetical requirement is a finding.** This is the DRY review's counterweight sub-category: a helper, wrapper, or config layer with no second real caller and no stated requirement is premature, not a virtue. See `content/agents/skeptic.md` Step 2.5 "Unnecessary abstraction" for the check and severity default (Minor, Major when it adds a public surface), and `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and the three-state precedence rule separating it from Duplication.
 
 ### Review depth
 
@@ -7148,7 +7115,9 @@ Upstream deps: content/references/risk-config-and-tiers.md (role-default tier ta
                the Input Contract's model-param rule defers to);
                content/references/learnings-capture-instruction.md §Session identity
                (the consuming side of the `SESSION_KEY` contract, which fixes the
-               spawn brief as the only source an agent may read the key from).
+               spawn brief as the only source an agent may read the key from);
+               content/references/agent-team.md (the normative named-agent table
+               Rule 4's "prefer named agents" guidance points to).
 
 Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
@@ -7179,7 +7148,7 @@ The core principle: **the main agent is a conductor, never an implementer.** The
 
 The Skeptic Protocol is a specific review pattern orchestrated by the main agent after a Worker returns. The main agent spawns the Worker, reads the result, then spawns a fresh Skeptic to review it. The Subagent Protocol is the outer frame that determines whether and how to delegate; The Skeptic Protocol determines how the main agent reviews Worker output before accepting it.
 
-The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. Specific tool names (TaskOutput, etc.) used in examples are Claude Code implementation details.
+The principles are system-agnostic and apply to any orchestration agent capable of spawning subagents. On the current Claude Code harness, background `Agent` spawns notify the main agent on completion.
 
 ---
 
@@ -7191,7 +7160,7 @@ The principles are system-agnostic and apply to any orchestration agent capable 
 
 A foreground subagent blocks the main agent entirely. The main agent cannot respond to the user, cannot process other completions, and cannot provide progress updates while a foreground task is running. This is the most severe violation of the protocol — it converts the conductor into a blocked implementer.
 
-Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and checks task output via TaskOutput when the task completes or when the result is needed.
+Background tasks free the main agent immediately. The main agent gives the user an upfront status update, stays available for follow-up questions, and reads the task's output when the completion notification arrives or when the result is needed.
 
 ### Rule 2 — Parallel by default
 
@@ -7219,15 +7188,15 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 | Task type | Agent type to spawn |
 |---|---|
-| Code implementation, file changes, synthesis | `general-purpose` Worker |
+| Code implementation, file changes | `engineer` Worker (or the appropriate named agent) |
 | Pure shell / git operations, low-risk | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Codebase exploration, reading many files | `general-purpose` Worker |
-| Web research, doc reading, analysis | `general-purpose` Worker |
-| Multi-step investigation with possible follow-up | `general-purpose` Worker |
+| Codebase exploration, reading many files | `investigator` |
+| Web research, doc reading, analysis, synthesis | `investigator` (or the appropriate named agent) |
+| Multi-step investigation with possible follow-up | `investigator` |
 
-**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent. For implementation tasks that will go through Skeptic review, use a `general-purpose` Worker (or the appropriate named agent). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
+**Critical constraint (platform property):** No subagent can spawn subagents - none of them have access to the spawn (`Agent`) tool. The main agent is the sole orchestrator. This is a property of every subagent type, not of any one agent.
 
-**When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
+**Prefer named agents over `general-purpose`.** The task types above map to a named DinoStack agent whose role, tools, and review posture are already scoped to that task - use it. Fall back to `general-purpose` only when none of the named agents fit the task. See `content/references/agent-team.md` for the full named-agent table (roles, write permissions, when to spawn each). For low-risk pure-shell or git operations, the conductor runs the command directly via the Bash tool rather than delegating - the harness has no shell-only agent type.
 
 **Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; several of them write files via Bash without ever holding the `Write` tool - `qa-engineer`, `adr-drift-detector`, `dependency-auditor`, and `perf-analyst` each write their own full report (and, for `qa-engineer`, a screenshot-evidence JSON file) to a single file under `.agentic/audit-reports/` or, for `qa-engineer`, `/tmp/qa-reports/` (deliberately `/tmp/`, not `.agentic/` - `qa-engineer` always runs `isolation: "worktree"`, and `.agentic/` is gitignored so it is independent per worktree checkout, invisible to the conductor once the throwaway worktree is removed), via a Bash heredoc, scoped to that one path, and return only a small pointer object referencing it; `qa-engineer`'s durable knowledge-capture output is a separate `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
 
@@ -7258,7 +7227,7 @@ When spawning background tasks, the main agent immediately tells the user:
 - Approximately how long it will take
 - What the main agent can answer right now without waiting
 
-When a background task completes, the main agent proactively reads its output via TaskOutput and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" — it monitors and reports.
+When a background task completes, the main agent is notified, proactively reads its output, and presents a clear synthesis to the user. The main agent does not wait for the user to ask "is it done yet?" - it monitors and reports.
 
 If the user asks a question while tasks are running, the main agent answers directly from context. It does not defer with "waiting for the subagent to finish." Background work and foreground conversation are independent.
 
@@ -7342,7 +7311,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Risk assessment drives delegation.** The rows below map risk signals to the delegation decision. Any single Elevated signal in a task triggers Worker + Skeptic review.
 
-**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to The Skeptic Protocol Section 0, which is the authoritative source for risk classification. Consult `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` Section 0 when the two differ.
+**Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -7383,13 +7352,16 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 | Condition | Agent type |
 |---|---|
-| Task involves code or file changes | `general-purpose` Worker (Skeptic Protocol applies) |
-| Task may require spawning further subagents | `general-purpose` Worker |
-| Task involves synthesis, planning, research | `general-purpose` Worker |
+| Task involves code or file changes | `engineer` Worker (Skeptic Protocol applies) |
+| Task involves planning or design | `architect` (or `orchestration-planner` for team composition) |
+| Task involves synthesis, research | `investigator` (or the appropriate named agent) |
 | Task is low-risk pure shell / git, no delegation needed | Conductor-direct (Bash tool) - no shell-only agent type exists |
-| Multi-file codebase exploration | `general-purpose` Worker |
+| Multi-file codebase exploration | `investigator` |
+| None of the named agents fit the task | `general-purpose` Worker |
 
-**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to `general-purpose` or the appropriate named agent, never treat it as "just a shell command" to escape review.
+No subagent - named or `general-purpose` - can spawn further subagents; the main agent is the sole orchestrator (see Rule 4 above).
+
+**Pure-shell and git operations are not a reason to skip the risk table.** Low-risk shell/git runs conductor-direct via the Bash tool; any shell task that touches code, synthesizes files, or carries Elevated risk signals is a Worker task that goes through Skeptic review - route it to the appropriate named agent (falling back to `general-purpose` only when none fit), never treat it as "just a shell command" to escape review.
 
 ---
 
@@ -7397,7 +7369,7 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Default: background.**
 
-**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the TaskOutput notification rather than blocking inline.
+**Absolute rule:** All delegated tasks run in background by default. Foreground is permitted only for the direct-action cases listed in Rule 7. If you need the result of a background task, spawn it in background, give the user a status update, and wait for the completion notification rather than blocking inline.
 
 | Condition | Run mode |
 |---|---|
@@ -7614,7 +7586,7 @@ Three rules govern that derivation, each with a live counter-example in this rep
 
 **Where a conductor actually meets this rule.** This file is trigger-loaded, so a rule stated only here is not resident when a conductor composes a spawn prompt. The `SESSION_KEY` line therefore also appears in the two checklists a conductor fills at spawn time: `content/references/agent-team.md` §Spawning (the ``When spawning `engineer`, include:`` list) and `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template. Both carry the field and defer to this paragraph for the derivation rule, so neither restates the four-role list either. Change all three together.
 
-**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
+**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session - concurrent writes to the project's `MEMORY.md` may conflict.
 
 **When The Skeptic Protocol was not invoked** (e.g., the task was Low risk pure research or investigation with no artifact produced), the Worker states explicitly: "No Skeptic Protocol invoked — task was [description]. No artifact requiring review." This prevents ambiguity in a return without a review record.
 
@@ -7625,12 +7597,12 @@ Three rules govern that derivation, each with a live counter-example in this rep
 This document is the canonical source for The Subagent Protocol. **When this document and any condensed form diverge, this document governs.**
 
 **Document hierarchy:**
-- **This document** - canonical specification; governs all conflicts
-- **`~/.claude/CLAUDE.md`** - inline risk classification and delegation decision table; procedural details read from this document via trigger-condition pointers
+- **This document** - canonical specification for the outer delegation frame; governs all conflicts within that scope
+- **`~/.claude/CLAUDE.md`** - carries only the Skill Loading table that triggers the `/dinostack` skill; it does not itself contain risk classification rules or a delegation decision table on a session where the skill symlink resolves. The canonical risk signal list and delegation decision table live in `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, which are assembled into the `/dinostack` skill embed and load when that skill is invoked
 - **`~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`** - canonical specification for the inner Skeptic loop
 
 When this document changes:
-1. If the change affects the risk signal list or delegation decision table, update `~/.claude/CLAUDE.md` to match. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
+1. If the change affects the risk signal list or delegation decision table, update `content/sections/02-delegation.md` and/or `content/sections/04-risk-classification.md` to match, then rebuild the adapters (`bash scripts/build-all.sh`) so the change reaches the skill embed. Procedural changes (worktree rules, check-in behavior, parallel spawning details) are picked up automatically via pointers.
 2. Check `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md` for sections that may be affected by changes to orchestration rules (particularly Sections 2, 5, 9, and 10).
 
 ## 13. Conductor context budget
@@ -10219,6 +10191,9 @@ Use this exact structure. Do not rename or reorder sections.
 
 ### Approach [MECHANICAL, cap: 400 chars]
 [Open with one plain-language sentence restating the feature's core goal - what problem this solves and for whom - then the core design decision, and a one-line confirmation that the design serves that goal. On a revision, also confirm in one line that the core goal is unchanged from the prior plan. This restatement is cheap insurance against drifting away from what was actually asked for.]
+
+### Simplest viable alternative [MECHANICAL, cap: 400 chars]
+[State the most naive implementation that would satisfy the literal acceptance criteria - then, for each component the Approach above adds beyond it, one line tying that component to a specific stated requirement (Brief/ticket acceptance criteria, an explicit constraint, or a named non-functional need). A component justified only by an inferred motivation (e.g. "the user said this is for testing, so they'll need N of them") is not justified - either find the stated requirement it derives from, or cut the component.]
 
 ### Codebase context [MECHANICAL, cap: 600 chars]
 [What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow. Collapse to a one-line null form (e.g. "No additional context beyond the spawn prompt") when there is nothing beyond what was already given. Kept MECHANICAL despite having no grep-matchable downstream consumer: omitting it forces the engineer (or the conductor re-reading the plan) to re-derive file paths and existing patterns the Architect already found - a directly measurable autonomy loss (repeated investigation work), which is the stated bar in `content/references/subagent-return-contract.md` for a no-consumer KEEP.]
@@ -13260,7 +13235,7 @@ Report row: the canonical template above, method `perceptual_diff`, with the `pe
 ---
 name: release-orchestrator
 model: sonnet
-description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Hands failures to the debugger.
+description: End-to-end release sequencing agent. Spawn when you need to cut a release, ship this to production, bump version and tag, deploy to production, or roll back the last release. Owns the full sequence from pre-flight through post-deploy verification. Refuses to proceed when any gate fails. Does not write feature code. Cannot spawn other agents; returns a BLOCKED or QA_NEEDED report for the conductor to hand off to debugger or qa-engineer.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
@@ -13286,7 +13261,7 @@ Unlike the engineer agent (which never commits or pushes), you do commit and pus
 
 You enforce gates. Every pre-flight check must pass before you proceed. If any gate fails, you STOP, report the failure, and wait for human intervention. You do not bypass, silence, or "fix forward" a failing gate. You do not use `--no-verify`, `--force`, or any flag that suppresses a safety check. If bypassing a gate would be necessary to proceed, that is a BLOCKED, not a workaround.
 
-You hand off failures you cannot diagnose. If a build fails or a deploy errors in a way that requires root cause analysis, spawn the `debugger` agent. You do not investigate. You sequence.
+You hand off failures you cannot diagnose - but you cannot spawn the `debugger` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. When a build fails or a deploy errors in a way that requires root cause analysis, you STOP and return a BLOCKED report naming the failure and stating that a `debugger` diagnosis is needed - the conductor performs that spawn. You do not investigate. You sequence.
 
 ## Reading your spawn prompt
 
@@ -13296,12 +13271,24 @@ Your spawn prompt must contain:
 2. **Release type hint** - patch / minor / major, or a description of the changeset from which you will infer it. If absent, you will determine it from the changeset.
 3. **Changeset boundary** - "since last tag", "since commit abc123", or a specific commit range. Defaults to since the last tag if omitted.
 4. **Deploy command or runbook reference** - the exact command to deploy, or a path to a runbook. If absent and no standard command is discoverable, report NEEDS_CONTEXT.
+5. **Prior report + QA result (only on a resumption spawn)** - present only when the conductor is re-invoking you after your own Phase 8 `QA_NEEDED` report and the conductor's subsequent `qa-engineer` spawn. Contains the VERBATIM release report you produced at Phase 8 (the version, deployed-at timestamp, what shipped, and the rollback command sequence are all read from it - do not recompute them) plus the QA verdict (PASS / FAIL / BLOCKED) and report summary from `qa-engineer`. Absent on a fresh release spawn.
 
-Read all four before starting. Do not infer a target environment or deploy command - require them explicitly.
+Read all inputs before starting. Do not infer a target environment or deploy command - require them explicitly.
 
 **Check deploy.md for defaults.** Before reporting NEEDS_CONTEXT for any of the four required inputs above, check for deploy.md in the project root via the resolver: try `.agentic/deploy.md` first, then fall back to legacy `.claude/deploy.md`. The file provides `production` / `staging` deploy commands, `command` rollback, `prefer` environment, and `notes`. Use those values as defaults when the spawn prompt omits them.
 
 **Multi-track resolution.** If the root deploy.md is an index (lists tracks with pointers to per-track deploy.md files), identify which track the release targets. Use the spawn prompt's target environment or the diff's file paths as the signal. When unclear, report NEEDS_CONTEXT with the detected candidate tracks listed. Always prefer the most-specific deploy.md (track > root-index). Track-level reads also use the resolver: `<track>/.agentic/deploy.md` preferred, legacy `<track>/.claude/deploy.md` fallback.
+
+## Resumption check (read this before Phase 1)
+
+**If input 5 is present, this is a resumption spawn.** Do NOT execute Phases 1-7 - the release already happened in the prior instance that produced the Phase 8 `QA_NEEDED` report now supplied to you as input 5. Re-running pre-flight, the version decision, changelog, version bump, tag, build, or deploy would ship a second, redundant deploy against an environment that is already live.
+
+On a resumption spawn:
+1. Read the verbatim prior report from input 5. Recover the version, deployed-at timestamp, what shipped, and the rollback command sequence from it directly - do not re-derive any of these.
+2. Skip straight to the Phase 8 routing step (the "On resumption" paragraph under Phase 8 below) using the QA verdict from input 5.
+3. Continue from there: produce the final release report (reusing the "Where it shipped" / "What shipped" facts from the prior report) on a PASS, or proceed to Phase 9 rollback on FAIL / BLOCKED.
+
+If input 5 is absent, this is a fresh release spawn - proceed with Phase 1 below in the normal order.
 
 ## Pre-flight checklist
 
@@ -13431,22 +13418,24 @@ Do not use `--force` on either push. If the push is rejected (non-fast-forward),
 
 ### Phase 6 - Build
 
-Run the build command if one is required before deploy. Wait for it to complete. If it fails, spawn the `debugger` agent with the full build output and report BLOCKED. Do not attempt to interpret or fix the build failure yourself.
+Run the build command if one is required before deploy. Wait for it to complete. If it fails, STOP and report BLOCKED with the full build output, naming that a `debugger` diagnosis is needed - you cannot spawn subagents yourself, so the conductor performs that spawn. Do not attempt to interpret or fix the build failure yourself.
 
 ### Phase 7 - Deploy
 
-Run the deploy command from the spawn prompt or runbook. Capture full output. If the deploy command exits non-zero or reports a failure, spawn the `debugger` agent with the full command output and report BLOCKED.
+Run the deploy command from the spawn prompt or runbook. Capture full output. If the deploy command exits non-zero or reports a failure, STOP and report BLOCKED with the full command output, naming that a `debugger` diagnosis is needed - you cannot spawn subagents yourself, so the conductor performs that spawn.
 
 Do not re-run the deploy command to "retry" a partial failure without human instruction. A partial deploy is a potentially broken state - surface it and wait.
 
 ### Phase 8 - Post-deploy verification
 
-Spawn the `qa-engineer` agent with:
+You cannot spawn the `qa-engineer` agent yourself. No subagent can spawn subagents; the main agent is the sole orchestrator. STOP here and return the full release report (see §Report structure below) with `Status: QA_NEEDED`. The standard report fields already carry the version, the deployed-at timestamp (under "Where it shipped"), and the rollback command sequence (under "Rollback" - this must be known before Phase 7, per Rollback Protocol) - this is exactly the report the conductor will hand back to you verbatim as input 5 on resumption, so fill every field completely, not just the highlights below. In addition, make sure the report surfaces:
 - The deployed URL or environment endpoint
 - The version that was deployed
 - The acceptance criteria: "Confirm the deployed artifact is version vX.Y.Z and core functionality is healthy (smoke test)"
 
-Wait for the QA report. If the result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
+The conductor spawns `qa-engineer` with this information, then re-invokes you (a fresh spawn) with this report verbatim plus the QA verdict and summary included in the spawn prompt as input 5 (see §Reading your spawn prompt and §Resumption check above) so you can resume at the routing step below without re-executing Phases 1-7.
+
+On resumption (reached only via the §Resumption check branch, on a spawn carrying input 5): if the QA result is PASS, proceed to the release report. If the result is FAIL or BLOCKED, do not declare the release done - escalate to the rollback decision point.
 
 ### Phase 9 - Rollback decision point
 
@@ -13496,12 +13485,12 @@ State the exact rollback command sequence (platform + git) in the release report
 
 ## Report structure
 
-Produce this report at the end of a successful release, or at the point of failure for an unsuccessful one.
+Produce this report at the end of a successful release, at the point of failure for an unsuccessful one, or at the Phase 8 stop point when QA is needed (see Phase 8 above).
 
 ```
 # Release Report: vX.Y.Z
 
-## Status: SUCCESS | FAILED | ROLLED_BACK | BLOCKED
+## Status: SUCCESS | FAILED | ROLLED_BACK | BLOCKED | QA_NEEDED
 
 ## What shipped
 - Version: vX.Y.Z (patch | minor | major)
@@ -13519,7 +13508,7 @@ Produce this report at the end of a successful release, or at the point of failu
 
 ## Verification
 - QA result: PASS | FAIL | BLOCKED | not run
-- QA report: <summary, capped at 200 chars, or "see spawned qa-engineer output">
+- QA report: <summary, capped at 200 chars, or "awaiting qa-engineer result" when QA_NEEDED>
 
 ## Rollback
 - Command: <exact rollback command>
@@ -13530,13 +13519,14 @@ Produce this report at the end of a successful release, or at the point of failu
 <If status is not SUCCESS: which gate failed, what the error was, what was done - capped at 500 chars>
 ```
 
-Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why.
+Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why. "QA result: not run" means QA has not yet been run - awaiting conductor spawn of `qa-engineer`, i.e. Status is QA_NEEDED.
 
 ## Boundaries
 
 **You do not:**
 - Write feature code, fix bugs, or make code changes beyond version bumps and changelog entries
-- Diagnose build failures, deploy errors, or test failures - spawn `debugger` for that
+- Diagnose build failures, deploy errors, or test failures - return BLOCKED naming the failure so the conductor can spawn `debugger` for that
+- Spawn any subagent yourself, ever - no subagent can spawn subagents; the main agent is the sole orchestrator
 - Bypass any pre-flight gate, even when the bypass seems safe
 - Use `--no-verify`, `--force`, `--skip-ci`, or any flag that suppresses a safety system
 - Make the rollback decision autonomously - surface it to the human
@@ -13547,8 +13537,8 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 - Sequence the release from first check to final report
 - Write version bumps and changelog entries
 - Create annotated tags and push them
-- Spawn `qa-engineer` for post-deploy verification
-- Spawn `debugger` when a build or deploy fails
+- Return a `QA_NEEDED` report at Phase 8 so the conductor spawns `qa-engineer` for post-deploy verification, then resume when re-invoked with the result
+- Return a `BLOCKED` report naming the failure when a build or deploy fails, so the conductor spawns `debugger`
 - Produce a complete release report including the rollback command
 - Stop and report clearly when any gate fails
 - Capture learnings in flight: the shard CLI is your capture path - `release-orchestrator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
@@ -13724,15 +13714,17 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 
 The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks - field-completeness and the `n/a`-rationale check - not a BLOCK gate of its own, and the bullet on falsity discovered after Step 0 is a disposition rule for *after* Step 0 has passed - it never blocks Step 0 itself.
 
+0.5. **Simplest-viable-alternative check (plan-review only, first evaluation after the Steps 1-2 reads, before correctness probing).** Applies only when the Worker output under review is an architect plan itself (a pre-implementation review such as Skeptic-on-plan or Skeptic-on-Brief, before any diff exists) - skip silently when reviewing Worker code output against a plan. After completing the reads in Steps 1-2 (the adversarial brief and the plan itself), evaluate this before any other correctness probing: could the plan's own "Simplest viable alternative" satisfy the acceptance criteria? Then confirm each plan component that goes beyond that alternative is tied to a specific stated requirement (Brief/ticket acceptance criteria, an explicit constraint, or a named non-functional need) rather than to an inferred motivation. A plan component justified by no stated requirement is a finding - **Major** by default.
+
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes. Then read the architect plan from Global-context input field 1 in full - it is the spec the Worker implemented against. If field 1 carries a valid `n/a` value, skip this file read.
 2. Read the Worker output in full. If file paths are given, read those files now.
    Work through two stages: first, check spec compliance (does it do what was asked, does it match the task requirements?). Second, check code quality (logic errors, edge cases, missing error handling). Surface spec compliance issues first in your findings - they are the most actionable and a spec compliance failure can make code quality findings moot.
 2.5. **DRY and abstraction review.** Scan the diff for:
-   - **Duplication** — identical or near-identical logic repeated in multiple places. This is a **Major** finding unless the engineer explicitly justified why extraction is inappropriate.
+   - **Duplication** - identical or near-identical logic repeated in multiple places, whether both occurrences are new in this diff or one already existed in the codebase. This is a **Major** finding unless the engineer explicitly justified why extraction is inappropriate. "Occurrence" here means a copy of the block itself, not a call site - two calls into one correctly extracted helper is one occurrence, not two.
    - **Missed abstractions** — new code that reimplements logic already present in the codebase (existing helpers, utilities, shared components, standard patterns). This is a **Major** finding.
    - **Copy-paste programming** — blocks copied with only superficial changes (renamed variables, different constants). This is a **Major** finding.
-   - **Helper extraction opportunities** — code that is not duplicated yet but is clearly headed that way (complex conditional blocks, repeated transformations) and should be extracted now before it spreads. This is a **Minor** finding unless the pattern already exists elsewhere in the codebase, in which case it is **Major**.
-   The Skeptic's job here is not to demand perfection — it is to catch duplication and missed abstractions that will compound maintenance cost. A single instance of slightly verbose code is not a finding; a repeated pattern that should be shared is.
+   - **Unnecessary abstraction** - new code that introduces an abstraction (helper, wrapper, config layer) serving only a single call site, or built only for a hypothetical future requirement. This is a **Minor** finding by default, **Major** when it adds a public surface (a new exported function, module, or API with only one caller). Never fires alongside Duplication above - a real second occurrence of the block is not a hypothetical future requirement. See `content/rules/code-standards.md` §DRY and Abstraction for the canonical rule and the three-state precedence rule.
+   The Skeptic's job here is not to demand perfection - it is to catch duplication and missed abstractions that will compound maintenance cost, and equally to catch an abstraction extracted before a second real caller exists. A single instance of slightly verbose code is not a finding; a repeated pattern that should be shared is, and so is a helper built for a caller that does not yet exist.
 3. **Architect plan API/interface compliance check** - if an architect plan is present (field 1 not `n/a`), verify the Worker's output matches the plan's "API / interface design" section exactly. Any deviation is a finding (Major by default per `content/references/skeptic-protocol.md` Section 6). Also verify the Worker's output complies with the `qa_criteria` block (field 3): if `qa_skip == null`, confirm the scenarios described are addressed; if `qa_skip` is set, confirm the rationale is consistent with the diff.
 3.5. **Outcome rubric check** - if the Brief or architect plan carries an `outcome_rubric` (or `Outcome rubric`) field, evaluate it as follows:
    - **Field presence check (Elevated only):** if the unit is Elevated and the field is absent or empty, raise a **Critical** finding: "Outcome rubric is absent - required for Elevated work." For Trivial or Low units, skip this step entirely.
@@ -13760,6 +13752,7 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
    - If `docs/overview/vision.md` does not exist, skip this step silently.
 3.7. **Spawn-brief provenance check.** Scan Global-context field 7 (conductor spawn brief, claim-bearing text only) for directive-shaped claims - a value, path, count, or root-cause/rationale assertion - that lack a valid provenance tag per the provenance test in `content/sections/04-risk-classification.md`. Any of the 3 tag classes (`[verified: file:line]`, `[per <agent>, unverified]`, `[verified-local: <path> - untracked-by-design|branch-new]`) satisfies the requirement for that claim. A malformed `[verified:]` tag (no evidence the conductor confirmed the cited path against origin/main this session) counts as untagged. A valid field-7 `n/a` (per the canonical reasons in `content/references/skeptic-protocol.md` Section 4.5) silently satisfies this step - no finding - mirroring the Trivial no-Skeptic carve-out. For each untagged directive-shaped claim found, raise a **Major** finding naming the specific claim and stating its provenance is absent.
 3.8. **Diff-scope check.** Applicability gate: skip silently when Global-context field 1 (architect plan) is a valid `n/a - Trivial direct edit`. Otherwise compare the diff against the scope named in the architect plan's implementation steps / acceptance criteria (field 1), or the spawn brief's stated criteria (field 7) when field 1 is a valid `n/a` for a non-Trivial reason. For each hunk in the diff that is not named or clearly implied by that scope AND is not a mechanically necessary side effect (a triggered manifest update, a doc-sync fix, a regression test for a named finding, or a generated adapter artifact): classify behaviorally inert drift (formatting, comment, or dead-code-only changes with no runtime effect) as **Minor**; classify a behavioral change outside the named scope as **Major** by default, escalating to **Critical** when it touches a security-sensitive or production-behavior path per the existing Critical definition. Do not flag a hunk the Worker's summary explicitly and accurately justifies as an in-scope necessity - only an unjustified or inaccurately-justified out-of-scope hunk is a finding.
+3.85. **Exclusion-claim verification check.** Every exclusion claim in the plan or PR manifest - an OUT-OF-SCOPE entry, "already shipped in X", "lives on screen/module Y", "handled by ticket Z" - must be verified against the tree or tracker exactly the way in-scope claims are: grep for the named artifact, and confirm the cited ticket/PR exists and says what is claimed. A false exclusion claim is a **Major** finding by default, escalating to **Critical** when it justifies deleting shipped behavior. Reviewers audit what a plan proposes to do; an unverified exclusion claim is the cheapest way for wrong scope to survive review.
 3.9. **Neutrality check.** Scan Global-context field 7 and the adversarial brief for a conductor-composed hypothesis, suspicion, or attention-steer, per the test defined in "Reading your spawn prompt" item 4 above. For each instance found: disregard it entirely when forming your own independent judgment, and raise a **Minor** finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. Emit the result of this check via the fixed `Neutrality check:` sign-off line defined below - do not fold it into free-form prose.
 4. Apply the brief actively - for each concern it raises, look specifically for that failure mode in the code. Do not skim.
 4.5. **Cross-file reference-consistency check.** When the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> - <!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared --> - do not conclude the change is complete because the calling code compiles or the colocated test passes. Actively search the full repository (not just the files in the diff) for the OLD identifier: shipped config/fixture files (YAML/TOML/JSON/env), IaC/deploy manifests (Helm values, Terraform, Docker Compose), and documentation that names the identifier. A remaining reference to the old name in a file the diff did not touch is a **Critical** finding when it causes a runtime failure reachable from a normal code path (e.g. a KeyError/undefined lookup at startup or on the hot path), and a **Major** finding when it causes silent drift without an immediate crash (stale docs, a config override that no longer applies). Do not rely on the Worker's own output to enumerate which other files reference the identifier - the Worker's self-report is not evidence of completeness; verify independently. This does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> - those are style, not a consistency risk.
@@ -13844,6 +13837,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
 - Do not block on hypothetical future scenarios that are not present in the actual requirements.
+- **Unnecessary abstraction:** this is the finding-shaped form of the instinct above, not an exception to it - "do not block on a hypothetical future scenario" and "raise a finding when the diff built for one anyway" are the same discipline applied at two different points (the first tells you not to demand speculative work, the second tells you to flag it when someone did it anyway). Apply the precedence rule at `content/rules/code-standards.md` §DRY and Abstraction before raising this: a second occurrence of the block already in the codebase or arriving in the same diff makes it a Duplication finding instead, not this one.
 - **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
 - **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
@@ -21854,7 +21848,7 @@ Real instance to calibrate against: `design-goals.md` - "The Subagent Protocol (
 
 Candidate if a concept is defined entirely as "when not X and not Y and not Z" without a positive anchor that states what the concept IS.
 
-Real instance to calibrate against: `skeptic-protocol.md §Risk Classification (Skeptic) > Low risk` - it opens with "None of the above:" and lists examples, but the positive definition ("direct action with a brief inline self-check") appears as a secondary label rather than the lead. Compare to the Elevated definition above it, which leads with the positive mechanism ("Full Adversarial Review: Worker + fresh independent Skeptic"). The contrast makes the R5 pattern visible. Confidence: MEDIUM.
+Illustrative pattern (no single surviving corpus location carries the exact exclusion-first phrasing this signal targets - do not cite one; describe the shape instead): a risk-tier or category definition that opens by listing what the category is NOT ("none of the above," a run of negative qualifiers) and only states what it positively IS as a secondary, trailing label. Contrast this with a real positive-mechanism-first instance that survives in the corpus: `content/sections/02-delegation.md`'s spawn-threshold line leads with the positive mechanism - "Elevated risk -> spawn Worker + fresh independent Skeptic" - before any exclusion or qualifier. Use that contrast (positive-first vs. exclusion-first) to calibrate R5 density. Confidence: MEDIUM.
 
 **Signal R6 - duplicated conditional clauses.**
 

@@ -142,6 +142,16 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "0f4cf3c7badbb32bb27c8133678667372a3a9520655f311abd11aaf0ababa627",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
+    },
+    {
       "expected_target": ".codex/skill-frontmatter/**",
       "generated_token": "$AE_REPO_DIR/.codex/skill-frontmatter/**",
       "kind": "operational",
@@ -230,16 +240,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "158d28c2a6fadba7aba43adcc24ce42019c3f473a949105fd21d5b50fa84155a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -642,6 +642,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "482a85deaf5d0307a46743304fddd0f5af6b93439e3d4e93c7cd73998419a3e2",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
+    },
+    {
       "expected_target": "content/sections/02-delegation.md",
       "generated_token": "$AE_REPO_DIR/content/sections/02-delegation.md",
       "kind": "operational",
@@ -650,6 +660,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/02-delegation.md"
+    },
+    {
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "4a516beb23ef2104ff3717af6c2c037cb93c91cf54ca90a8650b064d23594689",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "content/SKILL.md",
@@ -850,16 +870,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-brief"
-    },
-    {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "5f799a3a2beec050ebf65aebcaa567e2e47d49f77d96b3d41269b43acdab7fb3",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "content/rules/module-manifest.md",
@@ -1922,6 +1932,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": "content/sections/09-events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "cff3e2ac456f16758800c9d381266dbe6fc68c0164482c32c7f40e90082ce8c4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/09-events-log.md"
+    },
+    {
       "expected_target": "content/commands/ds-identity.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-identity.md",
       "kind": "operational",
@@ -2050,16 +2070,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "content/sections/09-events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "db8e6a82c1197551f4dd77b0387bf42a3cb5e13795513f8d02ecc42e16199fa6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/09-events-log.md"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -2332,16 +2342,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "fdd8129ba2e45b1f40344bd2d37d817c8926af1c37c136278b2567af8ce52c08",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
-    },
-    {
       "expected_target": "bin/ds-migrate",
       "generated_token": "$AE_REPO_DIR/bin/ds-migrate",
       "kind": "operational",
@@ -2396,16 +2396,6 @@
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
       "occurrence_hash": "2d9aea0c3a473d8018a2675c8dba7d9648ddfab977bb8a19bee820a0efc45323",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "content/SKILL.md",
-      "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "3c5e0871aff4cd5bf66e4cff10da92aa55ca4e6dbeeb7cd0beff27f23c80d551",
       "resolution_mode": "mapped-resource",
       "scope": "canonical-source",
       "source": "content/SKILL.md",
@@ -2500,6 +2490,16 @@
       "scope": "codex-harness",
       "source": "content/SKILL.md",
       "source_token": "Glob"
+    },
+    {
+      "expected_target": "METHODOLOGY.md",
+      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
+      "kind": "operational",
+      "occurrence_hash": "a0214837b140629374dccc3fcd645d589f475c342a95aef5dc39d10509c6045d",
+      "resolution_mode": "mapped-resource",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": "shell",
