@@ -153,13 +153,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition:
 
 ## PL-20260826-2
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-cost.md (lines ~64-77, pricing.yml example)
 - Signal(s): Signal 1
 - Confidence: HIGH
 - Rationale: Example pricing config pins claude-sonnet-4-6 and claude-opus-4-7 with concrete per-token rates and no disclaimer. Operator decision 2026-08-26: approved; per the "don't pin models" directive, neutralize ids to placeholders.
-- Disposition:
+- Disposition: Replaced pinned model ids with `<model-id-1>`/`<model-id-2>` placeholders and added the tier-map-example.yml-style illustrative-example disclaimer. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/840
 
 ## PL-20260826-3
 - Status: RAISED
