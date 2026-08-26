@@ -1484,7 +1484,7 @@ code {
 </code></pre>
 <p>Key fields added for fan-out:</p>
 <ul>
-<li><strong><code>skeptic_strategy</code></strong> - the planner emits <code>&quot;per-unit&quot;</code> (independent units, parallel Skeptics) or <code>&quot;integration&quot;</code> (interdependent units, one combined Skeptic). The conductor may additionally apply a <code>multi-dimensional</code> review strategy on high-stakes units (correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff); that is conductor-side, not part of the planner's classification.</li>
+<li><strong><code>skeptic_strategy</code></strong> - the planner emits <code>&quot;per-unit&quot;</code> (independent units, parallel Skeptics), <code>&quot;integration&quot;</code> (interdependent units, one combined Skeptic), or <code>&quot;multi-dimensional&quot;</code> for high-stakes units (correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff). All three values are part of the planner's classification - the conductor reads whichever value it emits rather than re-deriving the strategy.</li>
 <li><strong><code>merge_order</code></strong> - integer; conductor merges unit branches in this order for conflict locality</li>
 <li><strong><code>unit_slug</code></strong> - the canonical unit identifier used in <code>.agentic/tasks.jsonl</code> task entries</li>
 </ul>
