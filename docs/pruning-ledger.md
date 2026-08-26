@@ -180,13 +180,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/839
 
 ## PL-20260826-5
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-wrap.md (lines ~127-135, Deferred-enrichment data model section)
 - Signal(s): Signal 3 (verbatim duplication)
 - Confidence: MEDIUM
 - Rationale: ds-wrap.md carries verbatim copies of the pinned header prefix block and the spillover record schema whose declared single normative home is content/references/wrap-context-format.md ("Edit the algorithm here, not in either consumer"). Nothing depends on ds-wrap.md's copies. Approved: consolidate to pointers, keeping the pending-<session_id>.json marker schema that ds-wrap.md genuinely owns.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/842
 
 ## PL-20260826-6
 - Status: RAISED
