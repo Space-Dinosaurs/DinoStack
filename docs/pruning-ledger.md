@@ -63,13 +63,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: Rewritten in https://github.com/Space-Dinosaurs/DinoStack/pull/827 - all five defects fixed (including a fifth, sibling-reported staleness at line ~212's Skeptic Protocol Section 0 citation). The general-purpose guidance was scoped, not deleted: verification found every spawn-capable adapter ships the full named-agent roster and Cursor has no spawning at all, so no live portability role exists today, but `general-purpose` remains an explicit fallback row for a harness that might need it in future. Note on axis substitution: the Rationale above calls for scoping this guidance "to harnesses lacking named agents" (a portability axis), but the implementation scoped it on task-fit instead ("use a named agent unless none of the named agents fit the task"). The harness-lineup check found every spawn-capable adapter ships the named roster, so the portability axis had no live referent to scope against; the kernel's own task-fit fallback wording was used instead.
 
 ## PL-20260825-4
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/references/tier-map-example.yml (model id entries)
 - Signal(s): Signal 1 (explicit model-version reference)
 - Confidence: HIGH
-- Rationale: Example tier map names gpt-4o-mini, gpt-4o, o3, gemini-2.0-* era models, stale relative to current provider lineups. The file self-disclaims ("examples only, not kept current"), so this is a refresh, not a behavioral premise on a dead model. Operator decision 2026-08-25: explicitly deferred - the disclaimer is accepted as sufficient for now; refresh in a later pass.
-- Disposition:
+- Rationale: Example tier map names gpt-4o-mini, gpt-4o, o3, gemini-2.0-* era models, stale relative to current provider lineups. The file self-disclaims ("examples only, not kept current"), so this is a refresh, not a behavioral premise on a dead model. Operator decision 2026-08-26: approved under the don't-pin-models directive - neutralized to placeholders (`<cheap-fast-model-id>`, `<balanced-model-id>`, `<max-capability-model-id>`) rather than refreshed to a new set of concrete ids, so the file cannot go stale again.
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/841
 
 ## PL-20260825-5
 - Status: RAISED
