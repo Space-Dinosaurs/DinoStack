@@ -50,13 +50,15 @@ For non-interactive use - useful in scripts or automated onboarding - pass assig
 ```bash
 bin/ds-team configure \
   --non-interactive \
-  --assign architect=claude:claude-opus-4-5 \
-  --assign engineer=omp:kimi/kimi-k2.7 \
-  --assign debugger=kimi:kimi-k2.7 \
+  --assign architect=claude \
+  --assign engineer=omp:REPLACE_WITH_MODEL_ID \
+  --assign debugger=kimi \
   --assign skeptic=pi \
   [--default-harness claude] \
   [--path .agentic/team.yml]
 ```
+
+`omp:REPLACE_WITH_MODEL_ID` is a placeholder demonstrating the optional `harness:model` form - substitute a real model id for your installed harness (see `bin/ds-team discover` in Step 2 below to list what is actually available). No specific model id is recommended or endorsed by this doc.
 
 `--assign` accepts `role=harness:model` (model is optional). Repeat for each role. `--default-harness` sets the fallback harness for any unassigned role. `--path` overrides the output location (default `.agentic/team.yml`). All 7 harnesses (`codex`, `gemini`, `cursor-agent`, `kimi`, `pi`, `omp`, `claude`) are valid `--assign` targets and all accept a `model`.
 
