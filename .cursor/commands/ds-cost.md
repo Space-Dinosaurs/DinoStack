@@ -126,7 +126,7 @@ Operator rollup (all projects)
 developer/project        sessions    in_tok   out_tok  cache_cr  cache_rd   wall(s)
 -----------------------------------------------------------------------------------
 alice/my-project                1     84210     37440      9200     41000    4812.1
-bob/my-project                   1     31022     14200      3900     16100    2100.0
+bob/my-project                  1     31022     14200      3900     16100    2100.0
 alice/side-project              1     21004      9310      2100      8800    1204.3
 ```
 
