@@ -36,7 +36,7 @@ qa-engineer 1        801      244      3001      9100      88.0
 TOTAL       14       25857    11204    112423    414330    1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
-Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
+Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure for that spawn, in which case the real duration is shown.
 ```
 
 ## Output: pricing present
@@ -53,7 +53,16 @@ to token-only output and prints "Install pyyaml for pricing support."
 
 ## V1 scope
 
-V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
+V1 counts all agent types (hook-emitted `spawn_start` for ad-hoc sessions;
+conductor-emitted `spawn_complete` for `/ds-implement-ticket` sessions) - no
+role is excluded. Hook-emitted spawns render token columns as `n/a` (or `0`
+in the priced table) unless a paired hook-emitted `spawn_complete` resolved
+a real subagent transcript (post-DS-160 token resolution), in which case the
+real summed tokens are shown. Hook-emitted spawns render wall-time as `n/a`
+(unpriced table) or `0.0` (priced table) unless a paired hook-emitted
+`spawn_complete` (DS-160) supplied a real `wall_seconds` figure for that
+spawn - which does not require transcript resolution - in which case the
+real duration is shown.
 
 This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
@@ -64,11 +73,11 @@ Place at `~/.agentic/pricing.yml`. Rates are USD per 1M tokens. The file is
 user-maintained; `/ds-cost` refuses to print dollar figures when it
 is absent.
 
-THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids and rates below
-are not kept current with provider releases. Substitute your own current
-model ids and rates; `/ds-cost` looks up each event's recorded model string
-as a literal key into `models:`, so any id you use here works as long as it
-matches.
+THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids below are
+placeholders, not real provider ids.
+Substitute your own current model ids and rates; `/ds-cost` looks up each
+event's recorded model string as a literal key into `models:`, so any id you
+use here works as long as it matches.
 
 ```
 updated: 2026-04-15
@@ -105,31 +114,29 @@ if a unified view is needed.
 
 The `.pending/` staging directory is never globbed - only fully-attributed
 lines from `*.jsonl` files are included. If no global logs exist (directory absent or
-all files empty), the command prints "No operator-level session logs found." and exits 0.
+all files empty), the command prints "No operator session data. Run sessions
+with a confirmed identity to populate." and exits 0.
 
 **Options:**
 
 - `--since YYYY-MM-DD` - filter to sessions whose `ts` is on or after the given date
 - `--json` - emit machine-readable JSON instead of the fixed-width table
 
-**Example output (pricing absent):**
+**Example output:**
 
 ```
 Operator rollup (all projects)
-
-developer_id          project_slug          sessions   in       out      wall(s)
-alice                 my-project                  12   84210    37440   4812.1
-alice                 side-project                 4   21004     9310   1204.3
-bob                   my-project                   7   31022    14200   2100.0
-TOTAL                                             23  136236    60950   8116.4
-
-Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
-Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
+developer/project        sessions    in_tok   out_tok  cache_cr  cache_rd   wall(s)
+-----------------------------------------------------------------------------------
+alice/my-project                1     84210     37440      9200     41000    4812.1
+bob/my-project                  1     31022     14200      3900     16100    2100.0
+alice/side-project              1     21004      9310      2100      8800    1204.3
 ```
 
-When `~/.agentic/pricing.yml` is present, dollar columns appear following the same
-rules as `team` and `project` (rates, 90-day staleness warning, missing-rate `?`
-cells).
+Rows are sorted by total tokens descending, keyed by a single
+`developer/project` label column; there is no TOTAL row. `ds-cost operator`
+does not implement pricing - it never prints dollar columns, and
+`~/.agentic/pricing.yml` has no effect on this subcommand's output.
 
 ## retro subcommand
 
