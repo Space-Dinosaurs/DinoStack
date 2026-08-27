@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -595,6 +596,7 @@ def test_deep_tier_evaluates_full_predicate_per_entry(tmp_path):
         strict_ignored=False,
         activity_window_hours=0.0,
         no_origin_reachable_evidence=False,
+        measure_size=False,
     )
     row, err = mod._deep_report_row(str(repo), args)
     assert err is None
@@ -621,8 +623,22 @@ def test_json_output_shape(tmp_path):
     assert isinstance(rows, list)
     assert len(rows) == 1
     row = rows[0]
-    assert set(row.keys()) == {"repo", "nonroot_worktrees", "oldest_age_hours", "eligible"}
+    # DS-216: --measure-size fields are always present (tier-dependent
+    # shape, same as `eligible`) but `None` here since --measure-size was
+    # not passed.
+    assert set(row.keys()) == {
+        "repo",
+        "nonroot_worktrees",
+        "oldest_age_hours",
+        "eligible",
+        "would_reclaim_kb",
+        "dirty_unreclaimable_kb",
+        "size_unknown_count",
+    }
     assert row["eligible"] is None
+    assert row["would_reclaim_kb"] is None
+    assert row["dirty_unreclaimable_kb"] is None
+    assert row["size_unknown_count"] is None
     assert row["nonroot_worktrees"] == 1
     assert isinstance(row["oldest_age_hours"], float)
 
@@ -1465,3 +1481,116 @@ def test_max_repos_note_absent_when_not_truncated(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "NOTE: repo discovery truncated" not in result.stdout
+
+
+# --------------------------------------------------------------------------
+# --multi-repo --measure-size grand-total accumulation (round-3 Skeptic
+# Major C regression: M8/M10 - `_size_totals_out` had ZERO test coverage
+# for its `reclaim_kb`/`size_unknown_count` accumulation across repos).
+# --------------------------------------------------------------------------
+
+
+def test_multi_repo_measure_size_grand_total_sums_reclaim_kb_across_repos(tmp_path):
+    """The `--multi-repo` sweep's final `reclaimed_kb=` figure must be the
+    SUM of what each swept repo individually reclaimed, not just the last
+    repo's own figure (or 0). Mutation (M8): zero
+    `_size_totals_out["reclaim_kb"]` accumulation in `_run_repo` -> the
+    grand total collapses to 0 even though both repos reclaimed real,
+    measured bytes below."""
+    repo_a = init_repo_with_origin(tmp_path, name="grand-a")
+    repo_b = init_repo_with_origin(tmp_path, name="grand-b")
+    add_worktree(repo_a, ".claude/worktrees/agent-grand-a", "worktree-agent-grand-a", push=False)
+    add_worktree(repo_b, ".claude/worktrees/agent-grand-b", "worktree-agent-grand-b", push=False)
+
+    def _reclaimed_kb_of(repo: Path) -> int:
+        proc = run_cli(
+            [
+                "--repo",
+                str(repo),
+                "--measure-size",
+                "--no-gh",
+                "--min-age-hours",
+                "0",
+                "--activity-window-hours",
+                "0",
+            ]
+        )
+        assert proc.returncode == 0, proc.stderr
+        line = [ln for ln in proc.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: base=")][-1]
+        m = re.search(r"reclaimed_kb=(\d+)", line)
+        assert m, line
+        return int(m.group(1))
+
+    expected_a = _reclaimed_kb_of(repo_a)
+    expected_b = _reclaimed_kb_of(repo_b)
+    assert expected_a > 0 and expected_b > 0
+
+    # The single-repo runs above already removed the first pair of
+    # worktrees - re-add a fresh worktree of identical (checked-out-
+    # README-only) content to each repo for the multi-repo sweep.
+    add_worktree(repo_a, ".claude/worktrees/agent-grand-a2", "worktree-agent-grand-a2", push=False)
+    add_worktree(repo_b, ".claude/worktrees/agent-grand-b2", "worktree-agent-grand-b2", push=False)
+
+    sweep = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo_a),
+            "--repo",
+            str(repo_b),
+            "--measure-size",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ]
+    )
+    assert sweep.returncode == 0, sweep.stderr
+    grand_line = [ln for ln in sweep.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    m = re.search(r"reclaimed_kb=(\d+)", grand_line)
+    assert m, grand_line
+    assert int(m.group(1)) == expected_a + expected_b, grand_line
+
+
+def test_multi_repo_measure_size_grand_total_sums_size_unknown_count(tmp_path):
+    """The `--multi-repo` sweep's final `size_unknown_count=` figure must
+    be the SUM across every swept repo, not just the last repo's own
+    figure (or 0). Mutation (M10): zero
+    `_size_totals_out["size_unknown_count"]` accumulation in `_run_repo`
+    -> the grand total stays 0 even though every repo below hit a `du`
+    failure."""
+    repo_a = init_repo_with_origin(tmp_path, name="unk-a")
+    repo_b = init_repo_with_origin(tmp_path, name="unk-b")
+    add_worktree(repo_a, ".claude/worktrees/agent-unk-a", "worktree-agent-unk-a", push=False)
+    add_worktree(repo_b, ".claude/worktrees/agent-unk-b", "worktree-agent-unk-b", push=False)
+
+    du_dir = tmp_path / "fake-du-bin"
+    du_dir.mkdir()
+    du = du_dir / "du"
+    du.write_text("#!/usr/bin/env bash\nexit 1\n")
+    du.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = f"{du_dir}{os.pathsep}{env.get('PATH', '')}"
+
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
+        "--multi-repo",
+        "--repo",
+        str(repo_a),
+        "--repo",
+        str(repo_b),
+        "--measure-size",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ]
+    sweep = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert sweep.returncode == 0, sweep.stderr
+    grand_line = [ln for ln in sweep.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    m = re.search(r"size_unknown_count=(\d+)", grand_line)
+    assert m, grand_line
+    assert int(m.group(1)) == 2, grand_line

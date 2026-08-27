@@ -45,6 +45,7 @@ Performance: each scenario performs a handful of real `git` subprocess
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -3210,3 +3211,508 @@ def test_ds196_bucket_sum_mutation_renaming_off_skip_prefix_reddens(tmp_path):
         "SKIP_ prefix - if this holds, the invariant silently tolerates a non-conforming "
         "outcome name"
     )
+
+
+# --------------------------------------------------------------------------
+# DS-216: --measure-size byte reporting. Every assertion below names the
+# mutation that would redden it, per the ticket's mutation-testing
+# requirement.
+# --------------------------------------------------------------------------
+
+REPO_ROOT = SCRIPT.resolve().parent.parent
+
+
+def _write_padding(path: Path, name: str, kb: int) -> None:
+    """Writes an uncommitted file of approximately `kb` KiB - used to give
+    a worktree a size large enough to distinguish it from a near-empty one
+    in `du -sk` output."""
+    (path / name).write_bytes(b"x" * (kb * 1024))
+
+
+def _fake_du_dir(tmp_path: Path, *, exit_code: int = 1) -> Path:
+    """A directory containing a stub `du` that always exits nonzero (no
+    stdout) - simulates `_measure_size_kb`'s failure path (the same
+    `proc.returncode != 0` branch a real timeout hits) without waiting on
+    the real 300s bound."""
+    bin_dir = tmp_path / "fake-du-bin"
+    bin_dir.mkdir(exist_ok=True)
+    du = bin_dir / "du"
+    du.write_text(f"#!/usr/bin/env bash\nexit {exit_code}\n")
+    du.chmod(0o755)
+    return bin_dir
+
+
+def run_reap_measure(repo: Path, *, dry_run: bool, du_dir: Path = None, extra=None) -> subprocess.CompletedProcess:
+    """Like `run_reap`, but exposes `--measure-size` and an optional PATH
+    override so a stub `du` can be substituted ahead of the real one."""
+    all_extra = ["--measure-size"] + (extra or [])
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
+        "--repo",
+        str(repo),
+        "--base",
+        "main",
+        "--explain",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ] + all_extra
+    if dry_run:
+        cmd.append("--dry-run")
+    env = dict(os.environ)
+    if du_dir is not None:
+        env["PATH"] = f"{du_dir}{os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+
+def test_measure_size_before_removal_reports_nonzero_reclaimed(tmp_path):
+    """Mutation: move the `du` call in `_run_repo`'s live removal loop to
+    AFTER `_salvage_and_remove` runs -> the path no longer exists, `du -sk`
+    fails, and `reclaimed_kb` collapses to 0 with `size_unknown_count`
+    nonzero even though the worktree had real, measurable content."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-size-a", "worktree-agent-size-a", push=False)
+    # No uncommitted content added - the checked-out README.md alone gives
+    # a small nonzero measurable size, and any uncommitted addition here
+    # would flip the entry to SKIP_DIRTY instead of REMOVE.
+
+    proc = run_reap_measure(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("size_unknown_count", -1) == 0, line
+    assert counts.get("reclaimed_kb", 0) > 0, line
+    assert str(wt) not in worktree_paths(repo)
+
+
+def test_dry_run_and_live_run_use_different_size_labels(tmp_path):
+    """Mutation: give the live run the same field name the dry-run branch
+    uses (e.g. hardcode `would_reclaim_kb` unconditionally) -> the
+    field-name assertions below redden because the "wrong" label appears
+    in the run where it must be absent."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    add_worktree(repo, ".claude/worktrees/agent-size-b", "worktree-agent-size-b", push=False)
+
+    dry_proc = run_reap_measure(repo, dry_run=True)
+    assert dry_proc.returncode == 0, dry_proc.stderr
+    dry_line = summary_line(dry_proc.stdout)
+    assert "would_reclaim_kb=" in dry_line, dry_line
+    assert "reclaimed_kb=" not in dry_line, dry_line
+
+    live_proc = run_reap_measure(repo, dry_run=False)
+    assert live_proc.returncode == 0, live_proc.stderr
+    live_line = summary_line(live_proc.stdout)
+    assert "reclaimed_kb=" in live_line, live_line
+    assert "would_reclaim_kb=" not in live_line, live_line
+
+
+def test_measure_size_helper_timeout_returns_none_never_zero():
+    """Direct unit test of `_measure_size_kb`'s own timeout path (a
+    hanging `du`), distinct from the failure-path end-to-end test below.
+    Mutation: change the `except subprocess.TimeoutExpired` handling (in
+    the shared `_run` wrapper this helper delegates to) so a timed-out
+    call is treated as returncode 0 with empty/zero stdout -> this
+    assertion reddens because it would then see `0`, not `None`."""
+    mod = _load_module_directly()
+    bin_dir = Path(tempfile.mkdtemp())
+    du = bin_dir / "du"
+    du.write_text("#!/usr/bin/env bash\nsleep 5\n")
+    du.chmod(0o755)
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    old_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = env["PATH"]
+    try:
+        result = mod._measure_size_kb("/tmp", timeout=0.3)
+    finally:
+        os.environ["PATH"] = old_path
+    assert result is None, f"expected None on timeout, got {result!r}"
+
+
+def test_measure_size_failure_excluded_from_total_and_counted(tmp_path):
+    """End-to-end: a `du` that fails (same `returncode != 0` branch a real
+    timeout hits) must yield `size_unknown: true` for that entry, excluded
+    from `reclaimed_kb`, with `size_unknown_count` incremented. Mutation:
+    `return 0` instead of `None` on failure -> `size_unknown_count` would
+    stay 0 and the (fabricated) 0 would silently vanish into the total
+    without ever being visible as unknown - this assertion reddens on that
+    mutation because it requires the count to be exactly 1."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-size-c", "worktree-agent-size-c", push=False)
+
+    du_dir = _fake_du_dir(tmp_path)
+    proc = run_reap_measure(repo, dry_run=False, du_dir=du_dir)
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("size_unknown_count", 0) == 1, line
+    assert counts.get("reclaimed_kb", -1) == 0, line
+    result = outcomes(proc.stdout)
+    assert "size_unknown=true" in result[str(wt)], result[str(wt)]
+
+
+def test_measure_size_unknown_not_counted_when_removal_fails(tmp_path):
+    """Round-3 Skeptic Minor 2 regression: `size_unknown_count` means
+    "bytes missing from a total" - an entry whose `du` measurement fails
+    AND whose subsequent `git worktree remove` also fails contributes to
+    NO total either way (it is excluded via `SKIP_REMOVE_FAILED`, not
+    `REMOVE`), so counting it as unknown falsely fires the FLOOR note for
+    a run where every total this tool actually reports IS exact. Mutation:
+    revert the live REMOVE loop's `size_unknown_count` bump to fire
+    immediately after `_measure_into` (its pre-fix location, ahead of
+    `_salvage_and_remove`) instead of only inside the `outcome["removed"]`
+    branch -> `size_unknown_count` becomes 1 even though `reclaimed_kb`
+    correctly stays 0 and the FLOOR note fires spuriously, reddening the
+    assertions below."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-size-rmfail", "worktree-agent-size-rmfail", push=False)
+
+    du_dir = _fake_du_dir(tmp_path)
+    git_dir = _fake_git_dir_remove_fails(tmp_path)
+    env = dict(os.environ)
+    env["PATH"] = f"{git_dir}{os.pathsep}{du_dir}{os.pathsep}{env.get('PATH', '')}"
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
+        "--repo",
+        str(repo),
+        "--base",
+        "main",
+        "--explain",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+        "--measure-size",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_REMOVE_FAILED"), result[str(wt)]
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("reclaimed_kb", -1) == 0, line
+    assert counts.get("size_unknown_count", -1) == 0, line
+    assert "could not be measured" not in proc.stdout, proc.stdout
+
+
+def test_reclaimable_by_gc_kb_exists_nowhere():
+    """Mutation: add a `reclaimable_by_gc_kb` key to any row dict (summary
+    fields, `--explain` output, or `--report --json` rows) -> the
+    JSON-schema check below reddens. Scoped to the actual output surfaces
+    (summary line, --explain, --report --json rows) rather than a raw
+    whole-source grep - this tool's own --measure-size doc deliberately
+    NAMES `reclaimable_by_gc_kb` in prose to document why it was rejected,
+    which a naive source-string check would false-positive on."""
+    repo, _origin = init_repo_with_origin(tmp_path=Path(tempfile.mkdtemp()))
+    add_worktree(repo, ".claude/worktrees/agent-size-gc", "worktree-agent-size-gc", push=False)
+
+    single_repo_proc = run_reap_measure(repo, dry_run=False)
+    assert single_repo_proc.returncode == 0, single_repo_proc.stderr
+    assert "reclaimable_by_gc_kb" not in single_repo_proc.stdout
+
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
+        "--multi-repo",
+        "--repo",
+        str(repo),
+        "--report",
+        "--json",
+        "--measure-size",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    for row in payload["rows"]:
+        assert "reclaimable_by_gc_kb" not in row, row
+
+
+def test_dirty_unreclaimable_never_summed_into_reclaimed(tmp_path):
+    """A dirty worktree with a LARGE uncommitted file must never inflate
+    `reclaimed_kb` - only the small REMOVE-eligible worktree's own size may
+    appear there. Mutation: fold `dirty_unreclaimable_kb` into the reclaim
+    total (e.g. `reclaimed_kb = reclaim_total_kb + dirty_unreclaimable_kb`)
+    -> `reclaimed_kb` would balloon past the dirty entry's ~4096 KB
+    padding, reddening the upper-bound assertion below."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    # No uncommitted content on the REMOVE-eligible entry - any addition
+    # here would flip it to SKIP_DIRTY, defeating the scenario. Its size
+    # is whatever the checked-out README.md alone occupies (a few KB).
+    add_worktree(repo, ".claude/worktrees/agent-size-small", "worktree-agent-size-small", push=False)
+    dirty_wt = add_worktree(repo, ".claude/worktrees/agent-size-dirty", "worktree-agent-size-dirty", push=False)
+    _write_padding(dirty_wt, "huge.bin", 4096)  # SKIP_DIRTY, ~4 MB
+
+    proc = run_reap_measure(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("dirty_unreclaimable_kb", 0) >= 4000, line
+    assert counts.get("reclaimed_kb", 0) < 1000, (
+        f"reclaimed_kb ({counts.get('reclaimed_kb')}) appears to include the dirty entry's "
+        f"padding - it must reflect only the small REMOVE-eligible entry (line: {line})"
+    )
+    assert str(dirty_wt) in worktree_paths(repo)  # dirty entry is never removed
+
+
+def test_report_json_rows_carry_size_fields_and_are_summable(tmp_path):
+    """`--report --json` rows (multi-repo, deep tier) must carry the three
+    size fields so a caller can sum across rows without a KeyError.
+    Mutation: drop `would_reclaim_kb` (or either sibling field) from the
+    row dict built in `_deep_report_row` -> the direct key access below
+    raises KeyError, reddening this test."""
+    repo_a, _origin_a = init_repo_with_origin(tmp_path, name="repo-a")
+    add_worktree(repo_a, ".claude/worktrees/agent-size-ra", "worktree-agent-size-ra", push=False)
+    repo_b, _origin_b = init_repo_with_origin(tmp_path, name="repo-b")
+    add_worktree(repo_b, ".claude/worktrees/agent-size-rb", "worktree-agent-size-rb", push=False)
+
+    cmd = [
+        sys.executable,
+        str(SCRIPT),
+        "--multi-repo",
+        "--repo",
+        str(repo_a),
+        "--repo",
+        str(repo_b),
+        "--report",
+        "--json",
+        "--measure-size",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["tier"] == "deep"
+    total_would_reclaim = sum(row["would_reclaim_kb"] for row in payload["rows"])
+    total_dirty = sum(row["dirty_unreclaimable_kb"] for row in payload["rows"])
+    total_unknown = sum(row["size_unknown_count"] for row in payload["rows"])
+    assert total_would_reclaim > 0
+    assert total_dirty == 0
+    assert total_unknown == 0
+
+
+def test_archive_unproven_measure_size_reports_nonzero_reclaimed(tmp_path):
+    """Round-2 Skeptic Major 1 regression: the --archive-unproven removal
+    path never called `_measure_into` (or its pre-extraction equivalent) at
+    all before this fix - the missing 6th measure-and-stamp call site the
+    Major-4 duplication cleanup exposed. A real 5 MB ARCHIVED_AND_REMOVED
+    worktree used to report `reclaimed_kb=0 size_unknown_count=0` with no
+    floor NOTE and no per-entry `--explain` marker, despite having real,
+    measurable content. Mutation: delete the `_measure_into(r)` call this
+    fix added right before `_salvage_and_remove` in the archive loop, OR
+    drop `"ARCHIVED_AND_REMOVED"` from `reclaim_total_kb`'s outcome filter
+    -> either change collapses `reclaimed_kb` back to 0 for this
+    checked-out-content-only worktree, reddening the assertions below.
+    Confirmed failing against the pre-fix code (see the fix summary for the
+    exact mutation-test observation)."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-size"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-size", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        extra=["--archive-unproven", "--measure-size"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert str(wt) not in worktree_paths(repo)
+
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("size_unknown_count", -1) == 0, line
+    assert counts.get("reclaimed_kb", 0) > 0, line
+    assert "size_kb=" in proc.stdout, proc.stdout
+
+
+def test_archive_unproven_dry_run_measure_size_reports_nonzero_would_reclaim(tmp_path):
+    """Round-3 Skeptic Major A regression: the DRY-RUN leg of
+    `--archive-unproven --measure-size` never measured archive-eligible
+    entries at all - `would_reclaim_kb` silently omitted their bytes while
+    `size_unknown_count` stayed 0, a false certificate of exactness on the
+    exact figure an operator reads to decide whether to authorize a real
+    `--archive-unproven` sweep. Reproduced by the reviewer: `dry=0` versus
+    `live=3920` on an identical tree. Mutation: delete the
+    `_measure_into(r)` loop this fix added in the archive dry-run `else`
+    leg, OR drop `archive_would_reclaim_kb` from `reclaim_total_kb`'s sum
+    -> `would_reclaim_kb` collapses back to 0 for this checked-out-
+    content-only worktree, reddening the assertion below. Confirmed
+    failing against the pre-fix code (see the fix summary for the exact
+    mutation-test observation)."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-dry-size"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-dry-size", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=True,
+        no_gh=False,
+        extra=["--archive-unproven", "--measure-size"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_UNPROVEN")
+    assert str(wt) in worktree_paths(repo)
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("would_reclaim_kb", 0) > 0, line
+    assert counts.get("size_unknown_count", -1) == 0, line
+    assert "size_kb=" in proc.stdout, proc.stdout
+
+
+def test_report_measure_size_without_json_prints_totals(tmp_path):
+    """Round-2 Skeptic Major 2 regression: `--report --measure-size`
+    WITHOUT `--json` used to run the full `du -sk` walk (`_deep_report_row`
+    already measures every REMOVE/SKIP_DIRTY entry regardless of `--json`)
+    and print nothing extra at all - output was byte-identical to the same
+    run without `--measure-size`, for minutes of wasted I/O on a large
+    sweep. Mutation: remove the `report_size_totals` table-column/NOTE
+    block from `_run_report`'s non-JSON branch -> both the size columns and
+    the grand-total NOTE disappear, reddening the assertions below."""
+    repo, _origin = init_repo_with_origin(tmp_path, name="repo-report-size")
+    add_worktree(repo, ".claude/worktrees/agent-report-size", "worktree-agent-report-size", push=False)
+
+    common = [
+        sys.executable,
+        str(SCRIPT),
+        "--multi-repo",
+        "--repo",
+        str(repo),
+        "--report",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ]
+    baseline = subprocess.run(common, capture_output=True, text=True)
+    assert baseline.returncode == 0, baseline.stderr
+
+    measured = subprocess.run(common + ["--measure-size"], capture_output=True, text=True)
+    assert measured.returncode == 0, measured.stderr
+    assert measured.stdout != baseline.stdout, (
+        "--report --measure-size produced output identical to the same run without "
+        "--measure-size - the du walk ran but nothing was printed for it"
+    )
+    assert "would_reclaim_kb" in measured.stdout, measured.stdout
+    assert "NOTE: totals across" in measured.stdout, measured.stdout
+
+
+def test_report_json_measure_size_includes_totals_and_caveat(tmp_path):
+    """Round-2 Skeptic Minor regression: `--report --json --measure-size`
+    used to emit raw per-row byte figures with no caveat attached anywhere
+    on that surface - a JSON consumer had no way to learn the figures were
+    working-tree-only, or that any were unmeasured. Mutation: drop the
+    `payload["totals"]`/`payload["measure_size_caveat"]` block from
+    `_run_report`'s JSON branch -> the key lookups below raise KeyError,
+    reddening this test."""
+    repo, _origin = init_repo_with_origin(tmp_path, name="repo-report-json-size")
+    add_worktree(
+        repo, ".claude/worktrees/agent-report-json-size", "worktree-agent-report-json-size", push=False
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--report",
+            "--json",
+            "--measure-size",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["totals"]["would_reclaim_kb"] > 0, payload
+    assert "measure_size_caveat" in payload
+    assert "object store" in payload["measure_size_caveat"]
+
+
+def _invocation_lines(text: str, pattern: str) -> str:
+    """Return the actual invocation line(s) matching `pattern` from a
+    caller script/doc, joined into one string for a substring check -
+    NEVER the whole file (round-3 Skeptic Minor 3 fix: a whole-file
+    `"--measure-size" not in text` check would go false-red the moment
+    `--measure-size` was merely documented/discussed anywhere in these
+    files, e.g. in a comment explaining why it is NOT passed, without
+    anything ever actually invoking it that way). A matched line that ends
+    in a shell line-continuation backslash pulls in its continuation
+    line(s) too, since `content/references/worktree-lifecycle.md`'s
+    session-start reap invocation spans two lines that way."""
+    lines = text.splitlines()
+    matched = []
+    i = 0
+    while i < len(lines):
+        if re.search(pattern, lines[i]):
+            block = [lines[i]]
+            while block[-1].rstrip().endswith("\\") and i + 1 < len(lines):
+                i += 1
+                block.append(lines[i])
+            matched.append("\n".join(block))
+        i += 1
+    assert matched, f"no invocation line matched {pattern!r} - fixture/pattern drift, not a passing assertion"
+    return "\n".join(matched)
+
+
+def test_measure_size_never_passed_by_automatic_callers():
+    """Mutation: add `--measure-size` to any of the FOUR automatic callers'
+    own invocation of this tool -> the corresponding assertion below fails,
+    reddening this test. `bin/tests/test_worktree_reap_report_only.sh`
+    pins only `--report` presence and `--archive-unproven` absence in
+    `run.sh` - it does not cover this flag, so this test is what does.
+
+    Round-2 Skeptic Minor fix: this test previously covered only 2 of the
+    4 real automatic callers - `bin/ds-base-sync` and
+    `content/references/worktree-lifecycle.md`'s session-start reap block
+    (the mutating, unattended, backgrounded call site - see that file's
+    Downstream deps section) were both missing. The `--measure-size` flag
+    docstring's own enumeration was under-scoped the same way; both are
+    extended together here.
+
+    Round-3 Skeptic Minor 3 fix: scoped to each file's actual
+    `ds-cleanup-worktrees` INVOCATION line(s) via `_invocation_lines`,
+    never the whole file - the whole-file form would falsely redden the
+    moment any of these files so much as documents `--measure-size` in
+    prose (e.g. this very round's docstring widening), which is not an
+    invocation and must remain legal.
+    """
+    session_start = (REPO_ROOT / "hooks" / "session-start-wrap.sh").read_text()
+    reap_run = (REPO_ROOT / "automation" / "dinostack-worktree-reap" / "run.sh").read_text()
+    base_sync = (REPO_ROOT / "bin" / "ds-base-sync").read_text()
+    worktree_lifecycle = (REPO_ROOT / "content" / "references" / "worktree-lifecycle.md").read_text()
+
+    session_start_invocations = _invocation_lines(session_start, r'\$DS_CLEANUP_BIN"\s+--')
+    reap_run_invocation = _invocation_lines(reap_run, r'\$DS_CLEANUP_BIN"\s+--')
+    base_sync_invocation = _invocation_lines(base_sync, r'\$_ds_cleanup_worktrees"\s+--')
+    worktree_lifecycle_invocation = _invocation_lines(worktree_lifecycle, r'^\s*ds-cleanup-worktrees --repo')
+
+    assert "--measure-size" not in session_start_invocations
+    assert "--measure-size" not in reap_run_invocation
+    assert "--measure-size" not in base_sync_invocation
+    assert "--measure-size" not in worktree_lifecycle_invocation
