@@ -363,7 +363,7 @@ When a plan contains 2+ independent units, the planner emits a JSONL block. Each
 ```
 
 Key fields added for fan-out:
-- **`skeptic_strategy`** - the planner emits `"per-unit"` (independent units, parallel Skeptics) or `"integration"` (interdependent units, one combined Skeptic). The conductor may additionally apply a `multi-dimensional` review strategy on high-stakes units (correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff); that is conductor-side, not part of the planner's classification.
+- **`skeptic_strategy`** - the planner emits `"per-unit"` (independent units, parallel Skeptics), `"integration"` (interdependent units, one combined Skeptic), or `"multi-dimensional"` for high-stakes units (correctness-Skeptic + security-auditor + perf-analyst in parallel on the same diff). All three values are part of the planner's classification - the conductor reads whichever value it emits rather than re-deriving the strategy.
 - **`merge_order`** - integer; conductor merges unit branches in this order for conflict locality
 - **`unit_slug`** - the canonical unit identifier used in `.agentic/tasks.jsonl` task entries
 
