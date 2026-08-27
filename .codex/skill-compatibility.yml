@@ -21042,16 +21042,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "hooks/stop-context.js",
-      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
-      "kind": "operational",
-      "occurrence_hash": "1a633bfffa0a298262368a43fc22c479fa33a1ce39abd3c7afc17c2709fa3e61",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "hooks/stop-context.js"
-    },
-    {
       "expected_target": ".agentic/tracking.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tracking.md",
       "kind": "operational",
@@ -21066,16 +21056,6 @@
       "generated_token": "$wrap",
       "kind": "operational",
       "occurrence_hash": "1a96813329a400e8ac08dbbc7356ee2d71c4f3e563758ac0a84297b9dfe8a750",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "1b0564233fc719f8d98decfdbe8be27910aae6615fc318a5c4fabe810f3a51a2",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
@@ -21260,6 +21240,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/<name>.md"
+    },
+    {
+      "expected_target": "content/references/wrap-context-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/wrap-context-format.md",
+      "kind": "operational",
+      "occurrence_hash": "255f78448ad9d4d529569ca4f1da7c54d54230536be2ef5b03026929f85e6d9a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/wrap-context-format.md"
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
@@ -23112,16 +23102,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "8ee0c672ef69ccdd29293da6ab5131c063f5639545cbd306e6c2f985fd2e8e05",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": ".agentic/compression-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
       "kind": "operational",
@@ -23220,6 +23200,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "command"
+    },
+    {
+      "expected_target": ".agentic/wrap/deferred-activity.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "9658bc8b33c73227da54e9bbc298a30ff31d2160ad6df49b90d48e3f331a90c0",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/wrap/deferred-activity.jsonl"
     },
     {
       "expected_target": "filesystem read",
@@ -23460,16 +23450,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/lock"
-    },
-    {
-      "expected_target": ".agentic/wrap/deferred-activity.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "a7b120f828538e8b46c085ed4d735bbabea7316f16a17abcd6025291cf86ef5d",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/wrap/deferred-activity.jsonl"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -24512,16 +24492,6 @@
       "source_token": ".claude/findings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "e4d26e44621d13c1ee670a9b229396f47a222aa4889013055044a0ace51d7374",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": "content/commands/ds-init-project.md",
       "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
@@ -24780,6 +24750,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/compression-state.json"
+    },
+    {
+      "expected_target": "content/references/wrap-context-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/wrap-context-format.md",
+      "kind": "operational",
+      "occurrence_hash": "f1a1c490ad5782c4500e41e4c948795d0d6937d61b8b51f72c5451606f1fc52b",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/wrap-context-format.md"
     },
     {
       "expected_target": "hooks/lib/enforcement_log.py",
