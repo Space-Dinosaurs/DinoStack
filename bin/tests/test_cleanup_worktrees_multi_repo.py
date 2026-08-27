@@ -595,6 +595,7 @@ def test_deep_tier_evaluates_full_predicate_per_entry(tmp_path):
         strict_ignored=False,
         activity_window_hours=0.0,
         no_origin_reachable_evidence=False,
+        measure_size=False,
     )
     row, err = mod._deep_report_row(str(repo), args)
     assert err is None
@@ -621,8 +622,22 @@ def test_json_output_shape(tmp_path):
     assert isinstance(rows, list)
     assert len(rows) == 1
     row = rows[0]
-    assert set(row.keys()) == {"repo", "nonroot_worktrees", "oldest_age_hours", "eligible"}
+    # DS-216: --measure-size fields are always present (tier-dependent
+    # shape, same as `eligible`) but `None` here since --measure-size was
+    # not passed.
+    assert set(row.keys()) == {
+        "repo",
+        "nonroot_worktrees",
+        "oldest_age_hours",
+        "eligible",
+        "would_reclaim_kb",
+        "dirty_unreclaimable_kb",
+        "size_unknown_count",
+    }
     assert row["eligible"] is None
+    assert row["would_reclaim_kb"] is None
+    assert row["dirty_unreclaimable_kb"] is None
+    assert row["size_unknown_count"] is None
     assert row["nonroot_worktrees"] == 1
     assert isinstance(row["oldest_age_hours"], float)
 

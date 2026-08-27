@@ -252,6 +252,7 @@ Public API (CLI):
                     [--activity-window-hours <float>]
                     [--no-origin-reachable-evidence]
                     [--strict-ignored] [--archive-unproven] [--max-repos N]
+                    [--measure-size]
   ds-cleanup-worktrees --init-config
 
   --repo <path>          Repository to operate on. Default: cwd. Repeatable
@@ -571,6 +572,58 @@ Public API (CLI):
                           sets the top-level `"truncated"` key to `true` iff
                           the discovered-and-deduped count exceeded N;
                           `false` when unset or the count did not exceed N.
+  --measure-size           OPT-IN, NEVER the default, and NEVER passed by an
+                          automatic caller (`bin/ds-base-sync`, the
+                          SessionStart nudge, `automation/
+                          dinostack-worktree-reap/run.sh` all invoke this
+                          tool without it) - DS-216. Measuring means a
+                          recursive `du -sk` walk (see `_measure_size_kb`)
+                          over potentially tens of GB, and this tool has
+                          automatic/scheduled callers whose cost profile
+                          must not change. When passed, every REMOVE-bucket
+                          entry is measured BEFORE removal (there is
+                          nothing left to measure after) and every
+                          `SKIP_DIRTY` entry is measured too (dirty
+                          worktrees are refused removal terminally by
+                          design and are where the measured byte mass on a
+                          real checkout actually lives). The summary line
+                          gains `would_reclaim_kb` under `--dry-run` or
+                          `reclaimed_kb` on a live run (NEVER the same
+                          label in both - they mean different things: a
+                          projection vs. bytes actually freed), plus
+                          `dirty_unreclaimable_kb` (the summed size of
+                          `SKIP_DIRTY` entries - NEVER folded into either
+                          reclaim total; reporting refused bytes as
+                          reclaimed would be a lie in the exact direction
+                          this flag exists to prevent) and
+                          `size_unknown_count` (entries a `du -sk` call
+                          could not measure - timeout or failure, EXCLUDED
+                          from every total, never defaulted to 0; a
+                          nonzero count means every total this run reports
+                          is a FLOOR, not an exact figure - see the printed
+                          NOTE). `--explain` gains a trailing `size_kb=N` or
+                          `size_unknown=true` per entry. Under `--report`
+                          (deep tier only - `--report --count-only` never
+                          computes a disposition to measure against, so
+                          these fields are always `null` there), each row
+                          gains the same three fields (`would_reclaim_kb`
+                          always - report mode never removes anything, so
+                          there is no `reclaimed_kb` variant here;
+                          `dirty_unreclaimable_kb`; `size_unknown_count`),
+                          `null` when `--measure-size` was not passed, so a
+                          multi-repo total is derivable by summing
+                          `--report --json` rows. Deliberately excludes any
+                          `reclaimable_by_gc_kb`/`git count-objects` figure
+                          - considered and rejected, since `size-garbage`
+                          counts only invalid/corrupt loose objects, never
+                          unreachable-but-valid objects from a deleted ref
+                          (measured `0 bytes` across six repos) - it cannot
+                          answer the question it appears to answer. Every
+                          byte total measures the working-tree checkout
+                          only, never the shared git object store (every
+                          worktree of a repo shares it) - removing a
+                          worktree never shrinks it, and deleting a branch
+                          reclaims nothing until `git gc` runs.
   --init-config            Standalone action: usage error, exit 2, when
                           combined with any OTHER flag set to a
                           non-default value. An explicitly-passed value
@@ -939,6 +992,51 @@ def _run(
         # "could not determine", never as proof of anything. rc=124 mirrors
         # the shell convention for a timed-out command.
         return subprocess.CompletedProcess(args, returncode=124, stdout="", stderr=f"timeout after {timeout}s")
+
+
+#: Timeout (seconds) for `_measure_size_kb`'s `du -sk` call, opt-in via
+#: `--measure-size` only (see that flag's own docstring for why it must
+#: never be passed by an automatic caller). An earlier design used
+#: `timeout 10` and a reviewer showed that is self-defeating: `du -sk`
+#: cost scales with inode count more than raw bytes, and the trees this
+#: feature most needs to measure accurately are the LARGEST ones - a
+#: `SKIP_DIRTY` worktree tree can run to double-digit GB (one repo's
+#: `.claude/worktrees` measured at 23 GB, another at 18 GB), and a 10s
+#: bound would systematically time out on exactly the entries whose size
+#: matters most, always reporting them `size_unknown` rather than
+#: measured. Measured reference points on this machine: a 66 MB /
+#: 1727-inode tree took 0.37s warm; a ~6.8 GB tree with four
+#: `node_modules` directories took 0.798s warm - both suggest even a
+#: 23 GB tree should complete in well under a minute on local disk. Since
+#: this flag is opt-in and operator-invoked (never an automatic caller's
+#: cost profile), there is no pressure to shave the bound tighter: 300s
+#: (5 minutes) gives generous headroom for a cold cache, a slower
+#: filesystem, or a network-backed mount, while still eventually giving
+#: up rather than hanging forever.
+_MEASURE_SIZE_TIMEOUT_SECONDS = 300.0
+
+
+def _measure_size_kb(path: str, timeout: float = _MEASURE_SIZE_TIMEOUT_SECONDS) -> Optional[int]:
+    """Wraps `du -sk <path>` to measure a worktree's on-disk size in KB.
+    Returns `None` on ANY failure - missing path, non-numeric/empty
+    output, or the timeout above - NEVER `0`. A fabricated `0` would
+    silently understate a byte-reporting total (the exact failure class
+    `--measure-size` exists to prevent) and would be indistinguishable
+    from a genuinely-empty directory. Callers must exclude a `None`
+    result from any sum and count it via `size_unknown_count` instead.
+
+    Measures the working-tree checkout only - never the shared `.git`
+    object store, which every worktree of a repo shares (removing a
+    worktree never frees any of it; only `git gc` after a branch delete
+    can, and only for objects that become unreachable).
+    """
+    proc = _run(["du", "-sk", path], timeout=timeout)
+    if proc.returncode != 0:
+        return None
+    first_field = proc.stdout.split(None, 1)[0] if proc.stdout.strip() else ""
+    if not first_field.isdigit():
+        return None
+    return int(first_field)
 
 
 def _resolve_repo(path: str) -> str:
@@ -2337,7 +2435,10 @@ def _fast_report_row(repo: str) -> Tuple[Optional[Dict], Optional[str]]:
     (already paid by `RepoTarget.__init__` during discovery) plus
     `worktree list --porcelain` here - and zero network calls. Returns
     `(row, error)`; `row["eligible"]` is always None in this tier (never
-    computed).
+    computed). This tier never runs `evaluate_entry`, so it has no
+    disposition to measure size against - the `--measure-size` fields
+    (DS-216) are always `None` here, same tier-dependent shape as
+    `eligible`, never populated even when `--measure-size` is passed.
     """
     try:
         porcelain = _worktree_list(repo)
@@ -2353,6 +2454,9 @@ def _fast_report_row(repo: str) -> Tuple[Optional[Dict], Optional[str]]:
         "nonroot_worktrees": len(nonroot),
         "oldest_age_hours": oldest_age,
         "eligible": None,
+        "would_reclaim_kb": None,
+        "dirty_unreclaimable_kb": None,
+        "size_unknown_count": None,
     }, None
 
 
@@ -2370,7 +2474,16 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
         return None, str(exc)
 
     if not entries:
-        return {"repo": repo, "nonroot_worktrees": 0, "oldest_age_hours": None, "eligible": 0}, None
+        zero_size = 0 if args.measure_size else None
+        return {
+            "repo": repo,
+            "nonroot_worktrees": 0,
+            "oldest_age_hours": None,
+            "eligible": 0,
+            "would_reclaim_kb": zero_size,
+            "dirty_unreclaimable_kb": zero_size,
+            "size_unknown_count": zero_size,
+        }, None
 
     # Round-N Minor fix: the deep tier used to hardcode `oldest_age_hours`
     # to None unconditionally, contradicting the documented `--json` shape
@@ -2403,11 +2516,43 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
         args.no_origin_reachable_evidence,
     )
     eligible = sum(1 for r in results if r["outcome"] == "REMOVE")
+
+    # --measure-size (DS-216): report mode is structurally read-only (see
+    # this section's own module comment - never calls
+    # `_salvage_and_remove`/`git worktree remove`), so there is no
+    # "reclaimed" here, only a projection - `would_reclaim_kb`, never
+    # `reclaimed_kb`, mirrors the same --dry-run-vs-live label discipline
+    # `_run_repo`'s sweep enforces. `None` (not 0) when `--measure-size`
+    # was not passed, matching the tier-dependent `eligible` shape above.
+    would_reclaim_kb: Optional[int] = None
+    dirty_unreclaimable_kb: Optional[int] = None
+    size_unknown_count: Optional[int] = None
+    if args.measure_size:
+        would_reclaim_kb = 0
+        dirty_unreclaimable_kb = 0
+        size_unknown_count = 0
+        for r in results:
+            if r["outcome"] == "REMOVE":
+                size_kb = _measure_size_kb(r["path"])
+                if size_kb is None:
+                    size_unknown_count += 1
+                else:
+                    would_reclaim_kb += size_kb
+            elif r["outcome"] == "SKIP_DIRTY":
+                size_kb = _measure_size_kb(r["path"])
+                if size_kb is None:
+                    size_unknown_count += 1
+                else:
+                    dirty_unreclaimable_kb += size_kb
+
     return {
         "repo": repo,
         "nonroot_worktrees": len(entries) - 1,
         "oldest_age_hours": oldest_age,
         "eligible": eligible,
+        "would_reclaim_kb": would_reclaim_kb,
+        "dirty_unreclaimable_kb": dirty_unreclaimable_kb,
+        "size_unknown_count": size_unknown_count,
     }, None
 
 
@@ -2547,6 +2692,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--no-origin-reachable-evidence", dest="no_origin_reachable_evidence", action="store_true")
     p.add_argument("--strict-ignored", action="store_true")
     p.add_argument("--archive-unproven", action="store_true")
+    p.add_argument("--measure-size", dest="measure_size", action="store_true")
     p.add_argument("--init-config", dest="init_config", action="store_true")
     p.add_argument("--max-repos", type=int, default=None)
     return p.parse_args(argv)
@@ -2753,12 +2899,45 @@ def _run_repo(
 
     remove_results = [r for r in results if r["outcome"] == "REMOVE"]
 
+    # --measure-size (opt-in, DS-216): dirty entries are refused
+    # REMOVAL terminally by design (see the module docstring's
+    # `SKIP_DIRTY` gate) and are where the measured byte mass on a real
+    # checkout actually lives - one repo carries ~32 GB of them. Measure
+    # them here, before any removal work below, so `dirty_unreclaimable_kb`
+    # is visible even though nothing about these entries changes this run.
+    # This total must NEVER be folded into `reclaimed_kb`/`would_reclaim_kb`
+    # below - reporting refused bytes as reclaimed would be exactly the
+    # kind of lie this feature exists to prevent.
+    size_unknown_count = 0
+    dirty_unreclaimable_kb = 0
+    if args.measure_size:
+        for r in results:
+            if r["outcome"] == "SKIP_DIRTY":
+                size_kb = _measure_size_kb(r["path"])
+                if size_kb is None:
+                    r["size_unknown"] = True
+                    size_unknown_count += 1
+                else:
+                    r["size_kb"] = size_kb
+                    dirty_unreclaimable_kb += size_kb
+
     removed = 0
     salvaged = 0
     salvage_would = 0
     if not args.dry_run:
         for r in remove_results:
             path = r["path"]
+            # Measure BEFORE removal - there is nothing left to measure
+            # afterward. A `None` result (timeout/failure) is recorded as
+            # size_unknown and excluded from `reclaimed_kb`, never
+            # defaulted to 0 (see `_measure_size_kb`'s own docstring).
+            if args.measure_size:
+                size_kb = _measure_size_kb(path)
+                if size_kb is None:
+                    r["size_unknown"] = True
+                    size_unknown_count += 1
+                else:
+                    r["size_kb"] = size_kb
             # Round-4 requirement, round-6 refactor (Skeptic Major 1): the
             # salvage-then-remove sequence now lives in ONE function,
             # `_salvage_and_remove`, shared with the --archive-unproven
@@ -2806,6 +2985,17 @@ def _run_repo(
         # --dry-run: skip salvage cleanly, but still report how many files
         # WOULD be salvaged if this were a live run (round-4 requirement).
         salvage_would = sum(1 for r in remove_results if _worktree_has_salvageable_telemetry(r["path"]))
+        # --measure-size under --dry-run: measure the same REMOVE-bucket
+        # entries a live run would, so `would_reclaim_kb` reflects an
+        # actual `du` measurement, not an estimate.
+        if args.measure_size:
+            for r in remove_results:
+                size_kb = _measure_size_kb(r["path"])
+                if size_kb is None:
+                    r["size_unknown"] = True
+                    size_unknown_count += 1
+                else:
+                    r["size_kb"] = size_kb
 
     # --archive-unproven (round-5, OPT-IN, never the default; round-6
     # correction - Skeptic Major 2): for every entry that is still
@@ -3005,13 +3195,49 @@ def _run_repo(
     field_str = " ".join(
         f"{_field_name(outcome)}={outcome_counts.get(outcome, 0)}" for outcome in _ALL_OUTCOMES if outcome != "REMOVE"
     )
+
+    # --measure-size (DS-216): the label MUST differ between --dry-run and
+    # a live run - they mean different things (a projection vs. bytes
+    # actually freed) and conflating them is how "we recovered X" becomes
+    # a lie. Summed only over entries whose FINAL outcome is "REMOVE" -
+    # under --dry-run that is every entry in `remove_results` (the removal
+    # loop never runs, so nothing is reassigned); under a live run, a
+    # salvage or removal failure above already reclassified the entry away
+    # from "REMOVE" (SKIP_PROTECTED_CONTENT/SKIP_REMOVE_FAILED), so this
+    # sum reflects only what was ACTUALLY removed, never an attempt.
+    size_fields = ""
+    if args.measure_size:
+        reclaim_label = "would_reclaim_kb" if args.dry_run else "reclaimed_kb"
+        reclaim_total_kb = sum(
+            r["size_kb"] for r in results if r["outcome"] == "REMOVE" and r.get("size_kb") is not None
+        )
+        size_fields = (
+            f" {reclaim_label}={reclaim_total_kb} dirty_unreclaimable_kb={dirty_unreclaimable_kb} "
+            f"size_unknown_count={size_unknown_count}"
+        )
+
     # `salvaged` (round-4): actual telemetry-salvage count, 0 under
     # --dry-run unconditionally - matches the `pruned-admin` "action
     # taken, not a candidate count" convention above.
     print(
         f"ds-cleanup-worktrees: base={resolved_base} mode={mode} entries={len(results)} "
-        f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}"
+        f"removed={removed} {field_str} pruned-admin={pruned_admin} salvaged={salvaged}{size_fields}"
     )
+
+    if args.measure_size and size_unknown_count:
+        print(
+            f"NOTE: {size_unknown_count} worktree(s) could not be measured (`du -sk` failed or "
+            f"timed out after {_MEASURE_SIZE_TIMEOUT_SECONDS:g}s) - excluded from every total "
+            "above, never counted as 0. Every byte total this run reports is therefore a FLOOR, "
+            "not an exact figure, while size_unknown_count is nonzero."
+        )
+
+    if args.measure_size:
+        print(
+            "NOTE: byte totals above measure the working-tree checkout only, never the shared "
+            "git object store (every worktree of a repo shares it) - removing a worktree does not "
+            "shrink it, and deleting a branch reclaims nothing until `git gc` runs."
+        )
 
     if degraded:
         print(
@@ -3107,7 +3333,13 @@ def _run_repo(
         for r in results:
             reason = f" ({r['reason']})" if "reason" in r else ""
             offenders = f" offenders={r['offenders']}" if "offenders" in r else ""
-            print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}{offenders}")
+            size = ""
+            if args.measure_size:
+                if r.get("size_unknown"):
+                    size = " size_unknown=true"
+                elif "size_kb" in r:
+                    size = f" size_kb={r['size_kb']}"
+            print(f"{r['path']} [{r['class']}] branch={r['branch']}: {r['outcome']}{reason}{offenders}{size}")
 
     return 0
 
