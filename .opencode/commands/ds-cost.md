@@ -65,15 +65,21 @@ Place at `~/.agentic/pricing.yml`. Rates are USD per 1M tokens. The file is
 user-maintained; `/ds-cost` refuses to print dollar figures when it
 is absent.
 
+THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids and rates below
+are not kept current with provider releases. Substitute your own current
+model ids and rates; `/ds-cost` looks up each event's recorded model string
+as a literal key into `models:`, so any id you use here works as long as it
+matches.
+
 ```
 updated: 2026-04-15
 models:
-  claude-sonnet-4-6:
+  <model-id-1>:      # e.g. a fast/cheap tier model id
     input: 3.00
     output: 15.00
     cache_creation: 3.75
     cache_read: 0.30
-  claude-opus-4-7:
+  <model-id-2>:      # e.g. a max-capability tier model id
     input: 15.00
     output: 75.00
     cache_creation: 18.75
