@@ -135,13 +135,13 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Disposition: Rejected 2026-08-25 - leave as is unless a concrete wrap defect ever traces to ladder complexity; recorded so future runs do not re-litigate from scratch.
 
 ## PL-20260825-12
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-25 (docs/planning/harness-pruning-2026-08-25.md)
 - File(s): content/commands/ds-cost.md (V1 "instruments engineer/skeptic/qa only" scope footer)
 - Signal(s): Signal 5 (possible staleness)
 - Confidence: LOW
-- Rationale: events-log.md documents hook-emitted spawn_start telemetry for every subagent spawn (DS-160), but whether the footer describes the emit sites or ds-cost's aggregation logic was not determinable from prose alone. Operator decision 2026-08-25: deferred pending verification against bin/'s cost aggregation; no standalone ticket warranted.
-- Disposition:
+- Rationale: events-log.md documents hook-emitted spawn_start telemetry for every subagent spawn (DS-160), but whether the footer describes the emit sites or ds-cost's aggregation logic was not determinable from prose alone. Operator decision 2026-08-25: deferred pending verification against bin/'s cost aggregation; no standalone ticket warranted. Operator decision 2026-08-26: approved as verify-then-fix.
+- Disposition: Verified against bin/ds-cost and the hook emit surface - the three-role claim is stale on both axes. bin/ds-cost:78-87's own V1_FOOTER constant already prints "Note: all agent types are counted..."; the doc had drifted away from the code's own literal string. _aggregate_by_agent (bin/ds-cost:230-374) has no role filter; hooks/pre-tool-use-spawn-emit.js:129-134 resolves agentName unconditionally from subagent_type and fires for every real spawn (DS-160). Updated the three footer-claim sites in content/commands/ds-cost.md to the code's real disclosure text; also removed a fabricated footer+pricing-note pair from the operator-subcommand example that cmd_operator/_render_operator_table never actually print (discovered en route, same footer claim). Left "V2 will add a harness adapter layer" unchanged - grepped bin/ds-cost for harness/codex/gemini handling and found none, so it still describes unshipped reality accurately. Also fixed the PR #840-recorded wording-nit debt: "not kept current with provider releases" described real ids in tier-map-example.yml, but ds-cost.md's values are placeholders that cannot go stale. PR: https://github.com/Space-Dinosaurs/DinoStack/pull/843
 
 ## PL-20260826-1
 - Status: RAISED
