@@ -405,24 +405,23 @@ Public API (CLI):
                           int|null, "would_reclaim_kb": int|null,
                           "dirty_unreclaimable_kb": int|null,
                           "size_unknown_count": int|null}, ...],
-                          "truncated": bool}`, plus - deep tier AND
-                          `--measure-size` only (round-2 Skeptic Major 2
-                          fix) - a top-level `"totals"` object
-                          (`{"would_reclaim_kb", "dirty_unreclaimable_kb",
-                          "size_unknown_count"}`, each an int sum across
-                          `rows`), a `"measure_size_caveat"` string (the
-                          same working-tree-only/object-store disclosure
-                          `_run_repo`'s summary NOTE prints, since a JSON
-                          consumer never sees that stderr/stdout prose),
-                          and `"measure_size_floor": true` when
-                          `totals.size_unknown_count` is nonzero (round-N Major 5 fix: the
+                          "truncated": bool}` (round-N Major 5 fix: the
                           printed table already labels its tier explicitly
                           - see the fast/deep banner lines above - and the
                           top-level `tier` field gives a machine consumer
                           the identical signal the table already gives a
                           human; the shape is new in this unpushed unit, so
                           there is no compatibility burden in changing it
-                          from a bare array). `eligible` is `null` ONLY
+                          from a bare array), plus - deep tier AND
+                          `--measure-size` only (round-2 Skeptic Major 2
+                          fix) - a top-level `"totals"` object
+                          (`{"would_reclaim_kb", "dirty_unreclaimable_kb",
+                          "size_unknown_count"}`, each an int sum across
+                          `rows`) and a `"measure_size_caveat"` string (the
+                          same working-tree-only/object-store disclosure
+                          `_run_repo`'s summary NOTE prints, since a JSON
+                          consumer never sees that stderr/stdout prose).
+                          `eligible` is `null` ONLY
                           under the fast (`--count-only`) tier, which never
                           computes it; `oldest_age_hours` is populated in
                           BOTH tiers (the deep tier computes it from the
@@ -435,8 +434,13 @@ Public API (CLI):
                           disposition to measure against) and under the
                           deep tier whenever `--measure-size` was not
                           passed; `--report --measure-size` WITHOUT `--json`
-                          prints the same three totals as extra table
-                          columns plus the same floor/object-store NOTEs
+                          prints the same three PER-ROW figures as extra
+                          table columns (round-3 Skeptic Major E
+                          correction: abbreviated headers `dirty_kb`/`unk`
+                          alongside `would_reclaim_kb`, one row per repo -
+                          NOT the grand totals), plus a separate NOTE line
+                          carrying the SAME three figures summed across
+                          rows, plus the same floor/object-store NOTEs
                           (round-2 Skeptic Major 2 fix: the deep tier
                           already runs the full `du -sk` walk regardless of
                           `--json`, so withholding the output on the table
@@ -622,7 +626,18 @@ Public API (CLI):
                           gains `would_reclaim_kb` under `--dry-run` or
                           `reclaimed_kb` on a live run (NEVER the same
                           label in both - they mean different things: a
-                          projection vs. bytes actually freed), plus
+                          projection vs. bytes actually freed). With
+                          `--archive-unproven` also passed, this figure
+                          WIDENS (round-2/round-3 Skeptic Major 1 fix) to
+                          also include every entry whose FINAL outcome is
+                          `ARCHIVED_AND_REMOVED` - an archived-and-removed
+                          worktree is removed exactly as permanently as a
+                          plain `REMOVE` one, so withholding its bytes
+                          would silently understate what this run actually
+                          freed; on `--dry-run --archive-unproven`, the
+                          same widening applies to `would_reclaim_kb`
+                          against the archive-eligible candidates that
+                          would be removed if this were a live run. Plus
                           `dirty_unreclaimable_kb` (the summed size of
                           `SKIP_DIRTY` entries - NEVER folded into either
                           reclaim total; reporting refused bytes as
@@ -1132,6 +1147,30 @@ def _measure_into(r: Dict) -> Optional[int]:
     else:
         r["size_kb"] = size_kb
     return size_kb
+
+
+def _bump_if_unknown(size_unknown_count: int, size_kb: Optional[int]) -> int:
+    """Return `size_unknown_count + 1` when `size_kb` is `None` (the
+    measurement failed), else `size_unknown_count` unchanged - the single
+    `if size_kb is None: size_unknown_count += 1` shape shared by every
+    call site where a `None` measurement is known, AT THE POINT OF THE
+    CALL, to belong to a total (round-3 Skeptic Minor 1 collapse).
+
+    Two call sites in this file measure a REMOVE/archive candidate BEFORE
+    its salvage-then-remove sequence runs and can still fail afterward
+    (salvage failure, `git worktree remove` failure) - reclassifying the
+    entry away from the outcome bucket the total sums over. Those two
+    defer calling this helper until the outcome is FINAL (round-3 Skeptic
+    Minor 2 fix): a `None` measurement for an entry that ends up excluded
+    from every total was never "missing from a total" to begin with, and
+    counting it there falsely fires the FLOOR note. The two REMOVE-bucket
+    call sites where the outcome can never change after measurement (the
+    dry-run leg, which never runs `_salvage_and_remove` at all) call this
+    immediately instead. The dirty-worktree loop keeps its own inline form
+    - it also accumulates `dirty_unreclaimable_kb` in the same branch, a
+    second thing this narrow helper does not do.
+    """
+    return size_unknown_count + 1 if size_kb is None else size_unknown_count
 
 
 def _resolve_repo(path: str) -> str:
@@ -2651,6 +2690,46 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
     }, None
 
 
+def _object_store_caveat() -> str:
+    """Shared `--measure-size` object-store disclosure text - printed
+    identically (as prose NOTE and/or JSON `measure_size_caveat`) at every
+    surface that reports a byte total: the single-repo summary, the
+    `--report` table, and `--report --json`'s payload. Round-3 Skeptic
+    Major D collapse of 3 independently hand-maintained literal copies (2
+    of the 3 added in round 2)."""
+    return (
+        "byte totals measure the working-tree checkout only, never the shared git "
+        "object store (every worktree of a repo shares it) - removing a worktree does "
+        "not shrink it, and deleting a branch reclaims nothing until `git gc` runs."
+    )
+
+
+def _size_floor_note(
+    count: int,
+    *,
+    scope_phrase: str = "",
+    total_label: str = "Every byte total this run reports",
+    include_timeout_seconds: bool = False,
+) -> str:
+    """Shared `--measure-size` FLOOR note - printed at every surface that
+    sums a `size_unknown_count` whenever it is nonzero: the single-repo
+    summary, the `--report` table, and the `--multi-repo` grand total.
+    Round-3 Skeptic Major D collapse of 3 independently hand-maintained
+    literal copies (2 of the 3 added in round 2). The three surfaces
+    genuinely differ in scope phrasing and whether the exact
+    `_MEASURE_SIZE_TIMEOUT_SECONDS` bound is named (an established
+    difference this collapse preserves, not something it unifies) - see
+    each call site for its own `scope_phrase`/`total_label`/
+    `include_timeout_seconds` values."""
+    timeout_phrase = f" after {_MEASURE_SIZE_TIMEOUT_SECONDS:g}s" if include_timeout_seconds else ""
+    return (
+        f"NOTE: {count} worktree(s){scope_phrase} could not be measured (`du -sk` failed or "
+        f"timed out{timeout_phrase}) - excluded from every total above, never counted as 0. "
+        f"{total_label} is therefore a FLOOR, not an exact figure, while size_unknown_count "
+        "is nonzero."
+    )
+
+
 def _repo_truncation_note(max_repos: int, total: int) -> str:
     """Shared `--max-repos` truncation NOTE text, printed identically by
     both `_run_report`'s human-readable table and `_run_multi_repo`'s plain
@@ -2755,13 +2834,16 @@ def _run_report(
             # reaches this payload. Carry the same semantics as explicit
             # fields instead of prose a JSON reader would have to parse.
             payload["totals"] = report_size_totals
-            payload["measure_size_caveat"] = (
-                "byte totals measure the working-tree checkout only, never the shared git "
-                "object store (every worktree of a repo shares it) - removing a worktree does "
-                "not shrink it, and deleting a branch reclaims nothing until `git gc` runs."
-            )
-            if report_size_totals["size_unknown_count"]:
-                payload["measure_size_floor"] = True
+            payload["measure_size_caveat"] = _object_store_caveat()
+
+            # Round-3 Skeptic Major C fix: `measure_size_floor` DELETED -
+            # it was a byte-for-byte duplicate of
+            # `payload["totals"]["size_unknown_count"] != 0`, fully
+            # derivable by any consumer already holding `totals`, and had
+            # zero test coverage (M11). A field that only restates another
+            # field in the same payload is a maintenance liability, not a
+            # convenience - deleted rather than tested, per the round-3
+            # subtract-first instruction.
         print(json.dumps(payload))
     else:
         if args.count_only:
@@ -2813,17 +2895,13 @@ def _run_report(
             )
             if report_size_totals["size_unknown_count"]:
                 print(
-                    f"NOTE: {report_size_totals['size_unknown_count']} worktree(s) across these "
-                    "repos could not be measured (`du -sk` failed or timed out) - excluded from "
-                    "every total above, never counted as 0. Every byte total above is therefore "
-                    "a FLOOR, not an exact figure, while size_unknown_count is nonzero."
+                    _size_floor_note(
+                        report_size_totals["size_unknown_count"],
+                        scope_phrase=" across these repos",
+                        total_label="Every byte total above",
+                    )
                 )
-            print(
-                "NOTE: byte totals above measure the working-tree checkout only, never the "
-                "shared git object store (every worktree of a repo shares it) - removing a "
-                "worktree does not shrink it, and deleting a branch reclaims nothing until "
-                "`git gc` runs."
-            )
+            print(f"NOTE: {_object_store_caveat()}")
 
     return 1 if (errored or root_errors) else 0
 
@@ -3105,10 +3183,13 @@ def _run_repo(
             # afterward. A `None` result (timeout/failure) is recorded as
             # size_unknown and excluded from `reclaimed_kb`, never
             # defaulted to 0 (see `_measure_size_kb`'s own docstring).
-            if args.measure_size:
-                size_kb = _measure_into(r)
-                if size_kb is None:
-                    size_unknown_count += 1
+            # Round-3 Skeptic Minor 2 fix: `size_kb` is captured here, but
+            # `size_unknown_count` is NOT bumped yet - a salvage or removal
+            # failure below reclassifies this entry away from the "REMOVE"
+            # bucket `reclaimed_kb` sums over, and a `None` measurement for
+            # an entry never destined for that total was never "missing
+            # from a total" (see `_bump_if_unknown`'s own docstring).
+            size_kb = _measure_into(r) if args.measure_size else None
             # Round-4 requirement, round-6 refactor (Skeptic Major 1): the
             # salvage-then-remove sequence now lives in ONE function,
             # `_salvage_and_remove`, shared with the --archive-unproven
@@ -3129,6 +3210,8 @@ def _run_repo(
                 salvaged += 1
             if outcome["removed"]:
                 removed += 1
+                if args.measure_size:
+                    size_unknown_count = _bump_if_unknown(size_unknown_count, size_kb)
                 print(f"REMOVED {path} (branch={r['branch']}, reason={r['reason']})")
             else:
                 # Round-6 Minor b: a failed `git worktree remove` used to
@@ -3162,8 +3245,7 @@ def _run_repo(
         if args.measure_size:
             for r in remove_results:
                 size_kb = _measure_into(r)
-                if size_kb is None:
-                    size_unknown_count += 1
+                size_unknown_count = _bump_if_unknown(size_unknown_count, size_kb)
 
     # --archive-unproven (round-5, OPT-IN, never the default; round-6
     # correction - Skeptic Major 2): for every entry that is still
@@ -3186,6 +3268,14 @@ def _run_repo(
     # already-verified bundle in place - it is not undone).
     archived_and_removed = 0
     archive_would = 0
+    # Round-3 Skeptic Major A fix: bytes for the DRY-RUN archive candidates
+    # (measured below, in the `else` leg) - kept separate from `results`-
+    # driven `reclaim_total_kb` below because these entries' outcome stays
+    # `SKIP_UNPROVEN` on a dry run (nothing is reclassified), so an
+    # outcome-keyed sum can never see them. Always 0 on a live run (that
+    # leg reclassifies to `ARCHIVED_AND_REMOVED`, already covered by the
+    # outcome-keyed sum) and 0 whenever `--archive-unproven` was not passed.
+    archive_would_reclaim_kb = 0
     if args.archive_unproven:
         unproven_results = [
             r
@@ -3288,10 +3378,15 @@ def _run_repo(
                 # Major-4 duplication cleanup above exposed. A `None` result
                 # is recorded as size_unknown and excluded from
                 # `reclaimed_kb`'s sum, never defaulted to 0.
-                if args.measure_size:
-                    size_kb = _measure_into(r)
-                    if size_kb is None:
-                        size_unknown_count += 1
+                # Round-3 Skeptic Minor 2 fix: `size_unknown_count` is NOT
+                # bumped here - a salvage or removal failure below (the two
+                # `continue`/`SKIP_REMOVE_FAILED` exits) reclassifies this
+                # entry away from `ARCHIVED_AND_REMOVED`, the only outcome
+                # `reclaimed_kb` sums over for archived entries; bumping on
+                # a failed exit falsely fired the FLOOR note for an entry
+                # that was never going to be part of any total either way
+                # (see `_bump_if_unknown`'s own docstring).
+                size_kb = _measure_into(r) if args.measure_size else None
                 outcome = _salvage_and_remove(repo, path, branch)
                 if outcome["salvage_failed"]:
                     print(
@@ -3305,6 +3400,8 @@ def _run_repo(
                     salvaged += 1
                 if outcome["removed"]:
                     archived_and_removed += 1
+                    if args.measure_size:
+                        size_unknown_count = _bump_if_unknown(size_unknown_count, size_kb)
                     r["outcome"] = "ARCHIVED_AND_REMOVED"
                     r["reason"] = f"archived to {bundle_path}"
                     restore_parenthetical = (
@@ -3344,6 +3441,27 @@ def _run_repo(
             # salvageable count so a `--dry-run --archive-unproven` NOTE is
             # not systematically undercounted.
             salvage_would += sum(1 for r in unproven_results if _worktree_has_salvageable_telemetry(r["path"]))
+            # Round-3 Skeptic Major A fix: measure archive-eligible entries
+            # on the DRY-RUN leg too, symmetrically with the live archive
+            # loop above (which measures via `_measure_into` before
+            # `_salvage_and_remove` runs). Before this fix, `would_reclaim_kb`
+            # silently omitted every archive-bucket byte while
+            # `size_unknown_count` stayed 0 - a false certificate of
+            # exactness on the exact number an operator reads to decide
+            # whether to authorize a real `--archive-unproven` sweep.
+            # Entries without a branch (detached HEAD) are excluded, same
+            # as `archive_would` above and the live loop's own `if not
+            # branch: continue` - there is nothing this run could archive
+            # for them either way.
+            if args.measure_size:
+                for r in unproven_results:
+                    if not r.get("branch"):
+                        continue
+                    size_kb = _measure_into(r)
+                    if size_kb is None:
+                        size_unknown_count += 1
+                    else:
+                        archive_would_reclaim_kb += size_kb
 
     # Unlock any directory-missing locked entries so the admin-prune pass
     # below can reclaim them (the sole permitted unlock case - see the
@@ -3393,10 +3511,18 @@ def _run_repo(
     size_fields = ""
     if args.measure_size:
         reclaim_label = "would_reclaim_kb" if args.dry_run else "reclaimed_kb"
-        reclaim_total_kb = sum(
-            r["size_kb"]
-            for r in results
-            if r["outcome"] in ("REMOVE", "ARCHIVED_AND_REMOVED") and r.get("size_kb") is not None
+        reclaim_total_kb = (
+            sum(
+                r["size_kb"]
+                for r in results
+                if r["outcome"] in ("REMOVE", "ARCHIVED_AND_REMOVED") and r.get("size_kb") is not None
+            )
+            # Round-3 Skeptic Major A fix: `archive_would_reclaim_kb` is
+            # nonzero ONLY on a dry run with `--archive-unproven` (see its
+            # own definition above) - the outcome-keyed sum above can never
+            # see these entries because their outcome stays `SKIP_UNPROVEN`
+            # on a dry run by design.
+            + archive_would_reclaim_kb
         )
         size_fields = (
             f" {reclaim_label}={reclaim_total_kb} dirty_unreclaimable_kb={dirty_unreclaimable_kb} "
@@ -3420,19 +3546,10 @@ def _run_repo(
     )
 
     if args.measure_size and size_unknown_count:
-        print(
-            f"NOTE: {size_unknown_count} worktree(s) could not be measured (`du -sk` failed or "
-            f"timed out after {_MEASURE_SIZE_TIMEOUT_SECONDS:g}s) - excluded from every total "
-            "above, never counted as 0. Every byte total this run reports is therefore a FLOOR, "
-            "not an exact figure, while size_unknown_count is nonzero."
-        )
+        print(_size_floor_note(size_unknown_count, include_timeout_seconds=True))
 
     if args.measure_size:
-        print(
-            "NOTE: byte totals above measure the working-tree checkout only, never the shared "
-            "git object store (every worktree of a repo shares it) - removing a worktree does not "
-            "shrink it, and deleting a branch reclaims nothing until `git gc` runs."
-        )
+        print(f"NOTE: {_object_store_caveat()}")
 
     if degraded:
         print(
@@ -3645,10 +3762,11 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     )
     if size_totals is not None and size_totals.get("size_unknown_count", 0):
         print(
-            f"NOTE: {size_totals['size_unknown_count']} worktree(s) across all swept repos could "
-            "not be measured (`du -sk` failed or timed out) - excluded from every total above, "
-            "never counted as 0. The grand total above is therefore a FLOOR, not an exact figure, "
-            "while size_unknown_count is nonzero."
+            _size_floor_note(
+                size_totals["size_unknown_count"],
+                scope_phrase=" across all swept repos",
+                total_label="The grand total above",
+            )
         )
 
     if repos_errored or root_errors or repos_skipped_base:
