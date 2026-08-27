@@ -14970,7 +14970,7 @@ qa-engineer 1        801      244      3001      9100      88.0
 TOTAL       14       25857    11204    112423    414330    1101.6
 
 Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
-Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
+Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; conductor spawn_complete for /ds-implement-ticket sessions). Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript (post-DS-160 token resolution), in which case the real summed tokens are shown. Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure for that spawn, in which case the real duration is shown.
 ```
 
 ## Output: pricing present
@@ -14987,7 +14987,12 @@ to token-only output and prints "Install pyyaml for pricing support."
 
 ## V1 scope
 
-V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
+V1 counts all agent types (hook-emitted `spawn_start` for ad-hoc sessions;
+conductor-emitted `spawn_complete` for `/ds-implement-ticket` sessions) - no
+role is excluded. Hook-emitted spawns render token/wall-time columns as `n/a`
+(or `0`/`0.0` in the priced table) unless a paired hook-emitted
+`spawn_complete` (DS-160) resolved a real subagent transcript, in which case
+the real figures are shown.
 
 This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
@@ -14998,11 +15003,11 @@ Place at `~/.agentic/pricing.yml`. Rates are USD per 1M tokens. The file is
 user-maintained; `/ds-cost` refuses to print dollar figures when it
 is absent.
 
-THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids and rates below
-are not kept current with provider releases. Substitute your own current
-model ids and rates; `/ds-cost` looks up each event's recorded model string
-as a literal key into `models:`, so any id you use here works as long as it
-matches.
+THIS SHAPE IS AN ILLUSTRATIVE EXAMPLE ONLY - the model ids below are
+placeholders, not real provider ids, so this example cannot go stale.
+Substitute your own current model ids and rates; `/ds-cost` looks up each
+event's recorded model string as a literal key into `models:`, so any id you
+use here works as long as it matches.
 
 ```
 updated: 2026-04-15
@@ -15056,9 +15061,6 @@ alice                 my-project                  12   84210    37440   4812.1
 alice                 side-project                 4   21004     9310   1204.3
 bob                   my-project                   7   31022    14200   2100.0
 TOTAL                                             23  136236    60950   8116.4
-
-Note: V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
-Pricing not configured. Create ~/.agentic/pricing.yml to enable dollar columns.
 ```
 
 When `~/.agentic/pricing.yml` is present, dollar columns appear following the same
