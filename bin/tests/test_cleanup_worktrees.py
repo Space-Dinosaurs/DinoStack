@@ -3458,13 +3458,140 @@ def test_report_json_rows_carry_size_fields_and_are_summable(tmp_path):
     assert total_unknown == 0
 
 
+def test_archive_unproven_measure_size_reports_nonzero_reclaimed(tmp_path):
+    """Round-2 Skeptic Major 1 regression: the --archive-unproven removal
+    path never called `_measure_into` (or its pre-extraction equivalent) at
+    all before this fix - the missing 6th measure-and-stamp call site the
+    Major-4 duplication cleanup exposed. A real 5 MB ARCHIVED_AND_REMOVED
+    worktree used to report `reclaimed_kb=0 size_unknown_count=0` with no
+    floor NOTE and no per-entry `--explain` marker, despite having real,
+    measurable content. Mutation: delete the `_measure_into(r)` call this
+    fix added right before `_salvage_and_remove` in the archive loop, OR
+    drop `"ARCHIVED_AND_REMOVED"` from `reclaim_total_kb`'s outcome filter
+    -> either change collapses `reclaimed_kb` back to 0 for this
+    checked-out-content-only worktree, reddening the assertions below.
+    Confirmed failing against the pre-fix code (see the fix summary for the
+    exact mutation-test observation)."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-size"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-size", branch)
+
+    proc = run_reap(
+        repo,
+        dry_run=False,
+        no_gh=False,
+        extra=["--archive-unproven", "--measure-size"],
+        gh_dir=_fake_gh_dir(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert str(wt) not in worktree_paths(repo)
+
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    assert counts.get("size_unknown_count", -1) == 0, line
+    assert counts.get("reclaimed_kb", 0) > 0, line
+    assert "size_kb=" in proc.stdout, proc.stdout
+
+
+def test_report_measure_size_without_json_prints_totals(tmp_path):
+    """Round-2 Skeptic Major 2 regression: `--report --measure-size`
+    WITHOUT `--json` used to run the full `du -sk` walk (`_deep_report_row`
+    already measures every REMOVE/SKIP_DIRTY entry regardless of `--json`)
+    and print nothing extra at all - output was byte-identical to the same
+    run without `--measure-size`, for minutes of wasted I/O on a large
+    sweep. Mutation: remove the `report_size_totals` table-column/NOTE
+    block from `_run_report`'s non-JSON branch -> both the size columns and
+    the grand-total NOTE disappear, reddening the assertions below."""
+    repo, _origin = init_repo_with_origin(tmp_path, name="repo-report-size")
+    add_worktree(repo, ".claude/worktrees/agent-report-size", "worktree-agent-report-size", push=False)
+
+    common = [
+        sys.executable,
+        str(SCRIPT),
+        "--multi-repo",
+        "--repo",
+        str(repo),
+        "--report",
+        "--no-gh",
+        "--min-age-hours",
+        "0",
+        "--activity-window-hours",
+        "0",
+    ]
+    baseline = subprocess.run(common, capture_output=True, text=True)
+    assert baseline.returncode == 0, baseline.stderr
+
+    measured = subprocess.run(common + ["--measure-size"], capture_output=True, text=True)
+    assert measured.returncode == 0, measured.stderr
+    assert measured.stdout != baseline.stdout, (
+        "--report --measure-size produced output identical to the same run without "
+        "--measure-size - the du walk ran but nothing was printed for it"
+    )
+    assert "would_reclaim_kb" in measured.stdout, measured.stdout
+    assert "NOTE: totals across" in measured.stdout, measured.stdout
+
+
+def test_report_json_measure_size_includes_totals_and_caveat(tmp_path):
+    """Round-2 Skeptic Minor regression: `--report --json --measure-size`
+    used to emit raw per-row byte figures with no caveat attached anywhere
+    on that surface - a JSON consumer had no way to learn the figures were
+    working-tree-only, or that any were unmeasured. Mutation: drop the
+    `payload["totals"]`/`payload["measure_size_caveat"]` block from
+    `_run_report`'s JSON branch -> the key lookups below raise KeyError,
+    reddening this test."""
+    repo, _origin = init_repo_with_origin(tmp_path, name="repo-report-json-size")
+    add_worktree(
+        repo, ".claude/worktrees/agent-report-json-size", "worktree-agent-report-json-size", push=False
+    )
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--report",
+            "--json",
+            "--measure-size",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["totals"]["would_reclaim_kb"] > 0, payload
+    assert "measure_size_caveat" in payload
+    assert "object store" in payload["measure_size_caveat"]
+
+
 def test_measure_size_never_passed_by_automatic_callers():
-    """Mutation: add `--measure-size` to either automatic caller's own
-    invocation of this tool -> the corresponding grep count below becomes
-    nonzero, reddening this test. `bin/tests/test_worktree_reap_report_only.sh`
+    """Mutation: add `--measure-size` to any of the FOUR automatic callers'
+    own invocation of this tool -> the corresponding assertion below fails,
+    reddening this test. `bin/tests/test_worktree_reap_report_only.sh`
     pins only `--report` presence and `--archive-unproven` absence in
-    `run.sh` - it does not cover this flag, so this test is what does."""
+    `run.sh` - it does not cover this flag, so this test is what does.
+
+    Round-2 Skeptic Minor fix: this test previously covered only 2 of the
+    4 real automatic callers - `bin/ds-base-sync` and
+    `content/references/worktree-lifecycle.md`'s session-start reap block
+    (the mutating, unattended, backgrounded call site - see that file's
+    Downstream deps section) were both missing. The `--measure-size` flag
+    docstring's own enumeration was under-scoped the same way; both are
+    extended together here.
+    """
     session_start = (REPO_ROOT / "hooks" / "session-start-wrap.sh").read_text()
     reap_run = (REPO_ROOT / "automation" / "dinostack-worktree-reap" / "run.sh").read_text()
+    base_sync = (REPO_ROOT / "bin" / "ds-base-sync").read_text()
+    worktree_lifecycle = (REPO_ROOT / "content" / "references" / "worktree-lifecycle.md").read_text()
     assert "--measure-size" not in session_start
     assert "--measure-size" not in reap_run
+    assert "--measure-size" not in base_sync
+    assert "--measure-size" not in worktree_lifecycle
