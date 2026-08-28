@@ -2007,27 +2007,30 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_ci_precommit_and_public_docs_cover_native_skill_surface(self) -> None:
         workflow = (self.repo / ".github/workflows/codex-skill-sync.yml").read_text(encoding="utf-8")
-        self.assertIn(
-            "run: python3 scripts/test/test_codex_skills.py\n",
-            workflow,
-        )
-        self.assertIn("python3 scripts/test/test_codex_skills.py --clean-clone", workflow)
-        self.assertIn("runs-on: ubuntu-latest", workflow)
-        # No secondary-platform matrix leg: GitHub Actions appends
-        # " (<matrix value>)" to the reported check name for ANY job with a
-        # strategy.matrix key, even a single-value one - a matrix here would
-        # make the required context "check-codex-skill-sync" unsatisfiable.
-        # Strip comment lines first so illustrative prose mentioning
-        # "matrix:"/"strategy:" (e.g. a citation of another repo's job)
-        # cannot be mistaken for an actual YAML key.
+        # Strip comment lines FIRST, before any assertion runs, so every
+        # assertion below that is meant to describe LIVE configuration reads
+        # `code_text` rather than the raw `workflow` text - a commented-out
+        # or illustrative line (e.g. "# runs-on: ubuntu-latest (was)") must
+        # never satisfy a check that a live key is actually set.
         code_lines = [
             line for line in workflow.splitlines() if not line.strip().startswith("#")
         ]
         code_text = "\n".join(code_lines)
+        self.assertIn(
+            "run: python3 scripts/test/test_codex_skills.py\n",
+            code_text,
+        )
+        self.assertIn("python3 scripts/test/test_codex_skills.py --clean-clone", code_text)
+        self.assertIn("\n  check-codex-skill-sync:\n", code_text)
+        self.assertIn("runs-on: ubuntu-latest", code_text)
+        # No secondary-platform matrix leg: GitHub Actions appends
+        # " (<matrix value>)" to the reported check name for ANY job with a
+        # strategy.matrix key, even a single-value one - a matrix here would
+        # make the required context "check-codex-skill-sync" unsatisfiable.
         self.assertNotIn("strategy:", code_text)
         self.assertNotIn("matrix:", code_text)
-        self.assertIn("bash .codex/build.sh", workflow)
-        self.assertIn("git diff --exit-code", workflow)
+        self.assertIn("bash .codex/build.sh", code_text)
+        self.assertIn("git diff --exit-code", code_text)
         precommit = (self.repo / "hooks/pre-commit").read_text(encoding="utf-8")
         self.assertIn('scripts/check-codex-skill-sync.sh"', precommit)
         self.assertIn('"$REPO_DIR/.codex/skills"', precommit)

@@ -267,7 +267,12 @@ _test_d4_extraction() {
   local wf="$REPO_DIR/.github/workflows/codex-skill-sync.yml"
   local diff_lineno job_start_line generator_cmds expected
 
-  diff_lineno="$(grep -n "git diff --exit-code" "$wf" | head -1 | cut -d: -f1)"
+  # Anchored to end-of-line so this only matches a genuinely BARE
+  # `git diff --exit-code` (no pathspec) - a plain substring grep would
+  # still match `git diff --exit-code -- .codex/` and silently certify a
+  # rewritten, no-longer-bare line as still satisfying D4's entry-point
+  # precondition (DS-182 round-3 Minor: bareness was unchecked here).
+  diff_lineno="$(grep -nE 'git diff --exit-code[[:space:]]*$' "$wf" | head -1 | cut -d: -f1)"
   if [[ -z "$diff_lineno" ]]; then
     _fail "codex-skill-sync.yml no longer contains a bare 'git diff --exit-code' assertion - re-verify D4's only real-repo entry point before trusting this test"
     return

@@ -35,20 +35,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # Step-level timeouts below are per the bin-tests.yml TIMEOUT POLICY:
+      # job-level timeout-minutes is a BACKSTOP ONLY, not a substitute for
+      # bounding each step. actions/checkout and actions/setup-python are
+      # exempted (cache-backed GitHub-hosted actions; no stall observed on
+      # either), matching that same policy. Sizing for the rest is measured
+      # from 3 real CI runs (2026-08-27, runs
+      # 33116849013/33120085840/33122847127) via `gh api .../jobs` per-step
+      # timings, taken before the macOS leg was removed (irrelevant to the
+      # ubuntu leg's own timings). "Run full Codex skill test suite" measured
+      # 13m16s-20m3s across the 3 runs; 25 min gives ~25% headroom over the
+      # observed max. Small setup steps measured well under 15s each; 2 min
+      # is a generous multiple, not a tight fit. "Run clean-clone mutation
+      # gate" measured 31s-47s; 5 min is ~6x headroom. Timed step timeouts
+      # sum to 39 min, kept under the 45-min job timeout so each step's own
+      # bound - not the job-level backstop - is what actually fires on a hang.
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: pip install pyyaml
+        timeout-minutes: 2
       - name: Bootstrap ignored prompt runtime
         run: python3 .codex/lib/prompt-wrappers.py build --repo .
+        timeout-minutes: 2
       - name: Check codex skill sync
         run: bash scripts/check-codex-skill-sync.sh
+        timeout-minutes: 2
       - name: Run full Codex skill test suite
         run: python3 scripts/test/test_codex_skills.py
+        timeout-minutes: 25
       - name: Run clean-clone mutation gate
         run: python3 scripts/test/test_codex_skills.py --clean-clone
+        timeout-minutes: 5
       - name: Run public Codex build
         run: bash .codex/build.sh
+        timeout-minutes: 2
       - name: Verify public build is clean
         run: git diff --exit-code
+        timeout-minutes: 1
