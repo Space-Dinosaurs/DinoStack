@@ -2012,7 +2012,20 @@ class CodexSkillGenerationTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("python3 scripts/test/test_codex_skills.py --clean-clone", workflow)
-        self.assertIn("os: [ubuntu-latest, macos-latest]", workflow)
+        self.assertIn("runs-on: ubuntu-latest", workflow)
+        # No secondary-platform matrix leg: GitHub Actions appends
+        # " (<matrix value>)" to the reported check name for ANY job with a
+        # strategy.matrix key, even a single-value one - a matrix here would
+        # make the required context "check-codex-skill-sync" unsatisfiable.
+        # Strip comment lines first so illustrative prose mentioning
+        # "matrix:"/"strategy:" (e.g. a citation of another repo's job)
+        # cannot be mistaken for an actual YAML key.
+        code_lines = [
+            line for line in workflow.splitlines() if not line.strip().startswith("#")
+        ]
+        code_text = "\n".join(code_lines)
+        self.assertNotIn("strategy:", code_text)
+        self.assertNotIn("matrix:", code_text)
         self.assertIn("bash .codex/build.sh", workflow)
         self.assertIn("git diff --exit-code", workflow)
         precommit = (self.repo / "hooks/pre-commit").read_text(encoding="utf-8")

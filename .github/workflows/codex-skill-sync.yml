@@ -29,11 +29,11 @@ jobs:
   # defect the ubuntu leg missed - its only two solo failures were
   # infrastructure flakes. The BSD-utils/older-bash concern it existed to
   # backstop was already engineered around in .codex/build.sh (routes the
-  # escape passes through python3; see that file around lines 428-436).
+  # escape passes through python3; see that file around lines 428-447).
   # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

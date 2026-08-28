@@ -250,8 +250,10 @@ _test_d3_no_false_positive "scripts" "self-referential false positive (was: this
 # D4 is only actually ENTERED (its scratch-clone-and-execute step reached)
 # when D1 finds a whole-tree (no-pathspec) `git diff --exit-code` assertion
 # and no D1/D2/D3 rule matched the target first. The only such assertion in
-# this repo today is .github/workflows/codex-skill-sync.yml:36, and every
-# real target its preceding generator commands touch (all under .codex/) is
+# this repo today is in .github/workflows/codex-skill-sync.yml (its line
+# number is looked up at check time below, not hard-pinned - the workflow
+# gets edited often enough that a literal line number goes stale), and
+# every real target its preceding generator commands touch (all under .codex/) is
 # already caught by D1's earlier adapter-sync.yml pathspec, so D4 can never
 # be observed producing a real DERIVED verdict in this repo as it stands -
 # see scripts/gate-provenance.sh's own D4 comment block for why. What CAN
@@ -266,8 +268,8 @@ _test_d4_extraction() {
   local diff_lineno job_start_line generator_cmds expected
 
   diff_lineno="$(grep -n "git diff --exit-code" "$wf" | head -1 | cut -d: -f1)"
-  if [[ "$diff_lineno" != "36" ]]; then
-    _fail "codex-skill-sync.yml's bare git diff --exit-code moved off line 36 (now $diff_lineno) - re-verify D4's only real-repo entry point before trusting this test"
+  if [[ -z "$diff_lineno" ]]; then
+    _fail "codex-skill-sync.yml no longer contains a bare 'git diff --exit-code' assertion - re-verify D4's only real-repo entry point before trusting this test"
     return
   fi
 
@@ -292,7 +294,7 @@ _test_d4_extraction() {
     'bash .codex/build.sh')"
 
   if [[ "$generator_cmds" == "$expected" ]]; then
-    _pass "D4 extraction (fixed [[:space:]] regex) finds all 5 real generator commands preceding codex-skill-sync.yml:36's whole-tree diff assertion"
+    _pass "D4 extraction (fixed [[:space:]] regex) finds all 5 real generator commands preceding codex-skill-sync.yml:${diff_lineno}'s whole-tree diff assertion"
   else
     _fail "D4 extraction did not match the 5 expected commands. Got:
 $generator_cmds
