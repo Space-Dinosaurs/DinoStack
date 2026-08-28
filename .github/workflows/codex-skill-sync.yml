@@ -5,10 +5,6 @@ on:
   push:
     branches:
       - main
-  schedule:
-    # Weekly on Sundays at 03:00 UTC - off-peak slot for the macOS-only
-    # backstop leg (see check-codex-skill-sync-macos below).
-    - cron: '0 3 * * 0'
   workflow_dispatch: {}
 
 concurrency:
@@ -27,43 +23,16 @@ jobs:
   # .github/workflows/lint.yml `build` job, `matrix: { python-version:
   # [3.11] }`) whose actual run reported as "build (3.11)", not "build". A
   # matrix here would make the required context unsatisfiable again.
+  #
+  # No secondary-platform leg: across all 1,534 historical runs of this
+  # workflow, the (now-removed) non-Linux job never caught a cross-platform
+  # defect the ubuntu leg missed - its only two solo failures were
+  # infrastructure flakes. The BSD-utils/older-bash concern it existed to
+  # backstop was already engineered around in .codex/build.sh (routes the
+  # escape passes through python3; see that file around lines 428-436).
+  # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.11'
-      - run: pip install pyyaml
-      - name: Bootstrap ignored prompt runtime
-        run: python3 .codex/lib/prompt-wrappers.py build --repo .
-      - name: Check codex skill sync
-        run: bash scripts/check-codex-skill-sync.sh
-      - name: Run full Codex skill test suite
-        run: python3 scripts/test/test_codex_skills.py
-      - name: Run clean-clone mutation gate
-        run: python3 scripts/test/test_codex_skills.py --clean-clone
-      - name: Run public Codex build
-        run: bash .codex/build.sh
-      - name: Verify public build is clean
-        run: git diff --exit-code
-
-  # macOS-only backstop for the same bash/BSD-utils-sensitive steps. This
-  # repo has documented macOS-only bash 3.2 / BSD-utils defects that only a
-  # macOS runner catches (see root AGENTS.md), so coverage is kept, just off
-  # the billed-per-PR path: macos-latest runners bill at a 10x multiplier
-  # and this suite is the repo's slowest (~14 min wall clock on ubuntu), so
-  # running it on every PR and every push to main was costing ~140 billable
-  # minutes twice per merged PR. Never runs on pull_request or push (see the
-  # `if:` guard) - only a weekly cron or manual dispatch. Steps are
-  # byte-equivalent to the job above: same checkout, same setup-python 3.11,
-  # same pip install, same five run steps in the same order, including the
-  # --clean-clone mutation gate and the git diff --exit-code verification.
-  check-codex-skill-sync-macos:
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-    runs-on: macos-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
