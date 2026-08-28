@@ -4,11 +4,15 @@ on:
   push:
     branches:
       - main
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
   check-no-false-umbrella-claims:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Guard - no stale /ds-init-project Step 9 targeted-gitignore-block claims

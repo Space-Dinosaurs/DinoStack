@@ -1,9 +1,12 @@
 # Advisory check: large PRs should carry review-rigor evidence, and a PR should never
 # bundle commits that are the head of another still-open PR (a superseded/duplicate PR).
 #
-# This is advisory-only - it is NOT a merge blocker. It is never registered as a required
-# status check; it exists to surface a red-X signal for human reviewers to weigh, same as
-# vision-alignment-check.yml.
+# This is advisory-only - it is NOT a merge blocker. Verified against the live main
+# ruleset (repos/Space-Dinosaurs/DinoStack/rulesets/14778332, 16 required contexts,
+# 2026-08-28): "check-review-rigor" is NOT in that list, so this check is never
+# registered as a required status check, unlike vision-alignment-check.yml, whose
+# "check-vision-alignment" job IS required. It exists to surface a red-X signal for
+# human reviewers to weigh, not to gate the merge.
 #
 # Keep the label regex in sync with the "## Review rigor" section in
 # .github/PULL_REQUEST_TEMPLATE.md.
@@ -11,12 +14,16 @@ name: pr-review-rigor
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
   pull-requests: read
 jobs:
   check-review-rigor:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
     steps:

@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -21,6 +25,10 @@ env:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # Full-history scan (fetch-depth: 0), no observed-duration figure to
+    # derive a tighter bound from - 15 min is a conservative ceiling well
+    # above a normal full-repo gitleaks run.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -5,32 +5,72 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  # Required PR/push status check (context: "check-codex-skill-sync", pinned
+  # in the `main` branch ruleset). Ubuntu-only - this job MUST NOT carry a
+  # strategy.matrix key. GitHub Actions appends " (<matrix value>)" to the
+  # reported check name for ANY job with a matrix block, even a single-value
+  # one - verified against a real public job (materialyzeai/maml's
+  # .github/workflows/lint.yml `build` job, `matrix: { python-version:
+  # [3.11] }`) whose actual run reported as "build (3.11)", not "build". A
+  # matrix here would make the required context unsatisfiable again.
+  #
+  # No secondary-platform leg: across all 1,534 historical runs of this
+  # workflow, the (now-removed) non-Linux job never caught a cross-platform
+  # defect the ubuntu leg missed - its only two solo failures were
+  # infrastructure flakes. The BSD-utils/older-bash concern it existed to
+  # backstop was already engineered around in .codex/build.sh (routes the
+  # escape passes through python3; see that file around lines 428-447).
+  # Removed rather than demoted to a weekly cron.
   check-codex-skill-sync:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
+      # Step-level timeouts below are per the bin-tests.yml TIMEOUT POLICY:
+      # job-level timeout-minutes is a BACKSTOP ONLY, not a substitute for
+      # bounding each step. actions/checkout and actions/setup-python are
+      # exempted (cache-backed GitHub-hosted actions; no stall observed on
+      # either), matching that same policy. Sizing for the rest is measured
+      # from 3 real CI runs (2026-08-27, runs
+      # 33116849013/33120085840/33122847127) via `gh api .../jobs` per-step
+      # timings, taken before the macOS leg was removed (irrelevant to the
+      # ubuntu leg's own timings). "Run full Codex skill test suite" measured
+      # 13m16s-20m3s across the 3 runs; 25 min gives ~25% headroom over the
+      # observed max. Small setup steps measured well under 15s each; 2 min
+      # is a generous multiple, not a tight fit. "Run clean-clone mutation
+      # gate" measured 31s-47s; 5 min is ~6x headroom. Timed step timeouts
+      # sum to 39 min, kept under the 45-min job timeout so each step's own
+      # bound - not the job-level backstop - is what actually fires on a hang.
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: pip install pyyaml
+        timeout-minutes: 2
       - name: Bootstrap ignored prompt runtime
         run: python3 .codex/lib/prompt-wrappers.py build --repo .
+        timeout-minutes: 2
       - name: Check codex skill sync
         run: bash scripts/check-codex-skill-sync.sh
+        timeout-minutes: 2
       - name: Run full Codex skill test suite
         run: python3 scripts/test/test_codex_skills.py
+        timeout-minutes: 25
       - name: Run clean-clone mutation gate
         run: python3 scripts/test/test_codex_skills.py --clean-clone
+        timeout-minutes: 5
       - name: Run public Codex build
         run: bash .codex/build.sh
+        timeout-minutes: 2
       - name: Verify public build is clean
         run: git diff --exit-code
+        timeout-minutes: 1

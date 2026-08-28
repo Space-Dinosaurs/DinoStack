@@ -96,8 +96,10 @@
 # mutation check; see bin/tests/test_gate_provenance.sh's D4 extraction
 # test for the removed instance and why. Fixed to `[[:space:]]` and
 # confirmed against the real, live
-# .github/workflows/codex-skill-sync.yml:36 (the only bare, no-pathspec
-# `git diff --exit-code` in this repo, i.e. the only real trigger for D4)
+# .github/workflows/codex-skill-sync.yml (the only bare, no-pathspec
+# `git diff --exit-code` in this repo, i.e. the only real trigger for D4 -
+# its line number moves as the workflow is edited, so it is looked up at
+# check time rather than hard-pinned)
 # in bin/tests/test_gate_provenance.sh, which extracts and pins the exact
 # 5 real generator commands. Every path D1/D2/D3 do not resolve now
 # genuinely reaches D4's scratch-clone-and-execute step (measured: 6m42s
