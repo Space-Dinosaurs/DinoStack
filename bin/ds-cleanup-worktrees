@@ -1068,10 +1068,22 @@ _ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
 
 
 def _run(
-    args: List[str], cwd: Optional[str] = None, timeout: Optional[float] = None
+    args: List[str],
+    cwd: Optional[str] = None,
+    timeout: Optional[float] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
+    """`env=None` (the default) inherits the current process environment,
+    identical to every pre-existing call site - this parameter is
+    additive-only. `env={...}` REPLACES the subprocess environment
+    entirely (Python's own `subprocess.run` semantics), so a caller that
+    wants to add/override on top of the inherited environment (e.g.
+    `_pr_state`'s `GH_TOKEN` retry) must build the dict as
+    `{**os.environ, "GH_TOKEN": token}` itself - `_run` performs no
+    merging.
+    """
     try:
-        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         # Synthetic failure result - callers treat any nonzero returncode as
         # "could not determine", never as proof of anything. rc=124 mirrors
@@ -1643,6 +1655,125 @@ def _gh_available(repo: str, no_gh: bool) -> bool:
     return proc.returncode == 0
 
 
+#: DS-217 OPERATOR DECISION (2026-08-27): `gh` on this machine (and, per
+#: `AGENTS.md`'s universality pillar, potentially any operator's machine)
+#: can be logged into MULTIPLE GitHub accounts simultaneously
+#: (`gh auth status --json hosts` lists one entry per account). The
+#: ACTIVE account's token is scoped to only the repos it can see, and
+#: GitHub's GraphQL layer returns the IDENTICAL generic "Could not
+#: resolve to a Repository" error for "the repo does not exist" and "the
+#: repo exists but this token cannot see it" - so `_pr_state`'s
+#: pre-existing single-account query was silently misreporting every
+#: repo owned by a DIFFERENT logged-in account as a query failure
+#: (`SKIP_PR_QUERY_ERROR`), even though a second locally-configured
+#: account's token could answer the query fine. Measured on this machine
+#: across three remote shapes - an SSH remote alias, and two plain-HTTPS
+#: remotes with no alias - all of which failed identically under the
+#: active account; `GH_TOKEN=$(gh auth token --user <other-login>) gh pr
+#: list ...` against the SSH-alias repo succeeded, returning `[]`. This
+#: is not a URL-parsing defect - passing explicit `-R owner/repo` does
+#: not fix it either.
+#:
+#: `_gh_configured_logins` / `_gh_token_for_login` below implement a
+#: bounded retry: `_pr_state` tries the default (no override) call first
+#: - so the common single-account case is byte-for-byte unchanged in
+#: behavior and cost - and only on failure walks the OTHER configured
+#: logins' tokens via `GH_TOKEN`, short-circuiting on first success. The
+#: winning env (or the discovered fact that every login failed) is cached
+#: per real repo path so later branches in the same repo, and repeat runs
+#: against a repo none of the configured accounts can see, cost zero
+#: additional `gh` calls - see the two module-level caches below
+#: `_pr_state`'s docstring. A revoked/expired account (`state` other than
+#: `"success"`) is filtered out of the candidate list entirely, since
+#: probing it would cost a full `_NETWORK_TIMEOUT_SECONDS` timeout for a
+#: token that can never succeed.
+#:
+#: SECURITY: `_gh_token_for_login` returns a live, usable GitHub
+#: credential. It is passed ONLY as a subprocess `env` value (via `_run`'s
+#: `env=` parameter) and MUST NEVER be written to a `print`, an f-string
+#: destined for output, a NOTE, `--explain` output, or an exception
+#: message - grep this module's own diff before trusting that discipline
+#: on any future edit here.
+def _gh_configured_logins() -> List[str]:
+    """Returns every `login` configured in `gh auth status --json hosts`,
+    across all hosts, ACTIVE ACCOUNT FIRST, deduplicated, in otherwise
+    stable (host-then-list) order. Filters to entries whose `state` field
+    is exactly `"success"` - a revoked/expired/pending account is dropped
+    from the list entirely (see the DS-217 block above for why).
+
+    Returns `[]` on ANY parse or exec failure (missing `gh` binary,
+    nonzero exit, unparseable JSON, unexpected shape) - NEVER raises.
+    `_pr_state`'s retry loop treats an empty list as "no additional
+    accounts to try", not as an error in its own right.
+    """
+    try:
+        proc = _run(["gh", "auth", "status", "--json", "hosts"], timeout=_NETWORK_TIMEOUT_SECONDS)
+    except OSError:
+        return []
+    if proc.returncode != 0:
+        return []
+    try:
+        payload = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    hosts = payload.get("hosts")
+    if not isinstance(hosts, dict):
+        return []
+    active: List[str] = []
+    inactive: List[str] = []
+    seen = set()
+    for _host, accounts in hosts.items():
+        if not isinstance(accounts, list):
+            continue
+        for account in accounts:
+            if not isinstance(account, dict):
+                continue
+            if account.get("state") != "success":
+                continue
+            login = account.get("login")
+            if not login or not isinstance(login, str) or login in seen:
+                continue
+            seen.add(login)
+            (active if account.get("active") else inactive).append(login)
+    return active + inactive
+
+
+def _gh_token_for_login(login: str) -> Optional[str]:
+    """`gh auth token --user <login>` for the given login, or `None` on
+    ANY failure (missing binary, nonzero exit, empty output) - NEVER
+    raises. The returned value is a live credential - see the SECURITY
+    note above `_gh_configured_logins`.
+    """
+    try:
+        proc = _run(["gh", "auth", "token", "--user", login], timeout=_NETWORK_TIMEOUT_SECONDS)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    token = proc.stdout.strip()
+    return token or None
+
+
+#: Per-repo (keyed by `os.path.realpath(repo)`) cache of the WINNING env
+#: override for `_pr_state` queries: `None` means the default (no
+#: override, inherited environment) call already succeeded for this repo
+#: and no retry is needed; a dict means that `GH_TOKEN` override is the
+#: one that worked. Absence of a key means "not yet resolved for this
+#: repo" - distinct from a resolved-to-`None` entry.
+_PR_STATE_ENV_CACHE: Dict[str, Optional[Dict[str, str]]] = {}
+
+#: Set of repos (same `os.path.realpath` keying) where the default call
+#: AND every configured account's token all failed to answer the query.
+#: A repo in this set makes ZERO further `gh` calls from `_pr_state` -
+#: see that function's docstring for the cost rationale (up to
+#: `_NETWORK_TIMEOUT_SECONDS` times the configured-account count, times
+#: every remaining worktree entry in that repo, on a machine with several
+#: inaccessible repos and ~110 entries, absent this cache).
+_PR_STATE_ALL_FAILED_REPOS: set = set()
+
+
 def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
     """Returns `(state, query_errored)`.
 
@@ -1680,11 +1811,62 @@ def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
     order spanning OPEN/MERGED/CLOSED). The fix below fetches every row
     (no `--limit`) and explicitly prefers OPEN over recency - see the
     selection logic itself.
+
+    DS-217: this is the multi-account-retry ORCHESTRATOR. The actual
+    single-attempt query (one `gh pr list` call under a given env
+    override) lives in `_pr_state_query` below; this function tries the
+    default (inherited-environment) call first, then - only on failure -
+    each OTHER configured `gh` login's token via `GH_TOKEN`, short-
+    circuiting on first success, and caches both the winning env and an
+    all-failed result per repo (see `_PR_STATE_ENV_CACHE` /
+    `_PR_STATE_ALL_FAILED_REPOS` above `_gh_configured_logins`). A repo
+    with exactly one configured account (the common case) costs exactly
+    one `gh` call per branch, identical to pre-DS-217 behavior.
+    """
+    repo_key = os.path.realpath(repo)
+
+    if repo_key in _PR_STATE_ALL_FAILED_REPOS:
+        return "not_checked", True
+
+    cached_env = _PR_STATE_ENV_CACHE.get(repo_key, "unresolved")
+    if cached_env != "unresolved":
+        return _pr_state_query(repo, branch, cached_env)
+
+    # First resolution for this repo: try the default call (no override)
+    # first, so the single-account case matches pre-DS-217 cost exactly.
+    state, errored = _pr_state_query(repo, branch, None)
+    if not errored:
+        _PR_STATE_ENV_CACHE[repo_key] = None
+        return state, errored
+
+    for login in _gh_configured_logins():
+        token = _gh_token_for_login(login)
+        if not token:
+            continue
+        override_env = {**os.environ, "GH_TOKEN": token}
+        state, errored = _pr_state_query(repo, branch, override_env)
+        if not errored:
+            _PR_STATE_ENV_CACHE[repo_key] = override_env
+            return state, errored
+
+    _PR_STATE_ALL_FAILED_REPOS.add(repo_key)
+    return "not_checked", True
+
+
+def _pr_state_query(repo: str, branch: str, env: Optional[Dict[str, str]]) -> Tuple[str, bool]:
+    """Single-attempt `gh pr list` query under the given environment
+    override (`None` inherits the current process environment unchanged -
+    see `_run`'s own env-passthrough docstring). Returns `(state,
+    query_errored)` using the exact vocabulary and OPEN-safety-override
+    selection logic documented on `_pr_state` above; extracted verbatim
+    from that function's pre-DS-217 body so the retry orchestration in
+    `_pr_state` can call it once per candidate env.
     """
     proc = _run(
         ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"],
         cwd=repo,
         timeout=_NETWORK_TIMEOUT_SECONDS,
+        env=env,
     )
     if proc.returncode != 0:
         return "not_checked", True
