@@ -5,17 +5,66 @@ on:
   push:
     branches:
       - main
+  schedule:
+    # Weekly on Sundays at 03:00 UTC - off-peak slot for the macOS-only
+    # backstop leg (see check-codex-skill-sync-macos below).
+    - cron: '0 3 * * 0'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
+  # Required PR/push status check (context: "check-codex-skill-sync", pinned
+  # in the `main` branch ruleset). Ubuntu-only - this job MUST NOT carry a
+  # strategy.matrix key. GitHub Actions appends " (<matrix value>)" to the
+  # reported check name for ANY job with a matrix block, even a single-value
+  # one - verified against a real public job (materialyzeai/maml's
+  # .github/workflows/lint.yml `build` job, `matrix: { python-version:
+  # [3.11] }`) whose actual run reported as "build (3.11)", not "build". A
+  # matrix here would make the required context unsatisfiable again.
   check-codex-skill-sync:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - name: Bootstrap ignored prompt runtime
+        run: python3 .codex/lib/prompt-wrappers.py build --repo .
+      - name: Check codex skill sync
+        run: bash scripts/check-codex-skill-sync.sh
+      - name: Run full Codex skill test suite
+        run: python3 scripts/test/test_codex_skills.py
+      - name: Run clean-clone mutation gate
+        run: python3 scripts/test/test_codex_skills.py --clean-clone
+      - name: Run public Codex build
+        run: bash .codex/build.sh
+      - name: Verify public build is clean
+        run: git diff --exit-code
+
+  # macOS-only backstop for the same bash/BSD-utils-sensitive steps. This
+  # repo has documented macOS-only bash 3.2 / BSD-utils defects that only a
+  # macOS runner catches (see root AGENTS.md), so coverage is kept, just off
+  # the billed-per-PR path: macos-latest runners bill at a 10x multiplier
+  # and this suite is the repo's slowest (~14 min wall clock on ubuntu), so
+  # running it on every PR and every push to main was costing ~140 billable
+  # minutes twice per merged PR. Never runs on pull_request or push (see the
+  # `if:` guard) - only a weekly cron or manual dispatch. Steps are
+  # byte-equivalent to the job above: same checkout, same setup-python 3.11,
+  # same pip install, same five run steps in the same order, including the
+  # --clean-clone mutation gate and the git diff --exit-code verification.
+  check-codex-skill-sync-macos:
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

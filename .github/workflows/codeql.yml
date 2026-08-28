@@ -14,10 +14,23 @@ on:
 permissions:
   contents: read
 
+# Cancelling an in-progress PR run on a new push is the standard, safe case
+# (a superseded push makes the old analysis moot). Cancelling a push:main or
+# schedule run is riskier here: the analyze job's final step uploads SARIF
+# results to the code-scanning tab, and a cancelled mid-upload run could
+# leave that publish half-applied for the affected commit. The expression
+# below cancels only pull_request runs; push/schedule runs still share the
+# group (so an overlapping run queues instead of racing) but are never torn
+# down mid-publish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       security-events: write
       packages: read

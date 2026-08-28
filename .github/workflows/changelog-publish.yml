@@ -3,6 +3,14 @@ on:
   schedule:
     - cron: '0 0 * * *'   # daily 00:00 UTC
   workflow_dispatch: {}
+# No cancel-in-progress: this job commits and pushes to main. Cancelling a
+# run mid-push (or mid-commit) could leave the working tree or the remote
+# branch in a half-updated state. The group still serializes overlapping
+# runs (a stray manual dispatch overlapping the daily schedule queues
+# instead of racing) without tearing one down while it writes.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 permissions:
   contents: write
 jobs:

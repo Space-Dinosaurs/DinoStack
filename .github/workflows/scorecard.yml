@@ -8,6 +8,15 @@ on:
     # Weekly on Saturdays at 01:30 UTC.
     - cron: '30 1 * * 6'
 
+# No cancel-in-progress: this job calls publish_results: true, which
+# publishes the analysis to the OpenSSF Scorecard API. Cancelling a run
+# mid-publish could leave a partial or inconsistent published result. The
+# group still serializes overlapping runs (a push landing during the weekly
+# schedule run queues instead of racing) without tearing one down mid-write.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -15,6 +24,7 @@ jobs:
   analysis:
     name: Scorecard analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       security-events: write
       id-token: write
