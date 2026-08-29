@@ -1603,6 +1603,83 @@ def _is_protected_ignored_path(rel_path: str) -> bool:
     return any(fnmatch.fnmatch(basename, pattern) for pattern in _PROTECTED_CONTENT_BASENAME_PATTERNS)
 
 
+def _unquote_porcelain_path(raw: str) -> str:
+    """Undo `git status --porcelain`'s C-style path quoting (DS-219).
+
+    Git wraps a path in a leading/trailing `"` and C-escapes its interior
+    whenever the path contains a space, a double quote, a backslash, or a
+    non-ASCII byte - independent of `core.quotepath` (that setting only
+    controls whether non-ASCII bytes are octal-escaped INSIDE the quotes,
+    not whether quoting happens at all). Before this fix, `_git_status_
+    and_ignored` never unquoted the `!! `-prefixed path it extracted, so
+    a quoted path retained its wrapping `"` and every basename/pattern
+    match downstream (`_is_protected_ignored_path`, `_is_allowlisted_
+    ignored_path`) silently failed - a protected `*.local` file with a
+    space in its name was reported as not-protected and became eligible
+    for `git worktree remove` to delete. Fails open on real content.
+
+    Fast path: a `raw` that does not both start AND end with `"` (len>=2)
+    is returned unchanged - zero overhead for the overwhelmingly common
+    unquoted case, and a strict no-op on paths that were never quoted.
+
+    Escape sequences decoded: `\\"` -> `"`, `\\\\` -> `\\`, and `\\NNN`
+    (exactly three octal digits) -> that raw byte. Git's `quote_c_style`
+    also defines `\\a \\b \\f \\n \\r \\t \\v` as single-character C
+    escapes; those are deliberately decoded too, on the same fast/slow
+    split - a filename containing a literal newline or tab byte is rare
+    but not impossible, and leaving those sequences un-decoded would
+    silently reintroduce the exact class of bug this function exists to
+    fix (a literal backslash-n in the reported path failing basename
+    matches against patterns like `*.local`). Decoding is unconditional
+    once the quoted slow path is entered, so there's no correctness
+    trade-off to omitting them.
+
+    Never raises: a malformed/truncated escape (stray trailing `\\`, an
+    incomplete `\\NN` octal run) degrades by keeping the raw remainder as
+    literal bytes rather than raising, matching this file's existing
+    fail-safe posture. Raw bytes are accumulated and decoded as UTF-8
+    with `errors="surrogateescape"` so an invalid byte sequence still
+    round-trips to *some* deterministic string instead of raising.
+    """
+    if len(raw) < 2 or raw[0] != '"' or raw[-1] != '"':
+        return raw
+    inner = raw[1:-1]
+    simple_escapes = {
+        '"': b'"',
+        "\\": b"\\",
+        "a": b"\a",
+        "b": b"\b",
+        "f": b"\f",
+        "n": b"\n",
+        "r": b"\r",
+        "t": b"\t",
+        "v": b"\v",
+    }
+    out = bytearray()
+    i = 0
+    n = len(inner)
+    while i < n:
+        ch = inner[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = inner[i + 1]
+            if nxt in simple_escapes:
+                out.extend(simple_escapes[nxt])
+                i += 2
+                continue
+            octal = inner[i + 1 : i + 4]
+            if len(octal) == 3 and all(c in "01234567" for c in octal):
+                out.append(int(octal, 8) & 0xFF)
+                i += 4
+                continue
+            # Malformed/unknown escape: keep the backslash literally.
+            out.extend(ch.encode("utf-8", errors="surrogateescape"))
+            i += 1
+            continue
+        out.extend(ch.encode("utf-8", errors="surrogateescape"))
+        i += 1
+    return out.decode("utf-8", errors="surrogateescape")
+
+
 def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[str, List[str]]:
     """Single combined `git status --porcelain --ignored=matching` call.
     Returns (dirty_status, offending_ignored_paths). dirty_status is
@@ -1614,6 +1691,13 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
     denylist when `strict_ignored` is False (round-3 default - see
     `_is_protected_ignored_path`'s docstring and the operator-decision
     comment on `_PROTECTED_CONTENT_DIR_PREFIXES` above).
+
+    DS-219: the raw `!! `-prefixed path is passed through
+    `_unquote_porcelain_path` before any predicate sees it - git C-quotes
+    a path containing a space, `"`, `\\`, or a non-ASCII byte, and an
+    un-unquoted path silently defeated every basename/pattern match
+    below, fail-OPEN (reporting protected content as removable). See
+    that function's docstring for the full defect and escape-set detail.
     """
     proc = _run(["git", "-C", worktree_path, "status", "--porcelain", "--ignored=matching"])
     if proc.returncode != 0:
@@ -1624,7 +1708,7 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
         if not line.strip():
             continue
         if line.startswith("!! "):
-            rel = line[3:]
+            rel = _unquote_porcelain_path(line[3:])
             blocked = (not _is_allowlisted_ignored_path(rel)) if strict_ignored else _is_protected_ignored_path(rel)
             if blocked:
                 offenders.append(rel)

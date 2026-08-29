@@ -3716,3 +3716,109 @@ def test_measure_size_never_passed_by_automatic_callers():
     assert "--measure-size" not in reap_run_invocation
     assert "--measure-size" not in base_sync_invocation
     assert "--measure-size" not in worktree_lifecycle_invocation
+
+
+# --------------------------------------------------------------------------
+# DS-219: `git status --porcelain` C-quotes a path containing a space, a
+# double quote, a backslash, or a non-ASCII byte - independent of
+# `core.quotepath` (which controls only octal-escaping of non-ASCII bytes
+# INSIDE the quotes, not whether quoting happens at all). Before the fix,
+# `_git_status_and_ignored` extracted the raw `!! `-prefixed text without
+# unquoting it, so a quoted protected path (e.g. a `*.local` file with a
+# space in its name) silently failed every downstream basename/pattern
+# match and the guard failed OPEN - the worktree became eligible for
+# removal despite holding irreplaceable protected content.
+#
+# Every scenario below drives REAL `git status --porcelain` output against
+# a REAL file with an awkward name - never a hand-constructed porcelain
+# string, since the quoting behavior under test is git's own and a
+# hand-built fixture would validate the fixture, not the fix.
+# --------------------------------------------------------------------------
+
+
+def test_protected_content_with_space_in_name_blocks_removal(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "*.local\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-space", "worktree-agent-space", push=False)
+    target = wt / "config with space.local"
+    target.write_text("SECRET=1\n")
+
+    # Precondition proving the hazard is real: plain git porcelain output
+    # for this exact file is quoted.
+    ignored_status = subprocess.run(
+        ["git", "-C", str(wt), "status", "--porcelain", "--ignored=matching"],
+        capture_output=True,
+        text=True,
+    )
+    assert '"config with space.local"' in ignored_status.stdout, ignored_status.stdout
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert target.exists(), "the space-named protected file must survive"
+
+
+def test_protected_content_with_embedded_quote_blocks_removal(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, ".env*\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-quote", "worktree-agent-quote", push=False)
+    target_name = '.env"weird'
+    target = wt / target_name
+    os.close(os.open(str(target).encode("utf-8"), os.O_CREAT | os.O_WRONLY, 0o644))
+    target.write_text("SECRET=1\n")
+
+    ignored_status = subprocess.run(
+        ["git", "-C", str(wt), "status", "--porcelain", "--ignored=matching"],
+        capture_output=True,
+        text=True,
+    )
+    assert "weird" in ignored_status.stdout and "\\\"" in ignored_status.stdout, ignored_status.stdout
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert target.exists(), "the embedded-quote protected file must survive"
+
+
+def test_protected_content_with_non_ascii_blocks_removal(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "*.local\n")
+    wt = add_worktree(repo, ".claude/worktrees/agent-nonascii", "worktree-agent-nonascii", push=False)
+    # U+2713 (CHECK MARK) has no NFC/NFD decomposition ambiguity, avoiding
+    # any macOS filesystem Unicode-normalization confound.
+    raw_name = "config✓.local"
+    target_path = wt / raw_name
+    os.close(os.open(str(target_path).encode("utf-8"), os.O_CREAT | os.O_WRONLY, 0o644))
+    with open(target_path, "wb") as f:
+        f.write(b"SECRET=1\n")
+
+    # Derive the actual on-disk filename from a real directory listing -
+    # never hand-assert the string, since the filesystem may normalize it.
+    on_disk_names = [p.name for p in wt.iterdir() if p.name.startswith("config")]
+    assert len(on_disk_names) == 1, on_disk_names
+    actual_target = wt / on_disk_names[0]
+
+    proc = run_reap(repo, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("SKIP_PROTECTED_CONTENT"), result[str(wt)]
+    assert str(wt) in worktree_paths(repo)
+    assert actual_target.exists(), "the non-ASCII-named protected file must survive"
+
+
+def test_git_status_and_ignored_unquotes_offenders(tmp_path):
+    """Unit-level: `_git_status_and_ignored` must return the UNQUOTED,
+    human-readable path in its `offenders` list, not the raw quoted form
+    git emits - covering the same consumer `SKIP_PROTECTED_CONTENT`
+    reporting reads from (`:2569`)."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    commit_gitignore_on_main(repo, "*.local\n")
+    (repo / "config with space.local").write_text("SECRET=1\n")
+
+    _dirty_status, offenders = ds_cleanup_worktrees._git_status_and_ignored(str(repo), False)
+    assert "config with space.local" in offenders, offenders
+    assert not any(o.startswith('"') for o in offenders), offenders
