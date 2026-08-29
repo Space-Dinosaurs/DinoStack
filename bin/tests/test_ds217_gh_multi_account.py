@@ -3,13 +3,18 @@
 Purpose: pytest suite for DS-217's `_pr_state` multi-account `gh` retry in
          bin/ds-cleanup-worktrees. Covers: resolving a query via a SECOND
          configured `gh` login when the default (no-override) call fails;
-         positive per-repo env caching (a later branch in the same repo
-         reuses the winning env with exactly one more `gh` call, not
-         once per account again); negative per-repo caching (a repo where
-         every configured account fails makes ZERO further `gh` calls on
-         a later entry); the revoked/expired-account filter in
-         `_gh_configured_logins`; and the single-account case staying
-         call-count-identical to pre-DS-217 behavior.
+         the retry loop SKIPPING the active account (round-2 Major 1 fix -
+         the default call already queried under it); positive per-repo env
+         caching (a later branch in the same repo reuses the winning env
+         with exactly one more `gh` call, not once per account again);
+         negative per-repo caching (a repo where every OTHER configured
+         account fails makes ZERO further `gh` calls on a later entry); the
+         revoked/expired-account filter in `_gh_configured_accounts`; the
+         single-account case staying call-count-identical to pre-DS-217
+         behavior on the SUCCESS path; the single-account FAILURE path's
+         exact 2-call cost (round-2 Minor fix); the `(host, login)` dedup
+         in `_gh_configured_accounts`; `_gh_token_for_login`'s empty-output
+         guard; and `_gh_configured_accounts`'s nonzero-exit guard.
 
          Every fake `gh` stub below is a tiny bash script - no real `gh`
          binary, network, or auth state is ever touched by this file.
@@ -30,7 +35,8 @@ Upstream deps: bin/ds-cleanup-worktrees (module under test, imported
                directly via SourceFileLoader, mirroring
                bin/tests/test_cleanup_worktrees.py's own
                `_load_module_directly` pattern - `_pr_state`,
-               `_gh_configured_logins`, `_PR_STATE_ENV_CACHE`, and
+               `_gh_configured_accounts`, `_gh_configured_logins`,
+               `_gh_token_for_login`, `_PR_STATE_ENV_CACHE`, and
                `_PR_STATE_ALL_FAILED_REPOS` are called/reset directly).
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
@@ -174,11 +180,13 @@ def _prepend_fake_gh(monkeypatch, gh_dir: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# 1. Multi-account resolution: default call fails, second configured
-#    login's token succeeds. Named mutation: revert `_pr_state` to a
-#    single unconditional call (no retry loop at all) -> the default
-#    attempt's failure becomes the final answer -> reddens to
-#    ("not_checked", True) instead of ("NONE", False).
+# 1. Multi-account resolution: default call fails, second (non-active)
+#    configured login's token succeeds, and the ACTIVE login (acct-a) is
+#    never re-probed - the default call already queried under it (round-2
+#    Major 1 fix). Named mutation: revert `_pr_state` to a single
+#    unconditional call (no retry loop at all) -> the default attempt's
+#    failure becomes the final answer -> reddens to ("not_checked", True)
+#    instead of ("NONE", False).
 # --------------------------------------------------------------------------
 
 
@@ -195,7 +203,11 @@ def test_multi_account_resolves_via_second_login(tmp_path, monkeypatch):
 
     state, errored = mod._pr_state(str(tmp_path), "some-branch")
     assert (state, errored) == ("NONE", False), (state, errored, _call_lines(call_log))
-    assert _pr_list_call_count(call_log) == 3, _call_lines(call_log)  # default + acct-a + acct-b
+    # default (acct-a, inherited env) + acct-b retry ONLY - acct-a (active)
+    # is never re-probed via GH_TOKEN.
+    assert _pr_list_call_count(call_log) == 2, _call_lines(call_log)
+    token_fetch_calls = [line for line in _call_lines(call_log) if line.startswith("auth token")]
+    assert len(token_fetch_calls) == 1, _call_lines(call_log)  # only acct-b's token fetched
 
 
 # --------------------------------------------------------------------------
@@ -220,11 +232,11 @@ def test_positive_cache_reuses_winning_env(tmp_path, monkeypatch):
 
     state1, errored1 = mod._pr_state(str(tmp_path), "branch-one")
     assert (state1, errored1) == ("NONE", False)
-    assert _pr_list_call_count(call_log) == 3, _call_lines(call_log)
+    assert _pr_list_call_count(call_log) == 2, _call_lines(call_log)  # default (acct-a) + acct-b
 
     state2, errored2 = mod._pr_state(str(tmp_path), "branch-two")
     assert (state2, errored2) == ("NONE", False)
-    assert _pr_list_call_count(call_log) == 4, _call_lines(call_log)  # exactly one more
+    assert _pr_list_call_count(call_log) == 3, _call_lines(call_log)  # exactly one more
 
 
 # --------------------------------------------------------------------------
@@ -249,7 +261,7 @@ def test_negative_cache_short_circuits_second_entry(tmp_path, monkeypatch):
     state1, errored1 = mod._pr_state(str(tmp_path), "branch-one")
     assert (state1, errored1) == ("not_checked", True)
     calls_after_first = _pr_list_call_count(call_log)
-    assert calls_after_first == 3, _call_lines(call_log)  # default + acct-a + acct-b
+    assert calls_after_first == 2, _call_lines(call_log)  # default (acct-a) + acct-b, acct-a not retried
 
     state2, errored2 = mod._pr_state(str(tmp_path), "branch-two")
     assert (state2, errored2) == ("not_checked", True)
@@ -308,3 +320,123 @@ def test_single_account_call_count_unchanged(tmp_path, monkeypatch):
     state, errored = mod._pr_state(str(tmp_path), "only-branch")
     assert (state, errored) == ("NONE", False)
     assert len(_call_lines(call_log)) == 1, _call_lines(call_log)  # exactly the one pr-list call
+
+
+# --------------------------------------------------------------------------
+# 6. Single-account FAILURE path (round-2 Major 1 regression test): the
+#    lone configured account is ACTIVE, the default call fails, and
+#    there are no OTHER accounts to retry - the retry loop must make
+#    exactly 2 `gh` calls total (the failed default `gh pr list` plus the
+#    one `gh auth status --json hosts` call needed to discover there is
+#    nothing else to try), NEVER a third call re-probing the active
+#    account's own token. Named mutation: remove the `if is_active:
+#    continue` guard in `_pr_state`'s retry loop -> the retry loop
+#    re-probes acct-solo via `GH_TOKEN` -> total call count rises to 4
+#    (auth status + auth token + 2x pr list) instead of 2.
+# --------------------------------------------------------------------------
+
+
+def test_single_account_failure_path_does_not_reprobe_active(tmp_path, monkeypatch):
+    call_log = tmp_path / "calls.log"
+    gh_dir = _fake_gh_multi_account(
+        tmp_path,
+        accounts=[("acct-solo", "success", True)],
+        success_tokens=set(),  # nothing ever succeeds
+        call_log=call_log,
+    )
+    _prepend_fake_gh(monkeypatch, gh_dir)
+    mod = _load_module_directly()
+
+    state, errored = mod._pr_state(str(tmp_path), "only-branch")
+    assert (state, errored) == ("not_checked", True)
+    lines = _call_lines(call_log)
+    assert len(lines) == 2, lines  # default pr-list (fails) + auth status --json hosts
+    assert _pr_list_call_count(call_log) == 1, lines  # never a retry pr-list call
+    assert not any(line.startswith("auth token") for line in lines)  # active account never re-probed
+
+
+# --------------------------------------------------------------------------
+# 7. Minor fix regression: `_gh_configured_accounts` dedups by `(host,
+#    login)`, but a login repeated on the SAME host must still collapse
+#    to one candidate (the `seen` dedup). Named mutation: remove the
+#    `if dedup_key in seen: continue` guard -> the duplicate entry
+#    appears twice in the returned list -> reddens.
+# --------------------------------------------------------------------------
+
+
+def test_configured_accounts_dedups_repeated_login_same_host(tmp_path, monkeypatch):
+    call_log = tmp_path / "calls.log"
+    gh_dir = _fake_gh_multi_account(
+        tmp_path,
+        accounts=[
+            ("acct-active", "success", True),
+            ("acct-dup", "success", False),
+            ("acct-dup", "success", False),
+        ],
+        success_tokens=set(),
+        call_log=call_log,
+    )
+    _prepend_fake_gh(monkeypatch, gh_dir)
+    mod = _load_module_directly()
+
+    accounts = mod._gh_configured_accounts()
+    logins = [login for login, _host, _active in accounts]
+    assert logins == ["acct-active", "acct-dup"], accounts
+
+
+# --------------------------------------------------------------------------
+# 8. `_gh_token_for_login`'s empty-output guard: a `gh auth token` call
+#    that exits 0 but prints nothing must return `None`, not an empty
+#    string. Named mutation: change `return token or None` to
+#    `return token` -> an empty-string token is returned instead of
+#    `None` -> reddens.
+# --------------------------------------------------------------------------
+
+
+def test_gh_token_for_login_empty_output_returns_none(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin-empty-token"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    gh.write_text("#!/usr/bin/env bash\necho -n \"\"\nexit 0\n")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    mod = _load_module_directly()
+
+    assert mod._gh_token_for_login("someone") is None
+
+
+# --------------------------------------------------------------------------
+# 9. `_gh_configured_accounts`'s nonzero-exit guard: a `gh auth status
+#    --json hosts` call that exits nonzero must return `[]`, never
+#    attempt to parse stdout as JSON. Named mutation: remove the
+#    `if proc.returncode != 0: return []` check -> the function tries to
+#    `json.loads` stderr-shaped/garbage stdout and either raises or
+#    returns a wrong-shaped result -> reddens.
+# --------------------------------------------------------------------------
+
+
+def test_configured_accounts_nonzero_exit_returns_empty(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "fakebin-nonzero"
+    bin_dir.mkdir()
+    gh = bin_dir / "gh"
+    # Deliberately emits WELL-FORMED, parseable JSON on stdout alongside a
+    # nonzero exit - if the returncode check were removed, `json.loads`
+    # would succeed and the (bogus) account would be returned instead of
+    # `[]`. A malformed-JSON body would pass even without the returncode
+    # check (the `except (ValueError, TypeError)` catches it too), which
+    # would make this mutation vacuous.
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then\n'
+        '  echo \'{"hosts":{"github.com":[{"state":"success","active":true,'
+        '"host":"github.com","login":"acct-from-failed-call"}]}}\'\n'
+        "  exit 1\n"
+        "fi\n"
+        "exit 1\n"
+    )
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    mod = _load_module_directly()
+
+    assert mod._gh_configured_accounts() == []
+    assert mod._gh_configured_logins() == []
