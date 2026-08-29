@@ -324,10 +324,20 @@ Public API (CLI):
                           operator-settable AGGREGATE per-repo ceiling, and
                           that aggregate cap has no replacement here - a repo
                           with N worktree entries is bounded only at
-                          `_NETWORK_TIMEOUT_SECONDS` times (up to 2 network
-                          calls per entry, plus 1 per repo for `gh auth
-                          status`), with no overall per-repo ceiling -
-                          verified against the code, not merely asserted.
+                          `_NETWORK_TIMEOUT_SECONDS` times a per-entry call
+                          count that is now WORST-CASE 2 + 2*M on the first
+                          entry that reaches a failed `gh pr list` (M = the
+                          count of OTHER, non-active, configured `gh`
+                          accounts - DS-217's multi-account retry; see
+                          `_pr_state`'s own docstring for the full per-path
+                          derivation), 1 on a succeeding entry, and on any
+                          later entry in the same repo once that repo's
+                          retry outcome is cached: 1 call when the cached
+                          outcome is a winning env (a prior entry's retry
+                          found a working account), or 0 calls when the
+                          cached outcome is all-failed (every account
+                          already failed for a prior entry) - with no
+                          overall per-repo ceiling.
   root ...                Positional root directories (requires
                           `--multi-repo`; see that flag's description
                           above for the full scan/dedup/config-fallback
@@ -728,7 +738,16 @@ independent, additive protections.
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                subprocess, sys, time, pathlib, collections, typing). `git`
                (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
-               degrades gracefully when absent or unauthenticated). `du`
+               degrades gracefully when absent or unauthenticated). DS-217's
+               multi-account retry additionally depends on `gh auth status
+               --json hosts` (account/host enumeration) and `gh auth token
+               --user <login>` (per-account credential fetch) - both
+               degrade to "no retry attempted" on any failure (see
+               `_gh_configured_accounts` / `_gh_token_for_login`), and both
+               imply a dependency on `gh`'s own local credential store
+               (`gh auth login` state) being populated for more than the
+               active account when the retry path is to do anything useful.
+               `du`
                (CLI, `--measure-size` ONLY - round-2 Skeptic Major 3 fix:
                `_measure_size_kb` shells out to `du -sk <path>`; OPT-IN, so
                its absence/failure never affects any other code path - see
@@ -788,7 +807,12 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       config-file fallback, dedup, per-repo base
                       isolation, report read-only guarantee, fast/deep
                       tier cost and ranking, usage errors, mixed-repo
-                      exit codes - same auto-collection).
+                      exit codes - same auto-collection) and
+                      bin/tests/test_ds217_gh_multi_account.py (DS-217's
+                      `_pr_state` multi-account retry: second-login
+                      resolution, active-account skip, positive/negative
+                      per-repo caching, revoked-account filtering,
+                      single-account cost parity - same auto-collection).
 
 Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
                success INCLUDING partial degradation (gh
@@ -889,8 +913,16 @@ Performance: (DS-196 correction: full mode IS now the mode an automatic call
              filesystem-bound, not a subprocess, but scales with the
              worktree's own file count), `_compute_origin_reachable`'s `git
              branch -r --contains` (DS-196, local-only, no network), and
-             (unless --no-gh) `git ls-remote` + one `gh pr list`, plus a
-             final `git worktree prune`. Not designed for repositories
+             (unless --no-gh) `git ls-remote` plus `_pr_state`'s `gh pr
+             list` query - 1 call on that entry's success path, or on a
+             later entry in the same repo once a prior entry already
+             cached a WINNING env for this repo; 0 calls on a later entry
+             once a prior entry already cached an ALL-FAILED result for
+             this repo; up to 2 + 2*M calls (M = the count of OTHER
+             configured `gh` accounts, DS-217's multi-account retry) on
+             the FIRST entry in a repo whose default query fails - plus a
+             final `git worktree prune`. Not
+             designed for repositories
              with very large worktree counts; v1's full-mode `--no-gh`
              run measured 14.94s across ~31 entries on the live 38-
              worktree checkout (the network round-trip `--no-gh` failed to
@@ -1068,10 +1100,22 @@ _ARCHIVABLE_UNPROVEN_DISPOSITIONS = frozenset(
 
 
 def _run(
-    args: List[str], cwd: Optional[str] = None, timeout: Optional[float] = None
+    args: List[str],
+    cwd: Optional[str] = None,
+    timeout: Optional[float] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> subprocess.CompletedProcess:
+    """`env=None` (the default) inherits the current process environment,
+    identical to every pre-existing call site - this parameter is
+    additive-only. `env={...}` REPLACES the subprocess environment
+    entirely (Python's own `subprocess.run` semantics), so a caller that
+    wants to add/override on top of the inherited environment (e.g.
+    `_pr_state`'s `GH_TOKEN` retry) must build the dict as
+    `{**os.environ, "GH_TOKEN": token}` itself - `_run` performs no
+    merging.
+    """
     try:
-        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         # Synthetic failure result - callers treat any nonzero returncode as
         # "could not determine", never as proof of anything. rc=124 mirrors
@@ -1643,6 +1687,224 @@ def _gh_available(repo: str, no_gh: bool) -> bool:
     return proc.returncode == 0
 
 
+#: DS-217 OPERATOR DECISION (2026-08-27): `gh` on this machine (and, per
+#: `AGENTS.md`'s universality pillar, potentially any operator's machine)
+#: can be logged into MULTIPLE GitHub accounts simultaneously
+#: (`gh auth status --json hosts` lists one entry per account). The
+#: ACTIVE account's token is scoped to only the repos it can see, and
+#: GitHub's GraphQL layer returns the IDENTICAL generic "Could not
+#: resolve to a Repository" error for "the repo does not exist" and "the
+#: repo exists but this token cannot see it" - so `_pr_state`'s
+#: pre-existing single-account query was silently misreporting every
+#: repo owned by a DIFFERENT logged-in account as a query failure
+#: (`SKIP_PR_QUERY_ERROR`), even though a second locally-configured
+#: account's token could answer the query fine. Measured on this machine
+#: across three remote shapes - an SSH remote alias, and two plain-HTTPS
+#: remotes with no alias - all of which failed identically under the
+#: active account; `GH_TOKEN=$(gh auth token --user <other-login>) gh pr
+#: list ...` against the SSH-alias repo succeeded, returning `[]`. This
+#: is not a URL-parsing defect - passing explicit `-R owner/repo` does
+#: not fix it either.
+#:
+#: `_gh_configured_accounts` / `_gh_configured_logins` / `_gh_token_for_
+#: login` below implement a bounded retry: `_pr_state` tries the default
+#: (no override) call first - the SUCCESS path is byte-for-byte unchanged
+#: in behavior and cost from pre-DS-217 (exactly one `gh` call) - and only
+#: on failure walks the OTHER (non-active) configured logins' tokens via
+#: `GH_TOKEN`, short-circuiting on first success. "OTHER" is load-bearing:
+#: the default call already queried under the ACTIVE account's token, so
+#: the retry loop explicitly skips the active login rather than re-
+#: probing it - `_gh_configured_accounts` returns `(login, host, active)`
+#: tuples from the SAME `gh auth status --json hosts` payload the retry
+#: loop already needs, so identifying "which login is active" costs no
+#: additional `gh` call. The FAILURE path therefore costs, for a repo with
+#: exactly one configured (active) account, exactly 2 `gh` calls (the
+#: failed default `gh pr list` plus the one `gh auth status --json hosts`
+#: call needed to confirm there are no other accounts to try) - one more
+#: than pre-DS-217's single failed attempt, since determining "no other
+#: accounts configured" itself requires a call. For a repo with N OTHER
+#: (non-active) configured accounts, the failure path costs up to 2 + 2N
+#: calls in the worst case (every candidate fails): 1 default attempt + 1
+#: auth-status call + 2 calls (token fetch, retry `pr list`) per
+#: candidate, short-circuiting on first success. The winning env (or the
+#: discovered fact that every login failed) is cached per real repo path
+#: so later branches in the same repo, and repeat runs against a repo
+#: none of the configured accounts can see, cost zero additional `gh`
+#: calls - see the two module-level caches below `_pr_state`'s docstring.
+#: A revoked/expired account (`state` other than `"success"`) is filtered
+#: out of the candidate list entirely, since probing it would cost a full
+#: `_NETWORK_TIMEOUT_SECONDS` timeout for a token that can never succeed.
+#:
+#: KNOWN LIMITATION (out of this unit's scope - do not fix here): the
+#: retry loop is only ever reached when `_pr_state_query`'s default call
+#: fails, which itself is only reached when `_gh_available` already
+#: returned True. `_gh_available` gates on plain `gh auth status`, which
+#: exits nonzero when ANY configured account (active or not) has an auth
+#: problem - so on a machine with one healthy active account and one
+#: revoked inactive account, `gh_ok` is False and `_pr_state` is never
+#: called at all, making this retry machinery unreachable on that
+#: machine. Widening `_gh_available`'s gate is a real fix but changes the
+#: blast radius of a PR that is otherwise cleared on safety; left alone
+#: pending a separate ticket.
+#:
+#: HOST LIMITATION: `_gh_token_for_login` calls `gh auth token --user
+#: <login>` with NO `--hostname` - on a multi-host `gh` config (e.g. a
+#: github.com login plus a GitHub Enterprise login sharing the same
+#: username) this always fetches the DEFAULT host's token, never an
+#: enterprise host's, for a login that exists on both. `_gh_configured_
+#: accounts` dedups by `(host, login)` rather than `login` alone so a
+#: same-named login on two hosts is not silently collapsed into one
+#: candidate, but the token lookup itself remains host-blind - accepted
+#: as a documented limitation rather than fixed, since making the lookup
+#: genuinely host-aware would also require making the `GH_TOKEN`-override
+#: env itself host-aware (`gh` reads `GH_ENTERPRISE_TOKEN`/`GITHUB_
+#: ENTERPRISE_TOKEN` for non-default hosts, not `GH_TOKEN`), which is
+#: materially more surface than this fix warrants. This is a cost, not a
+#: pure win: on a two-host config sharing the same login, `_gh_configured_
+#: accounts`'s `(host, login)` dedup still yields both entries as
+#: distinct candidates, so the retry loop fetches and probes the
+#: identical default-host token twice (one redundant `gh auth token` plus
+#: one redundant `gh pr list`, each bounded by
+#: `_NETWORK_TIMEOUT_SECONDS`). The wasted probe cannot produce a WRONG
+#: answer - `GH_TOKEN` is ignored for non-default hosts and `gh` resolves
+#: the base repo from the remote token-independently - so the dedup
+#: choice is still correct, just not free.
+#:
+#: SECURITY: `_gh_token_for_login` returns a live, usable GitHub
+#: credential. It is passed ONLY as a subprocess `env` value (via `_run`'s
+#: `env=` parameter) and MUST NEVER be written to a `print`, an f-string
+#: destined for output, a NOTE, `--explain` output, or an exception
+#: message - grep this module's own diff before trusting that discipline
+#: on any future edit here.
+def _gh_configured_accounts() -> List[Tuple[str, str, bool]]:
+    """Returns every `(login, host, is_active)` configured in `gh auth
+    status --json hosts`, across all hosts, ACTIVE ACCOUNTS FIRST,
+    deduplicated by `(host, login)` (NOT by `login` alone - a same-named
+    login configured on two different hosts, e.g. github.com plus a
+    GitHub Enterprise host, is two distinct candidates, not one - see the
+    HOST LIMITATION note in the DS-217 block above), in otherwise stable
+    (host-then-list) order. Filters to entries whose `state` field is
+    exactly `"success"` - a revoked/expired/pending account is dropped
+    from the list entirely (see the DS-217 block above for why).
+
+    This is the SHARED parse of the one `gh auth status --json hosts`
+    call: both `_gh_configured_logins` (login-only view) and `_pr_state`'s
+    retry loop (which also needs to know WHICH login is active, so it can
+    skip re-probing the account the default call already used) are built
+    on top of this single function - neither makes its own `gh auth
+    status` call.
+
+    Returns `[]` on ANY parse or exec failure (missing `gh` binary,
+    nonzero exit, unparseable JSON, unexpected shape) - NEVER raises.
+    `_pr_state`'s retry loop treats an empty list as "no additional
+    accounts to try", not as an error in its own right.
+    """
+    try:
+        proc = _run(["gh", "auth", "status", "--json", "hosts"], timeout=_NETWORK_TIMEOUT_SECONDS)
+    except OSError:
+        return []
+    if proc.returncode != 0:
+        return []
+    try:
+        payload = json.loads(proc.stdout)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    hosts = payload.get("hosts")
+    if not isinstance(hosts, dict):
+        return []
+    active: List[Tuple[str, str, bool]] = []
+    inactive: List[Tuple[str, str, bool]] = []
+    seen = set()
+    for host, accounts in hosts.items():
+        if not isinstance(accounts, list):
+            continue
+        for account in accounts:
+            if not isinstance(account, dict):
+                continue
+            if account.get("state") != "success":
+                continue
+            login = account.get("login")
+            if not login or not isinstance(login, str):
+                continue
+            dedup_key = (host, login)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            is_active = bool(account.get("active"))
+            (active if is_active else inactive).append((login, host, is_active))
+    return active + inactive
+
+
+def _gh_configured_logins() -> List[str]:
+    """Login-only view of `_gh_configured_accounts` (active-first,
+    deduplicated). Test-facing only - no production call site uses this
+    view at HEAD; `_pr_state`'s retry loop consumes
+    `_gh_configured_accounts` directly for the host/active detail it
+    needs. Kept as the ordered-login-list assertion surface for tests 4
+    and 9 in `bin/tests/test_ds217_gh_multi_account.py`. See
+    `_gh_configured_accounts` for the full contract (including the
+    `[]`-on-any-failure guarantee).
+    """
+    return [login for login, _host, _active in _gh_configured_accounts()]
+
+
+def _gh_token_for_login(login: str) -> Optional[str]:
+    """`gh auth token --user <login>` for the given login, or `None` on
+    ANY failure (missing binary, nonzero exit, empty output) - NEVER
+    raises. The returned value is a live credential - see the SECURITY
+    note above `_gh_configured_accounts`.
+
+    HOST-BLIND (no `--hostname` passed): see the HOST LIMITATION note in
+    the DS-217 block above `_gh_configured_accounts` for why this is a
+    documented, deliberate limitation rather than a fix candidate here.
+    """
+    try:
+        proc = _run(["gh", "auth", "token", "--user", login], timeout=_NETWORK_TIMEOUT_SECONDS)
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    token = proc.stdout.strip()
+    return token or None
+
+
+#: Per-repo (keyed by `os.path.realpath(repo)`) cache of the WINNING env
+#: override for `_pr_state` queries: `None` means the default (no
+#: override, inherited environment) call already succeeded for this repo
+#: and no retry is needed; a dict means that `GH_TOKEN` override is the
+#: one that worked. Absence of a key means "not yet resolved for this
+#: repo" - distinct from a resolved-to-`None` entry. Probe with `in` /
+#: `[]`, never `.get(key, <sentinel>)` - the annotation below is honest
+#: (every VALUE stored is `Optional[Dict[str, str]]`) only as long as no
+#: string sentinel is ever compared against it.
+_PR_STATE_ENV_CACHE: Dict[str, Optional[Dict[str, str]]] = {}
+
+#: Set of repos (same `os.path.realpath` keying) where the default call
+#: AND every configured account's token all failed to answer the query.
+#: A repo in this set makes ZERO further `gh` calls from `_pr_state` -
+#: see that function's docstring for the cost rationale (up to
+#: `_NETWORK_TIMEOUT_SECONDS` times the configured-account count, times
+#: every remaining worktree entry in that repo, on a machine with several
+#: inaccessible repos and ~110 entries, absent this cache).
+#:
+#: DISCLOSURE: this cache cannot distinguish "every configured account's
+#: token is genuinely unable to see this repo" from "a transient network
+#: blip or rate limit hit on the FIRST entry this repo was ever resolved
+#: for". Both land a repo in this set for the rest of the process, and a
+#: repo added for the transient reason then makes zero further `gh` calls
+#: (including for branches that a retry moments later would have
+#: resolved fine) until the process restarts. This is intentionally
+#: fail-SAFE, never fail-DANGEROUS: a repo stuck here reports
+#: `("not_checked", True)` (an honest "could not confirm" signal that
+#: keeps every caller's SKIP_PR_QUERY_ERROR / SKIP-not-REMOVE handling
+#: engaged), never a fabricated `"NONE"`/absence result - so the failure
+#: mode this cache cannot rule out costs an over-cautious SKIP for the
+#: rest of the run, not an unsafe REMOVE.
+_PR_STATE_ALL_FAILED_REPOS: set = set()
+
+
 def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
     """Returns `(state, query_errored)`.
 
@@ -1680,11 +1942,86 @@ def _pr_state(repo: str, branch: str) -> Tuple[str, bool]:
     order spanning OPEN/MERGED/CLOSED). The fix below fetches every row
     (no `--limit`) and explicitly prefers OPEN over recency - see the
     selection logic itself.
+
+    DS-217: this is the multi-account-retry ORCHESTRATOR. The actual
+    single-attempt query (one `gh pr list` call under a given env
+    override) lives in `_pr_state_query` below; this function tries the
+    default (inherited-environment) call first, then - only on failure -
+    each OTHER (non-active) configured `gh` login's token via `GH_TOKEN`,
+    short-circuiting on first success, and caches both the winning env
+    and an all-failed result per repo (see `_PR_STATE_ENV_CACHE` /
+    `_PR_STATE_ALL_FAILED_REPOS` above `_gh_configured_accounts`). The
+    active login is identified from the SAME `_gh_configured_accounts`
+    call the retry loop already needs (no second `gh auth status` call)
+    and is explicitly skipped, since the default call above already
+    queried under it.
+
+    Measured `gh`-call cost per branch (see the DS-217 rationale block
+    above `_gh_configured_accounts` for the full derivation):
+      - SUCCESS path (default call succeeds): exactly 1 `gh` call,
+        byte-for-byte identical to pre-DS-217 behavior, for ANY number of
+        configured accounts.
+      - FAILURE path, exactly one configured (active) account: exactly 2
+        `gh` calls (the failed default `gh pr list`, plus the one `gh
+        auth status --json hosts` call needed to confirm there is no
+        other account to retry) - one more than pre-DS-217's single
+        failed attempt.
+      - FAILURE path, N OTHER (non-active) configured accounts: up to
+        2 + 2N calls in the worst case (every candidate also fails),
+        short-circuiting on first success.
+    Both cache above cap this cost at the FIRST resolution per repo -
+    every later branch in the same repo costs at most 1 additional call.
+    """
+    repo_key = os.path.realpath(repo)
+
+    if repo_key in _PR_STATE_ALL_FAILED_REPOS:
+        return "not_checked", True
+
+    if repo_key in _PR_STATE_ENV_CACHE:
+        return _pr_state_query(repo, branch, _PR_STATE_ENV_CACHE[repo_key])
+
+    # First resolution for this repo: try the default call (no override)
+    # first, so the single-account SUCCESS case matches pre-DS-217 cost
+    # exactly (see the cost breakdown in this function's own docstring).
+    state, errored = _pr_state_query(repo, branch, None)
+    if not errored:
+        _PR_STATE_ENV_CACHE[repo_key] = None
+        return state, errored
+
+    for login, _host, is_active in _gh_configured_accounts():
+        if is_active:
+            # The default (no-override) call above already queried under
+            # the active account's own token - re-probing it here would
+            # cost an extra `gh auth token` + `gh pr list` round trip for
+            # an attempt whose outcome is already known.
+            continue
+        token = _gh_token_for_login(login)
+        if not token:
+            continue
+        override_env = {**os.environ, "GH_TOKEN": token}
+        state, errored = _pr_state_query(repo, branch, override_env)
+        if not errored:
+            _PR_STATE_ENV_CACHE[repo_key] = override_env
+            return state, errored
+
+    _PR_STATE_ALL_FAILED_REPOS.add(repo_key)
+    return "not_checked", True
+
+
+def _pr_state_query(repo: str, branch: str, env: Optional[Dict[str, str]]) -> Tuple[str, bool]:
+    """Single-attempt `gh pr list` query under the given environment
+    override (`None` inherits the current process environment unchanged -
+    see `_run`'s own env-passthrough docstring). Returns `(state,
+    query_errored)` using the exact vocabulary and OPEN-safety-override
+    selection logic documented on `_pr_state` above; extracted verbatim
+    from that function's pre-DS-217 body so the retry orchestration in
+    `_pr_state` can call it once per candidate env.
     """
     proc = _run(
         ["gh", "pr", "list", "--head", branch, "--state", "all", "--json", "number,state"],
         cwd=repo,
         timeout=_NETWORK_TIMEOUT_SECONDS,
+        env=env,
     )
     if proc.returncode != 0:
         return "not_checked", True
