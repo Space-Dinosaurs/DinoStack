@@ -330,11 +330,14 @@ Public API (CLI):
                           count of OTHER, non-active, configured `gh`
                           accounts - DS-217's multi-account retry; see
                           `_pr_state`'s own docstring for the full per-path
-                          derivation), 1 on a succeeding entry, and 0 on any
+                          derivation), 1 on a succeeding entry, and on any
                           later entry in the same repo once that repo's
-                          retry outcome is cached - with no overall
-                          per-repo ceiling. Re-verified against the code as
-                          of the DS-217 retry-loop fix, not merely asserted.
+                          retry outcome is cached: 1 call when the cached
+                          outcome is a winning env (a prior entry's retry
+                          found a working account), or 0 calls when the
+                          cached outcome is all-failed (every account
+                          already failed for a prior entry) - with no
+                          overall per-repo ceiling.
   root ...                Positional root directories (requires
                           `--multi-repo`; see that flag's description
                           above for the full scan/dedup/config-fallback
@@ -911,12 +914,14 @@ Performance: (DS-196 correction: full mode IS now the mode an automatic call
              worktree's own file count), `_compute_origin_reachable`'s `git
              branch -r --contains` (DS-196, local-only, no network), and
              (unless --no-gh) `git ls-remote` plus `_pr_state`'s `gh pr
-             list` query - 1 call on that entry's success path or when a
-             prior entry in the same repo already cached this repo's
-             winning env/all-failed result, up to 2 + 2*M calls (M = the
-             count of OTHER configured `gh` accounts, DS-217's multi-
-             account retry) on the FIRST entry in a repo whose default
-             query fails - plus a final `git worktree prune`. Not
+             list` query - 1 call on that entry's success path, or on a
+             later entry in the same repo once a prior entry already
+             cached a WINNING env for this repo; 0 calls on a later entry
+             once a prior entry already cached an ALL-FAILED result for
+             this repo; up to 2 + 2*M calls (M = the count of OTHER
+             configured `gh` accounts, DS-217's multi-account retry) on
+             the FIRST entry in a repo whose default query fails - plus a
+             final `git worktree prune`. Not
              designed for repositories
              with very large worktree counts; v1's full-mode `--no-gh`
              run measured 14.94s across ~31 entries on the live 38-
@@ -1754,7 +1759,16 @@ def _gh_available(repo: str, no_gh: bool) -> bool:
 #: genuinely host-aware would also require making the `GH_TOKEN`-override
 #: env itself host-aware (`gh` reads `GH_ENTERPRISE_TOKEN`/`GITHUB_
 #: ENTERPRISE_TOKEN` for non-default hosts, not `GH_TOKEN`), which is
-#: materially more surface than this fix warrants.
+#: materially more surface than this fix warrants. This is a cost, not a
+#: pure win: on a two-host config sharing the same login, `_gh_configured_
+#: accounts`'s `(host, login)` dedup still yields both entries as
+#: distinct candidates, so the retry loop fetches and probes the
+#: identical default-host token twice (one redundant `gh auth token` plus
+#: one redundant `gh pr list`, each bounded by
+#: `_NETWORK_TIMEOUT_SECONDS`). The wasted probe cannot produce a WRONG
+#: answer - `GH_TOKEN` is ignored for non-default hosts and `gh` resolves
+#: the base repo from the remote token-independently - so the dedup
+#: choice is still correct, just not free.
 #:
 #: SECURITY: `_gh_token_for_login` returns a live, usable GitHub
 #: credential. It is passed ONLY as a subprocess `env` value (via `_run`'s
@@ -1825,9 +1839,13 @@ def _gh_configured_accounts() -> List[Tuple[str, str, bool]]:
 
 def _gh_configured_logins() -> List[str]:
     """Login-only view of `_gh_configured_accounts` (active-first,
-    deduplicated) - kept for any caller that only needs the ordered login
-    list, not the host/active detail. See `_gh_configured_accounts` for
-    the full contract (including the `[]`-on-any-failure guarantee).
+    deduplicated). Test-facing only - no production call site uses this
+    view at HEAD; `_pr_state`'s retry loop consumes
+    `_gh_configured_accounts` directly for the host/active detail it
+    needs. Kept as the ordered-login-list assertion surface for tests 4
+    and 9 in `bin/tests/test_ds217_gh_multi_account.py`. See
+    `_gh_configured_accounts` for the full contract (including the
+    `[]`-on-any-failure guarantee).
     """
     return [login for login, _host, _active in _gh_configured_accounts()]
 

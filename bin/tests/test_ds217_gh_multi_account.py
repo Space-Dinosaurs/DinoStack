@@ -87,7 +87,7 @@ def _fake_gh_multi_account(tmp_path: Path, *, accounts, success_tokens, call_log
     `accounts`: list of `(login, state, active)` tuples - rendered
     verbatim into a `gh auth status --json hosts` JSON payload (single
     host `github.com`), in the given order (active-first ordering is
-    `_gh_configured_logins`'s own job to produce, not this fixture's).
+    `_gh_configured_accounts`'s own job to produce, not this fixture's).
 
     `success_tokens`: set of `GH_TOKEN` values (as seen by the `pr list`
     invocation) that make `gh pr list` succeed with `[]`. Use `""` to
@@ -98,10 +98,10 @@ def _fake_gh_multi_account(tmp_path: Path, *, accounts, success_tokens, call_log
 
     `gh auth token --user <login>` returns `token-<login>` for any login
     present in `accounts` (regardless of its `state` - filtering revoked
-    accounts out of the candidate list is `_gh_configured_logins`'s job,
-    not this fixture's; a mutation that deletes that filter must still be
-    able to obtain a token for the revoked login and observe a real
-    query attempt).
+    accounts out of the candidate list is `_gh_configured_accounts`'s
+    job, not this fixture's; a mutation that deletes that filter must
+    still be able to obtain a token for the revoked login and observe a
+    real query attempt).
 
     Every invocation appends one line (subcommand words only, never a
     token value) to `call_log`, so tests can assert an exact `gh` call
