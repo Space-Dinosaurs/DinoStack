@@ -325,6 +325,10 @@ ALL of the following must hold - any single disqualifier pushes to Elevated:
 
 Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.
 
+In `relaxed`, ephemeral chat advice may also be Low only when it is chat-only, write-free,
+non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining
+Elevated signal; any match still wins. `default` and `strict` are unchanged.
+
 **Context preservation rule:** apply risk to the task, not the individual tool call.
 
 - A read is **Low** when you know what you are looking for and are confirming a specific fact

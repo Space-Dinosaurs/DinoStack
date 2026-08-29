@@ -21,13 +21,50 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
-- **`relaxed`** — minimal Skeptic overhead. Use for rapid iteration on well-understood UI or local bug fixes.
+- **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
 - **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
 
 The existing signal lists below represent the `default` profile. These deltas apply:
+
+#### Relaxed ephemeral chat-advice override
+
+In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
+order:
+
+1. The output is chat text only.
+2. The task performs zero filesystem or external-state writes.
+3. The user did not ask to decide, adopt, standardize, document, or implement the advice.
+4. The response is not acceptance criteria or governing downstream input.
+
+Only after all four predicates pass, apply the override to these five canonical carrier rows:
+
+| Canonical carrier | `relaxed` treatment after the predicate gate |
+|---|---|
+| Answer a question from context in memory | A recommendation may remain Low when it uses context already held and needs no exploratory reads. |
+| Synthesize already-returned subagent results | A recommendation may remain Low when it only explains results already returned. |
+| Architecture decision constraining future choices | Discussion may remain Low; making the decision fails predicate 3 and stays Elevated. |
+| Document synthesis / architecture / planning | Qualifying chat discussion is not a durable artifact and may remain Low. |
+| Research that produces an artifact (doc, plan, recommendation) | Qualifying chat is not an artifact; research or artifact production stays Elevated. |
+
+Then scan the complete remaining Elevated signal list. Any remaining signal wins. Multi-read
+investigation, unfamiliar-area exploration, protocol or infrastructure edits, state changes,
+security-sensitive work, shared utilities, high-stakes work, and emergent interactions remain
+Elevated.
+
+Decision corpus:
+
+- Advisory `How would you recommend changing DinoStack?` is Low and direct in `relaxed` only when chat-only and non-exploratory.
+- Decide or adopt architecture is Elevated in every profile.
+- Write an ADR, plan, or spec is Elevated in every profile.
+- Unfamiliar multi-read advisory work is Elevated in every profile.
+- An implementation request is Elevated in every profile.
+
+The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
+promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
+implementation request.
 
 **`relaxed` (additional Low overrides):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated.

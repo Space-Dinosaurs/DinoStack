@@ -205,14 +205,15 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 
 **For rapid iteration on well-understood UI or local bug fixes**
 
+- Ephemeral chat advice: **Low** only when chat-only, write-free, non-binding, and not downstream criteria
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
-- Everything else: unchanged from default
+- Any other Elevated signal wins; default and strict are unchanged
 
 </div>
 
 <div class="callout">
-Use relaxed on feature branches where you're moving fast and the surface area is contained. Switch back to default before merging anything that touches shared infrastructure or behavioral contracts.
+Ephemeral chat becomes binding when promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or implementation request. Those paths retain normal Elevated review.
 </div>
 
 ---

@@ -30,6 +30,10 @@ applied - check a judgment call against these before acting on it.
 **Pre-spawn checklist - ticket-offer gate:** Before the FIRST subagent spawn of any kind (exemptions apply) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 <!-- corpus:end -->
 
+**Scope discipline.** Do only the requested scope. Add no adjacent features or refactors. When
+completion requires an architecture decision or significant scope expansion, reclassify and route
+that work through the applicable protocol rather than silently expanding it.
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 <!-- corpus:begin full medium | trigger: the operator's message carries exploratory planning-intent framing such as "I want to build..." or "we should add..." -->
@@ -132,12 +136,17 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
+For the following five carrier rows, `relaxed` applies the ordered **relaxed ephemeral
+chat-advice override** in `content/sections/04-risk-classification.md`: all four predicates must
+pass before considering a carrier, then the complete remaining Elevated signal list is scanned and
+any remaining Elevated signal wins. `default` and `strict` keep the table's baseline treatment.
+
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
 | Read a file / git status/log/diff (when confirming a known fact, not exploring; see Context preservation in Risk Classification) | Yes | No |
-| Answer a question from context in memory | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
+| Answer a question from context in memory | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Take a screenshot or browser snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
+| Synthesize already-returned subagent results | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Diagnostic-only changes (pure logging across any number of files, zero behavioral effect) | Yes | No |
 | Documentation-only file creation (new .md or .txt that is a pure list, glossary, or running note - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in .claude/ or ~/DinoStack/; overrides "New file creation" below for this case only) | Yes | No |
 | Targeted wording fix to already-reviewed content (phrasing adjustment only, substance Skeptic-approved in the current or a recent session; does not apply to new decisions, new recommendations, new content not previously reviewed, or protocol/infrastructure files; overrides the single-file edit and new file Elevated signals for this case only) | Yes | No |
@@ -148,7 +157,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
-| Architecture decision constraining future choices | No | **Yes** |
+| Architecture decision constraining future choices | Discussion only when the relaxed ephemeral chat-advice override fully qualifies; an actual decision is never direct | **Yes**, except qualifying relaxed discussion |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
 | Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override above - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
@@ -159,8 +168,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
 | Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
 | Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
-| Document synthesis / architecture / planning | No | **Yes** |
-| Research that produces an artifact (doc, plan, recommendation) | No | **Yes** |
+| Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
+| Research that produces an artifact (doc, plan, recommendation) | Chat advice only when the relaxed ephemeral chat-advice override fully qualifies; artifact production is never direct | **Yes**, except qualifying relaxed chat |
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
