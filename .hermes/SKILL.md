@@ -205,13 +205,10 @@ Never start project exploration as Low and promise to promote later; an explicit
 multi-read investigation request is Elevated before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
-fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
-before the first non-mandatory project-content read. Existing candidate commits or an
-already-populated feature branch do not authorize conductor-side inspection, verification, or
-implementation. If that route cannot start, fail closed and report the blocker; do not run git
-diff, tests, or source reads directly.
+Implementation requests are state-changing Elevated, not relaxed advice. Route them through the
+named Engineer/Worker as specified by `content/sections/04-risk-classification.md` §Relaxed
+ephemeral chat-advice override, which exclusively governs pre-read timing, candidate branches, and
+fail-closed behavior.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -3668,13 +3665,9 @@ signal list; any remaining signal wins. `default` and `strict` are unchanged.
 When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
 start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
 advice, never substitute conductor project exploration.
-For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
-fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
-before the first non-mandatory project-content read. Existing candidate commits or an
-already-populated feature branch do not authorize conductor-side inspection, verification, or
-implementation. If that route cannot start, fail closed and report the blocker; do not run git
-diff, tests, or source reads directly.
+Implementation requests are state-changing Elevated, not relaxed advice. The named Engineer/Worker
+route and its pre-read, candidate-branch, and fail-closed requirements are defined only in
+`content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
 
 ## Common Rationalizations to Reject
 
@@ -7445,13 +7438,9 @@ promise to promote later; an explicit unfamiliar or multi-read investigation req
 before any project-content read.
 If that required named-agent route cannot start, the canonical fail-closed rule applies: report
 the blocker or stay within bounded context-only advice, never substitute direct project exploration.
-For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
-fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
-before the first non-mandatory project-content read. Existing candidate commits or an
-already-populated feature branch do not authorize conductor-side inspection, verification, or
-implementation. If that route cannot start, fail closed and report the blocker; do not run git
-diff, tests, or source reads directly.
+Implementation requests are state-changing Elevated, not relaxed advice. Follow the named
+Engineer/Worker routing rule in `content/sections/04-risk-classification.md` §Relaxed ephemeral
+chat-advice override for the canonical pre-read, candidate-branch, and fail-closed requirements.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|

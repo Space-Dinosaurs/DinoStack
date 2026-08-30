@@ -124,13 +124,11 @@ required named-agent route cannot start, report the blocker or offer only bounde
 advice that does not perform the requested investigation; never fall back to conductor multi-file
 or project exploration.
 
-For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
-fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
-Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
-before the first non-mandatory project-content read. Existing candidate commits or an
-already-populated feature branch do not authorize conductor-side inspection, verification, or
-implementation. If that route cannot start, fail closed and report the blocker; do not run git
-diff, tests, or source reads directly.
+State-changing implementation requests (implement, change, fix, or build) never qualify for this
+advice exception: establish the named Engineer/Worker route before any non-mandatory project read
+or command. Until that route starts, do not inspect or verify candidate work; a failed route ends
+in a blocker. Canonical candidate-branch and fail-closed details:
+`$AE_REPO_DIR/content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
 
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 

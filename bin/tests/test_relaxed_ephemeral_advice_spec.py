@@ -217,7 +217,7 @@ def test_delegation_failure_never_falls_back_to_direct_project_investigation() -
 
 
 def test_relaxed_implementation_routes_before_existing_branch_inspection() -> None:
-    required = (
+    canonical_required = (
         "Implement the recommended DinoStack changes.",
         "outside the relaxed chat-advice exception",
         "state-changing Elevated",
@@ -228,13 +228,47 @@ def test_relaxed_implementation_routes_before_existing_branch_inspection() -> No
         "fail closed",
         "git diff, tests, or source reads",
     )
-    for path in (CANONICAL_SKILL, RISK, DELEGATION, SUBAGENT, DETAIL):
+    canonical = " ".join(_read(RISK).split())
+    for expected in canonical_required:
+        assert expected in canonical, f"canonical implementation routing missing {expected!r}"
+
+    complete_binding_signature = (
+        "Existing candidate commits or an already-populated feature branch do not authorize "
+        "conductor-side inspection, verification, or implementation"
+    )
+    source_sites = (RISK, CANONICAL_SKILL, DELEGATION, SUBAGENT, DETAIL)
+    binding_sites = [
+        path.relative_to(REPO_ROOT)
+        for path in source_sites
+        if complete_binding_signature in " ".join(_read(path).split())
+    ]
+    assert binding_sites == [RISK.relative_to(REPO_ROOT)], (
+        "complete implementation-routing binding must exist only at the canonical risk site; "
+        f"found copies in {binding_sites}"
+    )
+
+    pointer_requirements = {
+        DELEGATION: ("Implementation requests are state-changing Elevated", "exclusively governs"),
+        SUBAGENT: ("Implementation requests are state-changing Elevated", "canonical pre-read"),
+        DETAIL: ("Implementation requests are state-changing Elevated", "defined only in"),
+    }
+    for path, fragments in pointer_requirements.items():
         compact = " ".join(_read(path).split())
-        for expected in required:
+        assert "content/sections/04-risk-classification.md" in compact
+        for expected in fragments:
             assert expected in compact, (
-                f"{path.relative_to(REPO_ROOT)} missing relaxed implementation routing "
-                f"fragment {expected!r}"
+                f"{path.relative_to(REPO_ROOT)} missing narrow routing pointer {expected!r}"
             )
+
+    skill = " ".join(_read(CANONICAL_SKILL).split())
+    for expected in (
+        "State-changing implementation requests (implement, change, fix, or build)",
+        "named Engineer/Worker route before any non-mandatory project read or command",
+        "Until that route starts, do not inspect or verify candidate work; a failed route ends in a blocker",
+        "Canonical candidate-branch and fail-closed details",
+        "content/sections/04-risk-classification.md",
+    ):
+        assert expected in skill, f"early skill routing signal missing {expected!r}"
 
 
 def test_early_gate_is_scoped_to_relaxed_after_all_predicates() -> None:
