@@ -166,12 +166,12 @@ def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
 
 def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
     required = (
-        "Breadth alone is not an investigation request",
+        "Within that relaxed-only override, breadth alone is not an investigation request",
         "How would you recommend changing DinoStack?",
         "bounded high-level advice from the methodology and context loaded during mandatory skill activation",
         "state specificity or evidence limitations when useful",
         "do not explore the project merely to improve specificity",
-        "Only an explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
+        "Within that relaxed-only override, only an explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
     )
     for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
         compact = " ".join(_read(path).split())
@@ -179,6 +179,32 @@ def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
             assert expected in compact, (
                 f"{path.relative_to(REPO_ROOT)} missing broad-prompt distinction {expected!r}"
             )
+
+
+def test_early_gate_is_scoped_to_relaxed_after_all_predicates() -> None:
+    for path in (CANONICAL_SKILL, CODEX_SKILL):
+        compact = " ".join(_read(path).split())
+        guard = "only after activation resolves `profile=relaxed` and all four canonical predicates pass"
+        exclusion = "If profile is `default` or `strict`, this gate does not apply"
+        baseline = "the motivating advisory retains its existing Elevated routing"
+        prompt = "How would you recommend changing DinoStack?"
+        for expected in (guard, exclusion, baseline, prompt):
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing cross-profile guard {expected!r}"
+            )
+        assert compact.find(guard) < compact.find(prompt)
+        assert compact.find(exclusion) < compact.find(prompt)
+
+    risk = " ".join(_read(RISK).split())
+    relaxed_gate = "In the `relaxed` profile only, advice may remain **Low** when all four predicates pass"
+    breadth = "Within that relaxed-only override, breadth alone is not an investigation request"
+    assert relaxed_gate in risk
+    assert risk.find(relaxed_gate) < risk.find(breadth), (
+        "canonical breadth guidance must sit after the explicit relaxed predicate gate"
+    )
+    assert risk.find(PREDICATES[-1]) < risk.find(breadth), (
+        "all four predicates must precede the broad-prompt exception"
+    )
 
 
 def test_five_carriers_and_order_are_mirrored_at_routing_sites() -> None:

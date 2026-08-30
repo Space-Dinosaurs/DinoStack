@@ -363,19 +363,6 @@ The existing signal lists below represent the `default` profile. These deltas ap
 
 #### Relaxed ephemeral chat-advice override
 
-This is a no-investigation fast path. Mandatory activation and skill-loading reads do not
-disqualify it. After activation, the conductor must either answer immediately from context already
-held or classify Elevated before the first project-content read or tool call. It must not start
-project exploration as Low and promise to promote later. An explicit unfamiliar or multi-read
-investigation request is Elevated before any project-content read.
-
-Breadth alone is not an investigation request. For the exact prompt `How would you recommend
-changing DinoStack?`, give bounded high-level advice from the methodology and context loaded during
-mandatory skill activation, state specificity or evidence limitations when useful, and do not
-explore the project merely to improve specificity. Only an explicit user request for unfamiliar,
-repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
-project-content read.
-
 In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
 order:
 
@@ -383,6 +370,21 @@ order:
 2. The task performs zero filesystem or external-state writes.
 3. The user did not ask to decide, adopt, standardize, document, or implement the advice.
 4. The response is not acceptance criteria or governing downstream input.
+
+Only after `profile=relaxed` resolves and all four predicates pass, this is a no-investigation fast
+path. Mandatory activation and skill-loading reads do not disqualify it. After activation, the
+conductor must either answer immediately from context already held or classify Elevated before the
+first project-content read or tool call. It must not start project exploration as Low and promise
+to promote later. An explicit unfamiliar or multi-read investigation request is Elevated before
+any project-content read.
+
+Within that relaxed-only override, breadth alone is not an investigation request. For the exact
+prompt `How would you recommend changing DinoStack?` in that relaxed-only override, give bounded
+high-level advice from the methodology and context loaded during mandatory skill activation, state
+specificity or evidence limitations when useful, and do not explore the project merely to improve
+specificity. Within that relaxed-only override, only an explicit user request for unfamiliar,
+repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
+project-content read.
 
 Only after all four predicates pass, apply the override to these five canonical carrier rows:
 

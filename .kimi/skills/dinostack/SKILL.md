@@ -14,15 +14,18 @@ structured multi-agent workflow. It covers risk classification, adversarial revi
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
 files on every session and the reference docs on the triggers described in METHODOLOGY.md §Protocol Details (read on trigger).
 
-**Early relaxed-advice routing gate.** After mandatory activation and skill loading, apply risk
-classification before the first project-content read. Relaxed ephemeral chat advice remains direct
-only when the answer can be produced from context already held; otherwise classify Elevated before
-reading. Breadth alone is not an investigation request. For the exact prompt `How would you
-recommend changing DinoStack?`, give bounded high-level advice from the methodology and context
-loaded during mandatory skill activation, state specificity or evidence limitations when useful,
-and do not explore the project merely to improve specificity. Only an explicit user request for
-unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before
-any project-content read.
+**Early relaxed-advice routing gate.** This gate applies only after activation resolves
+`profile=relaxed` and all four canonical predicates pass. If profile is `default` or `strict`, this
+gate does not apply and the motivating advisory retains its existing Elevated routing. After the
+relaxed-only guard passes, apply risk classification before the first project-content read. Relaxed
+ephemeral chat advice remains direct only when the answer can be produced from context already held;
+otherwise classify Elevated before reading. Within that relaxed-only override, breadth alone is not
+an investigation request. For the exact prompt `How would you recommend changing DinoStack?` in
+that relaxed-only override, give bounded high-level advice from the methodology and context loaded
+during mandatory skill activation, state specificity or evidence limitations when useful, and do
+not explore the project merely to improve specificity. Within that relaxed-only override, only an
+explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is
+Elevated and delegated before any project-content read.
 
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
@@ -454,19 +457,6 @@ The existing signal lists below represent the `default` profile. These deltas ap
 
 #### Relaxed ephemeral chat-advice override
 
-This is a no-investigation fast path. Mandatory activation and skill-loading reads do not
-disqualify it. After activation, the conductor must either answer immediately from context already
-held or classify Elevated before the first project-content read or tool call. It must not start
-project exploration as Low and promise to promote later. An explicit unfamiliar or multi-read
-investigation request is Elevated before any project-content read.
-
-Breadth alone is not an investigation request. For the exact prompt `How would you recommend
-changing DinoStack?`, give bounded high-level advice from the methodology and context loaded during
-mandatory skill activation, state specificity or evidence limitations when useful, and do not
-explore the project merely to improve specificity. Only an explicit user request for unfamiliar,
-repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
-project-content read.
-
 In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
 order:
 
@@ -474,6 +464,21 @@ order:
 2. The task performs zero filesystem or external-state writes.
 3. The user did not ask to decide, adopt, standardize, document, or implement the advice.
 4. The response is not acceptance criteria or governing downstream input.
+
+Only after `profile=relaxed` resolves and all four predicates pass, this is a no-investigation fast
+path. Mandatory activation and skill-loading reads do not disqualify it. After activation, the
+conductor must either answer immediately from context already held or classify Elevated before the
+first project-content read or tool call. It must not start project exploration as Low and promise
+to promote later. An explicit unfamiliar or multi-read investigation request is Elevated before
+any project-content read.
+
+Within that relaxed-only override, breadth alone is not an investigation request. For the exact
+prompt `How would you recommend changing DinoStack?` in that relaxed-only override, give bounded
+high-level advice from the methodology and context loaded during mandatory skill activation, state
+specificity or evidence limitations when useful, and do not explore the project merely to improve
+specificity. Within that relaxed-only override, only an explicit user request for unfamiliar,
+repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
+project-content read.
 
 Only after all four predicates pass, apply the override to these five canonical carrier rows:
 
