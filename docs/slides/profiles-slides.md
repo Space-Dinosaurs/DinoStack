@@ -213,7 +213,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 </div>
 
 <div class="callout">
-After activation and skill loading, classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests, plus binding tickets, plans, decisions, criteria, and implementation, retain Elevated review.
+After activation and skill loading, classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests, plus every other Elevated signal, retain Elevated review. If the required named-agent route cannot start, report the blocker or stay within bounded context-only advice; never substitute direct project exploration.
 </div>
 
 ---

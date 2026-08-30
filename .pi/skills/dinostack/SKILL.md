@@ -19,9 +19,15 @@ otherwise classify Elevated before reading. Within that relaxed-only override, b
 an investigation request. For the exact prompt `How would you recommend changing DinoStack?` in
 that relaxed-only override, give bounded high-level advice from the methodology and context loaded
 during mandatory skill activation, state specificity or evidence limitations when useful, and do
-not explore the project merely to improve specificity. Within that relaxed-only override, only an
-explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is
-Elevated and delegated before any project-content read.
+not explore the project merely to improve specificity. An explicit user request for unfamiliar,
+repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
+project-content read. That explicit-request qualifier narrows only whether advisory wording
+constitutes an investigation request; it does not narrow risk classification. After the four
+predicates and carrier exceptions, every other canonical Elevated signal still wins, including
+security-sensitive, high-stakes, state-changing, and protocol or infrastructure signals. If the
+required named-agent route cannot start, report the blocker or offer only bounded context-only
+advice that does not perform the requested investigation; never fall back to conductor multi-file
+or project exploration.
 
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 

@@ -222,6 +222,8 @@ mandatory activation and skill-loading reads, answer from context already held o
 before the first project-content read or tool call. Never start project exploration as Low and
 promise to promote later; an explicit unfamiliar or multi-read investigation request is Elevated
 before any project-content read.
+If that required named-agent route cannot start, the canonical fail-closed rule applies: report
+the blocker or stay within bounded context-only advice, never substitute direct project exploration.
 
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|

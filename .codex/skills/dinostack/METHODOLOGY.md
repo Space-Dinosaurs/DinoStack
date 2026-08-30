@@ -196,6 +196,8 @@ This is a no-investigation fast path: after mandatory activation and skill-loadi
 from context already held or classify Elevated before the first project-content read or tool call.
 Never start project exploration as Low and promise to promote later; an explicit unfamiliar or
 multi-read investigation request is Elevated before any project-content read.
+If that required named-agent route cannot start, the canonical fail-closed rule applies: report
+the blocker or stay within bounded context-only advice, never substitute direct project exploration.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -382,9 +384,14 @@ Within that relaxed-only override, breadth alone is not an investigation request
 prompt `How would you recommend changing DinoStack?` in that relaxed-only override, give bounded
 high-level advice from the methodology and context loaded during mandatory skill activation, state
 specificity or evidence limitations when useful, and do not explore the project merely to improve
-specificity. Within that relaxed-only override, only an explicit user request for unfamiliar,
-repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
-project-content read.
+specificity. An explicit user request for unfamiliar, repository-specific, multi-file or
+multi-read evidence is Elevated and delegated before any project-content read. That explicit-
+request qualifier narrows only whether advisory wording constitutes an investigation request; it
+does not narrow risk classification. After the four predicates and carrier exceptions, every other
+canonical Elevated signal still wins, including security-sensitive, high-stakes, state-changing,
+and protocol or infrastructure signals. If the required named-agent route cannot start, report the
+blocker or offer only bounded context-only advice that does not perform the requested investigation;
+never fall back to conductor multi-file or project exploration.
 
 Only after all four predicates pass, apply the override to these five canonical carrier rows:
 

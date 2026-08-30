@@ -144,6 +144,8 @@ This is a no-investigation fast path: after mandatory activation and skill-loadi
 from context already held or classify Elevated before the first project-content read or tool call.
 Never start project exploration as Low and promise to promote later; an explicit unfamiliar or
 multi-read investigation request is Elevated before any project-content read.
+If that required named-agent route cannot start, the canonical fail-closed rule applies: report
+the blocker or stay within bounded context-only advice, never substitute direct project exploration.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|

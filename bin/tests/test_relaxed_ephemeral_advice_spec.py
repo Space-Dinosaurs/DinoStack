@@ -11,7 +11,7 @@ Upstream deps: canonical methodology, agent, reference, and public-doc prose.
 Downstream consumers: bin-tests CI (`pytest bin/tests/`).
 Failure modes: missing or reordered binding prose fails with the affected path
     and contract fragment in the assertion message.
-Performance: static reads of ten tracked text files plus three machinery trees.
+Performance: static reads of tracked text files and machinery trees.
 """
 
 from pathlib import Path
@@ -171,13 +171,48 @@ def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
         "bounded high-level advice from the methodology and context loaded during mandatory skill activation",
         "state specificity or evidence limitations when useful",
         "do not explore the project merely to improve specificity",
-        "Within that relaxed-only override, only an explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
+        "An explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
     )
     for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
         compact = " ".join(_read(path).split())
         for expected in required:
             assert expected in compact, (
                 f"{path.relative_to(REPO_ROOT)} missing broad-prompt distinction {expected!r}"
+            )
+
+
+def test_explicit_investigation_rule_preserves_the_remaining_signal_safety_floor() -> None:
+    required = (
+        "narrows only whether advisory wording constitutes an investigation request",
+        "every other canonical Elevated signal still wins",
+        "security-sensitive",
+        "high-stakes",
+        "state-changing",
+        "protocol or infrastructure",
+    )
+    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+        compact = " ".join(_read(path).split())
+        for expected in required:
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing remaining-signal safety floor "
+                f"{expected!r}"
+            )
+
+
+def test_delegation_failure_never_falls_back_to_direct_project_investigation() -> None:
+    required = (
+        "If the required named-agent route cannot start",
+        "report the blocker",
+        "bounded context-only advice",
+        "does not perform the requested investigation",
+        "never fall back to conductor multi-file or project exploration",
+    )
+    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+        compact = " ".join(_read(path).split())
+        for expected in required:
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing fail-closed delegation rule "
+                f"{expected!r}"
             )
 
 

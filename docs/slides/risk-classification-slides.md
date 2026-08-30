@@ -317,10 +317,10 @@ ALL of the following must hold - any single disqualifier pushes to Elevated:
 ## The Low path and context preservation
 
 <style scoped>
-  p { font-size: 0.86em; margin: 0.25em 0; }
-  ul { font-size: 0.84em; }
-  li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.5em; }
+  p { font-size: 0.68em; margin: 0.15em 0; }
+  ul { font-size: 0.66em; }
+  li { margin: 0.06em 0; }
+  .callout { font-size: 0.64em; padding: 0.3em 0.7em; margin-top: 0.3em; }
 </style>
 
 Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.
@@ -337,7 +337,7 @@ already held or classify Elevated before the first project-content read. `defaul
 - A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation
 
 <div class="callout">
-Do not start project exploration as Low. Explicit unfamiliar or multi-read requests are Elevated before any project-content read. Spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
+Do not explore as Low. Explicit unfamiliar or multi-read requests and every other Elevated signal still win. Route investigation to the appropriate named agent. If that route cannot start, report the blocker or stay within bounded context-only advice; never investigate the project directly.
 </div>
 
 ---

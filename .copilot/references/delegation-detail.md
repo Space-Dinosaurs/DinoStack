@@ -218,6 +218,9 @@ the user did not ask to decide, adopt, standardize, document, or implement; the 
 acceptance criteria or governing downstream input. Only then consider the five carrier rows in the
 canonical delegation table. After those five carrier rows, scan the complete remaining Elevated
 signal list; any remaining signal wins. `default` and `strict` are unchanged.
+When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
+start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
+advice, never substitute conductor project exploration.
 
 ## Common Rationalizations to Reject
 
