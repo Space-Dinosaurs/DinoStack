@@ -29,6 +29,9 @@ SKEPTIC = REPO_ROOT / "content/agents/skeptic.md"
 DOCS = REPO_ROOT / "docs/index.html"
 RISK_SLIDES = REPO_ROOT / "docs/slides/risk-classification-slides.md"
 PROFILE_SLIDES = REPO_ROOT / "docs/slides/profiles-slides.md"
+CANONICAL_SKILL = REPO_ROOT / "content/SKILL.md"
+CODEX_SKILL = REPO_ROOT / ".codex/skills/dinostack/SKILL.md"
+CODEX_METHODOLOGY = REPO_ROOT / ".codex/skills/dinostack/METHODOLOGY.md"
 
 PREDICATES = (
     "output is chat text only",
@@ -134,6 +137,30 @@ def test_relaxed_advice_is_classified_before_the_first_project_read() -> None:
         assert "Never start project exploration as Low and promise to promote later" in mirror
         assert "explicit unfamiliar or multi-read investigation request is Elevated" in mirror
         assert "content/sections/04-risk-classification.md" in mirror
+
+
+def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
+    required = (
+        "Early relaxed-advice routing gate",
+        "apply risk classification before the first project-content read",
+        "Relaxed ephemeral chat advice remains direct only when the answer can be produced from context already held",
+        "otherwise classify Elevated before reading",
+        "explicit unfamiliar or multi-read investigation request is Elevated and must be delegated before any project-content read",
+    )
+    for path in (CANONICAL_SKILL, CODEX_SKILL):
+        text = _read(path)
+        compact = " ".join(text.split())
+        for expected in required:
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing early routing gate fragment {expected!r}"
+            )
+        gate = text.find("**Early relaxed-advice routing gate.**")
+        assert gate < text.find("**Conductor default: act, don't ask.**")
+        assert gate < text.find("## Rules (read these files)")
+
+    methodology = _read(CODEX_METHODOLOGY)
+    _assert_in_order(methodology, PREDICATES, "generated Codex predicate scope")
+    _assert_in_order(methodology, CARRIERS, "generated Codex carrier scope")
 
 
 def test_five_carriers_and_order_are_mirrored_at_routing_sites() -> None:

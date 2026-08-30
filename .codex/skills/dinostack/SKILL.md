@@ -105,6 +105,12 @@ structured multi-agent workflow. It covers risk classification, adversarial revi
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
 files on every session and the reference docs on the triggers described in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Protocol Details (read on trigger).
 
+**Early relaxed-advice routing gate.** After mandatory activation and skill loading, apply risk
+classification before the first project-content read. Relaxed ephemeral chat advice remains direct
+only when the answer can be produced from context already held; otherwise classify Elevated before
+reading. An explicit unfamiliar or multi-read investigation request is Elevated and must be
+delegated before any project-content read.
+
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)
