@@ -28,8 +28,18 @@ Upstream deps: bin/ds-cleanup-worktrees (module under test - invoked both as
                bin/tests/test_cleanup_worktrees.py's own
                `_load_module_directly` pattern). Real `git` CLI (subprocess:
                init, worktree add, commit, push - to build minimal repos).
-               No real `gh` invocation in any scenario (`--no-gh`
-               throughout).
+               Most scenarios pass `--no-gh` and invoke no real `gh`. The
+               pr-query-error scenarios
+               (`test_deep_tier_row_carries_pr_query_error_count`,
+               `test_run_report_aggregates_pr_query_error_total_and_prints_note`,
+               `test_sweep_summary_line_surfaces_repos_with_pr_query_errors`)
+               instead prepend a throwaway executable bash stub (built by
+               `_fake_gh_dir_pr_list_fails`, passed via `run_cli`'s `gh_dir`
+               param, which prepends the stub's directory onto `PATH`) -
+               `gh auth status` exits 0 (satisfies `_gh_available`'s
+               process-level gate) and `gh pr list` exits 1, deterministically
+               forcing `SKIP_PR_QUERY_ERROR` without any real network call
+               or a genuinely authenticated `gh`.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
                       per `.github/workflows/bin-tests.yml`).
@@ -122,9 +132,57 @@ def add_worktree(repo: Path, rel_path: str, branch: str, *, push: bool = False) 
     return wt_path
 
 
-def run_cli(args, *, cwd: Path = None):
+def run_cli(args, *, cwd: Path = None, gh_dir: Path = None):
+    """`gh_dir`, when given, is prepended onto PATH - mirrors
+    test_cleanup_worktrees.py's own `run_reap`'s `gh_dir` handling, needed
+    here so a `--multi-repo --report`/sweep scenario can force a real,
+    present, authenticated `gh` whose per-entry `pr list` call fails
+    deterministically (see `_fake_gh_dir_pr_list_fails` below)."""
     cmd = [sys.executable, str(SCRIPT), *args]
-    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
+    env = None
+    if gh_dir is not None:
+        env = dict(os.environ)
+        env["PATH"] = f"{gh_dir}{os.pathsep}{env.get('PATH', '')}"
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None, env=env)
+
+
+def _add_pushed_ahead_worktree(repo: Path, rel_path: str, branch: str) -> Path:
+    """A worktree whose branch is PUSHED but carries a unique commit ahead
+    of base - the exact shape `test_cleanup_worktrees.py`'s own
+    `test_archive_unproven_never_archives_pr_query_error_entry` uses to
+    reach `SKIP_AMBIGUOUS_NO_PR` (pushed, so `ls_remote_status` is
+    inconclusive; not an ancestor of base, so it is never a trivial
+    REMOVE). Combined with a `gh pr list`-failing stub, `evaluate_entry`
+    reclassifies this to `SKIP_PR_QUERY_ERROR` rather than the generic
+    `SKIP_AMBIGUOUS_NO_PR`."""
+    wt = add_worktree(repo, rel_path, branch, push=True)
+    (wt / "extra.txt").write_text("unique work behind what would be a live OPEN PR\n")
+    _git(wt, "add", "extra.txt")
+    _git(wt, "commit", "-q", "-m", "unique commit")
+    _git(wt, "push", "-q", "origin", branch)
+    return wt
+
+
+def _fake_gh_dir_pr_list_fails(tmp_path: Path) -> Path:
+    """A stub `gh` answering `gh auth status` with success (so
+    `_gh_available()` reports the process-level gate as fine) but every
+    `gh pr list ...` call with a nonzero exit - simulates a transient
+    per-entry query failure (rate limit/auth hiccup/network blip),
+    producing a `SKIP_PR_QUERY_ERROR` outcome for every entry evaluated.
+    Mirrors test_cleanup_worktrees.py's own `_fake_gh_dir(pr_list_fails=True)`,
+    duplicated locally rather than imported to avoid coupling this file's
+    test collection to that module's import side effects."""
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir(exist_ok=True)
+    gh = bin_dir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then exit 0; fi\n'
+        'if [ "$1" = "pr" ] && [ "$2" = "list" ]; then echo "gh: API rate limit exceeded" >&2; exit 1; fi\n'
+        "exit 1\n"
+    )
+    gh.chmod(0o755)
+    return bin_dir
 
 
 # --------------------------------------------------------------------------
@@ -634,6 +692,7 @@ def test_json_output_shape(tmp_path):
         "would_reclaim_kb",
         "dirty_unreclaimable_kb",
         "size_unknown_count",
+        "pr_query_error_count",
     }
     assert row["eligible"] is None
     assert row["would_reclaim_kb"] is None
@@ -641,6 +700,12 @@ def test_json_output_shape(tmp_path):
     assert row["size_unknown_count"] is None
     assert row["nonroot_worktrees"] == 1
     assert isinstance(row["oldest_age_hours"], float)
+    # DS-217 unit 2 (test 2): the fast tier never runs `_evaluate_entries`
+    # (zero network calls), so it cannot count SKIP_PR_QUERY_ERROR
+    # outcomes - `None` (not `0`, the computed-and-none-found value),
+    # matching the same tier-dependent-null shape `eligible` already uses.
+    # Mutation: emit `0` instead of `None` on this tier -> reddens.
+    assert row["pr_query_error_count"] is None
 
 
 def test_json_deep_tier_eligible_is_an_int(tmp_path):
@@ -658,6 +723,16 @@ def test_json_deep_tier_eligible_is_an_int(tmp_path):
     # Round-N Minor fix: the deep tier now populates oldest_age_hours too
     # (previously hardcoded None, contradicting the documented shape).
     assert isinstance(rows[0]["oldest_age_hours"], float)
+    # DS-217 unit 2 (test 5): a repo with ZERO query errors (this scenario
+    # runs `--no-gh`, so `_evaluate_entries` never even attempts a `gh pr
+    # list` call) must report `0` on the deep tier - a COMPUTED zero, not
+    # `None` (not computed) and not absent from the payload. Proves the
+    # field distinguishes its three states: None (fast tier, never
+    # computed), 0 (deep tier, computed, none found), N>0 (deep tier,
+    # computed, N found). Mutation: change the deep-tier `0` branch to
+    # omit the key or emit None -> reddens (KeyError / wrong-type assert).
+    assert rows[0]["pr_query_error_count"] == 0
+    assert isinstance(rows[0]["pr_query_error_count"], int)
 
 
 def test_json_tier_marker_present_and_correct_for_both_tiers(tmp_path):
@@ -1594,3 +1669,154 @@ def test_multi_repo_measure_size_grand_total_sums_size_unknown_count(tmp_path):
     m = re.search(r"size_unknown_count=(\d+)", grand_line)
     assert m, grand_line
     assert int(m.group(1)) == 2, grand_line
+
+
+# --------------------------------------------------------------------------
+# 10. DS-217 unit 2: `pr_query_error_count`/`pr_query_error_total` reporting
+# --------------------------------------------------------------------------
+
+
+def test_deep_tier_row_carries_pr_query_error_count(tmp_path):
+    """Deep-tier row must carry `pr_query_error_count` equal to the real
+    number of SKIP_PR_QUERY_ERROR outcomes for that repo. Mutation (test 1):
+    drop the `"pr_query_error_count": pr_query_error_count` key from
+    `_deep_report_row`'s returned dict -> `KeyError` on `row["pr_query_error_count"]`
+    below, reddening this assertion."""
+    repo = init_repo_with_origin(tmp_path, name="qerr")
+    _add_pushed_ahead_worktree(repo, ".claude/worktrees/agent-qerr", "worktree-agent-qerr")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--report",
+            "--json",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        gh_dir=_fake_gh_dir_pr_list_fails(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["tier"] == "deep"
+    row = payload["rows"][0]
+    assert row["pr_query_error_count"] == 1, row
+
+
+def test_run_report_aggregates_pr_query_error_total_and_prints_note(tmp_path):
+    """`_run_report`'s deep-tier JSON payload must carry a top-level
+    `pr_query_error_total` summing every row's `pr_query_error_count`, and
+    the human-readable (non-JSON) table must print a NOTE naming the
+    affected repo when nonzero. Mutation (test 3): drop the aggregation
+    (`pr_query_error_total = sum(...)`) -> the JSON key is absent/0 and the
+    NOTE never fires even though a real SKIP_PR_QUERY_ERROR outcome
+    occurred, reddening both assertions below."""
+    repo = init_repo_with_origin(tmp_path, name="qerr-agg")
+    _add_pushed_ahead_worktree(repo, ".claude/worktrees/agent-qerr-agg", "worktree-agent-qerr-agg")
+    gh_dir = _fake_gh_dir_pr_list_fails(tmp_path)
+
+    json_result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--report",
+            "--json",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        gh_dir=gh_dir,
+    )
+    assert json_result.returncode == 0, json_result.stderr
+    payload = json.loads(json_result.stdout)
+    assert payload["pr_query_error_total"] == 1, payload
+
+    table_result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--report",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        gh_dir=gh_dir,
+    )
+    assert table_result.returncode == 0, table_result.stderr
+    assert "SKIP_PR_QUERY_ERROR" in table_result.stdout
+    assert "NOTE:" in table_result.stdout, table_result.stdout
+    assert str(repo) in table_result.stdout.split("NOTE:", 1)[1]
+
+
+def test_run_report_json_fast_tier_omits_pr_query_error_total(tmp_path):
+    """The fast tier never computes `pr_query_error_count` at all (zero
+    network calls), so the JSON payload must not carry a top-level
+    `pr_query_error_total` key under `--count-only` - a fabricated 0 there
+    would misreport "computed, none found" for a tier that never looked."""
+    repo = init_repo_with_origin(tmp_path, name="qerr-fast")
+    add_worktree(repo, ".claude/worktrees/agent-qerr-fast", "worktree-agent-qerr-fast", push=False)
+
+    result = run_cli(["--multi-repo", "--repo", str(repo), "--report", "--count-only", "--json"])
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "pr_query_error_total" not in payload
+
+
+def test_sweep_summary_line_surfaces_repos_with_pr_query_errors(tmp_path):
+    """The `--multi-repo` (non-`--report`) sweep's final summary line must
+    surface the count of repos that had at least one SKIP_PR_QUERY_ERROR
+    outcome this run, via the same out-param idiom `_base_unresolved_out`/
+    `_size_totals_out` already use. Mutation (test 4): drop the
+    `_pr_query_error_out`/`pr_query_error_flag` threading between
+    `_run_repo` and `_run_multi_repo` -> `repos-with-pr-query-errors=0`
+    even though the repo below has a real query failure, reddening this
+    assertion."""
+    repo = init_repo_with_origin(tmp_path, name="qerr-sweep")
+    _add_pushed_ahead_worktree(repo, ".claude/worktrees/agent-qerr-sweep", "worktree-agent-qerr-sweep")
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        gh_dir=_fake_gh_dir_pr_list_fails(tmp_path),
+    )
+    assert result.returncode == 0, result.stderr
+    summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    assert "repos-with-pr-query-errors=1" in summary_line, summary_line
+
+
+def test_sweep_summary_line_zero_pr_query_errors_when_none_occur(tmp_path):
+    """Baseline: a clean sweep with no PR-query failures reports
+    `repos-with-pr-query-errors=0`, never absent or a stale nonzero value
+    from a prior scenario."""
+    repo = init_repo_with_origin(tmp_path, name="qerr-clean")
+    add_worktree(repo, ".claude/worktrees/agent-qerr-clean", "worktree-agent-qerr-clean", push=False)
+
+    result = run_cli(
+        [
+            "--multi-repo",
+            "--repo",
+            str(repo),
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ]
+    )
+    assert result.returncode == 0, result.stderr
+    summary_line = [ln for ln in result.stdout.splitlines() if ln.startswith("ds-cleanup-worktrees: repos=")][-1]
+    assert "repos-with-pr-query-errors=0" in summary_line, summary_line
