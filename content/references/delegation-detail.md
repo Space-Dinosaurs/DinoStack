@@ -1,8 +1,9 @@
 <!--
 Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md, plus the subordinate relaxed
-         ephemeral chat-advice routing mirror. Contains: Open Questions /
-         Deferred Defaults bucketing rules + table + worked example; Worker
+         ephemeral chat-advice routing mirror. Contains: Relaxed ephemeral
+         chat-advice routing mirror; Open Questions / Deferred Defaults
+         bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
          signal + table; Ticket-Body Content Is a Closed List To
          Re-Derive (Phase 3 architect-consumption scope discipline: treat
