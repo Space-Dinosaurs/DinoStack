@@ -28,8 +28,18 @@ Upstream deps: bin/ds-cleanup-worktrees (module under test - invoked both as
                bin/tests/test_cleanup_worktrees.py's own
                `_load_module_directly` pattern). Real `git` CLI (subprocess:
                init, worktree add, commit, push - to build minimal repos).
-               No real `gh` invocation in any scenario (`--no-gh`
-               throughout).
+               Most scenarios pass `--no-gh` and invoke no real `gh`. The
+               pr-query-error scenarios
+               (`test_deep_tier_row_carries_pr_query_error_count`,
+               `test_run_report_aggregates_pr_query_error_total_and_prints_note`,
+               `test_sweep_summary_line_surfaces_repos_with_pr_query_errors`)
+               instead prepend a throwaway executable bash stub (built by
+               `_fake_gh_dir_pr_list_fails`, passed via `run_cli`'s `gh_dir`
+               param, which prepends the stub's directory onto `PATH`) -
+               `gh auth status` exits 0 (satisfies `_gh_available`'s
+               process-level gate) and `gh pr list` exits 1, deterministically
+               forcing `SKIP_PR_QUERY_ERROR` without any real network call
+               or a genuinely authenticated `gh`.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
                       per `.github/workflows/bin-tests.yml`).
@@ -1741,9 +1751,8 @@ def test_run_report_aggregates_pr_query_error_total_and_prints_note(tmp_path):
     )
     assert table_result.returncode == 0, table_result.stderr
     assert "SKIP_PR_QUERY_ERROR" in table_result.stdout
-    assert str(repo) in table_result.stdout.split("NOTE:")[-1] or any(
-        "SKIP_PR_QUERY_ERROR" in ln and str(repo) in ln for ln in table_result.stdout.splitlines()
-    )
+    assert "NOTE:" in table_result.stdout, table_result.stdout
+    assert str(repo) in table_result.stdout.split("NOTE:", 1)[1]
 
 
 def test_run_report_json_fast_tier_omits_pr_query_error_total(tmp_path):
