@@ -1190,7 +1190,8 @@ hr {
 <p>Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.</p>
 <p>In <code>relaxed</code>, ephemeral chat advice may also be Low only when it is chat-only, write-free,<br />
 non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining<br />
-Elevated signal; any match still wins. <code>default</code> and <code>strict</code> are unchanged.</p>
+Elevated signal; any match still wins. After activation and skill loading, answer from context<br />
+already held or classify Elevated before the first project-content read. <code>default</code> and <code>strict</code> are unchanged.</p>
 <p><strong>Context preservation rule:</strong> apply risk to the task, not the individual tool call.</p>
 <ul>
 <li>A read is <strong>Low</strong> when you know what you are looking for and are confirming a specific fact</li>
@@ -1198,7 +1199,7 @@ Elevated signal; any match still wins. <code>default</code> and <code>strict</co
 <li>A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation</li>
 </ul>
 <div class="callout">
-If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify as Elevated. Spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
+Do not start project exploration as Low. Explicit unfamiliar or multi-read requests are Elevated before any project-content read. Spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

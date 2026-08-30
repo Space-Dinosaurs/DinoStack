@@ -31,6 +31,12 @@ The existing signal lists below represent the `default` profile. These deltas ap
 
 #### Relaxed ephemeral chat-advice override
 
+This is a no-investigation fast path. Mandatory activation and skill-loading reads do not
+disqualify it. After activation, the conductor must either answer immediately from context already
+held or classify Elevated before the first project-content read or tool call. It must not start
+project exploration as Low and promise to promote later. An explicit unfamiliar or multi-read
+investigation request is Elevated before any project-content read.
+
 In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
 order:
 

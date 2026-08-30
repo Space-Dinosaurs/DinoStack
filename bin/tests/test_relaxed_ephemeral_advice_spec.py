@@ -116,6 +116,26 @@ def test_canonical_override_pins_decision_corpus_and_profile_isolation() -> None
         assert expected in compact, f"canonical decision corpus missing {expected!r}"
 
 
+def test_relaxed_advice_is_classified_before_the_first_project_read() -> None:
+    canonical = " ".join(_read(RISK).split())
+    for expected in (
+        "no-investigation fast path",
+        "Mandatory activation and skill-loading reads do not disqualify it",
+        "answer immediately from context already held or classify Elevated before the first project-content read or tool call",
+        "must not start project exploration as Low and promise to promote later",
+        "explicit unfamiliar or multi-read investigation request is Elevated before any project-content read",
+    ):
+        assert expected in canonical, f"canonical timing boundary missing {expected!r}"
+
+    for path in (DELEGATION, SUBAGENT):
+        mirror = " ".join(_read(path).split())
+        assert "no-investigation fast path" in mirror
+        assert "before the first project-content read or tool call" in mirror
+        assert "Never start project exploration as Low and promise to promote later" in mirror
+        assert "explicit unfamiliar or multi-read investigation request is Elevated" in mirror
+        assert "content/sections/04-risk-classification.md" in mirror
+
+
 def test_five_carriers_and_order_are_mirrored_at_routing_sites() -> None:
     for path in (DELEGATION, SUBAGENT):
         text = _read(path)

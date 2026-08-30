@@ -205,7 +205,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 
 **For rapid iteration on well-understood UI or local bug fixes**
 
-- Ephemeral chat advice: **Low** only when chat-only, write-free, non-binding, and not downstream criteria
+- Ephemeral chat advice: **Low** only as a no-investigation answer from context already held
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
 - Any other Elevated signal wins; default and strict are unchanged
@@ -213,7 +213,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 </div>
 
 <div class="callout">
-Ephemeral chat becomes binding when promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or implementation request. Those paths retain normal Elevated review.
+After activation and skill loading, classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests, plus binding tickets, plans, decisions, criteria, and implementation, retain Elevated review.
 </div>
 
 ---

@@ -192,6 +192,10 @@ For the following five carrier rows, `relaxed` applies the ordered **relaxed eph
 chat-advice override** in `$AE_REPO_DIR/content/sections/04-risk-classification.md`: all four predicates must
 pass before considering a carrier, then the complete remaining Elevated signal list is scanned and
 any remaining Elevated signal wins. `default` and `strict` keep the table's baseline treatment.
+This is a no-investigation fast path: after mandatory activation and skill-loading reads, answer
+from context already held or classify Elevated before the first project-content read or tool call.
+Never start project exploration as Low and promise to promote later; an explicit unfamiliar or
+multi-read investigation request is Elevated before any project-content read.
 
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
@@ -358,6 +362,12 @@ The methodology supports three risk profiles that shift the boundary between Low
 The existing signal lists below represent the `default` profile. These deltas apply:
 
 #### Relaxed ephemeral chat-advice override
+
+This is a no-investigation fast path. Mandatory activation and skill-loading reads do not
+disqualify it. After activation, the conductor must either answer immediately from context already
+held or classify Elevated before the first project-content read or tool call. It must not start
+project exploration as Low and promise to promote later. An explicit unfamiliar or multi-read
+investigation request is Elevated before any project-content read.
 
 In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
 order:
