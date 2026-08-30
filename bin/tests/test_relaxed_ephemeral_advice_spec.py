@@ -134,6 +134,28 @@ def test_five_carriers_and_order_are_mirrored_at_routing_sites() -> None:
     assert "remaining Elevated signal list" in compact_detail
 
 
+def test_common_rationalization_preserves_relaxed_chat_advice_exception() -> None:
+    detail = _read(DETAIL)
+    prefix = '- "I have subagent output in hand, so writing from it is just synthesizing results"'
+    paragraph = next(
+        (line for line in detail.splitlines() if line.startswith(prefix)),
+        "",
+    )
+    assert paragraph, "delegation-detail is missing the subagent-synthesis rationalization"
+    compact = paragraph.lower()
+    assert "qualifying relaxed ephemeral chat advice" in compact
+    assert "content/sections/04-risk-classification.md" in paragraph
+    assert "Relaxed ephemeral chat-advice override" in paragraph
+    assert "durable artifacts and non-qualifying recommendations remain elevated" in compact
+    stale_blanket = (
+        "not authoring a new document, specification, plan, or recommendation. "
+        "The moment the output is a new artifact"
+    )
+    assert stale_blanket not in paragraph, (
+        "the rationalization must not classify every new recommendation as Elevated"
+    )
+
+
 def test_scope_rule_precedes_autonomy_and_engineer_duplication_is_consolidated() -> None:
     delegation = _read(DELEGATION)
     scope = "**Scope discipline.** Do only the requested scope"
