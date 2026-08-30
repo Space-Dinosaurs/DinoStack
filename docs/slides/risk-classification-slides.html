@@ -1188,13 +1188,10 @@ hr {
 <h2 id="the-low-path-and-context-preservation">The Low path and context preservation</h2>
 
 <p>Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.</p>
-<p>In <code>relaxed</code>, ephemeral chat advice may also be Low only when it is chat-only, write-free,<br />
-non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining<br />
-Elevated signal; any match still wins. After activation and skill loading, answer from context<br />
-already held or classify Elevated before the first project-content read. Implement, change, fix,<br />
-and build requests establish a named Engineer/Worker route before project reads; existing candidate<br />
-commits or a populated feature branch do not authorize conductor inspection or verification.<br />
-<code>default</code> and <code>strict</code> are unchanged.</p>
+<p>In <code>relaxed</code>, ephemeral chat advice is Low only when chat-only, write-free, non-binding, not<br />
+governing downstream input, and answerable from held context. Every remaining Elevated signal wins.<br />
+Implement, change, fix, and build route to Engineer/Worker before reads; existing commits or branches<br />
+never authorize conductor inspection. <code>default</code> and <code>strict</code> are unchanged.</p>
 <p><strong>Context preservation rule:</strong> apply risk to the task, not the individual tool call.</p>
 <ul>
 <li>A read is <strong>Low</strong> when you know what you are looking for and are confirming a specific fact</li>
@@ -1202,7 +1199,7 @@ commits or a populated feature branch do not authorize conductor inspection or v
 <li>A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation</li>
 </ul>
 <div class="callout">
-Do not explore as Low. Explicit unfamiliar or multi-read requests and every other Elevated signal still win. Route investigation to the appropriate named agent. Implementation uses the normal named Engineer/Worker route and fails closed if it cannot start; the conductor never verifies an existing branch directly. If an investigation route cannot start, report the blocker or stay within bounded context-only advice; never investigate the project directly.
+Never explore as Low. Route unfamiliar or multi-read investigation to its named agent and implementation to Engineer/Worker. If a required route fails, report the blocker without project reads or verification.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

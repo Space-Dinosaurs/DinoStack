@@ -325,13 +325,10 @@ ALL of the following must hold - any single disqualifier pushes to Elevated:
 
 Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.
 
-In `relaxed`, ephemeral chat advice may also be Low only when it is chat-only, write-free,
-non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining
-Elevated signal; any match still wins. After activation and skill loading, answer from context
-already held or classify Elevated before the first project-content read. Implement, change, fix,
-and build requests establish a named Engineer/Worker route before project reads; existing candidate
-commits or a populated feature branch do not authorize conductor inspection or verification.
-`default` and `strict` are unchanged.
+In `relaxed`, ephemeral chat advice is Low only when chat-only, write-free, non-binding, not
+governing downstream input, and answerable from held context. Every remaining Elevated signal wins.
+Implement, change, fix, and build route to Engineer/Worker before reads; existing commits or branches
+never authorize conductor inspection. `default` and `strict` are unchanged.
 
 **Context preservation rule:** apply risk to the task, not the individual tool call.
 
@@ -340,7 +337,7 @@ commits or a populated feature branch do not authorize conductor inspection or v
 - A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation
 
 <div class="callout">
-Do not explore as Low. Explicit unfamiliar or multi-read requests and every other Elevated signal still win. Route investigation to the appropriate named agent. Implementation uses the normal named Engineer/Worker route and fails closed if it cannot start; the conductor never verifies an existing branch directly. If an investigation route cannot start, report the blocker or stay within bounded context-only advice; never investigate the project directly.
+Never explore as Low. Route unfamiliar or multi-read investigation to its named agent and implementation to Engineer/Worker. If a required route fails, report the blocker without project reads or verification.
 </div>
 
 ---
