@@ -205,14 +205,15 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 
 **For rapid iteration on well-understood UI or local bug fixes**
 
+- Ephemeral chat advice: **Low** only as a no-investigation answer from context already held
 - Single-file locally-scoped behavioral edits: **Low** (no Skeptic)
 - Multi-file pure-UI-only changes: **Low** (no Skeptic)
-- Everything else: unchanged from default
+- Any other Elevated signal wins; default and strict are unchanged
 
 </div>
 
 <div class="callout">
-Use relaxed on feature branches where you're moving fast and the surface area is contained. Switch back to default before merging anything that touches shared infrastructure or behavioral contracts.
+After activation, answer only from held context. Explicit unfamiliar or multi-read requests and every other Elevated signal route before project reads. Implement, change, fix, and build use Engineer/Worker; existing commits or branches do not authorize conductor inspection. If a required route fails, report the blocker without project exploration.
 </div>
 
 ---

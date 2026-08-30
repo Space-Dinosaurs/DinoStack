@@ -2318,11 +2318,12 @@
     <div>
       <div class="rel-card">
         <h4 style="color: var(--green);">relaxed</h4>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">For rapid iteration on well-understood UI or local bug fixes.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">For rapid iteration on well-understood UI, local bug fixes, and non-binding advice.</p>
         <ul>
+          <li>Ephemeral chat advice: Low only when chat-only, write-free, non-binding, and not downstream criteria</li>
           <li>Single-file locally-scoped behavioral edits: Low (no Skeptic)</li>
           <li>Multi-file pure-UI-only changes: Low (no Skeptic)</li>
-          <li>Everything else unchanged from default</li>
+          <li>Any other Elevated signal wins; default and strict are unchanged</li>
         </ul>
       </div>
     </div>
@@ -2356,6 +2357,10 @@
     <strong>Token spend:</strong> The Elevated classification is the dominant cost driver. Each Elevated task fans out to a Worker + Skeptic - and often an architect, orchestration-planner, and QA engineer - each re-reading full context. Moving from <code>strict</code> or <code>default</code> toward <code>relaxed</code> reclassifies more small work as Low (conductor direct action, no spawns), removing that pipeline overhead entirely. Accept the tradeoff: <code>relaxed</code> trades independent review for speed; keep <code>default</code> or <code>strict</code> wherever a mistake is hard to reverse.
   </div>
 
+  <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
+    <strong>Ephemeral means non-binding:</strong> discussion becomes binding when promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or implementation request. Those paths retain normal Elevated review in every profile.
+  </div>
+
   <div class="code-block" style="margin-top: 16px;">
     <span class="cb-label">how to set your profile</span>
     <span class="cb-keyword"># At install time</span><br>
@@ -2385,6 +2390,7 @@
         <li>Diagnostic-only logging (zero behavioral effect)</li>
         <li>Documentation-only .md creation (pure list/glossary)</li>
         <li>Targeted wording fix to already-reviewed content</li>
+        <li>Ephemeral chat advice (relaxed only, all four predicates required)</li>
       </ul>
     </div>
     <div class="rel-card" style="border-color: rgba(255,93,115,0.25);">
@@ -2404,6 +2410,10 @@
   </div>
   <div class="note" style="border-left-color: var(--rose);">
     <strong>When in doubt, classify as Elevated.</strong> "Looks simple" is not a Low signal. Mid-task reclassification is mandatory if Elevated signals appear during execution.
+  </div>
+  <div class="note" style="border-left-color: var(--green); margin-top: 10px;">
+    <strong>Relaxed chat carve-out:</strong> all four predicates must pass, then every remaining Elevated signal is scanned. Multi-read investigation, state changes, protocol edits, high-stakes work, and implementation requests remain Elevated.
+    After mandatory activation and skill loading, this is a no-investigation fast path: answer from context already held or classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests are Elevated before reading. Every other Elevated signal still wins. Implement, change, fix, and build requests must establish the normal named Engineer/Worker route before project reads; existing candidate commits or a populated feature branch never authorize conductor-side inspection or verification. If the required named-agent route is unavailable, fail closed and report the blocker or stay within bounded context-only advice; never replace delegation with direct project exploration.
   </div>
 
   <div class="rel-card" style="margin-top: 16px; border-color: var(--rose-dim);">

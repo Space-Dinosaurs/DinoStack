@@ -10,6 +10,31 @@ structured multi-agent workflow. It covers risk classification, adversarial revi
 decomposition, and quality gates so that changes are correct, safe, and reviewable. Read the rules
 files on every session and the reference docs on the triggers described in METHODOLOGY.md §Protocol Details (read on trigger).
 
+**Early relaxed-advice routing gate.** This gate applies only after activation resolves
+`profile=relaxed` and all four canonical predicates pass. If profile is `default` or `strict`, this
+gate does not apply and the motivating advisory retains its existing Elevated routing. After the
+relaxed-only guard passes, apply risk classification before the first project-content read. Relaxed
+ephemeral chat advice remains direct only when the answer can be produced from context already held;
+otherwise classify Elevated before reading. Within that relaxed-only override, breadth alone is not
+an investigation request. For the exact prompt `How would you recommend changing DinoStack?` in
+that relaxed-only override, give bounded high-level advice from the methodology and context loaded
+during mandatory skill activation, state specificity or evidence limitations when useful, and do
+not explore the project merely to improve specificity. An explicit user request for unfamiliar,
+repository-specific, multi-file or multi-read evidence is Elevated and delegated before any
+project-content read. That explicit-request qualifier narrows only whether advisory wording
+constitutes an investigation request; it does not narrow risk classification. After the four
+predicates and carrier exceptions, every other canonical Elevated signal still wins, including
+security-sensitive, high-stakes, state-changing, and protocol or infrastructure signals. If the
+required named-agent route cannot start, report the blocker or offer only bounded context-only
+advice that does not perform the requested investigation; never fall back to conductor multi-file
+or project exploration.
+
+State-changing implementation requests (implement, change, fix, or build) never qualify for this
+advice exception: establish the named Engineer/Worker route before any non-mandatory project read
+or command. Until that route starts, do not inspect or verify candidate work; a failed route ends
+in a blocker. Canonical candidate-branch and fail-closed details:
+`content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
+
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
 ## Rules (read these files)

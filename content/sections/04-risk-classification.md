@@ -21,13 +21,78 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
-- **`relaxed`** — minimal Skeptic overhead. Use for rapid iteration on well-understood UI or local bug fixes.
+- **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
 - **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
 
 The existing signal lists below represent the `default` profile. These deltas apply:
+
+#### Relaxed ephemeral chat-advice override
+
+In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
+order:
+
+1. The output is chat text only.
+2. The task performs zero filesystem or external-state writes.
+3. The user did not ask to decide, adopt, standardize, document, or implement the advice.
+4. The response is not acceptance criteria or governing downstream input.
+
+Only after `profile=relaxed` resolves and all four predicates pass, this is a no-investigation fast
+path. Mandatory activation and skill-loading reads do not disqualify it. After activation, the
+conductor must either answer immediately from context already held or classify Elevated before the
+first project-content read or tool call. It must not start project exploration as Low and promise
+to promote later. An explicit unfamiliar or multi-read investigation request is Elevated before
+any project-content read.
+
+For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
+fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
+Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+before the first non-mandatory project-content read. Existing candidate commits or an
+already-populated feature branch do not authorize conductor-side inspection, verification, or
+implementation. If that route cannot start, fail closed and report the blocker; do not run git
+diff, tests, or source reads directly.
+
+Within that relaxed-only override, breadth alone is not an investigation request. For the exact
+prompt `How would you recommend changing DinoStack?` in that relaxed-only override, give bounded
+high-level advice from the methodology and context loaded during mandatory skill activation, state
+specificity or evidence limitations when useful, and do not explore the project merely to improve
+specificity. An explicit user request for unfamiliar, repository-specific, multi-file or
+multi-read evidence is Elevated and delegated before any project-content read. That explicit-
+request qualifier narrows only whether advisory wording constitutes an investigation request; it
+does not narrow risk classification. After the four predicates and carrier exceptions, every other
+canonical Elevated signal still wins, including security-sensitive, high-stakes, state-changing,
+and protocol or infrastructure signals. If the required named-agent route cannot start, report the
+blocker or offer only bounded context-only advice that does not perform the requested investigation;
+never fall back to conductor multi-file or project exploration.
+
+Only after all four predicates pass, apply the override to these five canonical carrier rows:
+
+| Canonical carrier | `relaxed` treatment after the predicate gate |
+|---|---|
+| Answer a question from context in memory | A recommendation may remain Low when it uses context already held and needs no exploratory reads. |
+| Synthesize already-returned subagent results | A recommendation may remain Low when it only explains results already returned. |
+| Architecture decision constraining future choices | Discussion may remain Low; making the decision fails predicate 3 and stays Elevated. |
+| Document synthesis / architecture / planning | Qualifying chat discussion is not a durable artifact and may remain Low. |
+| Research that produces an artifact (doc, plan, recommendation) | Qualifying chat is not an artifact; research or artifact production stays Elevated. |
+
+Then scan the complete remaining Elevated signal list. Any remaining signal wins. Multi-read
+investigation, unfamiliar-area exploration, protocol or infrastructure edits, state changes,
+security-sensitive work, shared utilities, high-stakes work, and emergent interactions remain
+Elevated.
+
+Decision corpus:
+
+- Advisory `How would you recommend changing DinoStack?` is Low and direct in `relaxed` only when chat-only and non-exploratory. Breadth alone does not make it exploratory; answer from activation-loaded methodology and context, state evidence limits when useful, and do not read the project for greater specificity.
+- Decide or adopt architecture is Elevated in every profile.
+- Write an ADR, plan, or spec is Elevated in every profile.
+- Advisory work where the user explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated in every profile.
+- An implementation request is Elevated in every profile.
+
+The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
+promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
+implementation request.
 
 **`relaxed` (additional Low overrides):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated.

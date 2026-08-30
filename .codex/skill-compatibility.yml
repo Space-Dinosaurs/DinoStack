@@ -302,6 +302,16 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "1d094656f94c4eedae473ef42fdd975ab4674bc381c6a3d74ce3da857641585f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -520,6 +530,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "39afcbc9df950a897a67fd2d70ec2b79aabd3315e52082be94a9d653e9ab624c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -2242,6 +2262,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "f0c5c8c4949d198dd2431ce77b80bf9f6381f2510d58161eee5c531e503c7954",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Write"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -2410,6 +2440,16 @@
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",
       "source_token": "/ds-brief"
+    },
+    {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "4b205b36c43dd19a6d2923b877c6a9478c75d412a4b5355112bfb0577c0dba11",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "content/sections/04-risk-classification.md"
     },
     {
       "expected_target": "rg",

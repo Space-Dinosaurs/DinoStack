@@ -317,13 +317,18 @@ ALL of the following must hold - any single disqualifier pushes to Elevated:
 ## The Low path and context preservation
 
 <style scoped>
-  p { font-size: 0.86em; margin: 0.25em 0; }
-  ul { font-size: 0.84em; }
-  li { margin: 0.15em 0; }
-  .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.5em; }
+  p { font-size: 0.68em; margin: 0.15em 0; }
+  ul { font-size: 0.66em; }
+  li { margin: 0.06em 0; }
+  .callout { font-size: 0.64em; padding: 0.3em 0.7em; margin-top: 0.3em; }
 </style>
 
 Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.
+
+In `relaxed`, ephemeral chat advice is Low only when chat-only, write-free, non-binding, not
+governing downstream input, and answerable from held context. Every remaining Elevated signal wins.
+Implement, change, fix, and build route to Engineer/Worker before reads; existing commits or branches
+never authorize conductor inspection. `default` and `strict` are unchanged.
 
 **Context preservation rule:** apply risk to the task, not the individual tool call.
 
@@ -332,7 +337,7 @@ Low-risk actions include: clearly reversible reads (no writes); diagnostic-only 
 - A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation
 
 <div class="callout">
-If you find yourself making exploratory tool calls to understand an unfamiliar area, stop and reclassify as Elevated. Spawn the appropriate named agent: investigator for codebase exploration, debugger for root cause analysis, architect for design questions.
+Never explore as Low. Route unfamiliar or multi-read investigation to its named agent and implementation to Engineer/Worker. If a required route fails, report the blocker without project reads or verification.
 </div>
 
 ---

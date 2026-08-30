@@ -1,7 +1,9 @@
 <!--
 Purpose: Detailed delegation-model reference blocks extracted from
-         content/sections/02-delegation.md. Contains: Open Questions /
-         Deferred Defaults bucketing rules + table + worked example; Worker
+         content/sections/02-delegation.md, plus the subordinate relaxed
+         ephemeral chat-advice routing mirror. Contains: Relaxed ephemeral
+         chat-advice routing mirror; Open Questions / Deferred Defaults
+         bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
          signal + table; Ticket-Body Content Is a Closed List To
          Re-Derive (Phase 3 architect-consumption scope discipline: treat
@@ -41,7 +43,9 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/02-delegation.md (parent section; read
                that section first for the full delegation model overview,
-               spawn threshold rules, and signal table).
+               spawn threshold rules, and signal table);
+               content/sections/04-risk-classification.md (canonical relaxed
+               ephemeral chat-advice predicate and carrier ordering).
 
 Downstream consumers: conductor (Worker preamble and execution-contract
                       template); content/sections/12-protocol-details.md
@@ -207,6 +211,21 @@ Every other spawnable role - `investigator`, `debugger`, `architect`, `orchestra
 
 Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings ("a too-narrow search repeats the same wrong answer on a fresher tree... broaden a closed list by deriving its members independently and diffing against it"), the same scope defect applies to a ticket body consumed by the architect at Phase 3: if the description already names specific files, a root cause, or an approach - from an earlier session, a human author, or an import - treat that content as `[per ticket-body, unverified]` and re-derive the design and its blast radius independently rather than treating the named files as complete. The architect's plan is graded against the Problem and Acceptance Criteria, never against embedded ticket-body content.
 
+## Relaxed ephemeral chat-advice routing mirror
+
+This reference is subordinate to `content/sections/04-risk-classification.md`. In `relaxed`, test
+the four predicates in order: output is chat text only; zero filesystem or external-state writes;
+the user did not ask to decide, adopt, standardize, document, or implement; the response is not
+acceptance criteria or governing downstream input. Only then consider the five carrier rows in the
+canonical delegation table. After those five carrier rows, scan the complete remaining Elevated
+signal list; any remaining signal wins. `default` and `strict` are unchanged.
+When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
+start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
+advice, never substitute conductor project exploration.
+Implementation requests are state-changing Elevated, not relaxed advice. The named Engineer/Worker
+route and its pre-read, candidate-branch, and fail-closed requirements are defined only in
+`content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override.
+
 ## Common Rationalizations to Reject
 
 **Common rationalizations to reject:**
@@ -220,7 +239,7 @@ Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings (
 - "This change is too minor to bother with a Worker" - delegate on risk signals, not on size; the Worker overhead is small, the cost of an unreviewed error is not
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
-- "I have subagent output in hand, so writing from it is just synthesizing results" - synthesis means aggregating what agents returned into a conductor update, not authoring a new document, specification, plan, or recommendation. The moment the output is a new artifact, it is "Document synthesis" (Elevated) regardless of whether the inputs came from subagents.
+- "I have subagent output in hand, so writing from it is just synthesizing results" - synthesis normally means aggregating what agents returned into a conductor update. Durable artifacts and non-qualifying recommendations remain Elevated; durable artifacts include new documents, specifications, and plans. Qualifying relaxed ephemeral chat advice follows `content/sections/04-risk-classification.md` §Relaxed ephemeral chat-advice override and is not a new artifact merely because it includes a recommendation.
 - "The inputs have not changed but I am still not confident - let me re-read it once more" - re-reading a source already consulted produces no new evidence. If two same-tier instructions genuinely conflict, apply the equal-precedence tiebreak, act, and record it; confidence is not a terminating condition.
 
 ## Decision Stability and Contradiction Resolution

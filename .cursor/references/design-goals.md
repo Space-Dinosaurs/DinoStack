@@ -41,6 +41,16 @@ The Skeptic pattern counters this by introducing a genuinely independent reviewe
 
 The Skeptic Protocol (`content/references/skeptic-protocol.md`) operationalizes this goal with the full loop definition, escalation rules, sign-off format, and adversarial brief templates.
 
+### Profile dial for ephemeral advice
+
+Independent review is an enforcement floor for state-changing work and durable decision artifacts,
+not for every conversational recommendation. The `relaxed` profile may keep qualifying ephemeral
+chat advice on the Low path when it is chat-only, performs no writes, makes no adopted decision,
+and does not govern downstream work. The `default` and `strict` profiles keep the broader review
+boundary. Promotion into a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance
+criteria, or implementation request restores the normal Elevated floor. This is a risk-profile
+dial, not a new delivery mode or a reduction in verification at the git boundary.
+
 ---
 
 ## Goal 3 — Cross-session continuity without ceremony

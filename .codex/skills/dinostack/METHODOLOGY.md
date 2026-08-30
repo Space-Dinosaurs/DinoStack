@@ -96,6 +96,10 @@ Claude hook payload fields and Claude Task behavior do not apply on Codex.
 
 **Pre-spawn checklist - ticket-offer gate:** Before the FIRST subagent spawn of any kind (exemptions apply) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
+**Scope discipline.** Do only the requested scope. Add no adjacent features or refactors. When
+completion requires an architecture decision or significant scope expansion, reclassify and route
+that work through the applicable protocol rather than silently expanding it.
+
 **Proactive autonomy.** The conductor's default is to act, not to ask. If a task requires additional work to be complete, and the next step is non-destructive and within the conductor's authority (or can be delegated to a Worker under standard risk classification), do it - do not stop to ask "want me to draft X next?" or "shall I wire this up?". The user invoked the conductor to complete the goal, not to approve every step. On Claude Code this rule is enforced by a Stop hook (`$AE_REPO_DIR/hooks/enforce-no-abdication.py`, wired by `$AE_REPO_DIR/.claude/install.sh`) that detects three shapes in the final assistant message - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the session stop, injecting a directive; requires `abdication_guard_enabled: true` in `$AE_PROJECT_DIR/.agentic/config.json`; set to `false` to opt out once enabled; disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`; other adapters rely on the prose rule.
 
 **Auto-invoking `$brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `$brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `$AE_REPO_DIR/content/commands/ds-brief.md` Section 1.
@@ -184,12 +188,27 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Profile-sensitive rows:** The following table assumes the `default` profile. In `strict`, several Low overrides are removed (see Risk profiles). In `relaxed`, additional Elevated signals are downgraded to Low.
 
+For the following five carrier rows, `relaxed` applies the ordered **relaxed ephemeral
+chat-advice override** in `$AE_REPO_DIR/content/sections/04-risk-classification.md`: all four predicates must
+pass before considering a carrier, then the complete remaining Elevated signal list is scanned and
+any remaining Elevated signal wins. `default` and `strict` keep the table's baseline treatment.
+This is a no-investigation fast path: after mandatory activation and skill-loading reads, answer
+from context already held or classify Elevated before the first project-content read or tool call.
+Never start project exploration as Low and promise to promote later; an explicit unfamiliar or
+multi-read investigation request is Elevated before any project-content read.
+If that required named-agent route cannot start, the canonical fail-closed rule applies: report
+the blocker or stay within bounded context-only advice, never substitute direct project exploration.
+Implementation requests are state-changing Elevated, not relaxed advice. Route them through the
+named Engineer/Worker as specified by `$AE_REPO_DIR/content/sections/04-risk-classification.md` §Relaxed
+ephemeral chat-advice override, which exclusively governs pre-read timing, candidate branches, and
+fail-closed behavior.
+
 | Signal / condition | Direct OK? | Spawn Worker + Skeptic? |
 |---|---|---|
 | Read a file / git status/log/diff (when confirming a known fact, not exploring; see Context preservation in Risk Classification) | Yes | No |
-| Answer a question from context in memory | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
+| Answer a question from context in memory | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Take a screenshot or browser snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
+| Synthesize already-returned subagent results | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Diagnostic-only changes (pure logging across any number of files, zero behavioral effect) | Yes | No |
 | Documentation-only file creation (new .md or .txt that is a pure list, glossary, or running note - no code, no config; not a spec, plan, decision record, recommendation, architecture document, synthesis artifact, or any file in $AE_REPO_DIR/.claude/ or $AE_REPO_DIR/; overrides "New file creation" below for this case only) | Yes | No |
 | Targeted wording fix to already-reviewed content (phrasing adjustment only, substance Skeptic-approved in the current or a recent session; does not apply to new decisions, new recommendations, new content not previously reviewed, or protocol/infrastructure files; overrides the single-file edit and new file Elevated signals for this case only) | Yes | No |
@@ -200,7 +219,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 | Any code edit with behavioral effect (write/modify/delete, excluding diagnostic-only logging) | No | **Yes** |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
-| Architecture decision constraining future choices | No | **Yes** |
+| Architecture decision constraining future choices | Discussion only when the relaxed ephemeral chat-advice override fully qualifies; an actual decision is never direct | **Yes**, except qualifying relaxed discussion |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
 | Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override above - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
@@ -211,8 +230,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
 | Changes to shared utilities (single-file but high blast radius) | No | **Yes** |
 | Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
-| Document synthesis / architecture / planning | No | **Yes** |
-| Research that produces an artifact (doc, plan, recommendation) | No | **Yes** |
+| Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
+| Research that produces an artifact (doc, plan, recommendation) | Chat advice only when the relaxed ephemeral chat-advice override fully qualifies; artifact production is never direct | **Yes**, except qualifying relaxed chat |
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
@@ -340,13 +359,78 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 
 The methodology supports three risk profiles that shift the boundary between Low and Elevated. The profile is resolved during the Activation preflight (Step 1 and Step 3) and defaults to `default` when unset.
 
-- **`relaxed`** — minimal Skeptic overhead. Use for rapid iteration on well-understood UI or local bug fixes.
+- **`relaxed`** - minimal Skeptic overhead. Use for rapid iteration on well-understood UI, local bug fixes, or qualifying non-binding advice.
 - **`default`** — slightly relaxed from legacy behavior. Single-file locally-scoped behavioral edits are Low rather than Elevated.
 - **`strict`** — broad Skeptic coverage. Use when correctness is paramount and review bandwidth is acceptable.
 
 #### Profile deltas
 
 The existing signal lists below represent the `default` profile. These deltas apply:
+
+#### Relaxed ephemeral chat-advice override
+
+In the `relaxed` profile only, advice may remain **Low** when all four predicates pass, in this
+order:
+
+1. The output is chat text only.
+2. The task performs zero filesystem or external-state writes.
+3. The user did not ask to decide, adopt, standardize, document, or implement the advice.
+4. The response is not acceptance criteria or governing downstream input.
+
+Only after `profile=relaxed` resolves and all four predicates pass, this is a no-investigation fast
+path. Mandatory activation and skill-loading reads do not disqualify it. After activation, the
+conductor must either answer immediately from context already held or classify Elevated before the
+first project-content read or tool call. It must not start project exploration as Low and promise
+to promote later. An explicit unfamiliar or multi-read investigation request is Elevated before
+any project-content read.
+
+For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
+fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
+Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+before the first non-mandatory project-content read. Existing candidate commits or an
+already-populated feature branch do not authorize conductor-side inspection, verification, or
+implementation. If that route cannot start, fail closed and report the blocker; do not run git
+diff, tests, or source reads directly.
+
+Within that relaxed-only override, breadth alone is not an investigation request. For the exact
+prompt `How would you recommend changing DinoStack?` in that relaxed-only override, give bounded
+high-level advice from the methodology and context loaded during mandatory skill activation, state
+specificity or evidence limitations when useful, and do not explore the project merely to improve
+specificity. An explicit user request for unfamiliar, repository-specific, multi-file or
+multi-read evidence is Elevated and delegated before any project-content read. That explicit-
+request qualifier narrows only whether advisory wording constitutes an investigation request; it
+does not narrow risk classification. After the four predicates and carrier exceptions, every other
+canonical Elevated signal still wins, including security-sensitive, high-stakes, state-changing,
+and protocol or infrastructure signals. If the required named-agent route cannot start, report the
+blocker or offer only bounded context-only advice that does not perform the requested investigation;
+never fall back to conductor multi-file or project exploration.
+
+Only after all four predicates pass, apply the override to these five canonical carrier rows:
+
+| Canonical carrier | `relaxed` treatment after the predicate gate |
+|---|---|
+| Answer a question from context in memory | A recommendation may remain Low when it uses context already held and needs no exploratory reads. |
+| Synthesize already-returned subagent results | A recommendation may remain Low when it only explains results already returned. |
+| Architecture decision constraining future choices | Discussion may remain Low; making the decision fails predicate 3 and stays Elevated. |
+| Document synthesis / architecture / planning | Qualifying chat discussion is not a durable artifact and may remain Low. |
+| Research that produces an artifact (doc, plan, recommendation) | Qualifying chat is not an artifact; research or artifact production stays Elevated. |
+
+Then scan the complete remaining Elevated signal list. Any remaining signal wins. Multi-read
+investigation, unfamiliar-area exploration, protocol or infrastructure edits, state changes,
+security-sensitive work, shared utilities, high-stakes work, and emergent interactions remain
+Elevated.
+
+Decision corpus:
+
+- Advisory `How would you recommend changing DinoStack?` is Low and direct in `relaxed` only when chat-only and non-exploratory. Breadth alone does not make it exploratory; answer from activation-loaded methodology and context, state evidence limits when useful, and do not read the project for greater specificity.
+- Decide or adopt architecture is Elevated in every profile.
+- Write an ADR, plan, or spec is Elevated in every profile.
+- Advisory work where the user explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated in every profile.
+- An implementation request is Elevated in every profile.
+
+The `default` and `strict` profiles are unchanged by this override. Chat becomes binding only when
+promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or
+implementation request.
 
 **`relaxed` (additional Low overrides):**
 - **Single-file, locally-scoped code edits with behavioral effect** are treated as **Low** instead of Elevated.
