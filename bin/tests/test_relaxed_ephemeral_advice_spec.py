@@ -109,9 +109,10 @@ def test_canonical_override_pins_decision_corpus_and_profile_isolation() -> None
     for expected in (
         "How would you recommend changing DinoStack?",
         "Low and direct in `relaxed` only when chat-only and non-exploratory",
+        "Breadth alone does not make it exploratory",
         "Decide or adopt architecture",
         "Write an ADR, plan, or spec",
-        "Unfamiliar multi-read advisory work",
+        "explicitly requests unfamiliar, repository-specific, multi-file or multi-read evidence",
         "An implementation request",
         "The `default` and `strict` profiles are unchanged by this override",
         "Chat becomes binding only when promoted to a ticket, Brief, Plan, ADR, requirements or decision artifact, acceptance criteria, or implementation request",
@@ -145,7 +146,7 @@ def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
         "apply risk classification before the first project-content read",
         "Relaxed ephemeral chat advice remains direct only when the answer can be produced from context already held",
         "otherwise classify Elevated before reading",
-        "explicit unfamiliar or multi-read investigation request is Elevated and must be delegated before any project-content read",
+        "explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
     )
     for path in (CANONICAL_SKILL, CODEX_SKILL):
         text = _read(path)
@@ -161,6 +162,23 @@ def test_skill_surfaces_relaxed_pre_read_gate_before_general_guidance() -> None:
     methodology = _read(CODEX_METHODOLOGY)
     _assert_in_order(methodology, PREDICATES, "generated Codex predicate scope")
     _assert_in_order(methodology, CARRIERS, "generated Codex carrier scope")
+
+
+def test_broad_relaxed_prompt_does_not_imply_investigation() -> None:
+    required = (
+        "Breadth alone is not an investigation request",
+        "How would you recommend changing DinoStack?",
+        "bounded high-level advice from the methodology and context loaded during mandatory skill activation",
+        "state specificity or evidence limitations when useful",
+        "do not explore the project merely to improve specificity",
+        "Only an explicit user request for unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before any project-content read",
+    )
+    for path in (RISK, CANONICAL_SKILL, CODEX_SKILL):
+        compact = " ".join(_read(path).split())
+        for expected in required:
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing broad-prompt distinction {expected!r}"
+            )
 
 
 def test_five_carriers_and_order_are_mirrored_at_routing_sites() -> None:

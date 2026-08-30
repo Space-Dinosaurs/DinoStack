@@ -46,8 +46,12 @@ files on every session and the reference docs on the triggers described in METHO
 **Early relaxed-advice routing gate.** After mandatory activation and skill loading, apply risk
 classification before the first project-content read. Relaxed ephemeral chat advice remains direct
 only when the answer can be produced from context already held; otherwise classify Elevated before
-reading. An explicit unfamiliar or multi-read investigation request is Elevated and must be
-delegated before any project-content read.
+reading. Breadth alone is not an investigation request. For the exact prompt `How would you
+recommend changing DinoStack?`, give bounded high-level advice from the methodology and context
+loaded during mandatory skill activation, state specificity or evidence limitations when useful,
+and do not explore the project merely to improve specificity. Only an explicit user request for
+unfamiliar, repository-specific, multi-file or multi-read evidence is Elevated and delegated before
+any project-content read.
 
 **Conductor default: act, don't ask.** The conductor's job is to complete the goal, not to approve every step. Stop and ask only for destructive/irreversible actions, missing information only the user has, materially ambiguous acceptance criteria, or scope-completion decisions. Repeated stops within one task are a planning signal, not a virtue. See `Proactive autonomy` in METHODOLOGY.md §Delegation for the full rule, anti-patterns, and stop-frequency thresholds.
 
