@@ -213,7 +213,7 @@ Profiles are not a security dial - they tune review cadence. The underlying risk
 </div>
 
 <div class="callout">
-After activation and skill loading, classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests, plus every other Elevated signal, retain Elevated review. If the required named-agent route cannot start, report the blocker or stay within bounded context-only advice; never substitute direct project exploration.
+After activation and skill loading, classify Elevated before the first project-content read. Explicit unfamiliar or multi-read requests, plus every other Elevated signal, retain Elevated review. Implement, change, fix, and build requests must establish a named Engineer/Worker route before project reads; existing candidate commits or a populated feature branch do not permit conductor inspection or verification. If the required named-agent route cannot start, fail closed and report the blocker or stay within bounded context-only advice; never substitute direct project exploration.
 </div>
 
 ---

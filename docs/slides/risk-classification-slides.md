@@ -328,7 +328,10 @@ Low-risk actions include: clearly reversible reads (no writes); diagnostic-only 
 In `relaxed`, ephemeral chat advice may also be Low only when it is chat-only, write-free,
 non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining
 Elevated signal; any match still wins. After activation and skill loading, answer from context
-already held or classify Elevated before the first project-content read. `default` and `strict` are unchanged.
+already held or classify Elevated before the first project-content read. Implement, change, fix,
+and build requests establish a named Engineer/Worker route before project reads; existing candidate
+commits or a populated feature branch do not authorize conductor inspection or verification.
+`default` and `strict` are unchanged.
 
 **Context preservation rule:** apply risk to the task, not the individual tool call.
 
@@ -337,7 +340,7 @@ already held or classify Elevated before the first project-content read. `defaul
 - A sequence of reads, greps, and bashes that collectively constitute investigation is an Elevated task - regardless of whether each individual step looks Low in isolation
 
 <div class="callout">
-Do not explore as Low. Explicit unfamiliar or multi-read requests and every other Elevated signal still win. Route investigation to the appropriate named agent. If that route cannot start, report the blocker or stay within bounded context-only advice; never investigate the project directly.
+Do not explore as Low. Explicit unfamiliar or multi-read requests and every other Elevated signal still win. Route investigation to the appropriate named agent. Implementation uses the normal named Engineer/Worker route and fails closed if it cannot start; the conductor never verifies an existing branch directly. If an investigation route cannot start, report the blocker or stay within bounded context-only advice; never investigate the project directly.
 </div>
 
 ---

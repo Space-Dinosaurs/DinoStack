@@ -221,6 +221,13 @@ signal list; any remaining signal wins. `default` and `strict` are unchanged.
 When an explicit unfamiliar or multi-read advisory requires a named agent and that route cannot
 start, follow the canonical fail-closed rule: report the blocker or stay within bounded context-only
 advice, never substitute conductor project exploration.
+For the exact prompt `Implement the recommended DinoStack changes.`, and for any implement, change,
+fix, or build request, the task is outside the relaxed chat-advice exception and is state-changing
+Elevated. Apply the normal state-changing workflow by establishing a named Engineer/Worker route
+before the first non-mandatory project-content read. Existing candidate commits or an
+already-populated feature branch do not authorize conductor-side inspection, verification, or
+implementation. If that route cannot start, fail closed and report the blocker; do not run git
+diff, tests, or source reads directly.
 
 ## Common Rationalizations to Reject
 

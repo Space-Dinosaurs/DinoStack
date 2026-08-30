@@ -216,6 +216,27 @@ def test_delegation_failure_never_falls_back_to_direct_project_investigation() -
             )
 
 
+def test_relaxed_implementation_routes_before_existing_branch_inspection() -> None:
+    required = (
+        "Implement the recommended DinoStack changes.",
+        "outside the relaxed chat-advice exception",
+        "state-changing Elevated",
+        "named Engineer/Worker route",
+        "before the first non-mandatory project-content read",
+        "Existing candidate commits or an already-populated feature branch",
+        "do not authorize conductor-side inspection, verification, or implementation",
+        "fail closed",
+        "git diff, tests, or source reads",
+    )
+    for path in (CANONICAL_SKILL, RISK, DELEGATION, SUBAGENT, DETAIL):
+        compact = " ".join(_read(path).split())
+        for expected in required:
+            assert expected in compact, (
+                f"{path.relative_to(REPO_ROOT)} missing relaxed implementation routing "
+                f"fragment {expected!r}"
+            )
+
+
 def test_early_gate_is_scoped_to_relaxed_after_all_predicates() -> None:
     for path in (CANONICAL_SKILL, CODEX_SKILL):
         compact = " ".join(_read(path).split())
