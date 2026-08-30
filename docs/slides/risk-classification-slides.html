@@ -1188,6 +1188,9 @@ hr {
 <h2 id="the-low-path-and-context-preservation">The Low path and context preservation</h2>
 
 <p>Low-risk actions include: clearly reversible reads (no writes); diagnostic-only logging across any number of files where every change has zero behavioral effect; file renaming with no content changes; UI-only copy changes; targeted wording fixes to already-reviewed content.</p>
+<p>In <code>relaxed</code>, ephemeral chat advice may also be Low only when it is chat-only, write-free,<br />
+non-binding, and not acceptance criteria or governing downstream input. Then scan every remaining<br />
+Elevated signal; any match still wins. <code>default</code> and <code>strict</code> are unchanged.</p>
 <p><strong>Context preservation rule:</strong> apply risk to the task, not the individual tool call.</p>
 <ul>
 <li>A read is <strong>Low</strong> when you know what you are looking for and are confirming a specific fact</li>

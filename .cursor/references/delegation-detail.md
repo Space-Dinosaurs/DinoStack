@@ -1,6 +1,7 @@
 <!--
 Purpose: Detailed delegation-model reference blocks extracted from
-         content/sections/02-delegation.md. Contains: Open Questions /
+         content/sections/02-delegation.md, plus the subordinate relaxed
+         ephemeral chat-advice routing mirror. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
          signal + table; Ticket-Body Content Is a Closed List To
@@ -41,7 +42,9 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/02-delegation.md (parent section; read
                that section first for the full delegation model overview,
-               spawn threshold rules, and signal table).
+               spawn threshold rules, and signal table);
+               content/sections/04-risk-classification.md (canonical relaxed
+               ephemeral chat-advice predicate and carrier ordering).
 
 Downstream consumers: conductor (Worker preamble and execution-contract
                       template); content/sections/12-protocol-details.md
@@ -206,6 +209,15 @@ Every other spawnable role - `investigator`, `debugger`, `architect`, `orchestra
 ## Ticket-Body Content Is a Closed List To Re-Derive
 
 Per `content/sections/02-delegation.md` §Skeptic absence-or-critical findings ("a too-narrow search repeats the same wrong answer on a fresher tree... broaden a closed list by deriving its members independently and diffing against it"), the same scope defect applies to a ticket body consumed by the architect at Phase 3: if the description already names specific files, a root cause, or an approach - from an earlier session, a human author, or an import - treat that content as `[per ticket-body, unverified]` and re-derive the design and its blast radius independently rather than treating the named files as complete. The architect's plan is graded against the Problem and Acceptance Criteria, never against embedded ticket-body content.
+
+## Relaxed ephemeral chat-advice routing mirror
+
+This reference is subordinate to `content/sections/04-risk-classification.md`. In `relaxed`, test
+the four predicates in order: output is chat text only; zero filesystem or external-state writes;
+the user did not ask to decide, adopt, standardize, document, or implement; the response is not
+acceptance criteria or governing downstream input. Only then consider the five carrier rows in the
+canonical delegation table. After those five carrier rows, scan the complete remaining Elevated
+signal list; any remaining signal wins. `default` and `strict` are unchanged.
 
 ## Common Rationalizations to Reject
 

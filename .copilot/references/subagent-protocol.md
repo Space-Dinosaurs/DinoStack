@@ -213,18 +213,23 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 
 **Authoritative signal list:** The Elevated signal list in this table is derived from and subordinate to `content/sections/02-delegation.md` and `content/sections/04-risk-classification.md`, the canonical sources for risk classification (assembled into the METHODOLOGY.md / `/dinostack` skill embed). Consult those two sections directly when this table and the risk classification signals differ.
 
+For the following five carrier rows, `relaxed` applies the ordered **relaxed ephemeral
+chat-advice override** from the canonical risk section: all four predicates must pass before a
+carrier is considered, then the complete remaining Elevated signal list is scanned and any
+remaining Elevated signal wins. `default` and `strict` retain the baseline treatment.
+
 | Signal / condition | Main agent direct? | Spawn Worker + Skeptic? |
 |---|---|---|
 | Read a single known file | Yes | No |
 | `git status` / `git log` / `git diff` (read-only) | Yes | No |
-| Answer from memory/context | Yes - but producing a new doc/plan/analysis/recommendation from context is 'Document synthesis' (Elevated) | No |
+| Answer a question from context in memory | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | Take a screenshot or snapshot | Yes | No |
-| Synthesize already-returned subagent results | Yes - but a new doc/spec/plan/recommendation built from those results is 'Document synthesis' (Elevated) | No |
+| Synthesize already-returned subagent results | Yes - but a recommendation is Elevated unless the relaxed ephemeral chat-advice override fully qualifies | No |
 | 1–2 line edit, single file, correct output apparent, no Elevated signals | Yes | No |
 | Trivial risk (ALL qualifying signals hold) - any subagent state | No (delegate to worktree-isolated `engineer`; no Skeptic; no brief file) | No |
 | Security / auth / crypto / payments / secrets | No | **Yes** |
 | Irreversible operation (delete, migration, schema change, force push) | No | **Yes** |
-| Architecture decision that constrains future choices | No | **Yes** |
+| Architecture decision constraining future choices | Discussion only when the relaxed ephemeral chat-advice override fully qualifies; an actual decision is never direct | **Yes**, except qualifying relaxed discussion |
 | Modifies protocol or infrastructure files | No | **Yes** |
 | Production or shared state | No | **Yes** |
 | Multi-file change (any size) (relaxed profile: see the bounded 2-3-file behavioral-edit Low override in `content/sections/04-risk-classification.md` §Risk profiles - classify by logical/structural scope, not how the diff is chunked into commits; failing the connectivity bound routes to Elevated) | No | **Yes** |
@@ -235,8 +240,8 @@ When uncertain whether an edit meets the "immediately apparent without reading a
 | Changes to shared utilities, helpers, or abstractions used across many call sites (single-file but high blast radius) | No | **Yes** |
 | User signals high stakes ("production", "critical", "don't mess this up") | No | **Yes** |
 | Any Bash with side effects (writes, deletes, network, DB) | No | **Yes** |
-| Research that produces a document, recommendation, or plan to be acted on | No | **Yes** |
-| Document synthesis, architecture, or planning | No | **Yes** |
+| Document synthesis / architecture / planning | Chat discussion only when the relaxed ephemeral chat-advice override fully qualifies | **Yes**, except qualifying relaxed chat |
+| Research that produces an artifact (doc, plan, recommendation) | Chat advice only when the relaxed ephemeral chat-advice override fully qualifies; artifact production is never direct | **Yes**, except qualifying relaxed chat |
 | Configuration changes | No | **Yes** |
 | Anything where a mistake costs time or data | No | **Yes** |
 
