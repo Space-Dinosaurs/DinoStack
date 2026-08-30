@@ -414,7 +414,8 @@ Public API (CLI):
                           "oldest_age_hours": float|null, "eligible":
                           int|null, "would_reclaim_kb": int|null,
                           "dirty_unreclaimable_kb": int|null,
-                          "size_unknown_count": int|null}, ...],
+                          "size_unknown_count": int|null,
+                          "pr_query_error_count": int|null}, ...],
                           "truncated": bool}` (round-N Major 5 fix: the
                           printed table already labels its tier explicitly
                           - see the fast/deep banner lines above - and the
@@ -430,7 +431,21 @@ Public API (CLI):
                           `rows`) and a `"measure_size_caveat"` string (the
                           same working-tree-only/object-store disclosure
                           `_run_repo`'s summary NOTE prints, since a JSON
-                          consumer never sees that stderr/stdout prose).
+                          consumer never sees that stderr/stdout prose),
+                          plus - deep tier only (DS-217 unit 2) - a
+                          top-level `"pr_query_error_total"` int (the sum of
+                          every row's `pr_query_error_count`, absent under
+                          the fast tier since that tier never computes the
+                          per-row field at all). Per-row `pr_query_error_count`
+                          is `null` under the fast tier (never computed - that
+                          tier makes zero network calls) and an int (0 or
+                          more) under the deep tier unconditionally, no flag
+                          required - closes the gap where a repo whose
+                          entries were 100% `SKIP_PR_QUERY_ERROR` reported no
+                          different from a genuinely clean sweep on this
+                          surface, the one every automated consumer
+                          (`automation/dinostack-worktree-reap/run.sh`,
+                          `hooks/session-start-wrap.sh`) actually reads.
                           `eligible` is `null` ONLY
                           under the fast (`--count-only`) tier, which never
                           computes it; `oldest_age_hours` is populated in
@@ -3012,6 +3027,14 @@ def _fast_report_row(repo: str) -> Tuple[Optional[Dict], Optional[str]]:
         "would_reclaim_kb": None,
         "dirty_unreclaimable_kb": None,
         "size_unknown_count": None,
+        # DS-217 unit 2: this tier never runs `_evaluate_entries` (zero
+        # network calls, per the module comment above), so it has no
+        # `SKIP_PR_QUERY_ERROR` outcomes to count - `None` (not 0), the
+        # same tier-dependent-null convention `eligible` already uses.
+        # `0` means "computed, and none found"; `None` means "not
+        # computed" - conflating them is the exact misreport this field
+        # exists to prevent.
+        "pr_query_error_count": None,
     }, None
 
 
@@ -3038,6 +3061,11 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
             "would_reclaim_kb": zero_size,
             "dirty_unreclaimable_kb": zero_size,
             "size_unknown_count": zero_size,
+            # DS-217 unit 2: zero entries means zero `gh pr list` calls were
+            # even attempted, so this is a COMPUTED 0, not an uncomputed
+            # None - no `_evaluate_entries` call happens on this branch, but
+            # there is nothing it could have queried.
+            "pr_query_error_count": 0,
         }, None
 
     # Round-N Minor fix: the deep tier used to hardcode `oldest_age_hours`
@@ -3100,6 +3128,16 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
                 else:
                     dirty_unreclaimable_kb += size_kb
 
+    # DS-217 unit 2: `results` already exists in this function (the full
+    # `_evaluate_entries` pass above), so this costs nothing extra - unlike
+    # the `--measure-size`-gated byte fields above, it needs no flag and is
+    # always populated on this tier. A repo whose entries are 100%
+    # SKIP_PR_QUERY_ERROR used to return rc=0 from `_run_repo` and count as
+    # `swept` with no visible signal on this surface (the report path never
+    # touched `_run_repo` at all - see `_run_report`'s own aggregation of
+    # this field for where that gap actually gets closed).
+    pr_query_error_count = sum(1 for r in results if r["outcome"] == "SKIP_PR_QUERY_ERROR")
+
     return {
         "repo": repo,
         "nonroot_worktrees": len(entries) - 1,
@@ -3108,6 +3146,7 @@ def _deep_report_row(repo: str, args: argparse.Namespace) -> Tuple[Optional[Dict
         "would_reclaim_kb": would_reclaim_kb,
         "dirty_unreclaimable_kb": dirty_unreclaimable_kb,
         "size_unknown_count": size_unknown_count,
+        "pr_query_error_count": pr_query_error_count,
     }, None
 
 
@@ -3237,6 +3276,20 @@ def _run_report(
             "size_unknown_count": sum(r["size_unknown_count"] for r in rows),
         }
 
+    # DS-217 unit 2: deep tier only - `pr_query_error_count` is `None` on
+    # every fast-tier row (never computed, per `_fast_report_row`'s
+    # docstring), so this aggregate would be meaningless there. Closes the
+    # reporting gap named in the ticket: a repo whose entries are 100%
+    # SKIP_PR_QUERY_ERROR previously surfaced nowhere on this surface -
+    # `--report --json` is the path every automated consumer
+    # (`automation/dinostack-worktree-reap/run.sh`,
+    # `hooks/session-start-wrap.sh`) actually uses.
+    pr_query_error_total: Optional[int] = None
+    pr_query_error_repos: List[str] = []
+    if not args.count_only:
+        pr_query_error_total = sum(r["pr_query_error_count"] for r in rows)
+        pr_query_error_repos = [r["repo"] for r in rows if r["pr_query_error_count"]]
+
     if args.json:
         # Round-N Major 5 fix: the printed TABLE already labels its tier
         # explicitly (the FAST/approximate vs DEEP/accurate banner lines
@@ -3247,6 +3300,8 @@ def _run_report(
         # object carrying an explicit `tier` field so JSON and table agree.
         tier = "fast" if args.count_only else "deep"
         payload = {"tier": tier, "rows": rows, "truncated": truncated}
+        if pr_query_error_total is not None:
+            payload["pr_query_error_total"] = pr_query_error_total
         if report_size_totals is not None:
             # Round-2 Minor fix: a JSON consumer of `--report --json
             # --measure-size` previously met raw byte figures with no
@@ -3302,6 +3357,21 @@ def _run_report(
         if truncated:
             total = discovered_count if discovered_count is not None else len(rows)
             print(_repo_truncation_note(args.max_repos, total))
+
+        # DS-217 unit 2: same NOTE-when-nonzero discipline `_run_repo`'s own
+        # SKIP_PR_QUERY_ERROR NOTE already uses on the sweep path - a repo
+        # whose entries are 100% SKIP_PR_QUERY_ERROR must never look like a
+        # clean sweep on this surface either. Repo list capped at 5, same
+        # convention as `ignored_offenders[:5]` elsewhere in this file.
+        if pr_query_error_total:
+            shown = pr_query_error_repos[:5]
+            more = len(pr_query_error_repos) - len(shown)
+            repo_list = ", ".join(shown) + (f", +{more} more" if more > 0 else "")
+            print(
+                f"NOTE: {pr_query_error_total} worktree(s) across {len(pr_query_error_repos)} "
+                f"repo(s) had a `gh pr list` query failure (SKIP_PR_QUERY_ERROR) - never treated "
+                f"as proof of no PR; preserved, never archived or removed. Affected: {repo_list}"
+            )
 
         # Round-2 Skeptic Major 2 fix (grand total + caveats, table
         # surface): mirrors `_run_repo`'s own would_reclaim/floor/
@@ -3424,6 +3494,7 @@ def _run_repo(
     args: argparse.Namespace,
     _base_unresolved_out: Optional[List[bool]] = None,
     _size_totals_out: Optional[Dict[str, int]] = None,
+    _pr_query_error_out: Optional[List[bool]] = None,
 ) -> int:
     """The single-repo sweep body - unchanged in behavior from before
     `--multi-repo`/`--report` existed, INCLUDING its exit-code contract
@@ -3461,6 +3532,14 @@ def _run_repo(
     other, and always summing `size_unknown_count` across repos so a
     partially-unmeasured multi-repo sweep cannot present its grand total
     as exact. Never populated when `args.measure_size` is falsy.
+
+    `_pr_query_error_out` (DS-217 unit 2): an OPTIONAL caller-owned output
+    list, unused by single-repo callers (default None). When
+    `_run_multi_repo` passes a list, this function appends `True` to it
+    IFF this repo's run had at least one `SKIP_PR_QUERY_ERROR` outcome -
+    the same fact the NOTE below already prints, threaded out so
+    `_run_multi_repo`'s final summary line can surface it too. This
+    function's own return value is unaffected either way.
     """
     try:
         porcelain = _worktree_list(repo)
@@ -3986,6 +4065,8 @@ def _run_repo(
     # and `--explain`, while `mode` still read plain "live" with no
     # explanation printed.
     pr_query_error_count = outcome_counts.get("SKIP_PR_QUERY_ERROR", 0)
+    if pr_query_error_count and _pr_query_error_out is not None:
+        _pr_query_error_out.append(True)
     if pr_query_error_count:
         print(
             f"NOTE: {pr_query_error_count} worktree(s) had a `gh pr list` query failure "
@@ -4127,6 +4208,11 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     repos_swept = 0
     repos_errored = 0
     repos_skipped_base = 0
+    # DS-217 unit 2: count of repos that had at least one
+    # SKIP_PR_QUERY_ERROR outcome this run - threaded out of `_run_repo`
+    # via the same out-param idiom `_base_unresolved_out`/
+    # `_size_totals_out` already use.
+    repos_pr_query_error = 0
     # Round-2 Skeptic Minor fix: the operator question that started this
     # ticket was "N repos, how much was recovered?" - answering it used to
     # mean hand-summing N per-repo summary lines. `None` (not a
@@ -4155,7 +4241,10 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
         # in its own bucket below, and it still causes exit 1, same as
         # `--report`.
         base_unresolved_flag: List[bool] = []
-        rc = _run_repo(str(target.canonical), args, base_unresolved_flag, size_totals)
+        pr_query_error_flag: List[bool] = []
+        rc = _run_repo(str(target.canonical), args, base_unresolved_flag, size_totals, pr_query_error_flag)
+        if pr_query_error_flag:
+            repos_pr_query_error += 1
         if base_unresolved_flag:
             repos_skipped_base += 1
             continue
@@ -4179,7 +4268,8 @@ def _run_multi_repo(args: argparse.Namespace) -> int:
     print(
         f"ds-cleanup-worktrees: repos={len(targets)} swept={repos_swept} errored={repos_errored} "
         f"root-errors={len(root_errors)} skipped-not-git={skipped_not_git} "
-        f"skipped-base-unresolved={repos_skipped_base}{size_summary}"
+        f"skipped-base-unresolved={repos_skipped_base} "
+        f"repos-with-pr-query-errors={repos_pr_query_error}{size_summary}"
     )
     if size_totals is not None and size_totals.get("size_unknown_count", 0):
         print(
