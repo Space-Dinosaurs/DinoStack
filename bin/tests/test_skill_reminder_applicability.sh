@@ -32,6 +32,9 @@
 #      external `timeout 4` kills it at rc=124, with no banner ever printed.
 #   5. Remove the select() timeout entirely (block indefinitely on readability):
 #      reddens scenario 6 the same way.
+#   6. Remove the `or not prompt.strip()` guard (round 4 Major 1 fix), so an empty
+#      or whitespace-only "prompt" string falls through to the pattern match on ''
+#      instead of raising: reddens scenario 7.
 
 set -uo pipefail
 
@@ -89,10 +92,10 @@ if [[ -z "$RUN_OUT" ]]; then
 else
   fail "scenario 2: expected empty stdout, got: $RUN_OUT"
 fi
-if [[ "$RUN_RC" -eq 0 ]]; then
-  pass "scenario 2: exit 0"
+if [[ "$RUN_RC" -eq 0 && -z "$RUN_ERR" ]]; then
+  pass "scenario 2: exit 0, empty stderr"
 else
-  fail "scenario 2: expected exit 0, got: $RUN_RC"
+  fail "scenario 2: expected exit 0 and empty stderr, got rc=$RUN_RC stderr=$RUN_ERR"
 fi
 
 # ---------------------------------------------------------------------------
@@ -181,6 +184,36 @@ if [[ "$S6_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
   pass "scenario 6: fail-open on zero bytes with the fd held open - banner still emitted"
 else
   fail "scenario 6: expected the banner with zero bytes written, got rc=$S6_RC stdout=$S6_OUT stderr=$S6_ERR"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 7: an empty or whitespace-only "prompt" string is the same
+# evidentiary state as an absent prompt (scenario 4) - it must FIRE, never
+# silently suppress (round 4 Major 1). Confirms both the empty-string and
+# whitespace-only variants.
+# ---------------------------------------------------------------------------
+run_with_prompt ""
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 7: empty-string prompt fires the banner (fail-open, not silent suppression)"
+else
+  fail "scenario 7: expected the banner on an empty-string prompt, got stdout: $RUN_OUT"
+fi
+if [[ "$RUN_RC" -eq 0 && -z "$RUN_ERR" ]]; then
+  pass "scenario 7: exit 0, empty stderr (empty-string prompt)"
+else
+  fail "scenario 7: expected exit 0 and empty stderr, got rc=$RUN_RC stderr=$RUN_ERR"
+fi
+
+run_with_prompt "   "
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 7: whitespace-only prompt fires the banner (fail-open, not silent suppression)"
+else
+  fail "scenario 7: expected the banner on a whitespace-only prompt, got stdout: $RUN_OUT"
+fi
+if [[ "$RUN_RC" -eq 0 && -z "$RUN_ERR" ]]; then
+  pass "scenario 7: exit 0, empty stderr (whitespace-only prompt)"
+else
+  fail "scenario 7: expected exit 0 and empty stderr, got rc=$RUN_RC stderr=$RUN_ERR"
 fi
 
 # ---------------------------------------------------------------------------

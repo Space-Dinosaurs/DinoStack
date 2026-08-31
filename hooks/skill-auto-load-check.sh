@@ -27,14 +27,18 @@
 # Failure modes: always exits 0; missing config or false flag = silent no-op; a confidently
 #                non-matching prompt suppresses the banner; every stdin failure mode - select
 #                timeout, partial/truncated payload, malformed JSON, missing or non-string
-#                "prompt", decode error - resolves to "unknown" and FIRES (fail-open), never
-#                silently suppresses; the content read cannot hang past the select timeout
+#                "prompt", an empty or whitespace-only "prompt" string, decode error -
+#                resolves to "unknown" and FIRES (fail-open), never silently suppresses (round
+#                4 Major 1: empty/whitespace prompt is absence of evidence, not a confident
+#                negative, so it must fire like an absent prompt does, not suppress like a
+#                genuine no-match does); the content read cannot hang past the select timeout
 #                because it is a single os.read syscall, never a buffered read that loops
 #                toward EOF; never blocks the hook chain.
-# Performance: bounded to ~1s worst case by the select() timeout, then one non-blocking os.read
-#              syscall and one regex match - never proportional to producer behavior (adds one
-#              python3 JSON parse for the config flag, plus this bounded read/match, on every
-#              adapter path).
+# Performance: when skill_auto_load is false, the content_state read is skipped entirely (round
+#              4 Minor 1) - only the one python3 JSON parse for the config flag runs. When
+#              skill_auto_load is true, bounded to ~1s worst case by the select() timeout, then
+#              one non-blocking os.read syscall and one regex match - never proportional to
+#              producer behavior.
 
 ae_config="$HOME/.claude/agentic-engineering.json"
 
@@ -58,7 +62,14 @@ except Exception:
 # "unknown" (fire), never "false" (silence). A hard death here (process kill,
 # exception, timeout) must never be conflatable with a confidently-false config flag -
 # that conflation is exactly what round 1 and round 2 got wrong (see module manifest).
-content_state=$(python3 -c "
+# Gated behind skill_auto_load: when the flag is false the final condition below can
+# never fire regardless of content_state, so skip the python3 spawn and bounded read
+# entirely rather than pay their cost on every turn for a user who has the feature off
+# (round 4 Minor 1 - this cannot change fail-open semantics since the default below is
+# "no_match", the same value the AND with skill_auto_load already forces in that case).
+content_state="no_match"
+if [[ "$skill_auto_load" == "true" ]]; then
+  content_state=$(python3 -c "
 import json, os, re, select, sys
 try:
     ready, _, _ = select.select([sys.stdin], [], [], 1.0)
@@ -71,8 +82,12 @@ try:
         data = os.read(sys.stdin.fileno(), 65536)
         payload = json.loads(data.decode('utf-8'))
         prompt = payload.get('prompt')
-        if not isinstance(prompt, str):
-            raise ValueError('prompt missing or not a string')
+        # An empty or whitespace-only string is absence of evidence, not a negative
+        # determination - it must resolve to 'unknown' (fire) via the except branch,
+        # never fall through to the pattern match on '' (which would report
+        # 'no_match' and silently suppress the banner every turn - round 4 Major 1).
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError('prompt missing, not a string, or empty/whitespace-only')
         pattern = re.compile(
             r'\b(code|edit|debug|test|deploy|architect|refactor|depend|implement|'
             r'ticket|build|script|commit|merge|spawn|agent|plan|git|orchestrat|'
@@ -83,6 +98,7 @@ try:
 except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown")
+fi
 
 if [[ "$skill_auto_load" == "true" && "$content_state" != "no_match" ]]; then
   case "$adapter" in
