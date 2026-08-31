@@ -2,22 +2,23 @@
 
 Runs `ds-cleanup-worktrees --multi-repo --report --json` on a daily schedule against every
 repo your `~/.agentic/cleanup-worktrees.json` already names, and pushes a "worst repos by
-worktree count" summary. **Report/notify only - this job never removes anything.** It exists
+worktree count" summary (plus a NOTE naming any repo with a `gh` query failure, when present).
+**Report/notify only - this job never removes anything.** It exists
 to catch machine-wide worktree accumulation between whatever per-session nudges already fire
 (see "Retirement condition" below).
 
 **Runs outside `~/Documents` - no Full Disk Access needed.** Same rationale as the
 `dinostack-pr-review` package: macOS privacy protection (TCC) blocks `launchd` jobs from
-touching `~/Documents`, where this repo lives. `install.sh` copies the two files the job needs
-- `bin/ds-cleanup-worktrees` and its `bin/tests/worktree_model.py` import, in their original
-relative layout - into `~/.dinostack-worktree-reap/bin/`, and the scheduled job runs only from
-there. Unlike the pr-review package, this job never copies any *target* repo's own files (no
+touching `~/Documents`, where this repo lives. `install.sh` copies the files the job needs - `run.sh`
+itself plus `bin/ds-cleanup-worktrees` and its `bin/tests/worktree_model.py` import, in their
+original relative layout - into `~/.dinostack-worktree-reap/`, and the scheduled job runs only
+from there. Unlike the pr-review package, this job never copies any *target* repo's own files (no
 `PROJECT_DIR`); it only ever reads target repos through `ds-cleanup-worktrees --report`, which
 is structurally read-only.
 
-> **Trade-off:** the copied `ds-cleanup-worktrees` + `worktree_model.py` are a snapshot taken
-> at install time. After you change either file in the repo, **re-run `install.sh`** so the
-> scheduled report picks up the change.
+> **Trade-off:** the copied `run.sh` + `ds-cleanup-worktrees` + `worktree_model.py` are a
+> snapshot taken at install time. After you change any of these files in the repo, **re-run
+> `install.sh`** so the scheduled report picks up the change.
 
 ## Install (one time)
 
@@ -66,7 +67,9 @@ Each run invokes the DEEP tier: `ds-cleanup-worktrees --multi-repo --report --js
 `--count-only` - a scheduled, unattended run is off the interactive fast-first-look path, so it
 always pays for the accurate per-entry evaluation). The JSON `rows` are re-sorted worst-first by
 `nonroot_worktrees` and the top ~5 repos are summarized as `<count> worktree(s) (<eligible>
-eligible to remove)  <repo path>`, then pushed via:
+eligible to remove)  <repo path>`. If any repo's entries hit a `gh pr list` query failure
+(`SKIP_PR_QUERY_ERROR`), a NOTE naming the affected repos (capped at 5) is appended, since
+`eligible` is a FLOOR (not an exact count) for those repos. The summary is then pushed via:
 
 - **macOS banner** (`osascript`, best-effort - macOS frequently suppresses notifications posted
   by `launchd` background jobs, so don't rely on it as the primary channel).
@@ -88,6 +91,14 @@ and is deliberately NOT held back to pre-DS-196 semantics. `run.sh` itself is un
 stays report-only (`--multi-repo --report --json`, no removal-capable flag - see
 `bin/tests/test_worktree_reap_report_only.sh`). The deployed copy under `~/.dinostack-worktree-reap/`
 is a point-in-time snapshot taken by `install.sh` (see Upstream deps below) - it does NOT pick
+up this change automatically; **re-run `automation/dinostack-worktree-reap/install.sh` after
+this merge** to refresh it.
+
+**DS-220 query-failure NOTE.** `run.sh`'s summary now also scans every discovered repo (not
+just the worst ~5) for a nonzero `pr_query_error_count` and appends a `NOTE:` naming the
+affected repos (capped at 5), plus a FLOOR disclosure scoped to the `eligible` figure only -
+worktree counts are exact local git enumeration and unaffected by a `gh` failure. Same
+snapshot caveat as above: the deployed copy under `~/.dinostack-worktree-reap/` does NOT pick
 up this change automatically; **re-run `automation/dinostack-worktree-reap/install.sh` after
 this merge** to refresh it.
 

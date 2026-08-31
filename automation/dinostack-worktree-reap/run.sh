@@ -9,6 +9,10 @@
 #          READ-ONLY: never invokes a sweep, `--archive-unproven`, or any
 #          removal-capable flag - `--report` cannot remove anything under any
 #          combination of flags (see content/commands/ds-cleanup-worktrees.md).
+#          DS-220: the summary also scans EVERY discovered repo (not just the
+#          worst ~5) for a nonzero `pr_query_error_count` and appends a NOTE
+#          naming the affected repos, since a `gh pr list` query failure is
+#          never proof a repo has no unproven-branch worktrees.
 #
 # Public API: none (not sourced or imported; invoked as a standalone script
 #             by launchd or manually via `bash run.sh`).
@@ -197,6 +201,21 @@ for r in top:
 
 if truncated:
     lines.append("(list truncated by --max-repos)")
+
+pr_query_error_total = data.get("pr_query_error_total")
+if pr_query_error_total:
+    affected = [r.get("repo", "?") for r in rows if r.get("pr_query_error_count")]
+    shown = affected[:5]
+    more = len(affected) - len(shown)
+    repo_list = ", ".join(shown) + (f", +{more} more" if more > 0 else "")
+    lines.append(
+        f"NOTE: {pr_query_error_total} worktree(s) across {len(affected)} repo(s) had a "
+        f"`gh pr list` query failure (SKIP_PR_QUERY_ERROR) - never treated as proof of no PR; "
+        f"preserved, never archived or removed. Worktree counts above are exact (local git "
+        f"enumeration, unaffected by gh); only the 'eligible to remove' figures for these "
+        f"repos are a FLOOR, not an exact figure, while these failures are nonzero. "
+        f"Affected: {repo_list}"
+    )
 
 print("\n".join(lines))
 PYEOF

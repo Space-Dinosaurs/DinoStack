@@ -30,7 +30,8 @@ automatically instead of run by hand, `automation/dinostack-worktree-reap/` is a
 macOS `launchd` package (report/notify only - it never calls a removal-capable flag). It runs
 `ds-cleanup-worktrees --multi-repo --report --json` daily against the same
 `~/.agentic/cleanup-worktrees.json` config `--multi-repo` already reads, and pushes a
-worst-repos-by-worktree-count summary via a macOS banner and Telegram. See
+worst-repos-by-worktree-count summary (plus a NOTE naming any repo with a `gh` query failure,
+when present) via a macOS banner and Telegram. See
 `automation/dinostack-worktree-reap/README.md` for setup, cadence, and its retirement
 condition (this belt-and-suspenders schedule should be retired if a future measurement shows
 the SessionStart nudge already catches everything it would).
