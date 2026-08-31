@@ -210,7 +210,22 @@ function parseShardFile(text, fileLabel) {
   if (!seqMatch) {
     throw new Error(`parseShardFile: ${fileLabel}: missing or non-integer "sequence" field in frontmatter`);
   }
-  const typeMatch = frontmatter.match(/^\s*type:\s*(\S.*)$/m);
+  // Skeptic round-4 Minor fix: the prior regex (/^\s*type:\s*(\S.*)$/m)
+  // matched ANY line starting with optional whitespace then "type:",
+  // including an UNINDENTED top-level "type: foo" line that is not
+  // actually nested under "metadata:" - satisfying the documented
+  // "metadata.type (required, validated)" check without genuine nesting.
+  // Requires an indented "type:" line (matching buildFrontmatter's own
+  // 2-space-indented output) that appears strictly after a top-level
+  // "metadata:" line. This is not full YAML nesting validation (this
+  // parser is deliberately regex-based, not a YAML library - see this
+  // file's module manifest), but it rejects the flat/unnested shape.
+  const metadataMatch = frontmatter.match(/^metadata:\s*$/m);
+  if (!metadataMatch) {
+    throw new Error(`parseShardFile: ${fileLabel}: missing "metadata:" block in frontmatter`);
+  }
+  const afterMetadata = frontmatter.slice(metadataMatch.index + metadataMatch[0].length);
+  const typeMatch = afterMetadata.match(/^[ \t]+type:\s*(\S.*)$/m);
   if (!typeMatch) {
     throw new Error(`parseShardFile: ${fileLabel}: missing "metadata.type" field in frontmatter`);
   }

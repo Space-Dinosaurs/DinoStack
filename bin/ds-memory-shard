@@ -64,10 +64,19 @@
  * Failure modes: every refusal from hooks/lib/memory-shard.js (re-split
  *   without --force, bulk-orphan deletion without --allow-removal,
  *   round-trip verification failure, entry-loss, reordering, --check
- *   mismatch) is caught here, printed to stderr, and mapped to exit 1 - this
- *   binary never partially writes on a refusal path, since the library
- *   itself throws before touching any real file in every one of those
- *   cases.
+ *   mismatch) is caught here, printed to stderr, and mapped to exit 1. For
+ *   every refusal EXCEPT ONE, the library throws before touching any real
+ *   file, so this binary never partially writes on a refusal path. The
+ *   ONE CARVE-OUT (Skeptic round-4 Major 1 correction - a prior version of
+ *   this comment claimed no exceptions, which was false): the POST-COMMIT
+ *   round-trip verification (hooks/lib/memory-shard.js's splitCommand)
+ *   throws only AFTER every shard has already been renamed into `shardDir`
+ *   and orphans deleted - by design, since verifying the commit has to
+ *   happen after the commit to mean anything. On that specific refusal,
+ *   `shardDir` is left POPULATED AND UNTRUSTED (the library's own error
+ *   message says "do not trust this shard directory"; manual inspection is
+ *   required) - never partially written in the sense of a half-finished
+ *   rename, but genuinely written and not rolled back.
  *
  * Performance: standard. Single-directory read/write; no network, no
  *   subprocess.
@@ -119,7 +128,15 @@ function parseArgs(argv) {
     if (arg === '--allow-removal') { allowRemoval = true; continue; }
     if (arg === '--check') { check = true; continue; }
     if (arg === '--dir') {
-      if (i + 1 >= rest.length || rest[i + 1].startsWith('--')) {
+      // Skeptic round-4 Major 2 fix: an EMPTY STRING operand
+      // (`split --dir ''`) does not startsWith('--'), so it was accepted
+      // as `dir = ''`, and `path.resolve(dir || process.cwd())` below then
+      // falls back to cwd anyway (`'' || process.cwd()` is falsy) - the
+      // exact silent-cwd-fallback bug the missing-operand guard exists to
+      // catch, just reached via a different token shape. Reject an empty
+      // string the same way as "no operand at all" and "the next token is
+      // another flag".
+      if (i + 1 >= rest.length || rest[i + 1] === '' || rest[i + 1].startsWith('--')) {
         dirMissingOperand = true;
         continue;
       }
@@ -141,6 +158,11 @@ function main() {
   const { cmd, dir, force, allowRemoval, check, unknown, dirMissingOperand } = parseArgs(argv);
 
   if (cmd !== 'split' && cmd !== 'regenerate') {
+    // Skeptic round-4 Minor fix: name the offending subcommand explicitly
+    // (previously only generic usage() text printed, giving the test
+    // suite's mutant no stderr marker to discriminate on, unlike the
+    // other four arg-parsing rejections).
+    process.stderr.write(`ds-memory-shard: unrecognized subcommand: ${JSON.stringify(cmd)}\n`);
     usage();
     process.exit(2);
     return;
@@ -201,7 +223,7 @@ function main() {
       return;
     }
 
-    const result = lib.regenerateCommand({ shardDir, memoryPath, check, allowRemoval });
+    lib.regenerateCommand({ shardDir, memoryPath, check, allowRemoval });
     if (check) {
       process.stdout.write(`regenerate --check: ${memoryPath} already matches the compiled output of ${shardDir}.\n`);
     } else {

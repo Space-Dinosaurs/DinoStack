@@ -865,6 +865,7 @@ Seed with these documented defaults exactly:
   "scaffolding_version": 1,
   "debugger_on_failure": false,
   "qa_default_skip": null,
+  "memory_shard_mode": false,
   "model_profile": "default",
   "auto_merge_on_ci_green": false,
   "capability_preflight_mode": "blocking",
@@ -891,8 +892,7 @@ Seed with these documented defaults exactly:
   "tracker_state_diagnostic": true,
   "turn_shape_guard_enabled": true,
   "worktree_read_guard_exemptions": [],
-  "worktree_write_guard_exemptions": [],
-  "memory_shard_mode": false
+  "worktree_write_guard_exemptions": []
 }
 ```
 

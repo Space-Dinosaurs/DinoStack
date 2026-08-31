@@ -922,6 +922,12 @@ function caseCliArgParsing() {
   const { dir: dirD } = setupSplitFixture();
   const unknownCmdRes = runCli(['bogus-subcommand', '--dir', dirD]);
   assert(unknownCmdRes.status === 2, 'an unknown subcommand exits 2');
+  // Skeptic round-4 Minor fix: the CLI now names the offending subcommand
+  // explicitly, giving this case the same stderr-marker discipline as the
+  // other four arg-parsing rejections above (previously only generic
+  // usage() text printed, and the mutation assertion below could only
+  // check `status !== 2` - the weakest predicate left in the file).
+  assert(/unrecognized subcommand: "bogus-subcommand"/.test(unknownCmdRes.stderr || ''), 'stderr names the offending subcommand');
 
   console.log('  Mutation: disable the unknown-subcommand guard');
   const unknownCmdMutant = runMutatedCli(
@@ -933,15 +939,9 @@ function caseCliArgParsing() {
     'disable-unknown-subcommand-guard',
     ['bogus-subcommand', '--dir', dirD],
   );
-  // With the guard disabled, cmd falls through to the try block where
-  // `cmd === 'split'` is false and `cmd === 'regenerate'` is also false, so
-  // it drops into the regenerate branch's lib.regenerateCommand() call
-  // (the final `else` in this binary's shape) - REGARDLESS of the exact
-  // downstream behavior, the point is it no longer exits 2 for an unknown
-  // subcommand.
   assert(
-    unknownCmdMutant.status !== 2,
-    'REDDENED: with the guard disabled, an unknown subcommand no longer exits 2 (usage rejection lost)',
+    !/unrecognized subcommand/.test(unknownCmdMutant.stderr || ''),
+    'REDDENED: with the guard disabled, stderr no longer names the subcommand as unrecognized (regardless of what the fall-through branch does instead)',
   );
 
   // --- --dir with a missing operand ----------------------------------------
@@ -970,6 +970,45 @@ function caseCliArgParsing() {
   assert(
     dirMissingMutant.status === 0 && fs.existsSync(path.join(dirlessRoot, '.agentic', 'memory-shards')),
     'REDDENED: with the guard disabled, "split --dir" (no operand) silently falls back to cwd and performs a REAL WRITE there',
+  );
+
+  // --- --dir with an EMPTY STRING operand (Skeptic round-4 Major 2) --------
+  // Measured: an empty string does not startsWith('--'), so it used to be
+  // ACCEPTED as the operand (`dir = ''`), and `path.resolve(dir ||
+  // process.cwd())` then fell back to cwd anyway ('' is falsy) - a real
+  // write to the wrong directory, exit 0, bypassing the missing-operand
+  // guard entirely via a different token shape. `--dir=` (empty after the
+  // `=`) was already correctly caught; this closes the space-separated form.
+  const emptyDirRoot = mkTmpDir('memory-shard-empty-dir-cwd-');
+  fs.copyFileSync(FIXTURE_PATH, path.join(emptyDirRoot, 'MEMORY.md'));
+  const emptyDirRes = spawnSync('node', [CLI_PATH, 'split', '--dir', ''], { encoding: 'utf8', cwd: emptyDirRoot });
+  assert(emptyDirRes.status === 2, '"split --dir \'\'" (empty-string operand) exits 2');
+  assert(/requires a path operand/.test(emptyDirRes.stderr || ''), 'stderr names the missing --dir operand for the empty-string case too');
+  assert(!fs.existsSync(path.join(emptyDirRoot, '.agentic')), '"split --dir \'\'" did NOT write into cwd');
+
+  console.log('  Mutation: remove ONLY the empty-string clause from the --dir parsing condition (round-3 regression shape)');
+  // Disabling `dirMissingOperand` in main() (the pattern used for every
+  // other case above) is NOT the right mutation here: the empty string is
+  // a real argv token, so even with that gate disabled, the parser still
+  // flags it (skipping consumption) and the token gets reprocessed as an
+  // "unrecognized argument" by an UNRELATED, still-intact guard - exit 2
+  // either way, a false negative. The actual round-4 regression is in the
+  // PARSING condition itself: reverting just the `rest[i + 1] === ''`
+  // clause reproduces the exact pre-fix shape, where an empty string
+  // doesn't startsWith('--') and is consumed as `dir = ''`.
+  const emptyDirMutant = runMutatedCli(
+    (src) => {
+      const marker = "if (i + 1 >= rest.length || rest[i + 1] === '' || rest[i + 1].startsWith('--')) {";
+      if (!src.includes(marker)) throw new Error('--dir parsing condition marker not found - mutation site moved');
+      return src.replace(marker, "if (i + 1 >= rest.length || rest[i + 1].startsWith('--')) {");
+    },
+    'remove-empty-string-clause',
+    ['split', '--dir', ''],
+    { cwd: emptyDirRoot },
+  );
+  assert(
+    emptyDirMutant.status === 0 && fs.existsSync(path.join(emptyDirRoot, '.agentic', 'memory-shards')),
+    'REDDENED: with only the empty-string clause removed, "split --dir \'\'" silently falls back to cwd and performs a REAL WRITE there',
   );
 }
 
@@ -1385,6 +1424,66 @@ function casePostcommitVerification() {
   );
 }
 
+function caseMetadataTypeNestingRequired() {
+  console.log('\n[Manifest] metadata.type must be genuinely nested under metadata: (round-4 fix)');
+  const lib = require(LIB_PATH);
+
+  const goodText = lib.buildFrontmatter({ name: 'x', description: 'd', type: 'project', sequence: 1000 }) + '- **entry**\n';
+  const parsed = lib.parseShardFile(goodText, 'x.md');
+  assert(parsed.type === 'project', 'a genuinely-nested metadata.type parses correctly (positive control)');
+
+  // A top-level (unindented) "type:" line, OUTSIDE any "metadata:" block -
+  // the exact shape the prior regex could not distinguish from real
+  // nesting.
+  const flatText = [
+    '---',
+    'name: x',
+    'description: "d"',
+    'type: project',
+    'sequence: 1000',
+    'supersedes: []',
+    'superseded_by: null',
+    '---',
+    '- **entry**',
+    '',
+  ].join('\n');
+  let threw = null;
+  try {
+    lib.parseShardFile(flatText, 'flat.md');
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'parseShardFile REFUSES a top-level (unnested) "type:" line');
+  if (threw !== null) {
+    assert(/metadata/.test(threw.message), 'refusal message names the metadata requirement');
+  }
+
+  console.log('  Mutation: revert to the unnested type: regex (round-3 shape)');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = [
+      "  const metadataMatch = frontmatter.match(/^metadata:\\s*$/m);",
+      "  if (!metadataMatch) {",
+      "    throw new Error(`parseShardFile: ${fileLabel}: missing \"metadata:\" block in frontmatter`);",
+      "  }",
+      "  const afterMetadata = frontmatter.slice(metadataMatch.index + metadataMatch[0].length);",
+      "  const typeMatch = afterMetadata.match(/^[ \\t]+type:\\s*(\\S.*)$/m);",
+    ].join('\n');
+    if (!src.includes(marker)) throw new Error('metadata-nesting marker not found - mutation site moved');
+    return src.replace(marker, "  const typeMatch = frontmatter.match(/^\\s*type:\\s*(\\S.*)$/m); // MUTANT: round-3 unnested shape");
+  }, 'unnested-type-regex');
+
+  let mutantThrew = null;
+  try {
+    mutatedLib.parseShardFile(flatText, 'flat.md');
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null,
+    'REDDENED: with the nesting check reverted, a top-level (unnested) "type:" line is silently accepted',
+  );
+}
+
 function caseEnoentNarrowingRegression() {
   console.log('\n[Manifest] regenerateCommand read-error narrowing (ENOENT only, round-2 fix regression pin)');
   const lib = require(LIB_PATH);
@@ -1392,7 +1491,13 @@ function caseEnoentNarrowingRegression() {
   lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
 
   // Make memoryPath unreadable (EACCES, not ENOENT) - a non-absent-file
-  // read failure that must propagate, never be silently swallowed.
+  // read failure that must propagate, never be silently swallowed. This
+  // probe depends on `chmod 000` actually denying reads, i.e. on a
+  // non-root runner (root ignores file permission bits and would read the
+  // file anyway) - safe today (hooks-tests.yml runs on ubuntu-latest as a
+  // non-root user), and if that ever changes the assertions below fail
+  // LOUDLY (threw stays null) rather than silently passing, so this is
+  // stated as a known dependency rather than reworked.
   fs.chmodSync(memoryPath, 0o000);
   let threw = null;
   try {
@@ -1467,6 +1572,7 @@ function main() {
     caseNonMdRefusal();
     casePrecommitVerification();
     casePostcommitVerification();
+    caseMetadataTypeNestingRequired();
     caseEnoentNarrowingRegression();
   } finally {
     cleanup();
