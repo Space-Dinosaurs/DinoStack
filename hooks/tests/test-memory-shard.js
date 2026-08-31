@@ -38,13 +38,40 @@
  *                                             region instead of adding a
  *                                             shard)
  *
+ * Additional coverage (Skeptic round 3): the six briefed cases above were
+ * exhaustively audited case-by-case for the "would this assertion still
+ * pass against a completely broken implementation" question - the CLI
+ * status-code check in case 2 failed that audit (fixed above) and every
+ * other assertion in cases 1-6 was confirmed to discriminate correctly.
+ * The gaps that audit surfaced (a whole untested binary, six undocumented
+ * manifest guarantees, one unregression-tested prior fix) are covered by
+ * the additional cases below, each with its own independently-run mutation:
+ *   - CLI success path (caseCliSuccessPath) - the CLI actually writes
+ *     shard files to disk, not just "exits 0"; mutation: a stub that
+ *     fakes success without calling splitCommand.
+ *   - CLI arg-parsing (caseCliArgParsing) - unknown flag, split --check,
+ *     regenerate --force, unknown subcommand, --dir with no operand -
+ *     each rejection independently mutation-verified via a temp-staged
+ *     CLI copy (runMutatedCli) that reproduces the real bin/../hooks/lib
+ *     relative layout.
+ *   - writeFileAtomic's stage-then-rename guarantee (caseWriteFileAtomicIsReallyAtomic)
+ *     - verified via an fs.renameSync spy, not by trusting the docstring.
+ *   - Six previously-untested manifest guarantees, each with its own
+ *     mutation: re-split refusal, bulk-orphan threshold, duplicate-sequence
+ *     refusal, non-".md" refusal, pre-commit round-trip verification, and
+ *     post-commit verification (the latter two via a corruption-injecting
+ *     mutation that creates a LEGITIMATE trigger for each guard, then a
+ *     second mutation that also disables the guard).
+ *   - A regression pin for the round-2 ENOENT-narrowing fix
+ *     (caseEnoentNarrowingRegression).
+ *
  * Run with: node hooks/tests/test-memory-shard.js
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LIB_PATH = path.join(REPO_ROOT, 'hooks', 'lib', 'memory-shard.js');
@@ -122,13 +149,37 @@ function initRepoWithOrigin(base, name) {
   return { repo, origin };
 }
 
-/** Runs the real CLI via execFileSync-equivalent (spawn-like, capturing
- * exit code) against `dir`. */
+/** Runs the real CLI via spawnSync (capturing exit code, stdout, stderr). */
 function runCli(args, opts = {}) {
-  const res = require('child_process').spawnSync('node', [CLI_PATH, ...args], {
+  const res = spawnSync('node', [CLI_PATH, ...args], {
     encoding: 'utf8',
     ...opts,
   });
+  return { status: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+/** Runs a MUTATED copy of bin/ds-memory-shard, from a temp file that
+ * reproduces the real `bin/../hooks/lib/memory-shard.js` relative layout
+ * (the CLI resolves its lib import via `__dirname`-relative require, so a
+ * mutant staged in an arbitrary directory would fail to load the real lib
+ * at all) - never touches the real bin/ds-memory-shard on disk. Asserts
+ * the transform actually changed something, same discipline as
+ * loadMutatedLib. */
+function runMutatedCli(transform, label, args, opts = {}) {
+  const original = fs.readFileSync(CLI_PATH, 'utf8');
+  const mutated = transform(original);
+  if (mutated === original) {
+    throw new Error(`runMutatedCli(${label}): transform was a no-op - mutation did not change the source`);
+  }
+  const root = mkTmpDir('memory-shard-cli-mutant-');
+  const binDir = path.join(root, 'bin');
+  const libDir = path.join(root, 'hooks', 'lib');
+  fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.copyFileSync(LIB_PATH, path.join(libDir, 'memory-shard.js'));
+  const mutantCliPath = path.join(binDir, 'ds-memory-shard.mutant.js');
+  fs.writeFileSync(mutantCliPath, mutated, 'utf8');
+  const res = spawnSync('node', [mutantCliPath, ...args], { encoding: 'utf8', ...opts });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 
@@ -249,9 +300,34 @@ function case2() {
   const afterAttempt = fs.readFileSync(memoryPath, 'utf8');
   assert(afterAttempt === beforeAttempt, 'nothing was written to MEMORY.md on refusal');
 
-  // CLI-level: nonzero exit
+  // Skeptic round-3 Major fix: `cli.status !== 0` was vacuous - it passes
+  // for ANY nonzero exit, including a completely broken binary (measured:
+  // repointing the CLI's lib require at a nonexistent module makes EVERY
+  // invocation exit 1 with a load error, and this assertion alone stayed
+  // green). Assert the EXACT exit code (1, the documented refusal code -
+  // never 2, the usage-error code a broken require also happens to avoid
+  // but a malformed-args path would hit) AND the loss-specific stderr
+  // marker, so a broken binary that exits 1 for an unrelated reason is
+  // caught by the second assertion.
   const cli = runCli(['regenerate', '--dir', dir]);
-  assert(cli.status !== 0, 'CLI regenerate exits nonzero on entry-loss refusal');
+  assert(cli.status === 1, 'CLI regenerate exits EXACTLY 1 (the documented refusal code) on entry-loss refusal');
+  assert(/would be LOST/.test(cli.stderr), 'CLI stderr names the LOSS specifically (not just any nonzero exit)');
+
+  console.log('  Mutation: repoint the CLI\'s lib require at a nonexistent module (completely broken binary)');
+  const brokenCli = runMutatedCli(
+    (src) => {
+      const marker = "lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'memory-shard.js'));";
+      if (!src.includes(marker)) throw new Error('lib-require marker not found - mutation site moved');
+      return src.replace(marker, "lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'DOES-NOT-EXIST.js'));");
+    },
+    'broken-lib-require',
+    ['regenerate', '--dir', dir],
+  );
+  assert(brokenCli.status === 1, 'setup: the completely-broken binary also exits 1 (same code as a real refusal - this is exactly why exit-code-alone cannot discriminate)');
+  assert(
+    !/would be LOST/.test(brokenCli.stderr || ''),
+    'REDDENED: the broken binary\'s stderr does NOT contain the loss-specific marker (it is a module-load error, not a refusal) - proving the marker, not the exit code, is what the fixed assertion actually verifies',
+  );
 
   // Skeptic round-2 Major 1 (independent-guard verification): mutate ONLY
   // the entry-loss guard, leaving the reordering guard fully intact, and
@@ -723,6 +799,656 @@ function case6() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// CLI coverage (Skeptic round-3 Major): a real success path plus every
+// arg-parsing rejection this binary implements, each independently verified
+// by mutation. Before this, the ONLY assertion executing bin/ds-memory-shard
+// at all was the (fixed, above) entry-loss refusal check - unknown-flag
+// rejection (round 1), inapplicable-flag rejection (round 2), and the
+// --dir-missing-operand rejection (round 3) all shipped completely untested.
+// ---------------------------------------------------------------------------
+function caseCliSuccessPath() {
+  console.log('\n[CLI-1] Success path: CLI split actually writes shards, CLI regenerate --check round-trips');
+  const { dir, memoryPath, shardDir } = setupSplitFixture();
+
+  const splitRes = runCli(['split', '--dir', dir]);
+  assert(splitRes.status === 0, 'CLI split exits 0 on a fresh MEMORY.md');
+  const shardFiles = fs.existsSync(shardDir) ? fs.readdirSync(shardDir) : [];
+  assert(shardFiles.includes('_preamble.md'), 'CLI split actually wrote _preamble.md to disk (not just claimed success)');
+  const entryShardCount = shardFiles.filter((f) => f !== '_preamble.md').length;
+  assert(entryShardCount === 15, `CLI split actually wrote all 15 entry shards to disk (found ${entryShardCount})`);
+
+  const regenCheckRes = runCli(['regenerate', '--dir', dir, '--check']);
+  assert(regenCheckRes.status === 0, 'CLI regenerate --check exits 0 - the CLI-created shard set round-trips against MEMORY.md');
+
+  console.log('  Mutation: stub the CLI\'s split branch to report success without calling splitCommand at all');
+  const { dir: dir2 } = setupSplitFixture();
+  const shardDir2 = path.join(dir2, '.agentic', 'memory-shards');
+  const stubbed = runMutatedCli(
+    (src) => {
+      const marker = "if (cmd === 'split') {\n      const result = lib.splitCommand({ shardDir, memoryPath, force, allowRemoval });";
+      if (!src.includes(marker)) throw new Error('split-branch marker not found - mutation site moved');
+      return src.replace(
+        marker,
+        "if (cmd === 'split') {\n      process.stdout.write('split: FAKED SUCCESS\\n'); process.exit(0); return;\n      const result = lib.splitCommand({ shardDir, memoryPath, force, allowRemoval });",
+      );
+    },
+    'stub-split-fake-success',
+    ['split', '--dir', dir2],
+  );
+  assert(stubbed.status === 0, 'setup: the stubbed binary also exits 0 (same code as real success - this is why exit-code-alone cannot discriminate)');
+  const shardFiles2 = fs.existsSync(shardDir2) ? fs.readdirSync(shardDir2) : [];
+  assert(
+    shardFiles2.length === 0,
+    'REDDENED: the stubbed binary exits 0 but wrote ZERO shard files to disk - proving the file-count assertion above (not exit code) is what verifies a real success',
+  );
+}
+
+function caseCliArgParsing() {
+  console.log('\n[CLI-2] Arg-parsing rejections, each independently mutation-verified');
+
+  // --- unknown flag -------------------------------------------------------
+  const { dir: dirA } = setupSplitFixture();
+  const unknownFlagRes = runCli(['split', '--dir', dirA, '--forse']);
+  assert(unknownFlagRes.status === 2, 'unknown flag (--forse) exits 2');
+  assert(/unrecognized argument/.test(unknownFlagRes.stderr), 'unknown-flag stderr names it as unrecognized');
+  const shardDirA = path.join(dirA, '.agentic', 'memory-shards');
+  assert(!fs.existsSync(shardDirA), 'unknown flag did NOT perform a real split (no shard dir created)');
+
+  console.log('  Mutation: disable the unknown-flag guard');
+  const unknownFlagMutant = runMutatedCli(
+    (src) => {
+      const marker = "if (unknown.length > 0) {";
+      if (!src.includes(marker)) throw new Error('unknown-flag guard marker not found - mutation site moved');
+      return src.replace(marker, "if (false && unknown.length > 0) {");
+    },
+    'disable-unknown-flag-guard',
+    ['split', '--dir', dirA, '--forse'],
+  );
+  assert(
+    unknownFlagMutant.status === 0,
+    'REDDENED: with the guard disabled, "split --forse" now silently exits 0 (ran a non-forced split instead of rejecting the typo)',
+  );
+
+  // --- inapplicable flag: split --check -----------------------------------
+  const { dir: dirB } = setupSplitFixture();
+  const splitCheckRes = runCli(['split', '--dir', dirB, '--check']);
+  assert(splitCheckRes.status === 2, '"split --check" (recognized but inapplicable flag) exits 2');
+  assert(/--check does not apply to split/.test(splitCheckRes.stderr), 'stderr names --check as inapplicable to split');
+  const shardDirB = path.join(dirB, '.agentic', 'memory-shards');
+  assert(!fs.existsSync(shardDirB), '"split --check" did NOT perform a real write');
+
+  console.log('  Mutation: disable the split/--check inapplicable-flag guard');
+  const splitCheckMutant = runMutatedCli(
+    (src) => {
+      const marker = "if (cmd === 'split' && check) {";
+      if (!src.includes(marker)) throw new Error('split/--check guard marker not found - mutation site moved');
+      return src.replace(marker, "if (false && cmd === 'split' && check) {");
+    },
+    'disable-split-check-guard',
+    ['split', '--dir', dirB, '--check'],
+  );
+  assert(splitCheckMutant.status === 0, 'setup: with the guard disabled, "split --check" now exits 0');
+  const shardDirB2 = path.join(dirB, '.agentic', 'memory-shards');
+  assert(
+    fs.existsSync(shardDirB2),
+    'REDDENED: with the guard disabled, "split --check" silently performed a REAL WRITE (shard dir now exists) - exactly the bug the guard exists to prevent',
+  );
+
+  // --- inapplicable flag: regenerate --force ------------------------------
+  const { dir: dirC, memoryPath: memoryPathC, shardDir: shardDirC } = setupSplitFixture();
+  const lib = require(LIB_PATH);
+  lib.splitCommand({ shardDir: shardDirC, memoryPath: memoryPathC, force: false, allowRemoval: false });
+  const regenForceRes = runCli(['regenerate', '--dir', dirC, '--force']);
+  assert(regenForceRes.status === 2, '"regenerate --force" (recognized but inapplicable flag) exits 2');
+  assert(/--force does not apply to regenerate/.test(regenForceRes.stderr), 'stderr names --force as inapplicable to regenerate');
+
+  console.log('  Mutation: disable the regenerate/--force inapplicable-flag guard');
+  const regenForceMutant = runMutatedCli(
+    (src) => {
+      const marker = "if (cmd === 'regenerate' && force) {";
+      if (!src.includes(marker)) throw new Error('regenerate/--force guard marker not found - mutation site moved');
+      return src.replace(marker, "if (false && cmd === 'regenerate' && force) {");
+    },
+    'disable-regenerate-force-guard',
+    ['regenerate', '--dir', dirC, '--force'],
+  );
+  assert(
+    regenForceMutant.status === 0,
+    'REDDENED: with the guard disabled, "regenerate --force" now silently exits 0 instead of rejecting the inapplicable flag',
+  );
+
+  // --- unknown subcommand --------------------------------------------------
+  const { dir: dirD } = setupSplitFixture();
+  const unknownCmdRes = runCli(['bogus-subcommand', '--dir', dirD]);
+  assert(unknownCmdRes.status === 2, 'an unknown subcommand exits 2');
+
+  console.log('  Mutation: disable the unknown-subcommand guard');
+  const unknownCmdMutant = runMutatedCli(
+    (src) => {
+      const marker = "if (cmd !== 'split' && cmd !== 'regenerate') {";
+      if (!src.includes(marker)) throw new Error('unknown-subcommand guard marker not found - mutation site moved');
+      return src.replace(marker, "if (false && cmd !== 'split' && cmd !== 'regenerate') {");
+    },
+    'disable-unknown-subcommand-guard',
+    ['bogus-subcommand', '--dir', dirD],
+  );
+  // With the guard disabled, cmd falls through to the try block where
+  // `cmd === 'split'` is false and `cmd === 'regenerate'` is also false, so
+  // it drops into the regenerate branch's lib.regenerateCommand() call
+  // (the final `else` in this binary's shape) - REGARDLESS of the exact
+  // downstream behavior, the point is it no longer exits 2 for an unknown
+  // subcommand.
+  assert(
+    unknownCmdMutant.status !== 2,
+    'REDDENED: with the guard disabled, an unknown subcommand no longer exits 2 (usage rejection lost)',
+  );
+
+  // --- --dir with a missing operand ----------------------------------------
+  // A real MEMORY.md must exist in the fallback cwd, or splitCommand fails
+  // on its own initial read before ever reaching the write path the guard
+  // is meant to prevent - that would make the mutation assertion below
+  // vacuous for an unrelated reason (ENOENT, not "guard absent").
+  const dirlessRoot = mkTmpDir('memory-shard-dirless-cwd-');
+  fs.copyFileSync(FIXTURE_PATH, path.join(dirlessRoot, 'MEMORY.md'));
+  const dirMissingRes = spawnSync('node', [CLI_PATH, 'split', '--dir'], { encoding: 'utf8', cwd: dirlessRoot });
+  assert(dirMissingRes.status === 2, '"split --dir" with no operand exits 2');
+  assert(/requires a path operand/.test(dirMissingRes.stderr || ''), 'stderr names the missing --dir operand');
+  assert(!fs.existsSync(path.join(dirlessRoot, '.agentic')), '"split --dir" with no operand did NOT write into cwd');
+
+  console.log('  Mutation: disable the --dir-missing-operand guard');
+  const dirMissingMutant = runMutatedCli(
+    (src) => {
+      const marker = 'if (dirMissingOperand) {';
+      if (!src.includes(marker)) throw new Error('--dir-missing-operand guard marker not found - mutation site moved');
+      return src.replace(marker, 'if (false && dirMissingOperand) {');
+    },
+    'disable-dir-missing-operand-guard',
+    ['split', '--dir'],
+    { cwd: dirlessRoot },
+  );
+  assert(
+    dirMissingMutant.status === 0 && fs.existsSync(path.join(dirlessRoot, '.agentic', 'memory-shards')),
+    'REDDENED: with the guard disabled, "split --dir" (no operand) silently falls back to cwd and performs a REAL WRITE there',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// writeFileAtomic: proves the "stage-then-rename, never a direct write"
+// manifest guarantee via an fs.renameSync spy, rather than trusting the
+// docstring's own claim.
+// ---------------------------------------------------------------------------
+function caseWriteFileAtomicIsReallyAtomic() {
+  console.log('\n[writeFileAtomic] "stage-then-rename, never a direct write" guarantee');
+  const lib = require(LIB_PATH);
+  const dir = mkTmpDir('memory-shard-atomic-');
+  const target = path.join(dir, 'MEMORY.md');
+
+  const realRename = fs.renameSync;
+  const calls = [];
+  fs.renameSync = (...args) => {
+    calls.push(args);
+    return realRename(...args);
+  };
+  try {
+    lib.writeFileAtomic(target, 'hello world\n');
+  } finally {
+    fs.renameSync = realRename;
+  }
+  assert(calls.length === 1, 'writeFileAtomic calls fs.renameSync EXACTLY once (stage-then-rename)');
+  if (calls.length === 1) {
+    assert(calls[0][1] === target, 'the rename call\'s destination is the real target path');
+    assert(calls[0][0] !== target && calls[0][0].startsWith(target), 'the rename call\'s source is a sibling tmp path distinct from the target');
+  }
+  assert(fs.readFileSync(target, 'utf8') === 'hello world\n', 'final content is correct after the real atomic write');
+
+  console.log('  Mutation: replace writeFileAtomic with a direct fs.writeFileSync (no stage-then-rename)');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = "function writeFileAtomic(targetPath, content) {";
+    if (!src.includes(marker)) throw new Error('writeFileAtomic marker not found - mutation site moved');
+    const idx = src.indexOf(marker);
+    const closeIdx = src.indexOf('\n}\n', idx);
+    if (closeIdx === -1) throw new Error('could not locate end of writeFileAtomic');
+    const replacement =
+      'function writeFileAtomic(targetPath, content) {\n' +
+      '  // MUTANT: direct write, no staging, no rename.\n' +
+      "  fs.writeFileSync(targetPath, content, 'utf8');\n" +
+      '}\n';
+    return src.slice(0, idx) + replacement + src.slice(closeIdx + 3);
+  }, 'direct-write-not-atomic');
+
+  const target2 = path.join(dir, 'MEMORY2.md');
+  const calls2 = [];
+  const realRename2 = fs.renameSync;
+  fs.renameSync = (...args) => {
+    calls2.push(args);
+    return realRename2(...args);
+  };
+  try {
+    mutatedLib.writeFileAtomic(target2, 'hello2\n');
+  } finally {
+    fs.renameSync = realRename2;
+  }
+  assert(
+    calls2.length === 0,
+    'REDDENED: the direct-write mutant never calls fs.renameSync at all (no stage-then-rename, violating the manifest\'s "never a direct write" guarantee)',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Manifest-guarantee coverage (Skeptic round-3 Minor): six documented
+// refusals/verifications with previously zero test coverage, each with an
+// independently-run reddening mutation.
+// ---------------------------------------------------------------------------
+function caseResplitRefusal() {
+  console.log('\n[Manifest] Re-split refusal (already-populated shard dir without --force)');
+  const lib = require(LIB_PATH);
+  const { memoryPath, shardDir } = setupSplitFixture();
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+
+  let threw = null;
+  try {
+    lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'a second split without --force REFUSES (throws)');
+  if (threw !== null) {
+    assert(/already contains/.test(threw.message), 'refusal message names the already-populated shard dir');
+  }
+
+  console.log('  Mutation: disable the re-split refusal guard');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = 'if (oldRecords.length > 0 && !force) {';
+    if (!src.includes(marker)) throw new Error('re-split guard marker not found - mutation site moved');
+    return src.replace(marker, 'if (false && oldRecords.length > 0 && !force) {');
+  }, 'disable-resplit-guard');
+  let mutantThrew = null;
+  try {
+    mutatedLib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null,
+    'REDDENED: with the guard disabled, a second split without --force no longer refuses (silently reconciles)',
+  );
+}
+
+function caseBulkOrphanThreshold() {
+  console.log('\n[Manifest] Bulk-orphan deletion threshold (>3 orphans without --allow-removal)');
+  const lib = require(LIB_PATH);
+  const { memoryPath, shardDir } = setupSplitFixture();
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+
+  // Remove 5 of the fixture's 15 entries from MEMORY.md (more than
+  // BULK_ORPHAN_THRESHOLD=3), simulating a large hand-edit - their
+  // corresponding shards become orphans on the next split.
+  const lines = fs.readFileSync(memoryPath, 'utf8').split('\n');
+  let removed = 0;
+  const kept = [];
+  for (const line of lines) {
+    if (removed < 5 && /^- \*\*2026-01-1[0-4]:/.test(line)) {
+      removed++;
+      continue;
+    }
+    kept.push(line);
+  }
+  assert(removed === 5, `setup: removed exactly 5 entries from MEMORY.md (removed ${removed})`);
+  fs.writeFileSync(memoryPath, kept.join('\n'));
+
+  let threw = null;
+  try {
+    lib.splitCommand({ shardDir, memoryPath, force: true, allowRemoval: false });
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'split --force (no --allow-removal) REFUSES when reconciliation would remove >3 orphans');
+  if (threw !== null) {
+    assert(/REFUSING/.test(threw.message) && /threshold/.test(threw.message), 'refusal message names the bulk-orphan threshold');
+  }
+  assert(fs.readdirSync(shardDir).length === 16, 'nothing was deleted from shardDir on refusal (still 15 entries + preamble)');
+
+  console.log('  Mutation: disable the bulk-orphan threshold guard');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = 'if (orphanFiles.length > BULK_ORPHAN_THRESHOLD && !allowRemoval) {';
+    if (!src.includes(marker)) throw new Error('bulk-orphan guard marker not found - mutation site moved');
+    return src.replace(marker, 'if (false && orphanFiles.length > BULK_ORPHAN_THRESHOLD && !allowRemoval) {');
+  }, 'disable-bulk-orphan-guard');
+  let mutantThrew = null;
+  try {
+    mutatedLib.splitCommand({ shardDir, memoryPath, force: true, allowRemoval: false });
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null && fs.readdirSync(shardDir).length === 11,
+    'REDDENED: with the guard disabled, split --force silently deletes all 5 orphans without --allow-removal (shard count drops from 16 to 11)',
+  );
+}
+
+function caseDuplicateSequenceRefusal() {
+  console.log('\n[Manifest] Duplicate-sequence refusal in compileFromRecords');
+  const lib = require(LIB_PATH);
+  const { memoryPath, shardDir } = setupSplitFixture();
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+
+  const records = lib.readEntryRecords(shardDir);
+  const sorted = [...records].sort((a, b) => a.sequence - b.sequence);
+  const a = sorted[0];
+  const b = sorted[1];
+  // Force b's sequence to collide with a's (a genuine duplicate, not merely
+  // a swap - this is a different scenario from case 3's reorder refusal).
+  const bText = fs.readFileSync(path.join(shardDir, b.file), 'utf8');
+  fs.writeFileSync(path.join(shardDir, b.file), bText.replace(`sequence: ${b.sequence}`, `sequence: ${a.sequence}`));
+
+  let threw = null;
+  try {
+    lib.compileFromDir(shardDir);
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'compileFromDir REFUSES (throws) when two shards share the same sequence value');
+  if (threw !== null) {
+    assert(/duplicate sequence/.test(threw.message), 'refusal message names the duplicate sequence');
+  }
+
+  console.log('  Mutation: disable the duplicate-sequence guard');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = 'if (seen.has(r.sequence)) {';
+    if (!src.includes(marker)) throw new Error('duplicate-sequence guard marker not found - mutation site moved');
+    return src.replace(marker, 'if (false && seen.has(r.sequence)) {');
+  }, 'disable-duplicate-sequence-guard');
+  let mutantThrew = null;
+  try {
+    mutatedLib.compileFromDir(shardDir);
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null,
+    'REDDENED: with the guard disabled, compileFromDir no longer refuses a duplicate sequence (silently compiles in array order)',
+  );
+}
+
+function caseNonMdRefusal() {
+  console.log('\n[Manifest] Non-".md" file refusal in readEntryRecords');
+  const lib = require(LIB_PATH);
+  const { memoryPath, shardDir } = setupSplitFixture();
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  // Deliberately VALID frontmatter content (parseShardFile would accept it
+  // cleanly) at a NON-".md" filename - isolates the extension check itself.
+  // Content that failed to parse as a shard (e.g. "not a shard\n") would
+  // still throw with the extension guard disabled, just from
+  // parseShardFile's OWN frontmatter validation instead - a cascading
+  // failure that would make the mutation assertion below pass for the
+  // wrong reason.
+  const strayText = lib.buildFrontmatter({
+    name: 'stray-notes',
+    description: 'Not a real shard, wrong extension.',
+    type: 'project',
+    sequence: 999999,
+  }) + '- **2026-01-01: Stray entry.** Should never be read.\n';
+  fs.writeFileSync(path.join(shardDir, 'stray-notes.txt'), strayText);
+
+  let threw = null;
+  try {
+    lib.readEntryRecords(shardDir);
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'readEntryRecords REFUSES (throws) on a stray non-".md" file in the shard dir');
+  if (threw !== null) {
+    assert(/stray-notes\.txt/.test(threw.message), 'refusal message names the offending filename');
+  }
+
+  console.log('  Mutation: disable the non-".md" guard');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = "if (!name.endsWith('.md')) {";
+    if (!src.includes(marker)) throw new Error('non-.md guard marker not found - mutation site moved');
+    return src.replace(marker, "if (false && !name.endsWith('.md')) {");
+  }, 'disable-non-md-guard');
+  let mutantThrew = null;
+  try {
+    mutatedLib.readEntryRecords(shardDir);
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null,
+    'REDDENED: with the guard disabled, readEntryRecords silently ignores the stray non-".md" file instead of refusing (content is deliberately valid frontmatter, isolating the extension check)',
+  );
+}
+
+function casePrecommitVerification() {
+  console.log('\n[Manifest] Pre-commit round-trip verification (refuses BEFORE any real file is touched)');
+  const { memoryPath, shardDir } = setupSplitFixture();
+
+  // Inject a mutation that corrupts ONE staged shard file immediately after
+  // staging (simulating a hypothetical bug in the staging-write step) -
+  // this makes stagedCompiled genuinely diverge from `original`, a
+  // legitimate trigger for the pre-commit guard rather than a synthetic one.
+  const corruptedLib = loadMutatedLib((src) => {
+    const marker = [
+      "  for (const r of resolved) {",
+      "    fs.writeFileSync(path.join(stagingDir, r.filename), r.text, 'utf8');",
+      "  }",
+      "",
+      "  const stagedCompiled = compileFromDir(stagingDir);",
+    ].join('\n');
+    if (!src.includes(marker)) throw new Error('staging-write marker not found - mutation site moved');
+    return src.replace(
+      marker,
+      [
+        "  for (const r of resolved) {",
+        "    fs.writeFileSync(path.join(stagingDir, r.filename), r.text, 'utf8');",
+        "  }",
+        "  fs.appendFileSync(path.join(stagingDir, resolved[0].filename), 'PRECOMMIT_CORRUPTION\\n');",
+        "",
+        "  const stagedCompiled = compileFromDir(stagingDir);",
+      ].join('\n'),
+    );
+  }, 'corrupt-staged-shard');
+
+  let threw = null;
+  try {
+    corruptedLib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'a corrupted staged shard REFUSES (throws) before any real file is touched');
+  if (threw !== null) {
+    assert(/round-trip verification FAILED before any real shard file was touched/.test(threw.message), 'refusal message is the PRE-COMMIT variant specifically');
+  }
+  assert(!fs.existsSync(shardDir), 'nothing was committed to the real shardDir on pre-commit refusal (it does not even exist)');
+
+  console.log('  Mutation: ALSO disable the pre-commit guard (on top of the same corruption)');
+  const corruptedAndDisabledLib = loadMutatedLib((src) => {
+    const stageMarker = [
+      "  for (const r of resolved) {",
+      "    fs.writeFileSync(path.join(stagingDir, r.filename), r.text, 'utf8');",
+      "  }",
+      "",
+      "  const stagedCompiled = compileFromDir(stagingDir);",
+    ].join('\n');
+    if (!src.includes(stageMarker)) throw new Error('staging-write marker not found - mutation site moved');
+    let mutated = src.replace(
+      stageMarker,
+      [
+        "  for (const r of resolved) {",
+        "    fs.writeFileSync(path.join(stagingDir, r.filename), r.text, 'utf8');",
+        "  }",
+        "  fs.appendFileSync(path.join(stagingDir, resolved[0].filename), 'PRECOMMIT_CORRUPTION\\n');",
+        "",
+        "  const stagedCompiled = compileFromDir(stagingDir);",
+      ].join('\n'),
+    );
+    const guardMarker = 'if (stagedCompiled !== original) {';
+    if (!mutated.includes(guardMarker)) throw new Error('pre-commit guard marker not found - mutation site moved');
+    mutated = mutated.replace(guardMarker, 'if (false && stagedCompiled !== original) {');
+    return mutated;
+  }, 'corrupt-staged-shard-and-disable-precommit-guard');
+
+  // NOTE: the post-commit guard is still intact in this mutant, and it will
+  // independently catch the SAME corruption (defense in depth) - so this
+  // specific mutant demonstrates the pre-commit guard's OWN distinct value
+  // (refusing before shardDir is ever created), while the two assertions
+  // below still prove real observable loss: shardDir gets created and
+  // populated with the corrupted content before the post-commit guard
+  // ever runs, which never happens with both guards intact.
+  let mutantThrew = null;
+  try {
+    corruptedAndDisabledLib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew !== null && /POST-COMMIT verification FAILED/.test(mutantThrew.message),
+    'REDDENED: with ONLY the pre-commit guard disabled, the SAME corruption is instead caught by the post-commit guard - proving the pre-commit guard specifically is what prevented shardDir from ever being touched',
+  );
+  assert(
+    fs.existsSync(shardDir),
+    'REDDENED: with the pre-commit guard disabled, the corrupted content WAS actually committed to shardDir before the post-commit guard caught it (the exact "before any real file is touched" guarantee is what was lost)',
+  );
+}
+
+function casePostcommitVerification() {
+  console.log('\n[Manifest] Post-commit verification (catches a bug in the commit step itself)');
+  const { memoryPath, shardDir } = setupSplitFixture();
+
+  // Inject a mutation that corrupts a REAL committed shard file AFTER the
+  // rename-into-shardDir step but BEFORE the post-commit compile check -
+  // this never touches staging, so it isolates the post-commit guard
+  // specifically (the pre-commit guard cannot see this corruption at all).
+  const corruptedLib = loadMutatedLib((src) => {
+    const marker = [
+      "  for (const orphan of orphanFiles) {",
+      "    fs.rmSync(path.join(shardDir, orphan), { force: true });",
+      "  }",
+      "",
+    ].join('\n');
+    if (!src.includes(marker)) throw new Error('post-commit marker not found - mutation site moved');
+    return src.replace(
+      marker,
+      marker + "  fs.appendFileSync(path.join(shardDir, resolved[0].filename), 'POSTCOMMIT_CORRUPTION\\n');\n\n",
+    );
+  }, 'corrupt-committed-shard');
+
+  let threw = null;
+  try {
+    corruptedLib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  } catch (err) {
+    threw = err;
+  }
+  assert(threw !== null, 'a post-commit corruption REFUSES (throws) after committing');
+  if (threw !== null) {
+    assert(/POST-COMMIT verification FAILED/.test(threw.message), 'refusal message is the POST-COMMIT variant specifically');
+  }
+  assert(
+    fs.existsSync(shardDir) && fs.readdirSync(shardDir).some((f) => fs.readFileSync(path.join(shardDir, f), 'utf8').includes('POSTCOMMIT_CORRUPTION')),
+    'the corrupted content WAS committed (matches the documented "should be unreachable if pre-commit passed, but if it happens the real files are already written" contract)',
+  );
+
+  console.log('  Mutation: ALSO disable the post-commit guard (on top of the same corruption)');
+  const { memoryPath: memoryPath2, shardDir: shardDir2 } = setupSplitFixture();
+  const corruptedAndDisabledLib = loadMutatedLib((src) => {
+    const commitMarker = [
+      "  for (const orphan of orphanFiles) {",
+      "    fs.rmSync(path.join(shardDir, orphan), { force: true });",
+      "  }",
+      "",
+    ].join('\n');
+    if (!src.includes(commitMarker)) throw new Error('post-commit marker not found - mutation site moved');
+    let mutated = src.replace(
+      commitMarker,
+      commitMarker + "  fs.appendFileSync(path.join(shardDir, resolved[0].filename), 'POSTCOMMIT_CORRUPTION\\n');\n\n",
+    );
+    const guardMarker = 'if (committedCompiled !== original) {';
+    if (!mutated.includes(guardMarker)) throw new Error('post-commit guard marker not found - mutation site moved');
+    mutated = mutated.replace(guardMarker, 'if (false && committedCompiled !== original) {');
+    return mutated;
+  }, 'corrupt-committed-shard-and-disable-postcommit-guard');
+
+  let mutantThrew = null;
+  try {
+    corruptedAndDisabledLib.splitCommand({ shardDir: shardDir2, memoryPath: memoryPath2, force: false, allowRemoval: false });
+  } catch (err) {
+    mutantThrew = err;
+  }
+  assert(
+    mutantThrew === null,
+    'REDDENED: with the post-commit guard disabled, the corrupted split now reports SUCCESS with no error at all',
+  );
+  assert(
+    fs.existsSync(shardDir2) && fs.readdirSync(shardDir2).some((f) => fs.readFileSync(path.join(shardDir2, f), 'utf8').includes('POSTCOMMIT_CORRUPTION')),
+    'REDDENED: the corrupted content survives undetected in the committed shardDir',
+  );
+}
+
+function caseEnoentNarrowingRegression() {
+  console.log('\n[Manifest] regenerateCommand read-error narrowing (ENOENT only, round-2 fix regression pin)');
+  const lib = require(LIB_PATH);
+  const { memoryPath, shardDir } = setupSplitFixture();
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+
+  // Make memoryPath unreadable (EACCES, not ENOENT) - a non-absent-file
+  // read failure that must propagate, never be silently swallowed.
+  fs.chmodSync(memoryPath, 0o000);
+  let threw = null;
+  try {
+    lib.regenerateCommand({ shardDir, memoryPath, check: false, allowRemoval: false });
+  } catch (err) {
+    threw = err;
+  } finally {
+    fs.chmodSync(memoryPath, 0o644);
+  }
+  assert(threw !== null, 'a non-ENOENT read failure (EACCES) on memoryPath PROPAGATES rather than being swallowed');
+  if (threw !== null) {
+    assert(threw.code === 'EACCES', 'the propagated error is the real EACCES, not a fabricated one');
+  }
+
+  console.log('  Mutation: revert to a bare catch {} (round-1 regression shape)');
+  const mutatedLib = loadMutatedLib((src) => {
+    const marker = [
+      "  let current = null;",
+      "  try {",
+      "    current = fs.readFileSync(memoryPath, 'utf8');",
+      "  } catch (err) {",
+      "    if (!err || err.code !== 'ENOENT') {",
+      "      throw err;",
+      "    }",
+      "  }",
+    ].join('\n');
+    if (!src.includes(marker)) throw new Error('ENOENT-narrowing marker not found - mutation site moved');
+    return src.replace(
+      marker,
+      [
+        "  let current = null;",
+        "  try {",
+        "    current = fs.readFileSync(memoryPath, 'utf8');",
+        "  } catch {",
+        "    // MUTANT: bare swallow (round-1 regression shape)",
+        "  }",
+      ].join('\n'),
+    );
+  }, 'bare-catch-regression');
+
+  fs.chmodSync(memoryPath, 0o000);
+  let mutantThrew = null;
+  let mutantResult = null;
+  try {
+    mutantResult = mutatedLib.regenerateCommand({ shardDir, memoryPath, check: false, allowRemoval: false });
+  } catch (err) {
+    mutantThrew = err;
+  } finally {
+    fs.chmodSync(memoryPath, 0o644);
+  }
+  assert(
+    mutantThrew === null && mutantResult && mutantResult.wrote === true,
+    'REDDENED: with the bare catch restored, the EACCES read failure is silently swallowed and regenerateCommand proceeds to a successful write',
+  );
+}
+
 function main() {
   try {
     case1();
@@ -732,6 +1458,16 @@ function main() {
     case4();
     case5();
     case6();
+    caseCliSuccessPath();
+    caseCliArgParsing();
+    caseWriteFileAtomicIsReallyAtomic();
+    caseResplitRefusal();
+    caseBulkOrphanThreshold();
+    caseDuplicateSequenceRefusal();
+    caseNonMdRefusal();
+    casePrecommitVerification();
+    casePostcommitVerification();
+    caseEnoentNarrowingRegression();
   } finally {
     cleanup();
   }

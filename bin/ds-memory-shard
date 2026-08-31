@@ -14,12 +14,17 @@
  *   ds-memory-shard split [--dir <path>] [--force] [--allow-removal]
  *   ds-memory-shard regenerate [--dir <path>] [--check] [--allow-removal]
  *
- *   --dir defaults to process.cwd(); resolved to absolute via path.resolve.
- *   It is the PROJECT root, not the shard directory - shardDir is always
- *   `<dir>/.agentic/memory-shards` and memoryPath is always
- *   `<dir>/MEMORY.md`, matching the convention doc's fixed layout. No flag
- *   overrides those two derived paths independently; a caller who needs a
- *   different project just passes a different --dir.
+ *   --dir defaults to process.cwd() WHEN OMITTED ENTIRELY; resolved to
+ *   absolute via path.resolve. It is the PROJECT root, not the shard
+ *   directory - shardDir is always `<dir>/.agentic/memory-shards` and
+ *   memoryPath is always `<dir>/MEMORY.md`, matching the convention doc's
+ *   fixed layout. No flag overrides those two derived paths independently;
+ *   a caller who needs a different project just passes a different --dir.
+ *   `--dir` GIVEN WITH NO OPERAND (the last token on the command line, or
+ *   immediately followed by another `--flag`) is a USAGE ERROR (exit 2),
+ *   NOT a silent fall-back to cwd (round-3 Minor fix) - the cwd default
+ *   above applies only when `--dir` is omitted entirely, never when it is
+ *   present but malformed.
  *
  *   split:
  *     --force          required to reconcile against an already-populated
@@ -38,9 +43,12 @@
  *
  *   Exit codes: 0 success (including a matched --check no-op); 1 on any
  *   refusal or unexpected error (message printed to stderr); 2 on
- *   argument-parsing usage error (unknown subcommand, OR an unrecognized
+ *   argument-parsing usage error (unknown subcommand; an unrecognized
  *   flag - e.g. a typo like `--forse` fails loudly rather than silently
- *   running a non-forced operation).
+ *   running a non-forced operation; a recognized-but-inapplicable flag for
+ *   the given subcommand, e.g. `split --check` or `regenerate --force`;
+ *   or `--dir` given with no operand - round-3 Minor fix, see the --dir
+ *   note above).
  *
  * Upstream deps: hooks/lib/memory-shard.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib,
@@ -96,26 +104,50 @@ function parseArgs(argv) {
   // (e.g. a typo'd `--forse` ran a non-forced split with no warning at
   // all) - collected here and fail loudly in main() instead.
   const unknown = [];
+  // Skeptic round-3 Minor fix: `--dir` as the LAST argument (no operand
+  // following it) used to silently fall back to `dir = undefined`, which
+  // `dir || process.cwd()` below then resolved to cwd - a typo'd
+  // `split --dir` (operand forgotten) ran a REAL WRITE against the wrong
+  // target directory with no warning at all, the same failure class the
+  // unknown-flag and inapplicable-flag fixes closed. Tracked separately so
+  // main() can reject it explicitly rather than silently defaulting.
+  let dirMissingOperand = false;
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === '--force') { force = true; continue; }
     if (arg === '--allow-removal') { allowRemoval = true; continue; }
     if (arg === '--check') { check = true; continue; }
-    if (arg === '--dir') { dir = rest[i + 1]; i++; continue; }
+    if (arg === '--dir') {
+      if (i + 1 >= rest.length || rest[i + 1].startsWith('--')) {
+        dirMissingOperand = true;
+        continue;
+      }
+      dir = rest[i + 1];
+      i++;
+      continue;
+    }
     const dirMatch = arg.match(/^--dir=(.+)$/);
     if (dirMatch) { dir = dirMatch[1]; continue; }
+    if (arg === '--dir=') { dirMissingOperand = true; continue; }
     unknown.push(arg);
   }
 
-  return { cmd, dir: path.resolve(dir || process.cwd()), force, allowRemoval, check, unknown };
+  return { cmd, dir: path.resolve(dir || process.cwd()), force, allowRemoval, check, unknown, dirMissingOperand };
 }
 
 function main() {
   const argv = process.argv.slice(2);
-  const { cmd, dir, force, allowRemoval, check, unknown } = parseArgs(argv);
+  const { cmd, dir, force, allowRemoval, check, unknown, dirMissingOperand } = parseArgs(argv);
 
   if (cmd !== 'split' && cmd !== 'regenerate') {
+    usage();
+    process.exit(2);
+    return;
+  }
+
+  if (dirMissingOperand) {
+    process.stderr.write('ds-memory-shard: --dir requires a path operand (got none, or the next token looked like another flag) - refusing rather than silently defaulting to the current directory\n');
     usage();
     process.exit(2);
     return;
