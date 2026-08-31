@@ -329,11 +329,24 @@ git check-ignore -q .agentic/memory-shards/2026-01-01-example.md
 ```
 
 Exit code **1** (no output) means the path is NOT ignored - correct, once
-the project-scaffolding carve-out for this directory is in place (both the
-bare directory negation `!.agentic/memory-shards/` AND the recursive
-`!.agentic/memory-shards/**` negation - see `content/project-scaffolding.yml`
-scaffolding version 8). Exit code **0** (path printed) means it IS ignored -
-the carve-out is missing or broken.
+the project-scaffolding carve-out for this directory is in place (see
+`content/project-scaffolding.yml` scaffolding version 8). Exit code **0**
+(path printed) means it IS ignored - the carve-out is missing or broken.
+
+**The bare directory negation is what actually does the work here.**
+Measured directly on git 2.55.0 against this manifest's `.agentic/*`
+umbrella (a one-level glob - not the bare/recursive `.agentic/` form that
+cannot be pierced by any negation at all): `!.agentic/memory-shards/` alone
+is SUFFICIENT to un-ignore every path nested under it, including files
+several directories deep. The sibling `!.agentic/memory-shards/**` negation
+is REDUNDANT in the bare form's presence, and on its OWN (without the bare
+form) is actually INSUFFICIENT - it never un-ignores the directory entry
+`.agentic/*` itself matches, so nothing under it is reached. Both lines
+ship anyway, matching the existing `!.agentic/session-log/**` precedent
+(the identical measured redundancy already documented for that carve-out) -
+a deliberate defense-in-depth choice, not a correctness requirement. Do not
+restate the older "both lines are required" framing this section used to
+carry; it was not supported by measurement.
 
 **Do not use `git check-ignore -v`'s exit code as the criterion - it does not
 discriminate.** `-v`'s exit code reports "some pattern matched", including a

@@ -2383,9 +2383,11 @@ class TestBehavioralNegationDetection(unittest.TestCase):
 
 
 class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
-    """Round 12 pin: the measured, ACCEPTED residual in directory-form
-    negation detection (`!.agentic/session-log/` and its `/**` twin - the
-    only 2 of the manifest's 13 negation patterns shaped this way). The
+    """Round 12 pin (DS-221 Unit 1: 2 -> 4 patterns, session-log's pair plus
+    memory-shards' pair): the measured, ACCEPTED residual in directory-form
+    negation detection (`!.agentic/session-log/` + its `/**` twin, and
+    `!.agentic/memory-shards/` + its `/**` twin - 4 of the manifest's 15
+    negation patterns shaped this way). The
     probe set must synthesize candidate paths when no real file exists yet
     under the directory (see `_directory_negation_probes`), and a defeater
     keyed to an unguessed filename returns "ok" undetected in that case.

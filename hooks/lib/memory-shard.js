@@ -145,8 +145,13 @@ function splitEntries(fullText) {
   if (firstEntryIdx === -1) {
     throw new Error('splitEntries: no line starting with "- " found - cannot locate the first entry boundary');
   }
+  // BUG FIX (Skeptic Minor): when firstEntryIdx === 0 (the file starts at
+  // column 0 with "- ", i.e. genuinely no preamble at all), preambleLines
+  // is [] and an UNCONDITIONAL "+ '\n'" would fabricate a spurious leading
+  // blank line that was never in the original file, breaking
+  // byte-identity. Only append the separator when there IS a preamble.
   const preambleLines = lines.slice(0, firstEntryIdx);
-  const preamble = preambleLines.join('\n') + '\n';
+  const preamble = preambleLines.length > 0 ? preambleLines.join('\n') + '\n' : '';
 
   const cutPoints = [];
   for (let i = firstEntryIdx; i < lines.length; i++) {
@@ -403,9 +408,27 @@ function compileFromDir(dir) {
  * hybrid. Staged as a SIBLING of `targetPath` (never a fixed temp dir) so
  * an EXDEV rename failure across filesystems can never happen here. */
 function writeFileAtomic(targetPath, content) {
+  // Skeptic Minor fix: `targetPath` is typically a project's MEMORY.md at
+  // the repo root, which is git-tracked (not ignored) - so a sibling
+  // `.tmp-<pid>-<ts>` file is itself outside any ignore rule. This cannot
+  // be made fully crash-proof (a SIGKILL between writeFileSync and
+  // renameSync leaves the tmp file regardless of what surrounds it - no
+  // tmp+rename scheme anywhere in this codebase, including splitCommand's
+  // staging dir, can close that gap), but a rename failure that DOES throw
+  // synchronously (permissions, disk full, EXDEV) is now cleaned up rather
+  // than leaving an orphaned tmp file as a side effect of the failure.
   const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, content, 'utf8');
-  fs.renameSync(tmpPath, targetPath);
+  try {
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch (_) {
+      /* best-effort cleanup; surface the original rename error below */
+    }
+    throw err;
+  }
 }
 
 function firstDifferenceOffset(a, b) {

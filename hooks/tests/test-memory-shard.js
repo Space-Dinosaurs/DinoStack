@@ -175,6 +175,33 @@ function case1() {
 }
 
 // ---------------------------------------------------------------------------
+// Regression: preamble-less file (Skeptic Minor fix)
+// ---------------------------------------------------------------------------
+function caseNoPreamble() {
+  console.log('\n[1b] Regression: preamble-less file (splitEntries firstEntryIdx === 0)');
+  const lib = require(LIB_PATH);
+  const dir = mkTmpDir('memory-shard-no-preamble-');
+  const memoryPath = path.join(dir, 'MEMORY.md');
+  const noPreambleFixture = path.join(__dirname, 'fixtures', 'memory-shard-sample-no-preamble.md');
+  fs.copyFileSync(noPreambleFixture, memoryPath);
+  const shardDir = path.join(dir, '.agentic', 'memory-shards');
+  fs.mkdirSync(path.dirname(shardDir), { recursive: true });
+  const original = fs.readFileSync(memoryPath, 'utf8');
+
+  const { preamble } = lib.splitEntries(original);
+  assert(
+    preamble === '',
+    'splitEntries does NOT fabricate a spurious leading blank line when the file starts at column 0 with "- "',
+  );
+
+  lib.splitCommand({ shardDir, memoryPath, force: false, allowRemoval: false });
+  fs.rmSync(memoryPath);
+  lib.regenerateCommand({ shardDir, memoryPath, check: false, allowRemoval: false });
+  const regenerated = fs.readFileSync(memoryPath, 'utf8');
+  assert(regenerated === original, 'preamble-less file round-trips byte-identical (no fabricated leading newline)');
+}
+
+// ---------------------------------------------------------------------------
 // Case 2: Entry-loss refusal
 // ---------------------------------------------------------------------------
 function case2() {
@@ -350,13 +377,51 @@ function case4() {
   }, 'off-by-one-midpoint');
 
   // Force the small-span (bisection) branch to fire by using a tight gap
-  // that still satisfies span <= count*SEQUENCE_GAP.
+  // that still satisfies span <= count*SEQUENCE_GAP. Measured: the "real"
+  // assertions above (left=1000, right=2000, count=2 - two originally-
+  // adjacent split-time shards) ALSO land in this same bisection branch
+  // (span=1000 is not > count*SEQUENCE_GAP=2000), so this mutation and the
+  // real-code assertions already exercise the identical branch.
   const tightLeft = 0;
   const tightRight = 3; // span=3, count=2 -> falls to bisection branch (3 <= 2*1000)
   const mutantValues = mutatedLib.fillSequenceRun(tightLeft, tightRight, 2);
   assert(
     mutantValues[0] === mutantValues[1],
     'REDDENED: mutant produces a SEQUENCE COLLISION (both new shards get the same integer)',
+  );
+
+  // Skeptic Minor fix: the wide-gap branch (span > count*SEQUENCE_GAP,
+  // taken when new shards are being inserted into a gap wide enough to
+  // give each a full SEQUENCE_GAP-sized slot) had ZERO test coverage
+  // above - neither the real assertions nor the bisection mutation touch
+  // it. Exercised directly here, with its own dedicated mutation.
+  console.log('  Wide-gap branch (span > count*SEQUENCE_GAP): real values plus its own off-by-one mutation');
+  const wideLeft = 0;
+  const wideRight = 10000; // span=10000, count=2 -> wide branch (10000 > 2*1000)
+  const wideValues = lib.fillSequenceRun(wideLeft, wideRight, 2);
+  assert(wideValues.length === 2, 'wide-gap branch: fillSequenceRun produced two values');
+  assert(wideValues[0] !== wideValues[1], 'wide-gap branch: the two values are DISTINCT');
+  assert(
+    wideValues.every((v) => v > wideLeft && v < wideRight),
+    'wide-gap branch: both values fall strictly inside the gap',
+  );
+
+  const wideMutatedLib = loadMutatedLib((src) => {
+    // Drops the "(count - k)" factor from the wide-gap branch's formula,
+    // collapsing every requested slot to the same fixed offset from
+    // rightBound regardless of k - the wide-branch analogue of the
+    // bisection mutation above.
+    const marker = 'return Array.from({ length: count }, (_, k) => rightBound - (count - k) * SEQUENCE_GAP);';
+    if (!src.includes(marker)) throw new Error('wide-gap marker not found - mutation site moved');
+    return src.replace(
+      marker,
+      'return Array.from({ length: count }, () => rightBound - SEQUENCE_GAP); // MUTANT: drops the (count - k) factor, collapsing every value to the same integer',
+    );
+  }, 'wide-gap-off-by-one');
+  const wideMutantValues = wideMutatedLib.fillSequenceRun(wideLeft, wideRight, 2);
+  assert(
+    wideMutantValues[0] === wideMutantValues[1],
+    'REDDENED: wide-gap mutant produces a SEQUENCE COLLISION (both new shards get the same integer)',
   );
 }
 
@@ -579,11 +644,23 @@ function case6() {
   }
   assert(mutantPushFailed, 'setup: clone B\'s push of a same-file rewrite is rejected (non-fast-forward), as expected');
 
+  // BUG FIX (Skeptic Major 2): the prior version was
+  // `(err.stderr || err.stdout || '').toString().includes('CONFLICT') ||
+  // err.status !== 0` - the `||` short-circuited on truthy stderr (git
+  // prints CONFLICT to STDOUT, not stderr) and the trailing
+  // `|| err.status !== 0` then made the assertion pass on ANY nonzero
+  // exit for ANY reason, not specifically a merge conflict. Measured:
+  // status=1, stdout has CONFLICT=true, stderr has CONFLICT=false. Both
+  // streams must be joined and searched together, and the assertion must
+  // rest on the CONFLICT marker alone - never on exit status as a proxy.
   let mergeConflicted = false;
   try {
     execFileSync('git', ['-c', 'pull.rebase=false', 'pull', '-q', '--no-edit', 'origin', 'main'], { cwd: cloneB2 });
   } catch (err) {
-    mergeConflicted = (err.stderr || err.stdout || '').toString().includes('CONFLICT') || err.status !== 0;
+    const combined = [err.stdout, err.stderr]
+      .map((s) => (s ? s.toString() : ''))
+      .join('');
+    mergeConflicted = combined.includes('CONFLICT');
   }
   assert(
     mergeConflicted,
@@ -595,6 +672,7 @@ function case6() {
 function main() {
   try {
     case1();
+    caseNoPreamble();
     case2();
     case3();
     case4();

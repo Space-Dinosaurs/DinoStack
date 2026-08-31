@@ -49,11 +49,26 @@
 #              makes a project-local presets.yml committable if and when an
 #              operator chooses to author one, it does not create the file.
 #          v8: adds !.agentic/memory-shards/ + !.agentic/memory-shards/**
-#              negations (DS-221 Unit 1, memory shard compiler). BOTH lines
-#              are required - a bare directory negation alone cannot pierce
-#              the ".agentic/*" umbrella for files nested inside it (see
-#              content/references/memory-shard-convention.md's Verification
-#              section). This ships the compiler + convention only; nothing
+#              negations (DS-221 Unit 1, memory shard compiler). CORRECTED:
+#              measured directly on git 2.55.0 against this repo's
+#              ".agentic/*" umbrella (a one-level glob, not the bare/
+#              recursive ".agentic/" form some other rules warn cannot be
+#              pierced at all) - the BARE directory negation
+#              (!.agentic/memory-shards/) is SUFFICIENT ON ITS OWN to
+#              un-ignore every path nested inside it; the recursive
+#              !.agentic/memory-shards/** sibling is REDUNDANT in its
+#              presence (and, on its own without the bare form, actually
+#              INSUFFICIENT - it does not un-ignore the directory entry
+#              ".agentic/*" itself matches, so nothing under it is reached).
+#              Both lines are kept anyway, matching the existing
+#              !.agentic/session-log/** precedent (same measured
+#              redundancy, kept for defense-in-depth / pattern parity
+#              across the two directory-form carve-outs in this manifest)
+#              - this is a deliberate belt-and-suspenders choice, not a
+#              correctness requirement. See
+#              content/references/memory-shard-convention.md's
+#              Verification section for the corrected prose. This ships
+#              the compiler + convention only; nothing
 #              writes into .agentic/memory-shards/ yet (writer wiring is a
 #              later unit's scope, gated by the new memory_shard_mode
 #              toggle, default false), so this negation makes the directory
@@ -104,9 +119,9 @@ gitignore:
   - pattern: "!.agentic/presets.yml"
     purpose: "committed: project-local spawn-preset overrides (agent/tier/brief_prefix only - no model handles, unlike tier-map.yml/role-models.yml)"
   - pattern: "!.agentic/memory-shards/"
-    purpose: "committed: memory shard directory (DS-221 Unit 1) - one fact per file"
+    purpose: "committed: memory shard directory (DS-221 Unit 1) - one fact per file. Sufficient on its own under this manifest's .agentic/* umbrella (measured, git 2.55.0)"
   - pattern: "!.agentic/memory-shards/**"
-    purpose: "committed: memory shard directory contents - required alongside the bare directory negation above; a directory negation alone cannot pierce the .agentic/* umbrella for nested files"
+    purpose: "committed: memory shard directory contents - redundant alongside the bare directory negation above (kept for parity with the !.agentic/session-log/** precedent, same measured redundancy there)"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
