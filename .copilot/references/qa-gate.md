@@ -284,3 +284,5 @@ done
 ```
 
 Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
+
+See `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership: a server booted here is run-scoped only and "will not survive your run" - treat it as such rather than as a durably running service.
