@@ -137,8 +137,14 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ "$found" -eq 1 ]]; then
-  header_count="$(grep -cE '^=== reap .* pid [0-9]+ ===$' "$LOG_FILE" 2>/dev/null || echo 0)"
-  sentinel_count="$(grep -cF 'STUB_REAP_RAN' "$LOG_FILE" 2>/dev/null || echo 0)"
+  # `grep -c` always prints a count (0 or more) to its own stdout, even on
+  # zero matches - it only exits nonzero. `|| echo 0` here would therefore
+  # APPEND a second "0" line inside the same command substitution on a
+  # no-match run, producing a two-line value like "0\n0" that then fails
+  # the `-ge`/`-eq` integer comparisons below with a bad-math error instead
+  # of comparing. Trust grep's own printed count; no fallback needed.
+  header_count="$(grep -cE '^=== reap .* pid [0-9]+ ===$' "$LOG_FILE" 2>/dev/null)"
+  sentinel_count="$(grep -cF 'STUB_REAP_RAN' "$LOG_FILE" 2>/dev/null)"
   if [[ "$header_count" -ge 1 && "$sentinel_count" -eq 1 ]]; then
     _pass "(b) log contains the header line and exactly one STUB_REAP_RAN sentinel"
   else
