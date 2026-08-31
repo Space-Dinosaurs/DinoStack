@@ -20,11 +20,16 @@
  *   memoryPath is always `<dir>/MEMORY.md`, matching the convention doc's
  *   fixed layout. No flag overrides those two derived paths independently;
  *   a caller who needs a different project just passes a different --dir.
- *   `--dir` GIVEN WITH NO OPERAND (the last token on the command line, or
- *   immediately followed by another `--flag`) is a USAGE ERROR (exit 2),
- *   NOT a silent fall-back to cwd (round-3 Minor fix) - the cwd default
- *   above applies only when `--dir` is omitted entirely, never when it is
- *   present but malformed.
+ *   `--dir` GIVEN WITH A MALFORMED OPERAND is a USAGE ERROR (exit 2), NOT
+ *   a silent fall-back to cwd (round-3/round-4 Minor fixes) - the cwd
+ *   default above applies only when `--dir` is omitted entirely, never
+ *   when it is present but malformed. Four malformed shapes are rejected:
+ *   `--dir` as the last token on the command line (no operand at all);
+ *   `--dir` immediately followed by another `--flag`; `--dir ''` (an
+ *   EMPTY-STRING operand - round-4 fix, since `''` does not
+ *   startsWith('--') and would otherwise be silently accepted then fall
+ *   back to cwd via `dir || process.cwd()`); and `--dir=` (empty after
+ *   the `=` in the single-token form).
  *
  *   split:
  *     --force          required to reconcile against an already-populated
@@ -47,8 +52,10 @@
  *   flag - e.g. a typo like `--forse` fails loudly rather than silently
  *   running a non-forced operation; a recognized-but-inapplicable flag for
  *   the given subcommand, e.g. `split --check` or `regenerate --force`;
- *   or `--dir` given with no operand - round-3 Minor fix, see the --dir
- *   note above).
+ *   or `--dir` given with a malformed operand - no operand at all,
+ *   immediately followed by another flag, an empty string, or `--dir=`
+ *   with nothing after the `=` - round-3/round-4 Minor fixes, see the
+ *   --dir note above).
  *
  * Upstream deps: hooks/lib/memory-shard.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib,
