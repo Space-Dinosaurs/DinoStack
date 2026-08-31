@@ -3681,19 +3681,9 @@ def _invocation_lines(text: str, pattern: str) -> str:
 
 
 def test_measure_size_never_passed_by_automatic_callers():
-    """Mutation: add `--measure-size` to any of the FOUR automatic callers'
+    """Mutation: add `--measure-size` to any of the THREE automatic callers'
     own invocation of this tool -> the corresponding assertion below fails,
-    reddening this test. `bin/tests/test_worktree_reap_report_only.sh`
-    pins only `--report` presence and `--archive-unproven` absence in
-    `run.sh` - it does not cover this flag, so this test is what does.
-
-    Round-2 Skeptic Minor fix: this test previously covered only 2 of the
-    4 real automatic callers - `bin/ds-base-sync` and
-    `content/references/worktree-lifecycle.md`'s session-start reap block
-    (the mutating, backgrounded call site - see that file's
-    Downstream deps section) were both missing. The `--measure-size` flag
-    docstring's own enumeration was under-scoped the same way; both are
-    extended together here.
+    reddening this test.
 
     Round-3 Skeptic Minor 3 fix: scoped to each file's actual
     `ds-cleanup-worktrees` INVOCATION line(s) via `_invocation_lines`,
@@ -3703,17 +3693,14 @@ def test_measure_size_never_passed_by_automatic_callers():
     invocation and must remain legal.
     """
     session_start = (REPO_ROOT / "hooks" / "session-start-wrap.sh").read_text()
-    reap_run = (REPO_ROOT / "automation" / "dinostack-worktree-reap" / "run.sh").read_text()
     base_sync = (REPO_ROOT / "bin" / "ds-base-sync").read_text()
     worktree_lifecycle = (REPO_ROOT / "content" / "references" / "worktree-lifecycle.md").read_text()
 
     session_start_invocations = _invocation_lines(session_start, r'\$DS_CLEANUP_BIN"\s+--')
-    reap_run_invocation = _invocation_lines(reap_run, r'\$DS_CLEANUP_BIN"\s+--')
     base_sync_invocation = _invocation_lines(base_sync, r'\$_ds_cleanup_worktrees"\s+--')
     worktree_lifecycle_invocation = _invocation_lines(worktree_lifecycle, r'^\s*ds-cleanup-worktrees --repo')
 
     assert "--measure-size" not in session_start_invocations
-    assert "--measure-size" not in reap_run_invocation
     assert "--measure-size" not in base_sync_invocation
     assert "--measure-size" not in worktree_lifecycle_invocation
 
