@@ -1670,6 +1670,17 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
         match-all by design (see the "matcher": null discussion below) -
         it is confirmed, not unconfirmable, so it can OK or FAIL like any
         other match-all matcher, never WARN for being missing.
+    All four "nothing to scan" states above stay severity OK, but are NOT
+    worded identically (follow-up to DS-198): a missing settings.json, a
+    settings.json with no "enabledPlugins" key, an empty "enabledPlugins"
+    object, and an "enabledPlugins" object whose entries are all `false`
+    are four genuinely different configs an operator would want to tell
+    apart when debugging why a plugin isn't being scanned - the last one
+    in particular means the operator's config DOES have entries, they are
+    just all disabled. Collapsing these into one "no enabledPlugins
+    entries" message previously reported the fourth state as if it were
+    the first (or second/third) - a "the key is empty/absent" claim on a
+    file that in fact lists N disabled plugins by name.
     By contrast, every value this function reads that is PRESENT but the
     wrong JSON type or otherwise unconfirmable (a non-dict settings_data
     or enabledPlugins, an enabledPlugins entry whose value is not a
@@ -1723,6 +1734,12 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
     settings_path = plugins_dir.parent / "settings.json"
     enabled_plugins: list[str] = []
     enabled_incomplete = False
+    # None until settings.json is read and its "enabledPlugins" key is
+    # inspected - stays None when the file is missing entirely, which is
+    # exactly the state the final OK-message branch below needs to tell
+    # apart from "file present, key absent" (both used to collapse into
+    # the identical "no enabledPlugins entries" wording).
+    enabled: object | None = None
     if settings_path.is_file():
         try:
             settings_data = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -1807,11 +1824,38 @@ def check_foreign_agent_hooks(doc: Doctor) -> None:
                 "could not confirm any plugin's enabled state (see WARN "
                 "lines above) - not a confirmed-clean scan",
             )
-        else:
+        elif not settings_path.is_file():
+            # No settings.json at all - distinct from "file present but no
+            # enabledPlugins key" and from "key present with entries, none
+            # enabled" (DS-198 follow-up: these three used to collapse
+            # into one "no enabledPlugins entries" message).
             doc.ok(
                 "foreign_agent_hook",
-                "no plugins enabled (no enabledPlugins entries in "
-                f"{settings_path}) - nothing to scan",
+                f"no {settings_path} found - nothing to scan",
+            )
+        elif enabled is None:
+            doc.ok(
+                "foreign_agent_hook",
+                f"{settings_path}: no 'enabledPlugins' key - nothing to "
+                "scan",
+            )
+        elif not enabled:
+            doc.ok(
+                "foreign_agent_hook",
+                f"{settings_path}: 'enabledPlugins' is empty - nothing to "
+                "scan",
+            )
+        else:
+            # Key present with entries but none are `true` - genuinely
+            # different from "no entries at all" (the false state this
+            # branch used to report as). See module docstring's MISSING
+            # discussion for why these are kept distinct.
+            doc.ok(
+                "foreign_agent_hook",
+                f"{settings_path}: 'enabledPlugins' has "
+                f"{len(enabled)} " + (
+                    "entry" if len(enabled) == 1 else "entries"
+                ) + ", none enabled - nothing to scan",
             )
         return
 
