@@ -389,8 +389,18 @@ function case2() {
   // two apart; multiset counting can.
   const compiledForMutant = mutatedLib.compileFromDir(shardDir);
   const dup = 'DUPLICATE_MARKER_LINE';
-  const currentWithTwoCopies = compiledForMutant.replace('\n', `\n${dup}\n${dup}\n`);
-  const compiledWithOneCopyLost = compiledForMutant.replace('\n', `\n${dup}\n`);
+  // Insert right after the FIRST newline only (deliberate - constructing a
+  // synthetic fixture, not sanitizing input). Uses indexOf + slice rather
+  // than `.replace('\n', ...)`: a plain-string .replace() flags CodeQL's
+  // js/incomplete-sanitization heuristic (it looks like a would-be global
+  // replace that only hit the first occurrence), even though nothing here
+  // sanitizes untrusted input - this form is unambiguous either way.
+  const firstNewlineIdx = compiledForMutant.indexOf('\n');
+  const afterFirstLine = firstNewlineIdx + 1;
+  const currentWithTwoCopies =
+    compiledForMutant.slice(0, afterFirstLine) + `${dup}\n${dup}\n` + compiledForMutant.slice(afterFirstLine);
+  const compiledWithOneCopyLost =
+    compiledForMutant.slice(0, afterFirstLine) + `${dup}\n` + compiledForMutant.slice(afterFirstLine);
   const mutantLost = mutatedLib.findLostLines(currentWithTwoCopies, compiledWithOneCopyLost);
   assert(
     mutantLost.length === 0,
