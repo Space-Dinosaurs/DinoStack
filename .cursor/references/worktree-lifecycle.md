@@ -528,11 +528,12 @@ git worktree list --porcelain | awk '
   [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
 done
 git worktree prune
-# Automatic worktree reap (DS-196): runs bin/ds-cleanup-worktrees's full evidence-gated
-# disposition (origin-reachability, activity liveness, dirty/locked/age/protected-content
-# gates - see "The unproven class" and bin/ds-cleanup-worktrees's own docstring for the
-# full predicate) against the CURRENT repo, backgrounded so this preflight never blocks
-# on worktree count. `git rev-parse --show-toplevel` resolves the repo root explicitly
+# Worktree reap (DS-196): this is the conductor's own preflight action, invoking
+# bin/ds-cleanup-worktrees's full evidence-gated disposition (origin-reachability,
+# activity liveness, dirty/locked/age/protected-content gates - see "The unproven
+# class" and bin/ds-cleanup-worktrees's own docstring for the full predicate)
+# against the CURRENT repo, backgrounded so this preflight never blocks on
+# worktree count. `git rev-parse --show-toplevel` resolves the repo root explicitly
 # rather than using $(pwd) - `.agentic/` is root-anchored in .gitignore, so a non-root
 # cwd would otherwise create a stray, non-ignored `.agentic/` directory. Note: when this
 # preflight itself runs from inside a worktree (rather than the main checkout),
@@ -556,7 +557,7 @@ if [ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]; then
       mkdir -p "$REPO_ROOT/.agentic" 2>/dev/null || true
       ( echo "=== reap $(date -u +%Y-%m-%dT%H:%M:%SZ) pid $$ ===" >> "$REPO_ROOT/.agentic/worktree-reap.log"
         ds-cleanup-worktrees --repo "$REPO_ROOT" \
-          >> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) &
+          >> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) >>"$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 &
     fi
     # else: --show-toplevel failed (not a git repo) - skip silently, nothing to reap.
   else
@@ -576,7 +577,7 @@ else
 fi
 ```
 
-**Residual, named not fixed (round-2 Minor 4): undisclosed reap/branch-prune concurrency.** The automatic reap above is backgrounded (`&`) while `ds-branch-prune` immediately following it in the same script runs synchronously - the two race for the remainder of this preflight. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both already soft-fail by design (the reap's subprocess appends its own errors to the log via `|| true`, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the reap can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion - but this is the one accepted trade-off in this change that was not previously disclosed anywhere in this document.
+**Residual, named not fixed (round-2 Minor 4): undisclosed reap/branch-prune concurrency.** The reap above is backgrounded (`&`, with the subshell's own file descriptors also redirected to the log so a harness pipe is never held open for the reap's duration) while `ds-branch-prune` immediately following it in the same script runs synchronously - the two race for the remainder of this preflight. Git ref/index lock contention (`.git/index.lock`, a stale `.git/refs/...` lock) can make either transiently fail; both already soft-fail by design (the reap's subprocess appends its own errors to the log via `|| true`, and `ds-branch-prune` is PATH-guarded and non-blocking on any exit per the comment above), so contention cannot corrupt state, only silently skip a removal or a prune for that one run - recoverable on the next invocation. A subtler case: the reap can remove a worktree mid-pass while `ds-branch-prune`'s subsumption predicate is still evaluating branches, changing which branches it is willing to delete out from under it (a branch whose only checked-out worktree existed at the START of the branch-prune run may be gone by the time it reaches that branch). There is no data-loss path either way - removal on both sides is always evidence-gated, and `ds-branch-prune`'s own ledger records every deletion - but this is the one accepted trade-off in this change that was not previously disclosed anywhere in this document.
 
 **Tweak-PR rediscovery.** Runs in the same preflight, modeled on the
 skill-candidate sweep's `open`/`dismissed` idiom
@@ -608,7 +609,7 @@ file, so there is no vicious-loop risk to defend against.
 
 **Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
 
-**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - run automatically and unattended by the backgrounded session-start reap above, a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
+**Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - invoked by the conductor's session-start preflight (backgrounded, per §Session-start prune script, so it never blocks), a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
 Implicit Trivial batching (§Implicit Trivial batching: open the PR at
 first push above) needs no special case here: each continuation spawn is

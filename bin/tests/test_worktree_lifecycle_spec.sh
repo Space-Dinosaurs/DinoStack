@@ -208,8 +208,8 @@ check_reap_wiring() {
     echo "PROSE-WIRING VIOLATION: $doc does not invoke the automatic session-start worktree reap (ds-cleanup-worktrees --repo \"\$REPO_ROOT\")" >&2
     ok=1
   fi
-  if ! grep -qF '>> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) &' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc's session-start reap invocation is not backgrounded (missing the trailing ') &' subshell form)" >&2
+  if ! grep -qF '>> "$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 || true ) >>"$REPO_ROOT/.agentic/worktree-reap.log" 2>&1 &' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc's session-start reap invocation is not backgrounded with its own fds redirected to the log (missing the trailing ') >>\"\$REPO_ROOT/.agentic/worktree-reap.log\" 2>&1 &' subshell form)" >&2
     ok=1
   fi
   if ! grep -qF 'AE_WORKTREE_REAP_DISABLE' "$doc"; then

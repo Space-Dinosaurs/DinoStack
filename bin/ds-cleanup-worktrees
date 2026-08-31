@@ -633,7 +633,7 @@ Public API (CLI):
                           `automation/dinostack-worktree-reap/run.sh`, AND
                           `content/references/worktree-lifecycle.md`'s
                           session-start reap block - the mutating,
-                          unattended, backgrounded call site (see that
+                          backgrounded call site (see that
                           file's own Downstream deps section) - all invoke
                           this tool without it, pinned by
                           `test_measure_size_never_passed_by_automatic_callers`)
@@ -804,7 +804,7 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       SEPARATE call site from the hook above: a plain,
                       backgrounded `ds-cleanup-worktrees --repo <root>`
                       invocation with no `--count-only`/`--dry-run`, run
-                      once per session-start preflight and unattended;
+                      once per session-start preflight;
                       suppressible via `AE_WORKTREE_REAP_DISABLE=1` - this
                       IS the automatic call site the Performance section
                       above now refers to);
@@ -944,8 +944,8 @@ Performance: (DS-196 correction: full mode IS now the mode an automatic call
              suppress) - fixed in this round.
              Full mode IS now the mode an automatic call site uses (see the
              correction at the top of this section) - the backgrounded
-             session-start reap invokes it unattended once per session
-             start, so this per-entry cost is no longer merely a
+             session-start reap invokes it once per session-start
+             preflight, so this per-entry cost is no longer merely a
              manual-invocation concern.
              `--measure-size` (DS-216, round-2 Skeptic Major 3 fix - this
              cost was previously undocumented here): adds one `du -sk`

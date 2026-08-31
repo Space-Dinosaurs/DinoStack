@@ -353,7 +353,7 @@ The aggressive per-session prune is a complement to Claude Code's own 30-day orp
 - **DS-196:** these `--count-only` passive nudges stay report-only, unchanged. A SEPARATE, genuinely mutating invocation now also runs automatically, backgrounded, from the session-start prune block itself (see previous slide) - the two are not the same mechanism
 
 <div class="callout">
-The passive nudges are report-only. The session-start reap is the mutating backstop, and it runs unattended - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
+The passive nudges are report-only. The session-start reap is the mutating backstop - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
 </div>
 
 ---

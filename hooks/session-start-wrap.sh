@@ -88,7 +88,8 @@
 #                content/references/worktree-lifecycle.md (§Session-start
 #                prune script) - a plain shell block in the conductor
 #                preflight prose, not a hook. Removal from THAT call site is
-#                now automatic and unattended, suppressible via
+#                invoked by the conductor's own preflight action (backgrounded,
+#                never blocks), suppressible via
 #                AE_WORKTREE_REAP_DISABLE=1; see the worktree-accumulation
 #                nudge comment below for the full cross-reference). The
 #                machine-wide worst-project nudge
@@ -439,6 +440,20 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
         nonroot_count=$((total_entries - 1))
         if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
           worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
+          # Report-only observability signal (round-4 step 8): same repo-root
+          # idiom already proven above (`git -C "$cwd" rev-parse
+          # --show-toplevel`), scoped to THIS variable name so it cannot be
+          # confused with the worst-project block's own `cwd_toplevel`. Log
+          # existence only, not recency (see Deferred defaults) - and scoped
+          # to whichever worktree this preflight runs from, which is a known,
+          # self-clearing false-positive source when that differs from where
+          # the log actually lives (see Trade-offs in the DS-196 plan). This
+          # adds no removal logic - report-only, per the unchanged PR #707
+          # constraint.
+          nudge_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+          if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
+            worktree_msg="${worktree_msg} The session-start reap has apparently never produced a log entry in this repo."
+          fi
         fi
       fi
     fi

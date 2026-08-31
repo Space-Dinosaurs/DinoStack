@@ -3690,7 +3690,7 @@ def test_measure_size_never_passed_by_automatic_callers():
     Round-2 Skeptic Minor fix: this test previously covered only 2 of the
     4 real automatic callers - `bin/ds-base-sync` and
     `content/references/worktree-lifecycle.md`'s session-start reap block
-    (the mutating, unattended, backgrounded call site - see that file's
+    (the mutating, backgrounded call site - see that file's
     Downstream deps section) were both missing. The `--measure-size` flag
     docstring's own enumeration was under-scoped the same way; both are
     extended together here.
