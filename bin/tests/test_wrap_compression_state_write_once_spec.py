@@ -58,6 +58,21 @@ apparatus, not in the fix it protects:
   below are now evaluated strictly `in` the extracted bullet substring,
   not the whole document and not a hand-bounded window.
 
+- Round 5's own self-reported residual gap, closed in the same round
+  (mid-round follow-up): marker-uniqueness extraction alone verifies the
+  content lives inside a uniquely-marked "- (e)" bullet SOMEWHERE in the
+  document, not that the bullet is still step 4's own fifth list item. A
+  self-devised mutation proved this: relocating the ENTIRE "- (e)" bullet
+  (marker included) into unrelated Async-path-amendment prose - orphaning
+  step 4's own (a)-(d) list - passed all four assertions. Closed by
+  `_assert_e_is_fifth_list_item()`, a structural sibling check (not a
+  window): it walks backward from the "- (e)" marker to the nearest
+  preceding non-blank line and requires that line to be a "- (d)" sibling
+  marker, failing loudly if no such line exists or if the found line is
+  not "- (d)". This is a direct-adjacency check on the document's own
+  list structure, not an offset comparison against a hand-picked
+  neighbouring string - it has no window and no end-anchor to get wrong.
+
 Each assertion below is labeled [PIN] (asserts prose is present, not a
 computed regression from a prior bug) unless marked [REGRESSION].
 Mutation-tested against a mutated copy of this branch's own
@@ -94,10 +109,57 @@ STEP_4E_MARKER_RE = re.compile(r"^[ \t]*-\s*\(e\)(?=\s)", re.MULTILINE)
 # matches (found during this test's own development).
 NEXT_BOUNDARY_RE = re.compile(r"^[ \t]*(?:-\s*\([a-z]\)(?=\s)|\*\*)", re.MULTILINE)
 
+# Step 4(e)'s required immediate predecessor: the "- (d)" sibling marker.
+# Same `(?=\s)` lookahead as above, for the same reason - `\b` after the
+# closing paren never matches there.
+STEP_4D_MARKER_RE = re.compile(r"^[ \t]*-\s*\(d\)(?=\s)")
+
 
 def _read() -> str:
     assert WRAP_MD.is_file(), f"expected file not found: {WRAP_MD}"
     return WRAP_MD.read_text(encoding="utf-8")
+
+
+def _assert_e_is_fifth_list_item(text: str, marker_start: int) -> None:
+    """Verify the "- (e)" marker at `marker_start` is still step 4's own
+    fifth list item: its nearest preceding non-blank line (skipping only
+    blank lines - none exist between (d) and (e) today, but this does not
+    assume that) must itself be a "- (d)" sibling marker.
+
+    This is a structural sibling check on the document's own list, not an
+    offset comparison against a hand-picked neighbouring string: there is
+    no window and no end-anchor to get wrong. It closes the gap
+    marker-uniqueness extraction alone could not: a whole "- (e)" bullet
+    (marker included) can be relocated verbatim into unrelated prose
+    elsewhere in the document, remain the sole "- (e)" marker, and still
+    have a resolvable end boundary - but it would no longer be directly
+    preceded by "- (d)", so this check catches it.
+
+    Fails loudly (pytest.fail), never a silent widen or whole-file
+    fallback, when:
+    - there is no preceding non-blank line at all (the marker is the
+      first content in the document), or
+    - the nearest preceding non-blank line is not a "- (d)" marker.
+    """
+    prefix = text[:marker_start]
+    lines = prefix.splitlines()
+    idx = len(lines) - 1
+    while idx >= 0 and lines[idx].strip() == "":
+        idx -= 1
+    if idx < 0:
+        pytest.fail(
+            "no preceding non-blank line found before step 4(e)'s "
+            "marker - cannot verify it is still step 4's own fifth list "
+            "item"
+        )
+    prev_line = lines[idx]
+    if not STEP_4D_MARKER_RE.match(prev_line):
+        pytest.fail(
+            "step 4(e)'s immediately preceding non-blank line is not a "
+            f"'- (d)' sibling marker (found: {prev_line!r}) - the bullet "
+            "carrying the '- (e)' marker is no longer step 4's own fifth "
+            "list item, it has been relocated elsewhere in the document"
+        )
 
 
 def _extract_step_4e_bullet(text: str) -> str:
@@ -107,7 +169,10 @@ def _extract_step_4e_bullet(text: str) -> str:
     Fails loudly (never silently widens the region) when:
     - the "- (e)" marker is missing entirely,
     - more than one candidate "- (e)" marker exists (ambiguous - cannot
-      uniquely locate the bullet), or
+      uniquely locate the bullet),
+    - the marker's immediate predecessor is not a "- (d)" sibling marker
+      (it is no longer step 4's own fifth list item - see
+      `_assert_e_is_fifth_list_item`), or
     - no boundary (next sibling bullet or bold heading) can be found
       after the marker, so the end of the bullet cannot be resolved.
     """
@@ -120,6 +185,7 @@ def _extract_step_4e_bullet(text: str) -> str:
         )
     marker = markers[0]
     start = marker.start()
+    _assert_e_is_fifth_list_item(text, start)
     boundary = NEXT_BOUNDARY_RE.search(text, marker.end())
     if boundary is None:
         pytest.fail(
@@ -141,16 +207,19 @@ def _extract_step_4e_bullet(text: str) -> str:
 
 def test_extraction_finds_exactly_one_bullet_smaller_than_the_document() -> None:
     """Sanity check on the extraction itself, independent of its content:
-    exactly one step 4(e) bullet must be found, and the extracted region
-    must be a strict, non-trivial substring of the whole document (i.e.
-    the extraction actually narrowed something down, rather than falling
-    back to the full file)."""
+    exactly one step 4(e) bullet must be found, it must be directly
+    preceded by a "- (d)" sibling marker (i.e. it is still step 4's own
+    fifth list item, not merely a uniquely-marked bullet relocated
+    elsewhere), and the extracted region must be a strict, non-trivial
+    substring of the whole document (i.e. the extraction actually
+    narrowed something down, rather than falling back to the full file)."""
     text = _read()
     markers = list(STEP_4E_MARKER_RE.finditer(text))
     assert len(markers) == 1, (
         f"expected exactly one step 4(e) bullet marker, found "
         f"{len(markers)}"
     )
+    _assert_e_is_fifth_list_item(text, markers[0].start())
     bullet = _extract_step_4e_bullet(text)
     assert 0 < len(bullet) < len(text), (
         "extracted step 4(e) bullet must be a non-empty, strict subset "
