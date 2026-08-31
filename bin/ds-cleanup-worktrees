@@ -1249,6 +1249,47 @@ def _resolve_repo(path: str) -> str:
     return proc.stdout.strip()
 
 
+def _host_is_linked_worktree(repo: str) -> bool:
+    """True when `repo` (the resolved git toplevel this run targets, which
+    becomes both `host` and `repo_root` at the sole `classify_entry` call
+    site in `_evaluate_entries`) is ITSELF a linked worktree of some OTHER
+    repository, rather than that repository's own main worktree. `git
+    rev-parse --show-toplevel` (what `_resolve_repo`/`RepoTarget` both use)
+    resolves to the LINKED WORKTREE's own directory when run from inside
+    one, not the parent repo's root - so `--repo <a-linked-worktree>`
+    would otherwise make `host == repo_root == <that worktree's path>`,
+    and every SIBLING worktree of the parent repo would resolve
+    `OUT_OF_TREE` and become evidence-gated for removal: a blast-radius
+    expansion onto a repo the operator never named (reachable via `--repo
+    <worktree>` directly and via `--multi-repo` scan discovery, since
+    `_is_git_dir` accepts a `.git` FILE, exactly a linked worktree's
+    marker).
+
+    Distinguished via `git rev-parse --git-common-dir` (always the shared
+    `.git` directory, identical for every worktree of one repo) versus
+    `--git-dir` (the main worktree's own `.git` directory - identical to
+    `--git-common-dir` there - or a linked worktree's private
+    `.git/worktrees/<name>` administrative directory, which differs from
+    `--git-common-dir`). Fails closed to `False` ("assume main worktree",
+    the pre-existing behavior) on any git failure or path-resolution
+    error, since this is a defensive narrowing of an already-additive
+    class, not a correctness-critical read."""
+    git_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-dir"])
+    common_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-common-dir"])
+    if git_dir_proc.returncode != 0 or common_dir_proc.returncode != 0:
+        return False
+    git_dir_raw = git_dir_proc.stdout.strip()
+    common_dir_raw = common_dir_proc.stdout.strip()
+    if not git_dir_raw or not common_dir_raw:
+        return False
+    try:
+        git_dir = os.path.realpath(os.path.join(repo, git_dir_raw))
+        common_dir = os.path.realpath(os.path.join(repo, common_dir_raw))
+    except OSError:
+        return False
+    return git_dir != common_dir
+
+
 # --------------------------------------------------------------------------
 # Base-branch resolution (round-4 rework, DS-cleanup-worktrees). Replaces
 # content/commands/ds-cleanup-worktrees.md's former Step 2 hand-rolled
@@ -2316,14 +2357,36 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
                           same-invocation `rmtree` repair removed it).
       `already_unregistered` - True only when git already deregistered the
                           worktree (`git worktree remove` returned rc==0)
-                          but content remained on disk, regardless of
-                          whether the repair attempt that followed then
-                          succeeded or failed.
+                          and content STILL remains on disk when this
+                          function returns - i.e. the repair attempt (the
+                          defensive-floor refusal, or the `rmtree` retry)
+                          did NOT leave the directory gone. False on the
+                          repair-SUCCESS path (`rmtree` actually removed
+                          the leftover content, so nothing remains
+                          unregistered-with-content by the time this
+                          returns) as well as on every path where content
+                          was never left behind in the first place.
       `detail`          - the salvage failure detail (when `salvage_failed`),
                           the `git worktree remove` stderr (when
                           `not removed and not already_unregistered`), the
                           repair outcome text (when `already_unregistered`),
                           or "" on a clean success.
+
+    Known limitations (the residual TOCTOU risk the defensive floor below
+    does NOT close): the floor only refuses to `rmtree` a path that
+    resolves to, or is an ancestor of, `repo` itself - it does not
+    re-verify the filesystem at `worktree_path` immediately before the
+    `rmtree` call. Between `git worktree remove`'s `rc==0` and that call,
+    something else could in principle repopulate `worktree_path` with
+    DIFFERENT content, and this function would still `rmtree` it. `git
+    worktree remove`'s own successful exit is the primary safety argument
+    here (it just validated this was a real, registered worktree at
+    exactly this path) - no additional re-verification (e.g. re-running
+    `git worktree list`) is performed before the retry. Accepted as
+    recorded debt, not closed: it only fires at all on the rare
+    rc==0-but-still-present shape, never on the ordinary rc==0-and-gone
+    path, and adding a heavier guard was judged disproportionate to that
+    narrow a window.
     """
     salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
     if not salvage_ok:
@@ -2343,17 +2406,22 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
             # intent-to-delete for this content - a same-invocation
             # cleanup retry is safe where a cold sweep of an unknown orphan
             # would not be.
-            # realpath, not normpath: `repo` reaches the CLI as `args.repo[0]
-            # if args.repo else "."` and can be relative or symlink-divergent
-            # (e.g. macOS `/tmp` vs `/private/tmp`) - normpath alone would
-            # silently no-op this floor for exactly those inputs.
+            # realpath, not normpath: `repo` here is already an absolute,
+            # resolved git toplevel path (`_resolve_repo`/`RepoTarget` both
+            # resolve it via `git rev-parse --show-toplevel` before
+            # `_run_repo` ever calls this function) - but `worktree_path`
+            # is NOT independently re-resolved, so a symlink-divergent
+            # input there (e.g. macOS `/tmp` vs `/private/tmp`) could still
+            # compare unequal under plain `normpath`; `realpath` on BOTH
+            # sides is what makes the comparison robust to that.
             norm_target = os.path.realpath(worktree_path)
             norm_repo = os.path.realpath(repo)
             if norm_target == norm_repo or norm_repo.startswith(norm_target.rstrip("/") + "/"):
                 # Defensive floor: never rmtree a path that resolves to, or
                 # is an ancestor of, repo itself, however this function was
                 # reached. This is NOT the primary safety argument - see
-                # Known limitations for the residual TOCTOU risk this floor
+                # this function's own docstring's "Known limitations"
+                # paragraph above for the residual TOCTOU risk this floor
                 # does not close.
                 return {"salvage_failed": False, "salvaged": salvaged, "removed": False,
                         "already_unregistered": True,
@@ -2791,11 +2859,26 @@ def _evaluate_entries(
     `--report` DEEP tier can compute the identical per-entry decision
     without duplicating this loop - both call sites pass the SAME
     `evaluate_entry`, so they cannot diverge on what counts as REMOVE.
+
+    `host_is_linked_worktree` is resolved ONCE per call (not per-entry -
+    it depends only on `repo`, never on `entry`) and threaded into every
+    `classify_entry` call: when `repo` is itself a linked worktree of
+    another repository, `OUT_OF_TREE` is withheld and the not-under-host
+    branch stays `UNMANAGED`, exactly as it did before `OUT_OF_TREE`
+    existed - see `_host_is_linked_worktree`'s own docstring for why this
+    guard exists.
     """
+    host_is_linked_worktree = _host_is_linked_worktree(repo)
     results: List[Dict] = []
     for idx, entry in enumerate(entries):
         is_main = idx == 0
-        wt_class = classify_entry(entry, host=repo, repo_root=repo, is_main=is_main)
+        wt_class = classify_entry(
+            entry,
+            host=repo,
+            repo_root=repo,
+            is_main=is_main,
+            host_is_linked_worktree=host_is_linked_worktree,
+        )
         if is_main:
             results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
             continue

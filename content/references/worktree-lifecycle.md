@@ -349,18 +349,18 @@ and no orphaned-nested-entry case to reason about separately. It is
 reaped (or not) by the same harness/session-start machinery that governs
 any other crashed spawn.
 
-[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:392-394`)
+[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:443-447`)
 is path-prefix-only and never reads `entry.branch` - a detached harness
 worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
-(`bin/tests/worktree_model.py:701-707`) is `ELIGIBLE` only when
+(`bin/tests/worktree_model.py:756-762`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-`bin/ds-cleanup-worktrees:2585` hardcodes `head_reachable="not_checked"`
+`bin/ds-cleanup-worktrees:2692` hardcodes `head_reachable="not_checked"`
 at every construction site, and `_compute_origin_reachable`'s own
-docstring (`bin/ds-cleanup-worktrees:1760-1780`) calls the field
-"unrelated, dead code" at `:1775` - distinct from the separate, live
+docstring (`bin/ds-cleanup-worktrees:1801-1821`) calls the field
+"unrelated, dead code" at `:1816` - distinct from the separate, live
 `origin_reachable` field DS-196 added, which does not feed this branch at
-all (`worktree_model.py:462-471`).
+all (`worktree_model.py:478-487`).
 Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
 today: **every detached harness worktree, whether its push already
 landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
@@ -395,16 +395,41 @@ repo's own git registered, but which lives physically outside
 `repo_root`'s directory tree, is not `UNMANAGED` - `classify_entry`
 bifurcates on `host == repo_root` (`bin/tests/worktree_model.py:414-424`):
 when equal (the sole real call site's shape), it classifies `OUT_OF_TREE`
-and is evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, including
-via `origin_reachable` (DS-196) for a branched entry - a second, ALREADY-
-LIVE removal path beyond ancestor-of-base evidence, independent of
-`head_reachable` staying dead. `--no-origin-reachable-evidence` rolls back
-to the pre-DS-196 evidence order for an operator who wants the more
-conservative behavior, including for `OUT_OF_TREE`. When `host !=
+and is evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, subject to
+THREE removal paths, not one: (1) ancestor-of-base merge evidence; (2)
+`origin_reachable` (DS-196) for a branched entry - independent of
+`head_reachable` staying dead, rolled back to the pre-DS-196 evidence
+order by `--no-origin-reachable-evidence` for an operator who wants the
+more conservative behavior; and (3) `--archive-unproven`, which archives
+and removes ANY entry (of any class, including `OUT_OF_TREE`) whose
+disposition resolves `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR` -
+needing no merge evidence at all, since both dispositions mean "the
+branch content itself is the only unresolved question" (see
+`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`'s own docstring). None of these three
+paths are new code; `OUT_OF_TREE` is simply newly subject to all of them,
+same as ISOLATION/CONDUCTOR_CREATED always have been. When `host !=
 repo_root` (a hypothetical caller relativizing against a different root
 than the containment boundary - the genuine cross-repo case), the entry
 stays `UNMANAGED`, unchanged - the cross-repo non-collision guarantee this
 module documents.
+
+**A linked worktree used as the sweep target is not supported.** `--repo
+<path>` (and `--multi-repo` scan discovery, since `_is_git_dir` accepts a
+`.git` FILE - exactly a linked worktree's marker) resolves `host` and
+`repo_root` via `git rev-parse --show-toplevel`, which returns a LINKED
+worktree's OWN directory when run from inside one, not its parent repo's
+root. Without a guard, that would make `host == repo_root == <the linked
+worktree's own path>`, and every SIBLING worktree of the parent repo would
+resolve `OUT_OF_TREE` and become evidence-gated for removal - a
+blast-radius expansion onto a repo the operator never named, and one that
+also defeats `RepoTarget` dedup for that repo. `_host_is_linked_worktree`
+(`bin/ds-cleanup-worktrees`) distinguishes a main worktree from a linked
+one via `git rev-parse --git-dir` versus `--git-common-dir` (identical
+for the main worktree, different for a linked one) and, when the target
+IS a linked worktree, withholds `OUT_OF_TREE` for that run - the
+not-under-host branch stays `UNMANAGED` exactly as it did before
+`OUT_OF_TREE` existed. Point `--repo` at a repo's main worktree, never at
+one of its own linked worktrees.
 
 **Orphaned unregistered directories - decision.** No sweep/report
 mechanism was built to find EXISTING orphaned, unregistered worktree

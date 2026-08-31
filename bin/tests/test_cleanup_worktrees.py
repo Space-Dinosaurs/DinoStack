@@ -4098,3 +4098,166 @@ def test_partial_removal_repair_failure_cli_warning_is_accurate(tmp_path):
         leftover = Path(str(wt))
         if leftover.exists():
             leftover.chmod(0o700)
+
+
+# --------------------------------------------------------------------------
+# OUT_OF_TREE guard: a LINKED worktree used as the sweep target must never
+# make its parent repo's sibling worktrees resolve OUT_OF_TREE. Skeptic
+# Major 1 - `_resolve_repo`/`RepoTarget` both resolve `git rev-parse
+# --show-toplevel` from inside the target, which returns the LINKED
+# worktree's own directory when run from inside one, not the parent
+# repo's root - so `host == repo_root == <that worktree's path>` and
+# every sibling worktree of the parent repo would otherwise evidence-gate
+# for removal, a blast-radius expansion onto a repo never named by the
+# operator.
+# --------------------------------------------------------------------------
+
+
+def test_classify_entry_withholds_out_of_tree_for_linked_worktree_host():
+    """Unit-level: `host_is_linked_worktree=True` keeps the not-under-host
+    branch at UNMANAGED even when host==repo_root - the exact guard Major 1
+    requires. Reddening mutation: delete the `and not host_is_linked_worktree`
+    clause from `classify_entry`'s not-under-host branch (`worktree_model.py`)
+    -> this assertion flips to OUT_OF_TREE."""
+    host = "/some/linked/worktree/path"
+    entry = worktree_model.WorktreeEntry(
+        path="/some/completely/external/path",
+        head="cafebabe",
+        branch="fix/something",
+        is_detached=False,
+    )
+    wc = worktree_model.classify_entry(
+        entry, host=host, repo_root=host, is_main=False, host_is_linked_worktree=True
+    )
+    assert wc is worktree_model.WorktreeClass.UNMANAGED
+
+    # Sanity: the same fixture WITHOUT the linked-worktree flag (the
+    # existing, unguarded shape) still resolves OUT_OF_TREE - proves the
+    # flag, not some other change, is what withholds it.
+    wc_unguarded = worktree_model.classify_entry(
+        entry, host=host, repo_root=host, is_main=False, host_is_linked_worktree=False
+    )
+    assert wc_unguarded is worktree_model.WorktreeClass.OUT_OF_TREE
+
+
+def test_host_is_linked_worktree_distinguishes_main_from_linked(tmp_path):
+    """Unit-level: `_host_is_linked_worktree` (bin/ds-cleanup-worktrees)
+    returns False for a repo's own main worktree and True for one of its
+    linked worktrees, via `git rev-parse --git-dir` vs `--git-common-dir`.
+    Reddening mutation: change the function's final `return git_dir !=
+    common_dir` to `return False` unconditionally -> the second assertion
+    below fails."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    linked = add_worktree(repo, str(tmp_path / "linked-wt"), "fix/linked", push=False)
+
+    mod = _load_module_directly()
+    assert mod._host_is_linked_worktree(str(repo)) is False
+    assert mod._host_is_linked_worktree(str(linked)) is True
+
+
+def test_evaluate_entries_sibling_stays_unmanaged_when_target_is_linked_worktree(tmp_path):
+    """CLI-level, the exact scenario Skeptic Major 1 measured: `--repo
+    <linked-worktree>` must not make a SIBLING `.agentic/worktrees/*` entry
+    of the PARENT repo resolve OUT_OF_TREE - it must stay UNMANAGED,
+    exactly as it did before OUT_OF_TREE existed. Reddening mutation: in
+    `_evaluate_entries`, hardcode `host_is_linked_worktree = False` instead
+    of calling `_host_is_linked_worktree(repo)` -> `z`'s outcome flips from
+    SKIP_UNMANAGED to an evidence-gated REMOVE/SKIP_* outcome and its class
+    from UNMANAGED to OUT_OF_TREE."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    conductor_created = add_worktree(repo, ".agentic/worktrees/z", "feature/zzz", push=False)
+    linked = add_worktree(repo, str(tmp_path / "linked-wt"), "fix/external", push=False)
+
+    # --repo points at the LINKED worktree, not the main repo.
+    proc = run_reap(linked, dry_run=True)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(conductor_created)] == "SKIP_UNMANAGED", result
+
+    explain_block = proc.stdout
+    assert f"{conductor_created} [UNMANAGED]" in explain_block, explain_block
+    assert f"{conductor_created} [CONDUCTOR_CREATED]" not in explain_block, explain_block
+    assert f"{conductor_created} [OUT_OF_TREE]" not in explain_block, explain_block
+
+
+# --------------------------------------------------------------------------
+# OUT_OF_TREE + --archive-unproven: a THIRD removal path, needing no merge
+# evidence at all. Skeptic Major 2 - `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`
+# ({SKIP_NOT_PUSHED, SKIP_AMBIGUOUS_NO_PR}) was pre-existing, class-blind
+# behavior in `--archive-unproven`, but was never disclosed as applying to
+# the newly-evidence-gated OUT_OF_TREE class, nor tested for it.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_removes_out_of_tree_worktree(tmp_path):
+    """An out-of-tree worktree on a never-pushed branch (SKIP_NOT_PUSHED,
+    needs no merge evidence at all) is archived and removed under
+    `--archive-unproven`, exactly like an in-tree ISOLATION/
+    CONDUCTOR_CREATED entry would be - the third removal path this class
+    is now newly subject to, disclosed in
+    content/references/worktree-lifecycle.md."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "fix-external-archive-ok"
+    wt = add_worktree(repo, str(tmp_path / "external-archive-ok"), branch, push=False)
+    (wt / "unique-work.txt").write_text(f"real work on {branch}\n")
+    _git(wt, "add", "unique-work.txt")
+    _git(wt, "commit", "-q", "-m", f"unique commit on {branch}")
+
+    proc = run_reap(
+        repo, dry_run=False, no_gh=False, extra=["--archive-unproven"], gh_dir=_fake_gh_dir(tmp_path)
+    )
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED"), result
+    assert not wt.exists()
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
+
+
+# --------------------------------------------------------------------------
+# Archive-loop already_unregistered print branch: the SECOND consumer of
+# `_salvage_and_remove`'s `already_unregistered` key (the plain REMOVE loop
+# is the first, already covered). Skeptic Major 6, mutation-verified by the
+# reviewer: `elif outcome["already_unregistered"]:` -> `elif False:` leaves
+# 219 passed / 0 failed with no coverage of this call site at all.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_repair_failure_reports_unregistered_accurately(tmp_path):
+    """When `git worktree remove` (during `--archive-unproven`) reports
+    success but leaves the directory present, and the same-invocation
+    `rmtree` repair ALSO fails, the archive loop's print site must report
+    the accurate `already_unregistered` WARNING - never the generic
+    "failed to remove ... after successful archive" wording, which the
+    `else` branch would print if this `elif` were ever defeated."""
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-repair-fail"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-repair-fail", branch)
+    stub_dir = _fake_git_dir_remove_succeeds_but_leaves_undeletable_directory(tmp_path)
+    try:
+        proc = run_reap(
+            repo,
+            dry_run=False,
+            no_gh=False,
+            extra=["--archive-unproven"],
+            gh_dir=_fake_gh_dir(tmp_path),
+            git_dir=stub_dir,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "UNREGISTERED" in proc.stderr, proc.stderr
+        assert "after successful archive" in proc.stderr, proc.stderr
+        assert "failed to remove" not in proc.stderr, proc.stderr
+        result = outcomes(proc.stdout)
+        assert result[str(wt)].startswith("SKIP_REMOVE_FAILED"), result
+
+        archive_dir = repo / ".agentic" / "worktree-archive"
+        bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+        assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
+    finally:
+        # chmod 500 on the leftover blocks tmp_path's own teardown - restore
+        # write permission regardless of assertion outcome.
+        leftover = Path(str(wt))
+        if leftover.exists():
+            leftover.chmod(0o700)
