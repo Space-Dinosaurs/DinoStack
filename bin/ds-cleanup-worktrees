@@ -33,12 +33,19 @@ UNMANAGED) - the single normative definition, never restated here.
 `evals/.worktrees/*` (pinned per repo decision #203) already classifies
 UNMANAGED under that model and is never touched by this tool regardless.
 A worktree THIS repo's own git registered but which lives physically
-outside the repo's directory tree (`host == repo_root` at this call site,
-`:2733`/current call site below) classifies `OUT_OF_TREE`, not UNMANAGED -
-it is evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, including
-via `origin_reachable` (DS-196) for a branched entry. A genuinely foreign
-entry (a different repository's worktree) still classifies UNMANAGED,
-unchanged.
+outside the repo's directory tree (`host == repo_root` at this file's own
+`classify_entry` call site, inside `_evaluate_entries`) classifies
+`OUT_OF_TREE`, not UNMANAGED, PROVIDED the target is not itself a linked
+worktree (see `_host_is_linked_worktree` immediately below) - it is then
+evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, via THREE
+removal paths: ancestor-of-base merge evidence, `origin_reachable`
+(DS-196) for a branched entry, and `--archive-unproven` (which needs no
+merge evidence at all - see `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`). A
+genuinely foreign entry (a different repository's worktree), OR a target
+that IS itself a linked worktree of some other repo, still classifies
+UNMANAGED, unchanged. See `content/references/worktree-lifecycle.md` for
+the full disclosure of all three removal paths and the linked-worktree
+guard.
 
 Removal predicate (worktree REMOVAL only - `git worktree remove`, never
 `git branch -D`; a worktree's branch and its commits survive removal).
@@ -1270,10 +1277,40 @@ def _host_is_linked_worktree(repo: str) -> bool:
     `--git-dir` (the main worktree's own `.git` directory - identical to
     `--git-common-dir` there - or a linked worktree's private
     `.git/worktrees/<name>` administrative directory, which differs from
-    `--git-common-dir`). Fails closed to `False` ("assume main worktree",
-    the pre-existing behavior) on any git failure or path-resolution
-    error, since this is a defensive narrowing of an already-additive
-    class, not a correctness-critical read."""
+    `--git-common-dir`). This correctly does NOT flag a submodule's own
+    working directory as a linked worktree (a submodule's `--git-dir` and
+    `--git-common-dir` are identical - both point at its own
+    `.git/modules/<name>` gitdir - even though its `.git` is also a FILE,
+    same as a linked worktree's marker), which a naive "`.git` is a file"
+    discriminator would get wrong.
+
+    On any git failure, empty output, or path-resolution error, returns
+    `False` - which is the PERMISSIVE direction: it grants `OUT_OF_TREE`
+    and re-enables the exact blast radius this guard exists to contain,
+    not a safe fail-closed default. This is deliberate given the
+    alternative (failing closed to `True` on every git error) would
+    silently withhold `OUT_OF_TREE` far more often than the guard is
+    meant to fire, but it is a real trade-off, not a free one.
+
+    Known limitation: if `GIT_DIR` is exported in the calling
+    environment (inherited by every `git` subprocess this tool spawns,
+    since `_run`'s default `env=None` passes the parent environment
+    through unchanged) and points at the PARENT repo's `.git`, then
+    `--git-dir` and `--git-common-dir` BOTH resolve to that overridden
+    value and collapse to equal - even though `repo` (via `--show-
+    toplevel`, which still correctly reports the linked worktree's own
+    directory under this override) genuinely is a linked worktree. This
+    function then wrongly returns `False`, and the hazard this guard
+    exists to close recurs silently. `GIT_COMMON_DIR` being set alone
+    does not defeat it. A `--show-toplevel`-vs-common-dir's-parent
+    comparison would close this specific hole but was not added here: it
+    was measured to misclassify a submodule's own working directory as a
+    linked worktree (its `--git-common-dir` lives under the
+    superproject's `.git/modules/`, not as a sibling of the submodule's
+    own toplevel) - trading a narrow, deliberate-operator-action hazard
+    for a regression in the exact discrimination this function is
+    already relied upon to get right. An operator who exports `GIT_DIR`
+    persistently is already outside this tool's assumed environment."""
     git_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-dir"])
     common_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-common-dir"])
     if git_dir_proc.returncode != 0 or common_dir_proc.returncode != 0:

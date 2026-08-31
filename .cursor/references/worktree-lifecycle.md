@@ -355,12 +355,12 @@ worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
 (`bin/tests/worktree_model.py:756-762`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-`bin/ds-cleanup-worktrees:2692` hardcodes `head_reachable="not_checked"`
-at every construction site, and `_compute_origin_reachable`'s own
-docstring (`bin/ds-cleanup-worktrees:1801-1821`) calls the field
-"unrelated, dead code" at `:1816` - distinct from the separate, live
+`bin/ds-cleanup-worktrees`'s `_build_facts` hardcodes
+`head_reachable="not_checked"` at every construction site, and
+`_compute_origin_reachable`'s own docstring (same file) calls the field
+"unrelated, dead code" - distinct from the separate, live
 `origin_reachable` field DS-196 added, which does not feed this branch at
-all (`worktree_model.py:478-487`).
+all (`worktree_model.py`'s `DispositionFacts` docstring).
 Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
 today: **every detached harness worktree, whether its push already
 landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
@@ -393,10 +393,12 @@ mandates that split.
 **A registered-but-out-of-tree worktree (`OUT_OF_TREE`).** A worktree THIS
 repo's own git registered, but which lives physically outside
 `repo_root`'s directory tree, is not `UNMANAGED` - `classify_entry`
-bifurcates on `host == repo_root` (`bin/tests/worktree_model.py:414-424`):
-when equal (the sole real call site's shape), it classifies `OUT_OF_TREE`
-and is evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, subject to
-THREE removal paths, not one: (1) ancestor-of-base merge evidence; (2)
+bifurcates on `host == repo_root` (the not-under-host branch in
+`bin/tests/worktree_model.py`'s `classify_entry`): when equal (the sole
+real call site's shape) AND the target is not itself a linked worktree
+(see below), it classifies `OUT_OF_TREE` and is evidence-gated exactly
+like ISOLATION/CONDUCTOR_CREATED, subject to THREE removal paths, not
+one: (1) ancestor-of-base merge evidence; (2)
 `origin_reachable` (DS-196) for a branched entry - independent of
 `head_reachable` staying dead, rolled back to the pre-DS-196 evidence
 order by `--no-origin-reachable-evidence` for an operator who wants the
