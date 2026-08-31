@@ -117,6 +117,12 @@ Run `/ds-help` for the full command inventory.
   encode taste; read when authoring or editing a command file, skill definition, or agent
   definition.
 
+- **references/memory-shard-convention.md** - git-tracked per-fact shard directory
+  (`.agentic/memory-shards/`) a project's root MEMORY.md compiles from, the frontmatter
+  every shard carries, and the split/regenerate round-trip's entry-loss and reordering
+  refusal guards; read when working on `bin/ds-memory-shard`, `hooks/lib/memory-shard.js`,
+  or any writer that captures a fact into a shard.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
@@ -587,7 +593,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve twenty-four project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve twenty-five project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 

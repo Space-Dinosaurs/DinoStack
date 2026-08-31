@@ -295,6 +295,16 @@ EXCLUDED_FILES = {
     # only ever READS the grant file this CLI writes, via its own
     # independently-anchored `_grant_path` (inventoried below).
     "bin/ds-ticket-grant",
+    # DS-221 Unit 1 (memory-shard compiler): bin/ds-memory-shard is an
+    # operator-invoked CLI whose sole `.agentic`-touching site
+    # (`.agentic/memory-shards`, the shard directory) derives from `dir`,
+    # an explicit `--dir` argument (default `process.cwd()` - the invoking
+    # process's own cwd, not a harness-payload cwd handed across a
+    # Bash-tool boundary) - same explicit-argument exemption rationale as
+    # bin/ds-evaluate/bin/ds-migrate above. Not shelled out to by any
+    # hooks/*.js or hooks/*.py call site; nothing wires it yet
+    # (`memory_shard_mode` ships false and is read by no writer).
+    "bin/ds-memory-shard",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.

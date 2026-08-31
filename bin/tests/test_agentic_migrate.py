@@ -2048,23 +2048,36 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
         self.assertIn(".agentic/config.json", probes)
         # Directory-form (`!.agentic/session-log/`) and recursive-glob-form
         # (`!.agentic/session-log/**`) negations both expand to the SAME
-        # 3-probe synthetic set (no real files on disk in this
-        # project_root-less call) and dedupe against each other - this is
-        # why len(probes) is len(negation_patterns) + 1: 2 directory-form
-        # patterns collapse to 1 pattern-slot's worth of dedup work, but
-        # that one slot now contributes 3 probes instead of 1 (net +2 - 1
-        # for the pattern that would otherwise have contributed its own
-        # single probe = +1 overall).
+        # 4-probe synthetic set (no real files on disk in this
+        # project_root-less call) and dedupe against each other. As of DS-221
+        # Unit 1, `!.agentic/memory-shards/` + `!.agentic/memory-shards/**`
+        # form a SECOND such directory-form/recursive-glob-form pair - so
+        # len(probes) is now len(negation_patterns) + 4: two 2-pattern pairs
+        # each collapse to 1 pattern-slot's worth of dedup work, but each
+        # slot contributes 4 probes instead of 1 (net +4 - 2 per pair = +2
+        # per pair, +4 overall for two pairs). The synthetic probe SET
+        # itself is identical regardless of directory name (`.ds-migrate-
+        # probe.jsonl`, `.ds-migrate-probe.md`, the depth-2 `.jsonl` probe,
+        # and the bare depth-1 probe) - the `.md` shape was added in round 2
+        # (Skeptic Major 3) specifically because memory-shards writes `.md`
+        # files, not `.jsonl`.
         self.assertIn(".agentic/session-log/.ds-migrate-probe", probes)
         self.assertIn(".agentic/session-log/.ds-migrate-probe.jsonl", probes)
+        self.assertIn(".agentic/session-log/.ds-migrate-probe.md", probes)
         self.assertIn(
             ".agentic/session-log/.ds-migrate-probe/.ds-migrate-probe.jsonl", probes
         )
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe", probes)
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe.jsonl", probes)
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe.md", probes)
+        self.assertIn(
+            ".agentic/memory-shards/.ds-migrate-probe/.ds-migrate-probe.jsonl", probes
+        )
         self.assertEqual(len(probes), len(set(probes)), "probes must be deduped")
         self.assertEqual(
-            len(probes), len(negation_patterns) + 1,
-            "session-log/ and session-log/** must dedupe to exactly one "
-            "3-probe synthetic set",
+            len(probes), len(negation_patterns) + 4,
+            "session-log/+** and memory-shards/+** must each dedupe to "
+            "exactly one 4-probe synthetic set",
         )
 
     def test_directory_and_recursive_forms_produce_probe_paths_not_bare_dirs(self):
@@ -2083,9 +2096,11 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
             [
                 ".agentic/plain.md",
                 ".agentic/adir/.ds-migrate-probe.jsonl",
+                ".agentic/adir/.ds-migrate-probe.md",
                 ".agentic/adir/.ds-migrate-probe/.ds-migrate-probe.jsonl",
                 ".agentic/adir/.ds-migrate-probe",
                 ".agentic/bdir/.ds-migrate-probe.jsonl",
+                ".agentic/bdir/.ds-migrate-probe.md",
                 ".agentic/bdir/.ds-migrate-probe/.ds-migrate-probe.jsonl",
                 ".agentic/bdir/.ds-migrate-probe",
             ],
@@ -2366,7 +2381,8 @@ class TestBehavioralNegationDetection(unittest.TestCase):
             "!.agentic/team.yml\n!.agentic/skill-candidates.md\n"
             "!.agentic/deploy.md\n!.agentic/tracking.md\n"
             "!.agentic/phase0-classifiers.yml\n!.agentic/deferred-work.jsonl\n"
-            "!.agentic/presets.yml\n"
+            "!.agentic/presets.yml\n!.agentic/memory-shards/\n"
+            "!.agentic/memory-shards/**\n"
         )
         result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
         self.assertEqual(result.returncode, 0, msg=result.stdout)
@@ -2376,9 +2392,11 @@ class TestBehavioralNegationDetection(unittest.TestCase):
 
 
 class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
-    """Round 12 pin: the measured, ACCEPTED residual in directory-form
-    negation detection (`!.agentic/session-log/` and its `/**` twin - the
-    only 2 of the manifest's 13 negation patterns shaped this way). The
+    """Round 12 pin (DS-221 Unit 1: 2 -> 4 patterns, session-log's pair plus
+    memory-shards' pair): the measured, ACCEPTED residual in directory-form
+    negation detection (`!.agentic/session-log/` + its `/**` twin, and
+    `!.agentic/memory-shards/` + its `/**` twin - 4 of the manifest's 15
+    negation patterns shaped this way). The
     probe set must synthesize candidate paths when no real file exists yet
     under the directory (see `_directory_negation_probes`), and a defeater
     keyed to an unguessed filename returns "ok" undetected in that case.
@@ -2400,11 +2418,13 @@ class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
 
     def test_unguessed_defeater_with_no_real_file_reads_ok_undetected(self):
         """The residual itself: three defeater spellings, none of which
-        collide with any of the three SYNTHESIZED probe names
+        collide with any of the four SYNTHESIZED probe names
         (`.ds-migrate-probe`, `.ds-migrate-probe.jsonl`,
-        `.ds-migrate-probe/.ds-migrate-probe.jsonl`) - the fourth probe
-        shape, a real file discovered on disk, is not synthesized and does
-        not exist here either - each left undetected with `status: ok` and
+        `.ds-migrate-probe.md` (added DS-221 Unit 1 round 2, Skeptic Major
+        3 - see `_directory_negation_probes`), `.ds-migrate-probe/
+        .ds-migrate-probe.jsonl`) - the fifth probe shape, a real file
+        discovered on disk, is not synthesized and does not exist here
+        either - each left undetected with `status: ok` and
         `gitignore_verification: behavioral` despite genuinely defeating a
         knowledge file at the name it targets."""
         defeaters = [
@@ -2449,6 +2469,32 @@ class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
         self.assertEqual(out["status"], "drift")
         self.assertTrue(out["gitignore_negations_defeated"])
         self.assertIn(".agentic/session-log/dev.jsonl", out["gitignore_negations_defeated_paths"])
+
+    def test_md_extension_defeater_is_caught_by_the_md_probe_shape(self):
+        """Regression pin for Skeptic round-2 Major 3: before the `.md`
+        probe shape was added to `_directory_negation_probes`, a
+        `.agentic/memory-shards/*.md` defeater appended to the real v8
+        manifest's `.gitignore` was measured to return `status: ok`
+        (undetected) even though `git check-ignore -q` reported a real
+        `.md` file under that directory as genuinely ignored - because
+        every synthesized probe carried a `.jsonl` extension or none at
+        all, never `.md`, and memory-shards writes `.md` files. Confirmed
+        failing pre-fix by temporarily reverting the `.md` probe append
+        and re-running this exact scenario (matches the reviewer's
+        measurement). With the fix, the synthetic `.ds-migrate-probe.md`
+        probe matches `*.md` and the defeater is now caught."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text(
+            "!.agentic/memory-shards/\n!.agentic/memory-shards/**\n"
+            ".agentic/memory-shards/*.md\n"
+        )
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_negations_defeated"])
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe.md", out["gitignore_negations_defeated_paths"])
 
 
 class TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift(unittest.TestCase):

@@ -879,7 +879,7 @@ def _is_self_repo(project_root: Path) -> bool:
     scaffolding applied to itself - its own `.agentic/` gitignore rule is a
     deliberate, negation-free categorical `.agentic/*` (see root AGENTS.md:
     "DinoStack does not commit its own `.agentic/` runtime files"), and
-    layering the manifest's 13 `!.agentic/<file>` negations on top of it
+    layering the manifest's 15 `!.agentic/<file>` negations on top of it
     would silently start tracking the methodology's own runtime state - see
     this function's docstring reference in cmd_check/cmd_apply/cmd_diff for
     the reproduced defect.
@@ -991,19 +991,37 @@ def _directory_negation_probes(dir_path: str, project_root: Path | None) -> list
     `ok` while a real knowledge file directly under the directory (or one
     level deeper) was ignored.
 
-    Four probe shapes, in this order:
+    Five probe shapes, in this order:
       1. Every REAL file currently on disk under `dir_path` (relative to
          `project_root`), if any - the strongest possible probe, since it is
          the actual file this check exists to protect, not a synthetic
          stand-in.
       2. A depth-1, extension-carrying synthetic probe
-         (`<dir>/.ds-migrate-probe.jsonl`) - matches the one shape dinostack
-         actually writes under a directory-form negation today:
-         `.agentic/session-log/<developer_id>.jsonl`.
-      3. A depth-2 synthetic probe (`<dir>/.ds-migrate-probe/.ds-migrate-probe.jsonl`)
+         (`<dir>/.ds-migrate-probe.jsonl`) - matches the `.jsonl` shape
+         dinostack writes under `.agentic/session-log/<developer_id>.jsonl`.
+      3. A depth-1, `.md`-extension synthetic probe
+         (`<dir>/.ds-migrate-probe.md`) - matches the SECOND shape dinostack
+         writes under a directory-form negation as of DS-221 Unit 1:
+         `.agentic/memory-shards/<date>-<slug>.md`. CORRECTED (Skeptic
+         round-2 Major 3): an earlier version of this docstring claimed
+         `.jsonl` was "the one shape dinostack actually writes under a
+         directory-form negation today" - that was true when only
+         session-log existed and is false now. Measured consequence of the
+         gap before this shape was added: a `.agentic/memory-shards/*.md`
+         defeater appended to the real v8 manifest's `.gitignore` was NOT
+         detected (`gitignore_negations_defeated: false` while
+         `git check-ignore -q` reported the probed file as actually
+         ignored) - an extension-scoped defeater this probe set is
+         specifically designed to catch (see the "Measured round 11"
+         paragraph above) but could not, because no probe carried the `.md`
+         extension. This falls inside the documented probe-guessing
+         residual (narrower than a correctness regression), but a docstring
+         asserting the opposite extension coverage is what made it a
+         Major finding.
+      4. A depth-2 synthetic probe (`<dir>/.ds-migrate-probe/.ds-migrate-probe.jsonl`)
          - catches a negation scoped to exactly one nesting level (e.g.
          `<dir>/*/*`) that a depth-1 probe cannot reach.
-      4. The original depth-1, extension-less synthetic probe
+      5. The original depth-1, extension-less synthetic probe
          (`<dir>/.ds-migrate-probe`) - kept for continuity; it is still the
          correct probe for a plain ordering/bare-defeater regression and
          costs nothing extra to keep checking.
@@ -1023,6 +1041,7 @@ def _directory_negation_probes(dir_path: str, project_root: Path | None) -> list
                     str(real_file.relative_to(project_root).as_posix())
                 )
     probes.append(f"{dir_clean}/.ds-migrate-probe.jsonl")
+    probes.append(f"{dir_clean}/.ds-migrate-probe.md")
     probes.append(f"{dir_clean}/.ds-migrate-probe/.ds-migrate-probe.jsonl")
     probes.append(f"{dir_clean}/.ds-migrate-probe")
     return probes
@@ -1272,24 +1291,50 @@ def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
     (see the section docstring above) cannot recur for those paths because
     nothing about this path infers pattern syntax.
 
-    Directory-form negations (currently `!.agentic/session-log/` and its
-    `!.agentic/session-log/**` twin - the only two of the manifest's 13
-    negation patterns shaped this way) are a narrower case: a directory's
-    own ignore status does not imply its contents', so _manifest_negated_paths
-    synthesizes candidate FILE probes under the directory (see
-    `_directory_negation_probes`) instead of probing the directory path
-    itself. When a real file already exists on disk under that directory,
-    it is discovered and probed directly - verified caught at depth 1, 2 and
-    3 for every spelling tried, and that case gets the same full behavioral
-    guarantee as an exact-path negation. When NO matching file exists yet,
-    only the synthesized candidate names are probed, and a defeater keyed to
-    a filename none of them happen to match returns "ok" undetected -
-    measured: `.agentic/session-log/nested/` and `.agentic/session-log/dev.*`
-    both return "ok" with no file present. This residual is narrow (only
-    these 2 of 13 patterns) and self-healing (`session-log/` is append-only,
-    so the very next `check` run, once a real file exists, discovers it) -
-    but it means "behavioral" is not an unconditional guarantee for these 2
-    patterns the way it is for the other 11.
+    Directory-form negations (`!.agentic/session-log/` + its
+    `!.agentic/session-log/**` twin, and - as of DS-221 Unit 1 -
+    `!.agentic/memory-shards/` + its `!.agentic/memory-shards/**` twin;
+    together 4 of the manifest's 15 negation patterns shaped this way) are a
+    narrower case: a directory's own ignore status does not imply its
+    contents', so _manifest_negated_paths synthesizes candidate FILE probes
+    under the directory (see `_directory_negation_probes`) instead of
+    probing the directory path itself. When a real file already exists on
+    disk under that directory, it is discovered and probed directly -
+    verified caught at depth 1, 2 and 3 for every spelling tried, and that
+    case gets the same full behavioral guarantee as an exact-path negation.
+    When NO matching file exists yet, only the synthesized candidate names
+    are probed, and a defeater keyed to a filename none of them happen to
+    match returns "ok" undetected - measured: `.agentic/session-log/nested/`
+    and `.agentic/session-log/dev.*` both return "ok" with no file present.
+
+    This residual is narrow (only these 4 of 15 patterns) but the two
+    directory-form pairs do NOT share the same self-healing story, and that
+    difference matters more than the count:
+
+    - `session-log/` is self-healing because it is populated
+      AUTOMATICALLY and near-immediately: `/ds-implement-ticket` Phase 8
+      commits `.agentic/session-log/<developer_id>.jsonl` on confirmed
+      identity, so a real file typically exists within one ticket cycle of
+      scaffolding, closing the gap on its own without any operator action.
+    - `memory-shards/` has NO such automatic populator as of DS-221 Unit
+      1 - `memory_shard_mode` ships `false` and nothing in `/ds-wrap`,
+      wrap-ticket, or `/ds-memory-update` writes into this directory yet
+      (writer wiring is later-unit scope). A freshly scaffolded project's
+      `.agentic/memory-shards/` can stay EMPTY indefinitely - until a human
+      runs `ds-memory-shard split` by hand or a later unit's writer ships -
+      so this residual's unhealed window is open-ended here, not
+      bounded-by-one-ticket-cycle the way session-log's is. Stating this
+      plainly rather than silently inheriting session-log's "self-healing"
+      framing: the documented blast radius of the undetectable-defeater
+      residual is now wider (2 patterns -> 4) AND, for the newly added
+      pair specifically, open-ended in duration until writer wiring lands.
+      This is accepted as an acceptable trade-off for DS-221 Unit 1's
+      explicit compiler-before-writers scope, not silently absorbed into
+      the "self-healing" claim.
+
+    So "behavioral" is not an unconditional guarantee for these 4 patterns
+    the way it is for the other 11 - and for `memory-shards/` specifically,
+    not yet a self-healing gap either.
 
     "unavailable" means git is missing from PATH, `project_root` is not
     inside a git working tree, or the check-ignore invocation itself could
@@ -1581,14 +1626,19 @@ def cmd_verify_commit_path(args: argparse.Namespace) -> int:
     safe to `git add`/commit right now, at the moment a caller is about to
     stage it - not a manifest-wide, probe-based sweep.
 
-    Closes the residual `_compute_negations_defeated`'s docstring documents
-    for the 2 directory-form manifest negations (`!.agentic/session-log/`
-    and its `/**` twin): that check must synthesize candidate probe paths
-    when no real file exists yet on disk, and a defeater keyed to an
-    unguessed name returns "ok" undetected. At a commit site the exact
-    target path is already known - no probe-guessing is required, so this
-    check is exact where the manifest-wide sweep is necessarily
-    probabilistic for those 2 patterns. This does NOT shrink or replace
+    Closes the residual `_compute_negations_defeated`'s docstring documents,
+    for the SUBSET of directory-form manifest negations this function's
+    three call sites actually target - `!.agentic/session-log/` and its
+    `/**` twin (2 of the manifest's now-4 directory-form negations as of
+    DS-221 Unit 1; the other 2, `!.agentic/memory-shards/` + its `/**`
+    twin, are NOT covered here, since no knowledge-commit site stages a
+    path under that directory): that check must synthesize candidate
+    probe paths when no real file exists yet on disk, and a defeater keyed
+    to an unguessed name returns "ok" undetected. At a commit site the
+    exact target path is already known - no probe-guessing is required, so
+    this check is exact where the manifest-wide sweep is necessarily
+    probabilistic for those 2 patterns (the session-log pair specifically,
+    not the manifest's directory-form total). This does NOT shrink or replace
     that documented residual in `check`/`apply` (the probe-guessing gap in
     the manifest-wide sweep still exists exactly as documented there) - it
     closes the operational CONSEQUENCE of it at the three sites that

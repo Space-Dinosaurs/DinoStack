@@ -1,0 +1,246 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Purpose: CLI wrapper for the memory-shard compiler (DS-221 Unit 1). Splits
+ *          a project's `MEMORY.md`-shaped file into one git-tracked shard
+ *          file per top-level entry under `.agentic/memory-shards/`, and
+ *          recompiles those shards back into the original file
+ *          byte-for-byte. Ships with ZERO writer wiring: nothing in
+ *          `/ds-wrap`, wrap-ticket, or `/ds-memory-update` calls this yet -
+ *          it is invoked by hand (or by a later unit) only.
+ *
+ * Public API: CLI.
+ *   ds-memory-shard split [--dir <path>] [--force] [--allow-removal]
+ *   ds-memory-shard regenerate [--dir <path>] [--check] [--allow-removal]
+ *
+ *   --dir defaults to process.cwd() WHEN OMITTED ENTIRELY; resolved to
+ *   absolute via path.resolve. It is the PROJECT root, not the shard
+ *   directory - shardDir is always `<dir>/.agentic/memory-shards` and
+ *   memoryPath is always `<dir>/MEMORY.md`, matching the convention doc's
+ *   fixed layout. No flag overrides those two derived paths independently;
+ *   a caller who needs a different project just passes a different --dir.
+ *   `--dir` GIVEN WITH A MALFORMED OPERAND is a USAGE ERROR (exit 2), NOT
+ *   a silent fall-back to cwd (round-3/round-4 Minor fixes) - the cwd
+ *   default above applies only when `--dir` is omitted entirely, never
+ *   when it is present but malformed. Four malformed shapes are rejected:
+ *   `--dir` as the last token on the command line (no operand at all);
+ *   `--dir` immediately followed by another `--flag`; `--dir ''` (an
+ *   EMPTY-STRING operand - round-4 fix, since `''` does not
+ *   startsWith('--') and would otherwise be silently accepted then fall
+ *   back to cwd via `dir || process.cwd()`); and `--dir=` (empty after
+ *   the `=` in the single-token form).
+ *
+ *   split:
+ *     --force          required to reconcile against an already-populated
+ *                       shard directory (see hooks/lib/memory-shard.js
+ *                       splitCommand for the reconciliation contract).
+ *     --allow-removal  required, in addition to --force, when reconciliation
+ *                       would delete more than BULK_ORPHAN_THRESHOLD (3)
+ *                       orphaned shard files.
+ *   regenerate:
+ *     --check          verify the compiled output matches memoryPath without
+ *                       writing; exits nonzero on any mismatch (including a
+ *                       would-be entry-loss/reorder refusal).
+ *     --allow-removal  overrides BOTH the entry-loss guard and the
+ *                       reordering guard for a deliberate prune or header
+ *                       edit.
+ *
+ *   Exit codes: 0 success (including a matched --check no-op); 1 on any
+ *   refusal or unexpected error (message printed to stderr); 2 on
+ *   argument-parsing usage error (unknown subcommand; an unrecognized
+ *   flag - e.g. a typo like `--forse` fails loudly rather than silently
+ *   running a non-forced operation; a recognized-but-inapplicable flag for
+ *   the given subcommand, e.g. `split --check` or `regenerate --force`;
+ *   or `--dir` given with a malformed operand - no operand at all,
+ *   immediately followed by another flag, an empty string, or `--dir=`
+ *   with nothing after the `=` - round-3/round-4 Minor fixes, see the
+ *   --dir note above).
+ *
+ * Upstream deps: hooks/lib/memory-shard.js (REPO copy, resolved via a
+ *   __dirname-relative require so a symlinked bin still loads the repo lib,
+ *   never a cwd-relative copy - same discipline as bin/ds-wrap-acquire-lock).
+ *   Node built-ins: path. No npm dependencies.
+ *
+ * Downstream consumers: none yet - invoked by hand today. A later DS-221
+ *   unit wires writer-side shard creation into /ds-wrap Part E and
+ *   `/ds-memory-update`; this binary's `split`/`regenerate` subcommands are
+ *   the mechanism that unit will call into (via hooks/lib/memory-shard.js
+ *   directly, not by shelling out to this CLI).
+ *
+ * Failure modes: every refusal from hooks/lib/memory-shard.js (re-split
+ *   without --force, bulk-orphan deletion without --allow-removal,
+ *   round-trip verification failure, entry-loss, reordering, --check
+ *   mismatch) is caught here, printed to stderr, and mapped to exit 1. For
+ *   every refusal EXCEPT ONE, the library throws before touching any real
+ *   file, so this binary never partially writes on a refusal path. The
+ *   ONE CARVE-OUT (Skeptic round-4 Major 1 correction - a prior version of
+ *   this comment claimed no exceptions, which was false): the POST-COMMIT
+ *   round-trip verification (hooks/lib/memory-shard.js's splitCommand)
+ *   throws only AFTER every shard has already been renamed into `shardDir`
+ *   and orphans deleted - by design, since verifying the commit has to
+ *   happen after the commit to mean anything. On that specific refusal,
+ *   `shardDir` is left POPULATED AND UNTRUSTED (the library's own error
+ *   message says "do not trust this shard directory"; manual inspection is
+ *   required) - never partially written in the sense of a half-finished
+ *   rename, but genuinely written and not rolled back.
+ *
+ * Performance: standard. Single-directory read/write; no network, no
+ *   subprocess.
+ */
+
+const path = require('path');
+
+let lib;
+try {
+  // __dirname-relative require: resolves to the REPO's lib even when this
+  // file is invoked through a symlink in ~/.local/bin - same discipline as
+  // bin/ds-wrap-acquire-lock.
+  lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'memory-shard.js'));
+} catch (err) {
+  process.stderr.write('ds-memory-shard: could not load hooks/lib/memory-shard.js: ' + (err && err.message ? err.message : err) + '\n');
+  process.exit(1);
+}
+
+function usage() {
+  process.stderr.write(
+    'usage: ds-memory-shard split [--dir <path>] [--force] [--allow-removal]\n' +
+      '       ds-memory-shard regenerate [--dir <path>] [--check] [--allow-removal]\n',
+  );
+}
+
+function parseArgs(argv) {
+  const cmd = argv[0];
+  const rest = argv.slice(1);
+  let dir = process.cwd();
+  let force = false;
+  let allowRemoval = false;
+  let check = false;
+  // Skeptic Minor fix: unrecognized flags used to be silently swallowed
+  // (e.g. a typo'd `--forse` ran a non-forced split with no warning at
+  // all) - collected here and fail loudly in main() instead.
+  const unknown = [];
+  // Skeptic round-3 Minor fix: `--dir` as the LAST argument (no operand
+  // following it) used to silently fall back to `dir = undefined`, which
+  // `dir || process.cwd()` below then resolved to cwd - a typo'd
+  // `split --dir` (operand forgotten) ran a REAL WRITE against the wrong
+  // target directory with no warning at all, the same failure class the
+  // unknown-flag and inapplicable-flag fixes closed. Tracked separately so
+  // main() can reject it explicitly rather than silently defaulting.
+  let dirMissingOperand = false;
+
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg === '--force') { force = true; continue; }
+    if (arg === '--allow-removal') { allowRemoval = true; continue; }
+    if (arg === '--check') { check = true; continue; }
+    if (arg === '--dir') {
+      // Skeptic round-4 Major 2 fix: an EMPTY STRING operand
+      // (`split --dir ''`) does not startsWith('--'), so it was accepted
+      // as `dir = ''`, and `path.resolve(dir || process.cwd())` below then
+      // falls back to cwd anyway (`'' || process.cwd()` is falsy) - the
+      // exact silent-cwd-fallback bug the missing-operand guard exists to
+      // catch, just reached via a different token shape. Reject an empty
+      // string the same way as "no operand at all" and "the next token is
+      // another flag".
+      if (i + 1 >= rest.length || rest[i + 1] === '' || rest[i + 1].startsWith('--')) {
+        dirMissingOperand = true;
+        continue;
+      }
+      dir = rest[i + 1];
+      i++;
+      continue;
+    }
+    const dirMatch = arg.match(/^--dir=(.+)$/);
+    if (dirMatch) { dir = dirMatch[1]; continue; }
+    if (arg === '--dir=') { dirMissingOperand = true; continue; }
+    unknown.push(arg);
+  }
+
+  return { cmd, dir: path.resolve(dir || process.cwd()), force, allowRemoval, check, unknown, dirMissingOperand };
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  const { cmd, dir, force, allowRemoval, check, unknown, dirMissingOperand } = parseArgs(argv);
+
+  if (cmd !== 'split' && cmd !== 'regenerate') {
+    // Skeptic round-4 Minor fix: name the offending subcommand explicitly
+    // (previously only generic usage() text printed, giving the test
+    // suite's mutant no stderr marker to discriminate on, unlike the
+    // other four arg-parsing rejections).
+    process.stderr.write(`ds-memory-shard: unrecognized subcommand: ${JSON.stringify(cmd)}\n`);
+    usage();
+    process.exit(2);
+    return;
+  }
+
+  if (dirMissingOperand) {
+    process.stderr.write('ds-memory-shard: --dir requires a path operand (got none, or the next token looked like another flag) - refusing rather than silently defaulting to the current directory\n');
+    usage();
+    process.exit(2);
+    return;
+  }
+
+  if (unknown.length > 0) {
+    process.stderr.write(`ds-memory-shard: unrecognized argument(s): ${unknown.join(' ')}\n`);
+    usage();
+    process.exit(2);
+    return;
+  }
+
+  // Skeptic round-2 Minor fix: the round-1 unknown-flag fix closed the
+  // TYPO case (an unrecognized flag string) but not the WRONG-SUBCOMMAND
+  // case - `--check` is a real, recognized flag, but `split` never
+  // consults it (splitCommand() takes no `check` param), so
+  // `split --check` silently performed a real write while looking like a
+  // dry-run check; symmetrically `regenerate --force` was silently
+  // accepted with no effect. Reject a recognized-but-inapplicable flag for
+  // the given subcommand explicitly, rather than letting it no-op.
+  if (cmd === 'split' && check) {
+    process.stderr.write('ds-memory-shard: --check does not apply to split (it is a regenerate-only flag) - split always performs a real write/reconcile\n');
+    usage();
+    process.exit(2);
+    return;
+  }
+  if (cmd === 'regenerate' && force) {
+    process.stderr.write('ds-memory-shard: --force does not apply to regenerate (it is a split-only flag) - regenerate has no re-run-reconciliation concept --force gates\n');
+    usage();
+    process.exit(2);
+    return;
+  }
+
+  const shardDir = path.join(dir, '.agentic', 'memory-shards');
+  const memoryPath = path.join(dir, 'MEMORY.md');
+
+  try {
+    if (cmd === 'split') {
+      const result = lib.splitCommand({ shardDir, memoryPath, force, allowRemoval });
+      if (result.orphansRemoved > 0) {
+        process.stdout.write(`split: removing ${result.orphansRemoved} orphaned shard(s):\n`);
+        for (const f of result.orphanFiles) process.stdout.write(`  ${f}\n`);
+      }
+      process.stdout.write(
+        `split: reconciled ${shardDir} - ${result.entryCount} entries (${result.reusedCount} unchanged/reused, ` +
+          `${result.newCount} new/edited), ${result.orphansRemoved} orphaned shard(s) removed, ` +
+          `${lib.PREAMBLE_FILENAME} written (verified byte-identical round-trip against ${memoryPath}, ` +
+          'checked against the committed directory).\n',
+      );
+      process.exit(0);
+      return;
+    }
+
+    lib.regenerateCommand({ shardDir, memoryPath, check, allowRemoval });
+    if (check) {
+      process.stdout.write(`regenerate --check: ${memoryPath} already matches the compiled output of ${shardDir}.\n`);
+    } else {
+      process.stdout.write(`regenerate: wrote ${memoryPath} from ${shardDir}.\n`);
+    }
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write((err && err.message ? err.message : String(err)) + '\n');
+    process.exit(1);
+  }
+}
+
+main();
