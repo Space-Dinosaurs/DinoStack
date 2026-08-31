@@ -56,7 +56,13 @@
 #                  invoked --count-only; optional - a missing/
 #                  unresolvable binary just yields an empty message piece via
 #                  the `command -v ds-cleanup-worktrees` fallback), python3
-#                  (bin/ds-cleanup-worktrees is a Python CLI).
+#                  (bin/ds-cleanup-worktrees is a Python CLI),
+#                <repo-root>/.agentic/worktree-reap.log (DS-196 round-4:
+#                  read-only existence check inside the worktree-accumulation
+#                  nudge above, gated on nonroot_count >= WORKTREE_NUDGE_THRESHOLD
+#                  AND AE_WORKTREE_REAP_DISABLE unset; repo-root resolved via
+#                  `git -C "$cwd" rev-parse --show-toplevel`, same idiom as the
+#                  version-check wrapper's own resolution).
 # Downstream consumers: Claude Code SessionStart hook, wired via
 #                       ~/.claude/settings.json by .claude/install.sh.
 # Failure modes: ALWAYS exits 0 (fail-open). A missing field, missing jq,
@@ -87,8 +93,9 @@
 #                ds-cleanup-worktrees documented in
 #                content/references/worktree-lifecycle.md (§Session-start
 #                prune script) - a plain shell block in the conductor
-#                preflight prose, not a hook. Removal from THAT call site is
-#                now automatic and unattended, suppressible via
+#                preflight prose, not a hook. THAT call site is invoked by
+#                the conductor's own preflight action (backgrounded, never
+#                blocks), and removal from it is suppressible via
 #                AE_WORKTREE_REAP_DISABLE=1; see the worktree-accumulation
 #                nudge comment below for the full cross-reference). The
 #                machine-wide worst-project nudge
@@ -137,7 +144,16 @@
 #              wall-clock when coreutils timeout is available (degrades to
 #              the --max-repos bound alone, no wall-clock cap, on stock
 #              macOS without Homebrew) - and at most one detached daemon
-#              spawn that the hook never waits on.
+#              spawn that the hook never waits on. Plus (DS-196 round-4) at
+#              most one additional `git -C "$cwd" rev-parse --show-toplevel`
+#              subprocess for the reap-log-existence check, gated on the
+#              worktree-accumulation nudge already having fired
+#              (nonroot_count >= WORKTREE_NUDGE_THRESHOLD) AND
+#              AE_WORKTREE_REAP_DISABLE being unset - never runs on a session
+#              below the nudge threshold or with the reap disabled. Measured
+#              7ms per call (5 consecutive runs, all 7ms) against this repo's
+#              own checkout - negligible next to the `--count-only` call it
+#              is gated behind.
 
 set -euo pipefail
 
@@ -439,6 +455,25 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
         nonroot_count=$((total_entries - 1))
         if [[ "$nonroot_count" -ge "$WORKTREE_NUDGE_THRESHOLD" ]]; then
           worktree_msg="${nonroot_count} non-root git worktrees in this project - consider running \`/ds-cleanup-worktrees\` (removes eligible worktrees by default; pass \`--dry-run --explain\` to \`ds-cleanup-worktrees\` first for a dry-run report)."
+          # Report-only observability signal (round-4 step 8): same repo-root
+          # idiom already proven above (`git -C "$cwd" rev-parse
+          # --show-toplevel`), scoped to THIS variable name so it cannot be
+          # confused with the worst-project block's own `cwd_toplevel`. Log
+          # existence only, not recency (see Deferred defaults) - and scoped
+          # to whichever worktree this preflight runs from, which is a known,
+          # self-clearing false-positive source when that differs from where
+          # the log actually lives (see Trade-offs in the DS-196 plan). This
+          # adds no removal logic - report-only, per the unchanged PR #707
+          # constraint. Suppressed entirely when AE_WORKTREE_REAP_DISABLE=1
+          # is set - otherwise an operator who has deliberately disabled the
+          # reap would see this message on every session forever, the one
+          # false-positive case among the three that never self-clears.
+          if [[ -z "${AE_WORKTREE_REAP_DISABLE:-}" ]]; then
+            nudge_root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null || echo "$cwd")"
+            if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
+              worktree_msg="${worktree_msg} The session-start reap has apparently never produced a log entry in this repo."
+            fi
+          fi
         fi
       fi
     fi

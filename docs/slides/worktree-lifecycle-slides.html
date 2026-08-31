@@ -1157,7 +1157,7 @@ git worktree prune
 <ul>
 <li>Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time</li>
 <li>Absence of proof is always a skip (<code>SKIP_UNPROVEN</code>) - a bare &quot;a PR merged&quot; signal is never sufficient on its own</li>
-<li><strong>DS-196:</strong> the preflight also fires an automatic, BACKGROUNDED <code>ds-cleanup-worktrees</code> reap (after <code>git worktree prune</code>, before branch prune) - the foreground shell returns immediately; output appends to <code>.agentic/worktree-reap.log</code> with a per-run header. Suppress with <code>AE_WORKTREE_REAP_DISABLE=1</code>; the 30-min-idle re-fire applies here too and is safe by construction (every gate re-checks fresh state)</li>
+<li><strong>DS-196:</strong> the preflight also invokes a BACKGROUNDED <code>ds-cleanup-worktrees</code> reap (after <code>git worktree prune</code>, before branch prune) - the foreground shell returns immediately; output appends to <code>.agentic/worktree-reap.log</code> with a per-run header. Suppress with <code>AE_WORKTREE_REAP_DISABLE=1</code>; the 30-min-idle re-fire applies here too and is safe by construction (every gate re-checks fresh state)</li>
 </ul>
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
@@ -1322,10 +1322,10 @@ hr {
 <li><code>--count-only</code> is the mode both passive triggers use automatically - <code>ds-base-sync</code>'s post-merge advisory note and a SessionStart nudge past a small worktree-count threshold - a single <code>git worktree list</code> call, no network, no per-entry evaluation</li>
 <li>Neither passive trigger ever removes anything - actual removal stays an explicit <code>/ds-cleanup-worktrees</code> or a bare <code>ds-cleanup-worktrees</code> (no flags) invocation; <code>--dry-run</code> computes and reports without removing anything, and <code>--dry-run --explain</code> (not <code>--explain</code> alone) is the dry-run report form</li>
 <li><code>ds-cleanup-worktrees --multi-repo</code> sweeps SEVERAL repos in one invocation, in-process - discovers repos via explicit <code>--repo</code> xN, positional root-directory scan, or a <code>~/.agentic/cleanup-worktrees.json</code> fallback (<code>--init-config</code> scaffolds that fallback file for a first-time setup, never overwriting one that already exists), each repo resolving its own base independently; <code>--max-repos N</code> caps the discovered-and-deduped list to the first N, bounding git-call cost, not just display; <code>--multi-repo --report</code> (optionally <code>--count-only</code> for a cheap fast tier, or <code>--json</code>) is read-only and ranks repos worst-first - &quot;which project is worst&quot; - the recommended first look before a multi-repo removal run</li>
-<li><strong>DS-196:</strong> these <code>--count-only</code> passive nudges stay report-only, unchanged. A SEPARATE, genuinely mutating invocation now also runs automatically, backgrounded, from the session-start prune block itself (see previous slide) - the two are not the same mechanism</li>
+<li><strong>DS-196:</strong> these <code>--count-only</code> passive nudges stay report-only, unchanged. A SEPARATE, genuinely mutating invocation is also invoked, backgrounded, from the session-start prune block itself (see previous slide) - the two are not the same mechanism</li>
 </ul>
 <div class="callout">
-The passive nudges are report-only. The session-start reap is the mutating backstop, and it runs unattended - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
+The passive nudges are report-only. The session-start reap is the mutating backstop - suppress it with AE_WORKTREE_REAP_DISABLE=1 if needed.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-marpit-scope-s008="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

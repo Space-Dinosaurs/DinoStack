@@ -117,6 +117,7 @@ hooks/post-tool-use-capture-nudge.js::const trackerPath = path.join(resolveAgent
 hooks/pre-tool-use-spawn-emit.js::const agenticDir = path.join(rootDiag.root, '.agentic');
 hooks/session-end-wrap.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
 hooks/session-start-wrap.sh::: > "$resolved_root/.agentic/wrap/claude-host" 2>/dev/null || true
+hooks/session-start-wrap.sh::if [[ ! -e "$nudge_root/.agentic/worktree-reap.log" ]]; then
 hooks/session-start-wrap.sh::if [[ ! -f "$resolved_root/.agentic/wrap/claude-host" ]]; then
 hooks/session-start-wrap.sh::if [[ -n "$resolved_root" ]] && [[ -f "$resolved_root/.agentic/wrap/daemon-auth-failed" ]]; then
 hooks/session-start-wrap.sh::local config="$resolved_root/.agentic/config.json"
