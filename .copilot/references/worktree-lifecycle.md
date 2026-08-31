@@ -35,7 +35,11 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          today if it crashes before its push - `head_reachable` is dead
          code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
-         triage/recovery procedure).
+         triage/recovery procedure), and the Dev-server process lifetime
+         ownership section (the canonical rule that any dev server booted
+         by an agent is run-scoped only and will not survive the agent's
+         run on this harness - referenced by the qa-gate boot pattern and
+         the engineer/qa-engineer runtime smoke-test caveats).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -49,7 +53,13 @@ Public API: Read-only reference document. Cross-referenced from:
             Implicit Trivial batching exception in the live-testing
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
-            (pointer to the Implicit Trivial batching section).
+            (pointer to the Implicit Trivial batching section),
+            content/references/qa-gate.md (dev-server boot pattern pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/qa-engineer.md (dev-server start caveat pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/engineer.md (runtime smoke-test caveat pointer
+            to §Dev-server process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -71,7 +81,12 @@ Downstream consumers: conductor preflight (session-start prune script and
                       cleanup obligation section); bin/ds-base-sync's
                       --count-only advisory note and hooks/session-start-wrap.sh's
                       SessionStart worktree-count nudge (both backstops for
-                      this obligation, never a substitute for it).
+                      this obligation, never a substitute for it);
+                      content/references/qa-gate.md (dev-server boot pattern);
+                      content/agents/qa-engineer.md (dev-server start caveat);
+                      content/agents/engineer.md (runtime smoke-test caveat) -
+                      all three cross-referencing the Dev-server process
+                      lifetime ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -710,7 +725,7 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 ## Dev-server process lifetime ownership
 
-Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness, regardless of backgrounding technique: a harness background task, `nohup`+`disown`, and `setsid` double-fork have all been confirmed reaped. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
+Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
 
 ## Standing authorizations
 
