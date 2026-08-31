@@ -217,8 +217,8 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Combining-condition check: skill_auto_load=false must never fire regardless
-# of content_state, confirming the AND (not OR) semantics.
+# Combining-condition check: skill_auto_load=false suppresses the banner even
+# on a prompt that would otherwise match.
 # ---------------------------------------------------------------------------
 FALSE_HOME="$TMP_ROOT/home-false"
 mkdir -p "$FALSE_HOME/.claude"

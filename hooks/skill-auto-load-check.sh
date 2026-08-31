@@ -39,6 +39,11 @@
 #              skill_auto_load is true, bounded to ~1s worst case by the select() timeout, then
 #              one non-blocking os.read syscall and one regex match - never proportional to
 #              producer behavior.
+# Note (round 5): the `skill_auto_load == "true"` operand in the final condition (below) is
+#                 redundant with the earlier guard that gates content_state, since content_state
+#                 can only ever be something other than "no_match" when that guard already ran.
+#                 It is kept as defense-in-depth against a future edit to the guard, not because
+#                 it is load-bearing today - the flag's load-bearing gate is the earlier guard.
 
 ae_config="$HOME/.claude/agentic-engineering.json"
 
