@@ -1,9 +1,0 @@
-# The `!/automation/dinostack-worktree-reap/**` negation in the repo-root
-# .gitignore overrides the repo-wide `.env`/`.DS_Store` rules by
-# last-match-wins - without this file, a dropped telegram.env or a stray
-# .DS_Store here would be stageable in a public repo. logs/ matches this
-# package's own local log output convention (run.sh's LOG_DIR default is
-# $SCRIPT_DIR/logs when run directly from this checkout).
-*.env
-.DS_Store
-logs/

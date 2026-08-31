@@ -458,8 +458,7 @@ Public API (CLI):
                           entries were 100% `SKIP_PR_QUERY_ERROR` reported no
                           different from a genuinely clean sweep on this
                           surface, the one every automated consumer
-                          (`automation/dinostack-worktree-reap/run.sh`,
-                          `hooks/session-start-wrap.sh`) actually reads.
+                          (`hooks/session-start-wrap.sh`) actually reads.
                           `eligible` is `null` ONLY
                           under the fast (`--count-only`) tier, which never
                           computes it; `oldest_age_hours` is populated in
@@ -640,12 +639,10 @@ Public API (CLI):
                           the discovered-and-deduped count exceeded N;
                           `false` when unset or the count did not exceed N.
   --measure-size           OPT-IN, NEVER the default, and NEVER passed by an
-                          automatic caller (round-2 Skeptic Minor fix: this
-                          enumeration previously named 3 of the 4 real
+                          automatic caller (this tool has THREE real
                           automatic callers - `bin/ds-base-sync`, the
                           SessionStart nudge (`hooks/session-start-wrap.sh`),
-                          `automation/dinostack-worktree-reap/run.sh`, AND
-                          `content/references/worktree-lifecycle.md`'s
+                          AND `content/references/worktree-lifecycle.md`'s
                           session-start reap block - the mutating,
                           backgrounded call site (see that
                           file's own Downstream deps section) - all invoke
@@ -654,7 +651,7 @@ Public API (CLI):
                           - DS-216. Measuring means a
                           recursive `du -sk` walk (see `_measure_size_kb`)
                           over potentially tens of GB, and this tool has
-                          automatic/scheduled callers whose cost profile
+                          automatic callers whose cost profile
                           must not change. When passed, every REMOVE-bucket
                           entry is measured BEFORE removal (there is
                           nothing left to measure after) and every
@@ -821,13 +818,7 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       once per session-start preflight;
                       suppressible via `AE_WORKTREE_REAP_DISABLE=1` - this
                       IS the automatic call site the Performance section
-                      above now refers to);
-                      automation/dinostack-worktree-reap/run.sh (DS-189, a
-                      sibling unit of this same PR - a scheduled,
-                      report-only automation package that consumes
-                      `--multi-repo --report --json` for its ranked-repo
-                      signal and `--init-config` for first-run setup;
-                      structurally read-only, same as `--report` itself).
+                      above now refers to).
                       CI: bin/tests/test_cleanup_worktrees.py (single-repo
                       surface, pytest, auto-collected by `python3 -m
                       pytest bin/tests/`) and
@@ -3467,8 +3458,7 @@ def _run_report(
     # reporting gap named in the ticket: a repo whose entries are 100%
     # SKIP_PR_QUERY_ERROR previously surfaced nowhere on this surface -
     # `--report --json` is the path every automated consumer
-    # (`automation/dinostack-worktree-reap/run.sh`,
-    # `hooks/session-start-wrap.sh`) actually uses.
+    # (`hooks/session-start-wrap.sh`) actually uses.
     pr_query_error_total: Optional[int] = None
     pr_query_error_repos: List[str] = []
     if not args.count_only:
