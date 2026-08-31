@@ -2049,22 +2049,28 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
         # Directory-form (`!.agentic/session-log/`) and recursive-glob-form
         # (`!.agentic/session-log/**`) negations both expand to the SAME
         # 3-probe synthetic set (no real files on disk in this
-        # project_root-less call) and dedupe against each other - this is
-        # why len(probes) is len(negation_patterns) + 1: 2 directory-form
-        # patterns collapse to 1 pattern-slot's worth of dedup work, but
-        # that one slot now contributes 3 probes instead of 1 (net +2 - 1
-        # for the pattern that would otherwise have contributed its own
-        # single probe = +1 overall).
+        # project_root-less call) and dedupe against each other. As of DS-221
+        # Unit 1, `!.agentic/memory-shards/` + `!.agentic/memory-shards/**`
+        # form a SECOND such directory-form/recursive-glob-form pair - so
+        # len(probes) is now len(negation_patterns) + 2: two 2-pattern pairs
+        # each collapse to 1 pattern-slot's worth of dedup work, but each
+        # slot contributes 3 probes instead of 1 (net +2 - 1 per pair = +1
+        # per pair, +2 overall for two pairs).
         self.assertIn(".agentic/session-log/.ds-migrate-probe", probes)
         self.assertIn(".agentic/session-log/.ds-migrate-probe.jsonl", probes)
         self.assertIn(
             ".agentic/session-log/.ds-migrate-probe/.ds-migrate-probe.jsonl", probes
         )
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe", probes)
+        self.assertIn(".agentic/memory-shards/.ds-migrate-probe.jsonl", probes)
+        self.assertIn(
+            ".agentic/memory-shards/.ds-migrate-probe/.ds-migrate-probe.jsonl", probes
+        )
         self.assertEqual(len(probes), len(set(probes)), "probes must be deduped")
         self.assertEqual(
-            len(probes), len(negation_patterns) + 1,
-            "session-log/ and session-log/** must dedupe to exactly one "
-            "3-probe synthetic set",
+            len(probes), len(negation_patterns) + 2,
+            "session-log/+** and memory-shards/+** must each dedupe to "
+            "exactly one 3-probe synthetic set",
         )
 
     def test_directory_and_recursive_forms_produce_probe_paths_not_bare_dirs(self):
@@ -2366,7 +2372,8 @@ class TestBehavioralNegationDetection(unittest.TestCase):
             "!.agentic/team.yml\n!.agentic/skill-candidates.md\n"
             "!.agentic/deploy.md\n!.agentic/tracking.md\n"
             "!.agentic/phase0-classifiers.yml\n!.agentic/deferred-work.jsonl\n"
-            "!.agentic/presets.yml\n"
+            "!.agentic/presets.yml\n!.agentic/memory-shards/\n"
+            "!.agentic/memory-shards/**\n"
         )
         result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
         self.assertEqual(result.returncode, 0, msg=result.stdout)

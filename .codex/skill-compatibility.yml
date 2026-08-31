@@ -552,16 +552,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "3c9da1f29acb090b2c53bf85baeae19cdfd00dd052549a1fc82478c58fe628bf",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "content/commands/ds-skeptic.md",
       "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
@@ -1032,6 +1022,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "6fad35634dd71f0c3f7f425acb5c63d8fb8eea8504b36214bba93f3473dd54e0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -1256,6 +1256,16 @@
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
       "occurrence_hash": "89e05c2644444f8b8b0a97162aa122f6bd0eb2754e9575d0be34ce9f9bb181fe",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "8a5578a75b7d197f9505e349dd8aca21a75bacd00d0510f1b692e0efbd4f0014",
       "resolution_mode": "invoked-project-path",
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
@@ -1530,16 +1540,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "a652363f79fdfd64cac02c976c31e7ba37de83557749dabe6661ba56195f8d8f",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1860,16 +1860,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/dinostack"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c918d1b60471fd9824a2f17824add0da20fd614631941e49f1df4ba105132a22",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
@@ -2262,6 +2252,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "efdeb8cd5a2caf1474d1e4a8a9abcd0931c49d0e2fafa665f8c5f363c30ee547",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -2402,6 +2402,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "bin/ds-memory-shard",
+      "generated_token": "$AE_REPO_DIR/bin/ds-memory-shard",
+      "kind": "operational",
+      "occurrence_hash": "0c445a21490b6cf875974500754a84a4f2efb0e176cbf2ecc8bea3e75d454640",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "bin/ds-memory-shard"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -2490,6 +2500,26 @@
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",
       "source_token": "`/ds-help`"
+    },
+    {
+      "expected_target": ".agentic/memory-shards/",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/memory-shards/",
+      "kind": "operational",
+      "occurrence_hash": "8a7cb98ff548233dc2e6bda076d98f31fc7cf8097b151fcbf1647fc0216ed9c2",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/SKILL.md",
+      "source_token": ".agentic/memory-shards/"
+    },
+    {
+      "expected_target": "hooks/lib/memory-shard.js",
+      "generated_token": "$AE_REPO_DIR/hooks/lib/memory-shard.js",
+      "kind": "operational",
+      "occurrence_hash": "8bafd62f5075e418205c5c243062353cc6809c0377a23ebbfca69fe18e0a6eee",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "hooks/lib/memory-shard.js"
     },
     {
       "expected_target": "content/commands/ds-update.md",

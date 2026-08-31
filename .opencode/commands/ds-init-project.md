@@ -895,7 +895,8 @@ Seed with these documented defaults exactly:
   "tracker_state_diagnostic": true,
   "turn_shape_guard_enabled": true,
   "worktree_read_guard_exemptions": [],
-  "worktree_write_guard_exemptions": []
+  "worktree_write_guard_exemptions": [],
+  "memory_shard_mode": false
 }
 ```
 
@@ -926,6 +927,7 @@ Seed with these documented defaults exactly:
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on); set `false` to opt out, or disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Governs the Stop hook (`hooks/enforce-turn-shape.py`) checking the conductor's final turn shape - `_execution_prose_flag` is BLOCKING, `_decision_item_sprawl_flag` is advisory-only. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_read_guard_exemptions` - list of strings, default `[]`; each entry is a path prefix exempted from the worktree-isolated Read guard (`hooks/enforce-worktree-read.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `worktree_write_guard_exemptions` - list of strings, default `[]`; SEPARATE from `worktree_read_guard_exemptions` - each entry is a path prefix exempted from the worktree-isolated Write/Edit/MultiEdit guard (`hooks/enforce-worktree-write.py`). Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
+- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert as of DS-221 Unit 1: the memory-shard compiler (`bin/ds-memory-shard`) exists, but nothing in `/ds-wrap`, wrap-ticket, or `/ds-memory-update` reads this toggle yet - writer wiring is a later unit's scope. Full semantics: `content/references/memory-shard-convention.md`.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)

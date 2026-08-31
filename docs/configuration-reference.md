@@ -55,7 +55,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 24 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 25 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -89,6 +89,7 @@ it manually.
 | `turn_shape_guard_enabled` | `true` | bool | Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 NOT uniformly advisory: the execution-turn structural check (`_execution_prose_flag`) is BLOCKING and can block the stop; the operator-decisions per-item shape check (`_decision_item_sprawl_flag`) remains advisory-only and only logs. As of DS-171, three prior checks are retired from this hook and live instead in the `dinostack` Claude Code output style (select via `/config`): the answer relevance check (`_answer_relevance_flag`, opening-preamble/closing-recap), the zero-warrant status-only check (`_status_only_flag`), and the whole-message turn-volume check (`_turn_charge`/`_volume_flag`) - the output style additionally carries two rules with no prior hook-mechanized form: self-narrating candor, and editorial addenda (the ban on any conductor-selected item that carries none of the four turn warrants, in any position in the turn and whether or not it is bundled - a labelled package of such observations is the canonical form, not the boundary). Absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
 | `worktree_read_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Read` guard (`hooks/enforce-worktree-read.py`); ships empty. Kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1` |
 | `worktree_write_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Write`/`Edit`/`MultiEdit` guard (`hooks/enforce-worktree-write.py`); SEPARATE key from `worktree_read_guard_exemptions`; ships empty. Kill-switch: `AE_WORKTREE_WRITE_GUARD_DISABLE=1` |
+| `memory_shard_mode` | `false` | bool | Opt-in; ships inert - the memory-shard compiler (`bin/ds-memory-shard`) exists but no writer reads this toggle yet |
 
 ### Tuning parameters
 

@@ -117,6 +117,12 @@ Run `/ds-help` for the full command inventory.
   encode taste; read when authoring or editing a command file, skill definition, or agent
   definition.
 
+- **references/memory-shard-convention.md** - git-tracked per-fact shard directory
+  (`.agentic/memory-shards/`) a project's root MEMORY.md compiles from, the frontmatter
+  every shard carries, and the split/regenerate round-trip's entry-loss and reordering
+  refusal guards; read when working on `bin/ds-memory-shard`, `hooks/lib/memory-shard.js`,
+  or any writer that captures a fact into a shard.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;

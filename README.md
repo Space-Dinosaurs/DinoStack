@@ -200,7 +200,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-four methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-five methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -226,6 +226,7 @@ The per-project marker only has effect in combination with the global activation
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on). Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag` (a non-Answer turn's structural shape) is BLOCKING; `_decision_item_sprawl_flag` (operator-decisions per-item shape) remains advisory-only and only logs, bounded by a two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap of 2, sharing machinery with the abdication guard via `hooks/lib/loop_guard.py`) on how many times it can re-invoke the model on consecutive non-conforming turns; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1`. As of DS-171, the answer relevance check (opening-preamble/closing-recap phrasing) and the status-only/volume checks are retired from this hook - those rules, plus two bans the hook never implemented - self-narrating candor, and editorial addenda (the ban on any conductor-selected item that carries none of the four turn warrants, in any position in the turn and whether or not it is bundled - a labelled package of such observations is the canonical form, not the boundary) - now live in the `dinostack` Claude Code output style (select via `/config`), and remain normatively documented in `content/references/conductor-turn-format.md` for non-Claude-Code harnesses.
 - `worktree_read_guard_exemptions` - list of strings, default `[]`. Each entry is a path prefix (relative to the primary checkout root) exempted from the worktree-isolation read guard; a worktree-isolated subagent's `Read` under an exempt prefix is allowed even though it reaches into the primary checkout. Read by `hooks/enforce-worktree-read.py`; kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 - `worktree_write_guard_exemptions` - list of strings, default `[]`. SEPARATE key from `worktree_read_guard_exemptions`. Each entry is a path prefix (relative to the primary checkout root) exempted from the worktree-isolation write guard; a worktree-isolated subagent's `Write`/`Edit`/`MultiEdit` under an exempt prefix is allowed even though it reaches into the primary checkout. Read by `hooks/enforce-worktree-write.py`; kill-switch: `AE_WORKTREE_WRITE_GUARD_DISABLE=1`.
+- `memory_shard_mode` - boolean, default `false` (opt-in). Ships inert - the memory-shard compiler (`bin/ds-memory-shard`) exists but no writer reads this toggle yet.
 
 Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
@@ -259,7 +260,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (40 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (41 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
@@ -283,7 +284,7 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-four methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned intent-layer files (`docs/overview/vision.md`) capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. The files are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-five methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned intent-layer files (`docs/overview/vision.md`) capture durable product intent above the task level; Architect, Investigator, and Engineer read them when present and must not contradict them. The files are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 

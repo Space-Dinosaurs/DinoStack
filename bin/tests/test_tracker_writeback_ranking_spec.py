@@ -849,14 +849,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-four methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-four methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-four project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-four-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-four project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-four toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-four methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 24 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-five methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-five methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-five project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-five-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-five project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-five toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-five methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 25 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [

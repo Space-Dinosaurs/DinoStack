@@ -48,6 +48,17 @@
 #              the user-global library - see Step 6d); the negation here only
 #              makes a project-local presets.yml committable if and when an
 #              operator chooses to author one, it does not create the file.
+#          v8: adds !.agentic/memory-shards/ + !.agentic/memory-shards/**
+#              negations (DS-221 Unit 1, memory shard compiler). BOTH lines
+#              are required - a bare directory negation alone cannot pierce
+#              the ".agentic/*" umbrella for files nested inside it (see
+#              content/references/memory-shard-convention.md's Verification
+#              section). This ships the compiler + convention only; nothing
+#              writes into .agentic/memory-shards/ yet (writer wiring is a
+#              later unit's scope, gated by the new memory_shard_mode
+#              toggle, default false), so this negation makes the directory
+#              committable ahead of that wiring rather than retrofitting it
+#              later.
 # Public API: read by bin/ds-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 #             Also read directly by /ds-init-project Step 9, which invokes
@@ -62,7 +73,7 @@
 # Failure modes: if malformed or missing, ds-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 7
+scaffolding_version: 8
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
@@ -92,6 +103,10 @@ gitignore:
     purpose: "committed: durable cross-teammate deferred-work backlog, same as /ds-init-project Step 9"
   - pattern: "!.agentic/presets.yml"
     purpose: "committed: project-local spawn-preset overrides (agent/tier/brief_prefix only - no model handles, unlike tier-map.yml/role-models.yml)"
+  - pattern: "!.agentic/memory-shards/"
+    purpose: "committed: memory shard directory (DS-221 Unit 1) - one fact per file"
+  - pattern: "!.agentic/memory-shards/**"
+    purpose: "committed: memory shard directory contents - required alongside the bare directory negation above; a directory negation alone cannot pierce the .agentic/* umbrella for nested files"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
