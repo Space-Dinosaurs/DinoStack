@@ -2354,6 +2354,56 @@ else
   _fail "T21v foreign_agent_hook: the two OK messages should differ\nno-enabled: $NOENABLED_LINE\nscanned: $SCANNED_LINE"
 fi
 
+# T21v2: an enabledPlugins object with entries that are ALL `false` is a
+# genuinely different config from "no enabledPlugins key at all" (T21v's
+# NOENABLED_LINE fixture, {} settings.json) - the operator's config here
+# DOES name 3 plugins, they're just disabled. The pre-fix message
+# ("no plugins enabled (no enabledPlugins entries in <path>) - nothing to
+# scan") falsely reported this as an empty/absent key. Reddened by
+# reverting to that literal string: the grep below fails and the count
+# assertion has nothing to match.
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": {"one@mkt": false, "two@mkt": false, "three@mkt": false}
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+ALLFALSE_LINE=$(echo "$OUT" | grep "^OK foreign_agent_hook:")
+if [[ "$RC" == "0" ]] \
+   && echo "$ALLFALSE_LINE" | grep -qE "enabledPlugins.*\b3\b.*entries.*none enabled" \
+   && ! echo "$ALLFALSE_LINE" | grep -q "no enabledPlugins entries in" \
+   && [[ "$ALLFALSE_LINE" != "$NOENABLED_LINE" ]]; then
+  _pass "T21v2 foreign_agent_hook: 3 disabled entries reports the actual count, distinct from the no-key OK message"
+else
+  _fail "T21v2 foreign_agent_hook: 3 all-false enabledPlugins entries should report 'has 3 entries, none enabled', not the no-key wording, exit 0\nrc=$RC\n$OUT"
+fi
+
+# T21v3: an explicit "enabledPlugins": null is a DIFFERENT state from the
+# key being absent entirely - dict.get() returns None for both, which
+# previously mislabeled a present-but-null key as "no 'enabledPlugins'
+# key" (Skeptic Minor 1 on the initial fix, verified live). Reddened by
+# reverting key_present to a bare `enabled is not None` check: the "no
+# 'enabledPlugins' key" wording would then match this fixture too.
+cat > "$T21_HOME/.claude/settings.json" <<EOF
+{
+  "enabledPlugins": null
+}
+EOF
+t21_invoke
+RC=$(cat "$T21_HOME/.exit")
+OUT=$(cat "$T21_HOME/.out")
+NULL_LINE=$(echo "$OUT" | grep "^OK foreign_agent_hook:")
+if [[ "$RC" == "0" ]] \
+   && echo "$NULL_LINE" | grep -qE "enabledPlugins.*null" \
+   && ! echo "$NULL_LINE" | grep -q "no 'enabledPlugins' key" \
+   && [[ "$NULL_LINE" != "$NOENABLED_LINE" ]]; then
+  _pass "T21v3 foreign_agent_hook: explicit enabledPlugins:null reports null, distinct from the no-key OK message"
+else
+  _fail "T21v3 foreign_agent_hook: explicit enabledPlugins:null should report 'enabledPlugins is null', not the no-key wording, exit 0\nrc=$RC\n$OUT"
+fi
+
 # T21w: the enabled-plugin count in the "scanned N enabled plugin(s), none
 # register..." OK message must be pinned to the ACTUAL number of enabled
 # plugins - not merely present, and not merely differ from the
@@ -2468,11 +2518,11 @@ t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*enabledPlugins.*not an object" \
-   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:" \
    && [[ "$RC" == "0" ]]; then
-  _pass "T21y foreign_agent_hook: list-typed enabledPlugins WARNs, never a masked 'no plugins enabled' OK"
+  _pass "T21y foreign_agent_hook: list-typed enabledPlugins WARNs, never a masked OK"
 else
-  _fail "T21y foreign_agent_hook: list-typed enabledPlugins should WARN, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+  _fail "T21y foreign_agent_hook: list-typed enabledPlugins should WARN, never any OK, exit 0\nrc=$RC\n$OUT"
 fi
 
 # T21y2: same defect, non-dict top-level settings.json (a JSON array
@@ -2484,11 +2534,11 @@ t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*unexpected schema" \
-   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:" \
    && [[ "$RC" == "0" ]]; then
   _pass "T21y2 foreign_agent_hook: non-dict top-level settings.json WARNs, never a masked OK"
 else
-  _fail "T21y2 foreign_agent_hook: non-dict settings.json should WARN, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+  _fail "T21y2 foreign_agent_hook: non-dict settings.json should WARN, never any OK, exit 0\nrc=$RC\n$OUT"
 fi
 
 # T21y3: an enabledPlugins ENTRY whose value is a truthy non-boolean (the
@@ -2525,11 +2575,11 @@ t21_invoke
 RC=$(cat "$T21_HOME/.exit")
 OUT=$(cat "$T21_HOME/.out")
 if echo "$OUT" | grep -q "^WARN foreign_agent_hook:.*enabledPlugins.*non-boolean.*wrongtypevalue@mkt" \
-   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:.*no plugins enabled" \
+   && ! echo "$OUT" | grep -q "^OK foreign_agent_hook:" \
    && [[ "$RC" == "0" ]]; then
-  _pass "T21y3 foreign_agent_hook: truthy non-boolean enabledPlugins VALUE WARNs, never a masked 'no plugins enabled' OK"
+  _pass "T21y3 foreign_agent_hook: truthy non-boolean enabledPlugins VALUE WARNs, never a masked OK"
 else
-  _fail "T21y3 foreign_agent_hook: non-boolean enabledPlugins value (1) should WARN naming wrongtypevalue@mkt, never OK 'no plugins enabled', exit 0\nrc=$RC\n$OUT"
+  _fail "T21y3 foreign_agent_hook: non-boolean enabledPlugins value (1) should WARN naming wrongtypevalue@mkt, never any OK, exit 0\nrc=$RC\n$OUT"
 fi
 
 # T21y4: a boolean-true, genuinely hazardous plugin sibling alongside a
