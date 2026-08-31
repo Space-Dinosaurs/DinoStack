@@ -253,11 +253,20 @@ class TestClassifyEntry:
 
 
 class TestClassifyCrossRepo:
+    """host==repo_root shape (the two tests below): a path not under host,
+    reached with the sole REAL call site's argument shape - resolves
+    OUT_OF_TREE, not UNMANAGED, since this repo's own git registered it,
+    just physically outside the tree. host!=repo_root shape (the third
+    test): the genuine cross-repo caller-misuse case the module's
+    non-collision guarantee protects against - stays UNMANAGED, unchanged."""
+
     def test_cross_repo_worktree_never_classified_isolation(self):
-        # A worktree that belongs to a DIFFERENT repository entirely, whose
-        # path happens to sit under a `.claude/worktrees/`-shaped subpath of
-        # ITS OWN (foreign) root - must resolve UNMANAGED, never ISOLATION,
-        # when classified against THIS repo's host/repo_root.
+        # This fixture's path is shaped like it could belong to a different
+        # repository, but it is classified with host==repo_root - the real
+        # call site's shape, meaning THIS repo's own git registered it. It
+        # must resolve OUT_OF_TREE (evidence-gated), never ISOLATION (which
+        # would require it to sit under `.claude/worktrees/` relative to
+        # repo_root, which it does not).
         foreign_entry = WorktreeEntry(
             path="/Users/tyson/Documents/Development/other-repo/.claude/worktrees/agent-foreign",
             head="cafebabe",
@@ -265,12 +274,12 @@ class TestClassifyCrossRepo:
             is_detached=False,
         )
         wc = classify_entry(foreign_entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
-        assert wc is WorktreeClass.UNMANAGED
+        assert wc is WorktreeClass.OUT_OF_TREE
 
-    def test_cross_repo_worktree_named_worktree_agent_still_unmanaged(self):
+    def test_cross_repo_worktree_named_worktree_agent_still_out_of_tree(self):
         # Even a branch NAMED with the isolation convention does not matter
         # here - classify_entry never reads entry.branch at all (outcome
-        # rubric line 1).
+        # rubric line 1). Same host==repo_root shape as the test above.
         foreign_entry = WorktreeEntry(
             path="/some/other/host/repo/.claude/worktrees/agent-x",
             head="cafebabe",
@@ -278,7 +287,7 @@ class TestClassifyCrossRepo:
             is_detached=False,
         )
         wc = classify_entry(foreign_entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
-        assert wc is WorktreeClass.UNMANAGED
+        assert wc is WorktreeClass.OUT_OF_TREE
 
     def test_host_not_equal_repo_root_foreign_path_stays_unmanaged(self):
         # DS-118's MANDATORY cross-repo non-collision guarantee, exercised
@@ -291,7 +300,9 @@ class TestClassifyCrossRepo:
         # scenario the guard exists to catch: without it, `relative_path`
         # would relativize the foreign entry against the foreign
         # `repo_root` and produce a matching `.claude/worktrees/` prefix,
-        # misclassifying it ISOLATION.
+        # misclassifying it ISOLATION. This is the ONE case that must never
+        # become OUT_OF_TREE - the bifurcation added by this change
+        # withholds that class specifically for `host != repo_root`.
         foreign_root = "/some/other/host/repo"
         foreign_entry = WorktreeEntry(
             path=f"{foreign_root}/.claude/worktrees/agent-x",
@@ -300,6 +311,36 @@ class TestClassifyCrossRepo:
             is_detached=False,
         )
         wc = classify_entry(foreign_entry, host=REPO_ROOT, repo_root=foreign_root, is_main=False)
+        assert wc is WorktreeClass.UNMANAGED
+
+    def test_classify_out_of_tree_when_host_equals_repo_root(self):
+        # The bifurcation's OUT_OF_TREE branch: a path outside REPO_ROOT,
+        # classified with host==repo_root (the sole real call site's
+        # shape).
+        entry = WorktreeEntry(
+            path="/some/completely/external/path",
+            head="cafebabe",
+            branch="fix/something",
+            is_detached=False,
+        )
+        wc = classify_entry(entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
+        assert wc is WorktreeClass.OUT_OF_TREE
+
+    def test_classify_stays_unmanaged_when_host_differs_from_repo_root(self):
+        # Proves the bifurcation is load-bearing: this fixture's path is
+        # outside `host`, and `host != repo_root` - it must stay UNMANAGED.
+        # Reddening mutation: remove the `host == repo_root` condition so
+        # the branch always returns OUT_OF_TREE (the exact round-1 defect
+        # round 2 found) - this test must catch that regression.
+        host = REPO_ROOT
+        repo_root = "/some/other/host/repo"
+        entry = WorktreeEntry(
+            path="/some/completely/external/path",
+            head="cafebabe",
+            branch="fix/something",
+            is_detached=False,
+        )
+        wc = classify_entry(entry, host=host, repo_root=repo_root, is_main=False)
         assert wc is WorktreeClass.UNMANAGED
 
 
@@ -496,6 +537,62 @@ class TestDispositionFailClosed:
         entry = _clean_branched_entry()
         assert disposition_for(entry, WorktreeClass.MAIN, facts) is Disposition.SKIP_MAIN
         assert disposition_for(entry, WorktreeClass.UNMANAGED, facts) is Disposition.SKIP_UNMANAGED
+
+    def test_disposition_for_out_of_tree_is_not_special_cased(self):
+        # OUT_OF_TREE gets no dedicated branch in disposition_for - a
+        # clean, unlocked, branched entry with merged evidence resolves
+        # ELIGIBLE exactly as ISOLATION/CONDUCTOR_CREATED would.
+        # Reddening mutation: add
+        # `if wt_class is WorktreeClass.OUT_OF_TREE: return
+        # Disposition.SKIP_UNMANAGED` to disposition_for.
+        facts = DispositionFacts(
+            dirty_status="clean",
+            head_reachable="reachable",
+            ls_remote_status="not_checked",
+            merge_evidence="merged",
+            content_subsumption="not_checked",
+            pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
+        )
+        result = disposition_for(_clean_branched_entry(), WorktreeClass.OUT_OF_TREE, facts)
+        assert result is Disposition.ELIGIBLE
+
+    def test_disposition_for_out_of_tree_locked_still_skips(self):
+        # Reddening mutation: insert a class-specific early return
+        # immediately after class-dispatch (before the entry.locked check):
+        # `if wt_class is WorktreeClass.OUT_OF_TREE: return
+        # _resolve_merge_evidence(facts, merge_evidence_order,
+        # strict_pr_state=False)` - a realistic implementation mistake this
+        # test specifically catches.
+        facts = DispositionFacts(
+            dirty_status="clean",
+            head_reachable="reachable",
+            ls_remote_status="not_checked",
+            merge_evidence="merged",
+            content_subsumption="not_checked",
+            pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
+        )
+        result = disposition_for(_clean_branched_entry(locked=True), WorktreeClass.OUT_OF_TREE, facts)
+        assert result is Disposition.SKIP_LOCKED
+
+    def test_disposition_for_out_of_tree_dirty_still_skips(self):
+        # Sibling to the locked test above (round-4 minor fix - no test
+        # previously exercised a DIRTY OUT_OF_TREE entry). Reddening
+        # mutation: move the entry.locked/facts.dirty_status checks to run
+        # AFTER a class-specific OUT_OF_TREE early return (same shape as
+        # the locked test's mutation, applied to the dirty check instead).
+        facts = DispositionFacts(
+            dirty_status="dirty",
+            head_reachable="reachable",
+            ls_remote_status="not_checked",
+            merge_evidence="merged",
+            content_subsumption="not_checked",
+            pr_state="not_checked",
+            origin_reachable="not_checked",  # DS-196
+        )
+        result = disposition_for(_clean_branched_entry(locked=False), WorktreeClass.OUT_OF_TREE, facts)
+        assert result is Disposition.SKIP_DIRTY
 
     def test_disposition_for_eligible_on_merged_evidence(self):
         facts = DispositionFacts(

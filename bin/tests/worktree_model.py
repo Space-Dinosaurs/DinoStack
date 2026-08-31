@@ -23,7 +23,8 @@ Purpose: Executable reference implementation of the DS-118 worktree
 
 Public API:
   parse_porcelain(text)                              -> List[WorktreeEntry]
-  classify_entry(entry, *, host, repo_root, is_main)  -> WorktreeClass
+  classify_entry(entry, *, host, repo_root, is_main,
+                 host_is_linked_worktree=False)       -> WorktreeClass
   disposition_for(entry, wt_class, facts, *,
                    merge_evidence_order=WORKTREE_REMOVAL_EVIDENCE_ORDER)
                                                         -> Disposition
@@ -33,6 +34,13 @@ Public API:
   relative_path(path, repo_root)                      -> str
   WorktreeEntry, DispositionFacts                      -> dataclasses
   WorktreeClass, Disposition                            -> enums
+                                                            (WorktreeClass adds
+                                                            OUT_OF_TREE: registered
+                                                            by THIS repo's own git
+                                                            but physically outside
+                                                            its directory tree -
+                                                            evidence-gated, not
+                                                            UNMANAGED)
   MERGE_EVIDENCE_ORDER                                   -> evidence-source
                                                             precedence tuple
                                                             used by
@@ -333,6 +341,7 @@ class WorktreeClass(Enum):
     ISOLATION = "ISOLATION"
     CONDUCTOR_CREATED = "CONDUCTOR_CREATED"
     UNMANAGED = "UNMANAGED"
+    OUT_OF_TREE = "OUT_OF_TREE"
 
 
 #: The two conductor-owned worktree admin subdirectories this repo's own
@@ -353,6 +362,7 @@ def classify_entry(
     host: str,
     repo_root: str,
     is_main: bool,
+    host_is_linked_worktree: bool = False,
 ) -> WorktreeClass:
     """Path-and-host-only classification. Never reads `entry.branch` - see
     the module docstring for why (DS-118 defect 1).
@@ -366,12 +376,40 @@ def classify_entry(
     necessarily byte-identical to the `repo_root` a particular call site
     wants relative paths computed against, though in the common case they
     are the same value). An entry whose `path` is not a descendant of
-    `host` belongs to a DIFFERENT repository entirely - it is foreign, not
-    merely unrecognized, and is always UNMANAGED regardless of any
-    name-pattern coincidence (the cross-repo non-collision guarantee: a
-    worktree from a different clone that happens to sit under a
-    `.agentic/worktrees/`-shaped path of ITS OWN repo must never be
-    classified as belonging to `repo_root`'s CONDUCTOR_CREATED set).
+    `host` is handled by one of two DIFFERENT cases, bifurcated on whether
+    `host == repo_root`:
+
+    - `host == repo_root` (the sole real call site's shape): THIS repo's
+      own git registered a worktree physically outside its own directory
+      tree. That is not foreign - it is `repo_root`'s own worktree, just
+      not under it - so it classifies `OUT_OF_TREE` and is evidence-gated
+      exactly like `ISOLATION`/`CONDUCTOR_CREATED`, never a blind skip -
+      UNLESS `host_is_linked_worktree` is True (see below), in which case
+      it stays `UNMANAGED`.
+    - `host != repo_root` (a hypothetical caller relativizing against a
+      different root than the containment boundary): the entry belongs to
+      a DIFFERENT repository entirely - it is foreign, not merely
+      unrecognized, and is always UNMANAGED regardless of any name-pattern
+      coincidence (the cross-repo non-collision guarantee: a worktree from
+      a different clone that happens to sit under a `.agentic/worktrees/`-
+      shaped path of ITS OWN repo must never be classified as belonging to
+      `repo_root`'s CONDUCTOR_CREATED set). This case is UNCHANGED by the
+      `OUT_OF_TREE` addition.
+
+    `host_is_linked_worktree` (default `False`, keyword-only): True when
+    the caller has independently confirmed (via `git rev-parse
+    --git-common-dir` versus `--git-dir`, never derived here - this module
+    is pure, no I/O) that `host`/`repo_root` themselves resolve to a LINKED
+    worktree of some OTHER repository, rather than that repository's own
+    main worktree. A linked worktree used as a sweep target is not a
+    supported configuration: `host == repo_root == <that linked
+    worktree's own path>` would otherwise make every SIBLING worktree of
+    the parent repo resolve `OUT_OF_TREE` and become evidence-gated for
+    removal - a blast-radius expansion onto a repo the operator never
+    named. When True, the `host == repo_root` branch below is withheld and
+    the entry falls through to `UNMANAGED`, exactly as it did before
+    `OUT_OF_TREE` existed.
+
     `repo_root` is then used only to compute the path relativization that
     the directory-prefix checks below key on.
     """
@@ -387,6 +425,18 @@ def classify_entry(
     norm_path = os.path.normpath(entry.path)
     under_host = norm_path == norm_host or norm_path.startswith(norm_host.rstrip("/") + "/")
     if not under_host:
+        if os.path.normpath(host) == os.path.normpath(repo_root) and not host_is_linked_worktree:
+            # The sole real call site's shape: THIS repo's own git
+            # registered a worktree physically outside its own tree.
+            # Evidence-gated, not a blind skip. Withheld when the caller
+            # has confirmed `host` is itself a linked worktree of some
+            # OTHER repo (`host_is_linked_worktree=True`) - see this
+            # function's own docstring for why.
+            return WorktreeClass.OUT_OF_TREE
+        # host != repo_root, OR host is confirmed to be a linked worktree
+        # of another repo: the original cross-repo non-collision
+        # guarantee's shape. Preserve it EXACTLY unchanged: never
+        # evidence-gate an entry reached this way.
         return WorktreeClass.UNMANAGED
 
     rel = relative_path(entry.path, repo_root)
@@ -693,6 +743,11 @@ def disposition_for(
         return Disposition.SKIP_MAIN
     if wt_class is WorktreeClass.UNMANAGED:
         return Disposition.SKIP_UNMANAGED
+    # OUT_OF_TREE is deliberately NOT checked here - it is evidence-gated
+    # exactly like ISOLATION/CONDUCTOR_CREATED, including via
+    # origin_reachable (DS-196) for a branched entry. A genuinely foreign
+    # (host != repo_root) entry never reaches this point as OUT_OF_TREE -
+    # classify_entry withholds that class for it.
     if entry.locked:
         return Disposition.SKIP_LOCKED
     if facts.dirty_status != "clean":

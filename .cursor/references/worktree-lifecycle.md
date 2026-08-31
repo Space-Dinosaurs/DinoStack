@@ -349,17 +349,18 @@ and no orphaned-nested-entry case to reason about separately. It is
 reaped (or not) by the same harness/session-start machinery that governs
 any other crashed spawn.
 
-[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:392-394`)
+[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:443-447`)
 is path-prefix-only and never reads `entry.branch` - a detached harness
 worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
-(`bin/tests/worktree_model.py:701-707`) is `ELIGIBLE` only when
+(`bin/tests/worktree_model.py:756-762`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-`bin/ds-cleanup-worktrees:1917` hardcodes `head_reachable="not_checked"`
-at every construction site, and `_compute_origin_reachable`'s own
-docstring (`:1392-1394`) calls the field "unrelated, dead code" -
-distinct from the separate, live `origin_reachable` field DS-196 added,
-which does not feed this branch at all (`worktree_model.py:428-438`).
+`bin/ds-cleanup-worktrees`'s `_build_facts` hardcodes
+`head_reachable="not_checked"` at every construction site, and
+`_compute_origin_reachable`'s own docstring (same file) calls the field
+"unrelated, dead code" - distinct from the separate, live
+`origin_reachable` field DS-196 added, which does not feed this branch at
+all (`worktree_model.py`'s `DispositionFacts` docstring).
 Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
 today: **every detached harness worktree, whether its push already
 landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
@@ -383,7 +384,67 @@ existing pattern) would let a crash-after-push leftover auto-sweep
 instead of needing the manual triage above. Out of scope for this
 change - the honest-docs fix (stating the true, current behavior) is
 minimal-diff; wiring up dead code to change tool behavior is a separate,
-larger change with its own review.
+larger change with its own review. This paragraph is a per-change scope
+note from the docs revision that added it, not a standing cross-unit repo
+decision - deferring `head_reachable`-wiring to its own separately-scoped
+unit remains the right sequencing call, but no repo-level decision
+mandates that split.
+
+**A registered-but-out-of-tree worktree (`OUT_OF_TREE`).** A worktree THIS
+repo's own git registered, but which lives physically outside
+`repo_root`'s directory tree, is not `UNMANAGED` - `classify_entry`
+bifurcates on `host == repo_root` (the not-under-host branch in
+`bin/tests/worktree_model.py`'s `classify_entry`): when equal (the sole
+real call site's shape) AND the target is not itself a linked worktree
+(see below), it classifies `OUT_OF_TREE` and is evidence-gated exactly
+like ISOLATION/CONDUCTOR_CREATED, subject to THREE removal paths, not
+one: (1) ancestor-of-base merge evidence; (2)
+`origin_reachable` (DS-196) for a branched entry - independent of
+`head_reachable` staying dead, rolled back to the pre-DS-196 evidence
+order by `--no-origin-reachable-evidence` for an operator who wants the
+more conservative behavior; and (3) `--archive-unproven`, which archives
+and removes ANY entry (of any class, including `OUT_OF_TREE`) whose
+disposition resolves `SKIP_NOT_PUSHED` or `SKIP_AMBIGUOUS_NO_PR` -
+needing no merge evidence at all, since both dispositions mean "the
+branch content itself is the only unresolved question" (see
+`_ARCHIVABLE_UNPROVEN_DISPOSITIONS`'s own docstring). None of these three
+paths are new code; `OUT_OF_TREE` is simply newly subject to all of them,
+same as ISOLATION/CONDUCTOR_CREATED always have been. When `host !=
+repo_root` (a hypothetical caller relativizing against a different root
+than the containment boundary - the genuine cross-repo case), the entry
+stays `UNMANAGED`, unchanged - the cross-repo non-collision guarantee this
+module documents.
+
+**A linked worktree used as the sweep target is not supported.** `--repo
+<path>` (and `--multi-repo` scan discovery, since `_is_git_dir` accepts a
+`.git` FILE - exactly a linked worktree's marker) resolves `host` and
+`repo_root` via `git rev-parse --show-toplevel`, which returns a LINKED
+worktree's OWN directory when run from inside one, not its parent repo's
+root. Without a guard, that would make `host == repo_root == <the linked
+worktree's own path>`, and every SIBLING worktree of the parent repo would
+resolve `OUT_OF_TREE` and become evidence-gated for removal - a
+blast-radius expansion onto a repo the operator never named, and one that
+also defeats `RepoTarget` dedup for that repo. `_host_is_linked_worktree`
+(`bin/ds-cleanup-worktrees`) distinguishes a main worktree from a linked
+one via `git rev-parse --git-dir` versus `--git-common-dir` (identical
+for the main worktree, different for a linked one) and, when the target
+IS a linked worktree, withholds `OUT_OF_TREE` for that run - the
+not-under-host branch stays `UNMANAGED` exactly as it did before
+`OUT_OF_TREE` existed. Point `--repo` at a repo's main worktree, never at
+one of its own linked worktrees.
+
+**Orphaned unregistered directories - decision.** No sweep/report
+mechanism was built to find EXISTING orphaned, unregistered worktree
+directories on disk (no git object/ref/admin entry survives to verify
+"nothing unrecoverable" against). The only mechanism added is
+source-hardening: `_salvage_and_remove` now attempts an active repair
+(an `rmtree` retry) when `git worktree remove` reports success but leaves
+the directory present on disk, guarded by a defensive floor that refuses
+to `rmtree` a path resolving to or containing `repo_root`. A residual
+TOCTOU risk between git's `rc==0` and the `rmtree` call is accepted as
+disclosed debt, not closed - see this module's own `_salvage_and_remove`
+docstring for the full disclosure. Disposition of any pre-existing
+orphan of unknown provenance is left to the operator.
 
 ### Discovery: draft-only, with a bounded backstop
 

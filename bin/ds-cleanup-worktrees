@@ -28,10 +28,24 @@ Purpose: Executable reference implementation of the `/ds-cleanup-worktrees`
 
 Classification reuses `bin/tests/worktree_model.py`'s `classify_entry`
 (path-prefix classification: `.claude/worktrees/` = ISOLATION,
-`.agentic/worktrees/` = CONDUCTOR_CREATED, anything else = UNMANAGED) - the
-single normative definition, never restated here. `evals/.worktrees/*`
-(pinned per repo decision #203) already classifies UNMANAGED under that
-model and is never touched by this tool regardless.
+`.agentic/worktrees/` = CONDUCTOR_CREATED, anything else in-tree =
+UNMANAGED) - the single normative definition, never restated here.
+`evals/.worktrees/*` (pinned per repo decision #203) already classifies
+UNMANAGED under that model and is never touched by this tool regardless.
+A worktree THIS repo's own git registered but which lives physically
+outside the repo's directory tree (`host == repo_root` at this file's own
+`classify_entry` call site, inside `_evaluate_entries`) classifies
+`OUT_OF_TREE`, not UNMANAGED, PROVIDED the target is not itself a linked
+worktree (see `_host_is_linked_worktree` immediately below) - it is then
+evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, via THREE
+removal paths: ancestor-of-base merge evidence, `origin_reachable`
+(DS-196) for a branched entry, and `--archive-unproven` (which needs no
+merge evidence at all - see `_ARCHIVABLE_UNPROVEN_DISPOSITIONS`). A
+genuinely foreign entry (a different repository's worktree), OR a target
+that IS itself a linked worktree of some other repo, still classifies
+UNMANAGED, unchanged. See `content/references/worktree-lifecycle.md` for
+the full disclosure of all three removal paths and the linked-worktree
+guard.
 
 Removal predicate (worktree REMOVAL only - `git worktree remove`, never
 `git branch -D`; a worktree's branch and its commits survive removal).
@@ -1242,6 +1256,77 @@ def _resolve_repo(path: str) -> str:
     return proc.stdout.strip()
 
 
+def _host_is_linked_worktree(repo: str) -> bool:
+    """True when `repo` (the resolved git toplevel this run targets, which
+    becomes both `host` and `repo_root` at the sole `classify_entry` call
+    site in `_evaluate_entries`) is ITSELF a linked worktree of some OTHER
+    repository, rather than that repository's own main worktree. `git
+    rev-parse --show-toplevel` (what `_resolve_repo`/`RepoTarget` both use)
+    resolves to the LINKED WORKTREE's own directory when run from inside
+    one, not the parent repo's root - so `--repo <a-linked-worktree>`
+    would otherwise make `host == repo_root == <that worktree's path>`,
+    and every SIBLING worktree of the parent repo would resolve
+    `OUT_OF_TREE` and become evidence-gated for removal: a blast-radius
+    expansion onto a repo the operator never named (reachable via `--repo
+    <worktree>` directly and via `--multi-repo` scan discovery, since
+    `_is_git_dir` accepts a `.git` FILE, exactly a linked worktree's
+    marker).
+
+    Distinguished via `git rev-parse --git-common-dir` (always the shared
+    `.git` directory, identical for every worktree of one repo) versus
+    `--git-dir` (the main worktree's own `.git` directory - identical to
+    `--git-common-dir` there - or a linked worktree's private
+    `.git/worktrees/<name>` administrative directory, which differs from
+    `--git-common-dir`). This correctly does NOT flag a submodule's own
+    working directory as a linked worktree (a submodule's `--git-dir` and
+    `--git-common-dir` are identical - both point at its own
+    `.git/modules/<name>` gitdir - even though its `.git` is also a FILE,
+    same as a linked worktree's marker), which a naive "`.git` is a file"
+    discriminator would get wrong.
+
+    On any git failure, empty output, or path-resolution error, returns
+    `False` - which is the PERMISSIVE direction: it grants `OUT_OF_TREE`
+    and re-enables the exact blast radius this guard exists to contain,
+    not a safe fail-closed default. This is deliberate given the
+    alternative (failing closed to `True` on every git error) would
+    silently withhold `OUT_OF_TREE` far more often than the guard is
+    meant to fire, but it is a real trade-off, not a free one.
+
+    Known limitation: if `GIT_DIR` is exported in the calling
+    environment (inherited by every `git` subprocess this tool spawns,
+    since `_run`'s default `env=None` passes the parent environment
+    through unchanged) and points at the PARENT repo's `.git`, then
+    `--git-dir` and `--git-common-dir` BOTH resolve to that overridden
+    value and collapse to equal - even though `repo` (via `--show-
+    toplevel`, which still correctly reports the linked worktree's own
+    directory under this override) genuinely is a linked worktree. This
+    function then wrongly returns `False`, and the hazard this guard
+    exists to close recurs silently. `GIT_COMMON_DIR` being set alone
+    does not defeat it. A `--show-toplevel`-vs-common-dir's-parent
+    comparison would close this specific hole but was not added here: it
+    was measured to misclassify a submodule's own working directory as a
+    linked worktree (its `--git-common-dir` lives under the
+    superproject's `.git/modules/`, not as a sibling of the submodule's
+    own toplevel) - trading a narrow, deliberate-operator-action hazard
+    for a regression in the exact discrimination this function is
+    already relied upon to get right. An operator who exports `GIT_DIR`
+    persistently is already outside this tool's assumed environment."""
+    git_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-dir"])
+    common_dir_proc = _run(["git", "-C", repo, "rev-parse", "--git-common-dir"])
+    if git_dir_proc.returncode != 0 or common_dir_proc.returncode != 0:
+        return False
+    git_dir_raw = git_dir_proc.stdout.strip()
+    common_dir_raw = common_dir_proc.stdout.strip()
+    if not git_dir_raw or not common_dir_raw:
+        return False
+    try:
+        git_dir = os.path.realpath(os.path.join(repo, git_dir_raw))
+        common_dir = os.path.realpath(os.path.join(repo, common_dir_raw))
+    except OSError:
+        return False
+    return git_dir != common_dir
+
+
 # --------------------------------------------------------------------------
 # Base-branch resolution (round-4 rework, DS-cleanup-worktrees). Replaces
 # content/commands/ds-cleanup-worktrees.md's former Step 2 hand-rolled
@@ -2303,20 +2388,100 @@ def _salvage_and_remove(repo: str, worktree_path: str, branch: Optional[str]) ->
                           `_salvage_telemetry`'s own docstring requires).
       `salvaged`        - True when telemetry was actually copied (not
                           merely "nothing to salvage").
-      `removed`         - True when `git worktree remove` succeeded.
-      `detail`          - the salvage failure detail (when `salvage_failed`)
-                          or the `git worktree remove` stderr (when
-                          `not removed`), else "".
+      `removed`         - True when `git worktree remove` succeeded AND the
+                          directory is actually gone from disk afterward
+                          (either because git removed it, or because a
+                          same-invocation `rmtree` repair removed it).
+      `already_unregistered` - True only when git already deregistered the
+                          worktree (`git worktree remove` returned rc==0)
+                          and content STILL remains on disk when this
+                          function returns - i.e. the repair attempt (the
+                          defensive-floor refusal, or the `rmtree` retry)
+                          did NOT leave the directory gone. False on the
+                          repair-SUCCESS path (`rmtree` actually removed
+                          the leftover content, so nothing remains
+                          unregistered-with-content by the time this
+                          returns) as well as on every path where content
+                          was never left behind in the first place.
+      `detail`          - the salvage failure detail (when `salvage_failed`),
+                          the `git worktree remove` stderr (when
+                          `not removed and not already_unregistered`), the
+                          repair outcome text (when `already_unregistered`),
+                          or "" on a clean success.
+
+    Known limitations (the residual TOCTOU risk the defensive floor below
+    does NOT close): the floor only refuses to `rmtree` a path that
+    resolves to, or is an ancestor of, `repo` itself - it does not
+    re-verify the filesystem at `worktree_path` immediately before the
+    `rmtree` call. Between `git worktree remove`'s `rc==0` and that call,
+    something else could in principle repopulate `worktree_path` with
+    DIFFERENT content, and this function would still `rmtree` it. `git
+    worktree remove`'s own successful exit is the primary safety argument
+    here (it just validated this was a real, registered worktree at
+    exactly this path) - no additional re-verification (e.g. re-running
+    `git worktree list`) is performed before the retry. Accepted as
+    recorded debt, not closed: it only fires at all on the rare
+    rc==0-but-still-present shape, never on the ordinary rc==0-and-gone
+    path, and adding a heavier guard was judged disproportionate to that
+    narrow a window.
     """
     salvage_ok, salvage_detail = _salvage_telemetry(repo, worktree_path, branch)
     if not salvage_ok:
-        return {"salvage_failed": True, "salvaged": False, "removed": False, "detail": salvage_detail}
+        return {"salvage_failed": True, "salvaged": False, "removed": False,
+                "already_unregistered": False, "detail": salvage_detail}
 
     salvaged = salvage_detail.startswith("salvaged to ")
     proc = _run(["git", "-C", repo, "worktree", "remove", worktree_path])
     if proc.returncode == 0:
-        return {"salvage_failed": False, "salvaged": salvaged, "removed": True, "detail": ""}
-    return {"salvage_failed": False, "salvaged": salvaged, "removed": False, "detail": proc.stderr.strip()}
+        if Path(worktree_path).exists():
+            # git already deregistered this worktree (rc==0) but left
+            # content on disk - the exact Class-2 shape (unregistered +
+            # present). This is NOT the unknown-provenance historical
+            # Class-2 scenario: this residual was produced by the
+            # invocation happening right now, telemetry was already
+            # salvaged above, and git's own rc==0 already signals
+            # intent-to-delete for this content - a same-invocation
+            # cleanup retry is safe where a cold sweep of an unknown orphan
+            # would not be.
+            # realpath, not normpath: `repo` here is already an absolute,
+            # resolved git toplevel path (`_resolve_repo`/`RepoTarget` both
+            # resolve it via `git rev-parse --show-toplevel` before
+            # `_run_repo` ever calls this function) - but `worktree_path`
+            # is NOT independently re-resolved, so a symlink-divergent
+            # input there (e.g. macOS `/tmp` vs `/private/tmp`) could still
+            # compare unequal under plain `normpath`; `realpath` on BOTH
+            # sides is what makes the comparison robust to that.
+            norm_target = os.path.realpath(worktree_path)
+            norm_repo = os.path.realpath(repo)
+            if norm_target == norm_repo or norm_repo.startswith(norm_target.rstrip("/") + "/"):
+                # Defensive floor: never rmtree a path that resolves to, or
+                # is an ancestor of, repo itself, however this function was
+                # reached. This is NOT the primary safety argument - see
+                # this function's own docstring's "Known limitations"
+                # paragraph above for the residual TOCTOU risk this floor
+                # does not close.
+                return {"salvage_failed": False, "salvaged": salvaged, "removed": False,
+                        "already_unregistered": True,
+                        "detail": f"refusing to rmtree {worktree_path}: resolves to or contains repo root {repo}"}
+            try:
+                shutil.rmtree(worktree_path)
+            except OSError as exc:
+                return {
+                    "salvage_failed": False, "salvaged": salvaged, "removed": False,
+                    "already_unregistered": True,
+                    "detail": (
+                        f"git worktree remove deregistered {worktree_path} (exit 0) but left "
+                        f"content on disk, and the rmtree retry failed too ({exc}) - "
+                        f"{worktree_path} is now UNREGISTERED (it will not appear in any future "
+                        f"`git worktree list`) with content still present and needs manual removal"
+                    ),
+                }
+            return {"salvage_failed": False, "salvaged": salvaged, "removed": True,
+                    "already_unregistered": False, "detail": ""}
+        return {"salvage_failed": False, "salvaged": salvaged, "removed": True,
+                "already_unregistered": False, "detail": ""}
+    return {"salvage_failed": False, "salvaged": salvaged, "removed": False,
+            "already_unregistered": False, "detail": proc.stderr.strip()}
 
 
 def _restore_command(bundle_path: str, branch: str) -> str:
@@ -2640,6 +2805,11 @@ def evaluate_entry(
 
     if wt_class is WorktreeClass.UNMANAGED:
         return {**base, "outcome": "SKIP_UNMANAGED"}
+    # OUT_OF_TREE is deliberately NOT checked here - it is evidence-gated
+    # exactly like ISOLATION/CONDUCTOR_CREATED, including via
+    # origin_reachable (DS-196) for a branched entry. A genuinely foreign
+    # (host != repo_root) entry never reaches this point as OUT_OF_TREE -
+    # classify_entry withholds that class for it.
 
     exists = Path(entry.path).is_dir()
     if not exists:
@@ -2726,11 +2896,26 @@ def _evaluate_entries(
     `--report` DEEP tier can compute the identical per-entry decision
     without duplicating this loop - both call sites pass the SAME
     `evaluate_entry`, so they cannot diverge on what counts as REMOVE.
+
+    `host_is_linked_worktree` is resolved ONCE per call (not per-entry -
+    it depends only on `repo`, never on `entry`) and threaded into every
+    `classify_entry` call: when `repo` is itself a linked worktree of
+    another repository, `OUT_OF_TREE` is withheld and the not-under-host
+    branch stays `UNMANAGED`, exactly as it did before `OUT_OF_TREE`
+    existed - see `_host_is_linked_worktree`'s own docstring for why this
+    guard exists.
     """
+    host_is_linked_worktree = _host_is_linked_worktree(repo)
     results: List[Dict] = []
     for idx, entry in enumerate(entries):
         is_main = idx == 0
-        wt_class = classify_entry(entry, host=repo, repo_root=repo, is_main=is_main)
+        wt_class = classify_entry(
+            entry,
+            host=repo,
+            repo_root=repo,
+            is_main=is_main,
+            host_is_linked_worktree=host_is_linked_worktree,
+        )
         if is_main:
             results.append({"path": entry.path, "branch": entry.branch, "class": "MAIN", "outcome": "SKIP_MAIN"})
             continue
@@ -3721,11 +3906,14 @@ def _run_repo(
                 # failure was invisible in the summary line and only
                 # visible via the stderr WARNING. Reclassify to the
                 # dedicated, VISIBLE `SKIP_REMOVE_FAILED` bucket instead.
-                print(
-                    f"WARNING: failed to remove {path} (git worktree remove failed): "
-                    f"{outcome['detail']}",
-                    file=sys.stderr,
-                )
+                if outcome["already_unregistered"]:
+                    print(
+                        f"WARNING: {path} is now UNREGISTERED (git already removed it from the "
+                        f"worktree list) but content remains on disk: {outcome['detail']}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"WARNING: failed to remove {path} (git worktree remove failed): {outcome['detail']}", file=sys.stderr)
                 r["outcome"] = "SKIP_REMOVE_FAILED"
         # A salvage or remove failure above may have reclassified a REMOVE
         # entry to SKIP_PROTECTED_CONTENT or SKIP_REMOVE_FAILED after
@@ -3917,6 +4105,14 @@ def _run_repo(
                         f"ARCHIVED+REMOVED {path} (branch={branch}) - restore with: "
                         f"{_restore_command(bundle_path, branch)}{restore_parenthetical}"
                     )
+                elif outcome["already_unregistered"]:
+                    print(
+                        f"WARNING: {path} is now UNREGISTERED (git already removed it from the "
+                        f"worktree list) after successful archive (branch={branch}, "
+                        f"bundle={bundle_path}) but content remains on disk: {outcome['detail']}",
+                        file=sys.stderr,
+                    )
+                    r["outcome"] = "SKIP_REMOVE_FAILED"
                 else:
                     print(
                         f"WARNING: failed to remove {path} after successful archive "
