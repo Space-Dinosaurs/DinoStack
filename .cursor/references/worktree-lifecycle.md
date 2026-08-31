@@ -35,7 +35,11 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          today if it crashes before its push - `head_reachable` is dead
          code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
-         triage/recovery procedure).
+         triage/recovery procedure), and the Dev-server process lifetime
+         ownership section (the canonical rule that any dev server booted
+         by an agent is run-scoped only and will not survive the agent's
+         run on this harness - referenced by the qa-gate boot pattern and
+         the engineer/qa-engineer runtime smoke-test caveats).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -49,7 +53,13 @@ Public API: Read-only reference document. Cross-referenced from:
             Implicit Trivial batching exception in the live-testing
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
-            (pointer to the Implicit Trivial batching section).
+            (pointer to the Implicit Trivial batching section),
+            content/references/qa-gate.md (dev-server boot pattern pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/qa-engineer.md (dev-server start caveat pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/engineer.md (runtime smoke-test caveat pointer
+            to §Dev-server process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -71,7 +81,12 @@ Downstream consumers: conductor preflight (session-start prune script and
                       cleanup obligation section); bin/ds-base-sync's
                       --count-only advisory note and hooks/session-start-wrap.sh's
                       SessionStart worktree-count nudge (both backstops for
-                      this obligation, never a substitute for it).
+                      this obligation, never a substitute for it);
+                      content/references/qa-gate.md (dev-server boot pattern);
+                      content/agents/qa-engineer.md (dev-server start caveat);
+                      content/agents/engineer.md (runtime smoke-test caveat) -
+                      all three cross-referencing the Dev-server process
+                      lifetime ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -707,6 +722,10 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 ## Guardrail: never force-override the harness lock
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+
+## Dev-server process lifetime ownership
+
+Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
 
 ## Standing authorizations
 

@@ -90,7 +90,7 @@ prefer: local
 3. If config has `prefer: staging`: use the `staging` URL, skip dev server
 4. If no config file and no URL in prompt: report BLOCKED
 
-**Starting the dev server** (when config provides `command` and `port`):
+**Starting the dev server** (when config provides `command` and `port`). This server is run-scoped only: it will not survive your run (see `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
 
 ```bash
 <command> > /tmp/qa_devserver.log 2>&1 &

@@ -5480,7 +5480,9 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/sections/05-qa-gate.md (parent section; read that
                section first for the QA-fires invariant, skip enums,
                diff-read rule, and re-route limits);
-               content/agents/qa-engineer.md (track-scoped qa.md resolution).
+               content/agents/qa-engineer.md (track-scoped qa.md resolution);
+               content/references/worktree-lifecycle.md (§Dev-server process
+               lifetime ownership, cited by the dev-server boot pattern above).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
                       conductor orchestration (parallel-by-worktree setup);
@@ -5751,6 +5753,8 @@ done
 ```
 
 Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
+
+See `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership: a server booted here is run-scoped only and will not survive the agent's run on this harness - treat it as such rather than as a durably running service.
 
 ---
 
@@ -8765,7 +8769,11 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          today if it crashes before its push - `head_reachable` is dead
          code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
-         triage/recovery procedure).
+         triage/recovery procedure), and the Dev-server process lifetime
+         ownership section (the canonical rule that any dev server booted
+         by an agent is run-scoped only and will not survive the agent's
+         run on this harness - referenced by the qa-gate boot pattern and
+         the engineer/qa-engineer runtime smoke-test caveats).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -8779,7 +8787,13 @@ Public API: Read-only reference document. Cross-referenced from:
             Implicit Trivial batching exception in the live-testing
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
-            (pointer to the Implicit Trivial batching section).
+            (pointer to the Implicit Trivial batching section),
+            content/references/qa-gate.md (dev-server boot pattern pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/qa-engineer.md (dev-server start caveat pointer
+            to §Dev-server process lifetime ownership),
+            content/agents/engineer.md (runtime smoke-test caveat pointer
+            to §Dev-server process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -8801,7 +8815,12 @@ Downstream consumers: conductor preflight (session-start prune script and
                       cleanup obligation section); bin/ds-base-sync's
                       --count-only advisory note and hooks/session-start-wrap.sh's
                       SessionStart worktree-count nudge (both backstops for
-                      this obligation, never a substitute for it).
+                      this obligation, never a substitute for it);
+                      content/references/qa-gate.md (dev-server boot pattern);
+                      content/agents/qa-engineer.md (dev-server start caveat);
+                      content/agents/engineer.md (runtime smoke-test caveat) -
+                      all three cross-referencing the Dev-server process
+                      lifetime ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -9437,6 +9456,10 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 ## Guardrail: never force-override the harness lock
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+
+## Dev-server process lifetime ownership
+
+Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
 
 ## Standing authorizations
 
@@ -10995,7 +11018,7 @@ After every implementation:
 - Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
-- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route, run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
+- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route (this server is run-scoped only and will not survive your run, per `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership), run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
 - **Pre-submit self-check.** Immediately before the final quality-gate re-run below, run this consolidated check on your own diff. It covers only mechanical, no-judgment items - it does not replace the DRY/duplication self-check at step 4 above, which stays where it is. Each item is conditional on its own trigger and costs nothing when the trigger does not fire:
   - **New-test CI wiring.** If the diff adds a new test file <!-- shared:test-file-glob-list -->(matches `*/tests/*`, `test_*.py`, `*.test.*`, `*.spec.*`, or a file added to an existing test-only directory), grep `.github/workflows/*.yml` and `.github/workflows/*.yaml` for a reference to that file, its containing glob, or an auto-discovering runner covering its directory (e.g. a `pytest <dir>` invocation)<!-- /shared -->. If nothing in CI runs it, wire it in before returning - a test that never runs provides no regression protection and is a Major Skeptic finding (skeptic.md step 11.5).
   - **Cross-file reference consistency.** If the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> (<!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared -->), grep the full repository - not just the files in your diff - for the OLD identifier: shipped config/fixture files, IaC/deploy manifests, and documentation that names it. Fix every reference that would break or go stale before returning; noting rather than fixing is acceptable only for a deliberate historical keep (changelogs, archived docs) - never as a substitute for fixing a live reference. Does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> (skeptic.md step 4.5).
@@ -12622,7 +12645,7 @@ prefer: local
 3. If config has `prefer: staging`: use the `staging` URL, skip dev server
 4. If no config file and no URL in prompt: report BLOCKED
 
-**Starting the dev server** (when config provides `command` and `port`):
+**Starting the dev server** (when config provides `command` and `port`). This server is run-scoped only: it will not survive your run (see `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
 
 ```bash
 <command> > /tmp/qa_devserver.log 2>&1 &
