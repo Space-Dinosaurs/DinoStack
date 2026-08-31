@@ -64,14 +64,29 @@ apparatus, not in the fix it protects:
   document, not that the bullet is still step 4's own fifth list item. A
   self-devised mutation proved this: relocating the ENTIRE "- (e)" bullet
   (marker included) into unrelated Async-path-amendment prose - orphaning
-  step 4's own (a)-(d) list - passed all four assertions. Closed by
-  `_assert_e_is_fifth_list_item()`, a structural sibling check (not a
-  window): it walks backward from the "- (e)" marker to the nearest
-  preceding non-blank line and requires that line to be a "- (d)" sibling
-  marker, failing loudly if no such line exists or if the found line is
-  not "- (d)". This is a direct-adjacency check on the document's own
-  list structure, not an offset comparison against a hand-picked
-  neighbouring string - it has no window and no end-anchor to get wrong.
+  step 4's own (a)-(d) list - passed all four assertions. Closed (at that
+  point) by a single-hop sibling check: verify the "- (e)" marker's
+  immediate predecessor is a "- (d)" marker.
+
+- Round 5 sign-off follow-up (same session): sign-off was granted with 0
+  Critical / 0 Major / 3 Minor. A second self-devised mutation - relocate
+  the whole "- (e)" bullet to EOF, preceded by a FABRICATED decoy "- (d)"
+  line unrelated to step 4's real list - passed the single-hop check,
+  since it only verifies the immediate predecessor's marker letter, not
+  that the predecessor is itself a genuine member of the same list. The
+  reviewer proposed and this file now implements a cheaper closure than
+  accepting the gap: `_assert_e_is_fifth_list_item()` walks the FULL
+  chain backward - (e) preceded by (d), (d) by (c), (c) by (b), (b) by
+  (a) - failing loudly at whichever hop breaks. A decoy would now need a
+  fabricated (a)-(d) prefix to pass, at which point it is no longer
+  distinguishable from a real relocation of the whole list. This is still
+  a direct-adjacency check on the document's own list structure, walked
+  four hops instead of one - no window, no end-anchor. The failure
+  message names the expected sibling structure that was not found rather
+  than asserting relocation as the cause, since the same failure also
+  fires on innocent step-4-list edits unrelated to relocation (reflowing
+  a sibling bullet across two lines, inserting a non-blank line between
+  siblings, or a second "- (a)".."- (e)" list elsewhere in the file).
 
 Each assertion below is labeled [PIN] (asserts prose is present, not a
 computed regression from a prior bug) unless marked [REGRESSION].
@@ -109,10 +124,12 @@ STEP_4E_MARKER_RE = re.compile(r"^[ \t]*-\s*\(e\)(?=\s)", re.MULTILINE)
 # matches (found during this test's own development).
 NEXT_BOUNDARY_RE = re.compile(r"^[ \t]*(?:-\s*\([a-z]\)(?=\s)|\*\*)", re.MULTILINE)
 
-# Step 4(e)'s required immediate predecessor: the "- (d)" sibling marker.
-# Same `(?=\s)` lookahead as above, for the same reason - `\b` after the
+# The chain of sibling markers step 4(e) must sit directly after, walked
+# backward: (e) must be preceded by (d), which must be preceded by (c),
+# which must be preceded by (b), which must be preceded by (a). Same
+# `(?=\s)` lookahead as above, for the same reason - `\b` after the
 # closing paren never matches there.
-STEP_4D_MARKER_RE = re.compile(r"^[ \t]*-\s*\(d\)(?=\s)")
+_CHAIN_LETTERS = ["d", "c", "b", "a"]
 
 
 def _read() -> str:
@@ -122,44 +139,77 @@ def _read() -> str:
 
 def _assert_e_is_fifth_list_item(text: str, marker_start: int) -> None:
     """Verify the "- (e)" marker at `marker_start` is still step 4's own
-    fifth list item: its nearest preceding non-blank line (skipping only
-    blank lines - none exist between (d) and (e) today, but this does not
-    assume that) must itself be a "- (d)" sibling marker.
+    fifth list item by walking the full sibling chain backward:
+    (e) directly preceded by (d), (d) directly preceded by (c), (c)
+    directly preceded by (b), (b) directly preceded by (a) - each hop
+    skipping only blank lines (none exist between consecutive siblings
+    today, but this does not assume that).
 
     This is a structural sibling check on the document's own list, not an
     offset comparison against a hand-picked neighbouring string: there is
-    no window and no end-anchor to get wrong. It closes the gap
-    marker-uniqueness extraction alone could not: a whole "- (e)" bullet
-    (marker included) can be relocated verbatim into unrelated prose
-    elsewhere in the document, remain the sole "- (e)" marker, and still
-    have a resolvable end boundary - but it would no longer be directly
-    preceded by "- (d)", so this check catches it.
+    no window and no end-anchor to get wrong. Walking the full chain (not
+    stopping at the first (d) hop) closes a gap a single-hop check could
+    not: a whole "- (e)" bullet (marker included) can be relocated
+    verbatim to sit directly after a FABRICATED decoy "- (d)" line
+    elsewhere in the document - the single-hop check would accept that,
+    since it only verifies the immediate predecessor's marker letter, not
+    that it is itself a genuine member of the same list. Walking two more
+    hops (to (c) and (b)) means the decoy would need an entire fabricated
+    (a)-(d) prefix to pass, at which point it is no longer distinguishable
+    from a real relocation of the whole list - a cost this check accepts
+    as sufficient rather than chasing indefinitely.
 
     Fails loudly (pytest.fail), never a silent widen or whole-file
-    fallback, when:
-    - there is no preceding non-blank line at all (the marker is the
-      first content in the document), or
-    - the nearest preceding non-blank line is not a "- (d)" marker.
+    fallback, at whichever hop breaks:
+    - there is no preceding non-blank line at all, or
+    - the nearest preceding non-blank line does not match the expected
+      marker letter for that hop.
+
+    A failure here does not necessarily mean the bullet was relocated:
+    the same failure fires on several innocent edits to step 4's list
+    that have nothing to do with relocation - reflowing a sibling bullet
+    across two lines, inserting a non-blank line (e.g. an HTML comment)
+    between two siblings, or adding a second "- (a)".."- (e)" list
+    elsewhere in the document that this walk happens to reach first. The
+    failure message below names the expected sibling structure that was
+    not found rather than asserting relocation as the cause; confirm the
+    actual cause by reading `content/commands/ds-wrap.md`'s step 4 list
+    directly.
     """
-    prefix = text[:marker_start]
-    lines = prefix.splitlines()
-    idx = len(lines) - 1
-    while idx >= 0 and lines[idx].strip() == "":
-        idx -= 1
-    if idx < 0:
-        pytest.fail(
-            "no preceding non-blank line found before step 4(e)'s "
-            "marker - cannot verify it is still step 4's own fifth list "
-            "item"
-        )
-    prev_line = lines[idx]
-    if not STEP_4D_MARKER_RE.match(prev_line):
-        pytest.fail(
-            "step 4(e)'s immediately preceding non-blank line is not a "
-            f"'- (d)' sibling marker (found: {prev_line!r}) - the bullet "
-            "carrying the '- (e)' marker is no longer step 4's own fifth "
-            "list item, it has been relocated elsewhere in the document"
-        )
+    pos = marker_start
+    prev_letter = "e"
+    for expected in _CHAIN_LETTERS:
+        prefix = text[:pos]
+        lines = prefix.splitlines(keepends=True)
+        idx = len(lines) - 1
+        while idx >= 0 and lines[idx].strip() == "":
+            idx -= 1
+        if idx < 0:
+            pytest.fail(
+                f"expected sibling structure not found: no preceding "
+                f"non-blank line exists before step 4({prev_letter})'s "
+                f"marker, so a '- ({expected})' sibling could not be "
+                "located. This does not necessarily mean relocation - "
+                "verify content/commands/ds-wrap.md's step 4 list "
+                "directly."
+            )
+        prev_line = lines[idx]
+        line_start = sum(len(line) for line in lines[:idx])
+        if not re.match(rf"^[ \t]*-\s*\({expected}\)(?=\s)", prev_line):
+            pytest.fail(
+                f"expected sibling structure not found: step "
+                f"4({prev_letter})'s marker is not immediately preceded "
+                f"by a '- ({expected})' sibling marker (nearest preceding "
+                f"non-blank line was {prev_line!r}). This does not "
+                "necessarily mean relocation - the same failure fires on "
+                "innocent edits such as reflowing a sibling bullet across "
+                "two lines, inserting a non-blank line (e.g. an HTML "
+                "comment) between two siblings, or a second "
+                "'- (a)'..'- (e)' list elsewhere in the document. Verify "
+                "content/commands/ds-wrap.md's step 4 list directly."
+            )
+        pos = line_start
+        prev_letter = expected
 
 
 def _extract_step_4e_bullet(text: str) -> str:
@@ -170,8 +220,8 @@ def _extract_step_4e_bullet(text: str) -> str:
     - the "- (e)" marker is missing entirely,
     - more than one candidate "- (e)" marker exists (ambiguous - cannot
       uniquely locate the bullet),
-    - the marker's immediate predecessor is not a "- (d)" sibling marker
-      (it is no longer step 4's own fifth list item - see
+    - the (e)->(d)->(c)->(b)->(a) sibling chain does not resolve (it is
+      no longer step 4's own fifth list item - see
       `_assert_e_is_fifth_list_item`), or
     - no boundary (next sibling bullet or bold heading) can be found
       after the marker, so the end of the bullet cannot be resolved.
@@ -207,12 +257,13 @@ def _extract_step_4e_bullet(text: str) -> str:
 
 def test_extraction_finds_exactly_one_bullet_smaller_than_the_document() -> None:
     """Sanity check on the extraction itself, independent of its content:
-    exactly one step 4(e) bullet must be found, it must be directly
-    preceded by a "- (d)" sibling marker (i.e. it is still step 4's own
-    fifth list item, not merely a uniquely-marked bullet relocated
-    elsewhere), and the extracted region must be a strict, non-trivial
-    substring of the whole document (i.e. the extraction actually
-    narrowed something down, rather than falling back to the full file)."""
+    exactly one step 4(e) bullet must be found, its full (e)-(d)-(c)-(b)-
+    (a) sibling chain must resolve (i.e. it is still step 4's own fifth
+    list item, not merely a uniquely-marked bullet relocated elsewhere,
+    possibly preceded by a fabricated decoy sibling), and the extracted
+    region must be a strict, non-trivial substring of the whole document
+    (i.e. the extraction actually narrowed something down, rather than
+    falling back to the full file)."""
     text = _read()
     markers = list(STEP_4E_MARKER_RE.finditer(text))
     assert len(markers) == 1, (

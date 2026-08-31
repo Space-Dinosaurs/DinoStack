@@ -23422,16 +23422,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/commands/ds-implement-ticket.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
-      "kind": "operational",
-      "occurrence_hash": "a1b00503de744f8b45b4eada058bd4ff8ae06e1a581557f6c3222e30391f2af0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/commands/ds-implement-ticket.md"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -24570,6 +24560,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/wrap/"
+    },
+    {
+      "expected_target": "content/commands/ds-implement-ticket.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
+      "kind": "operational",
+      "occurrence_hash": "e7d373279fd041acb4a104c2edc36e14302f5f53dc0f5ae9cfa35fd8287e11dc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
       "expected_target": ".claude/settings.local.json",
