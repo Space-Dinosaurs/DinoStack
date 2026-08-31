@@ -21,17 +21,29 @@
 #          6-row shape with every `pr_query_error_count` (and the top-level
 #          total) at 0.
 #
-#          Two named mutations this test is verified to redden (see the
+#          Three named mutations this test is verified to redden (see the
 #          Failure modes note below for how each was confirmed):
-#            (1) revert the implementation's scan source from `rows` to
-#                `top` inside run.sh's summary-builder heredoc - the
-#                fail-root NOTE assertions (repo name, backtick phrase,
-#                FLOOR phrase) all fail, since `unique-tail-repo-zzz` never
-#                appears in `top`.
+#            (1) revert the implementation's `affected` scan source from
+#                `rows` to `top` inside run.sh's summary-builder heredoc -
+#                ONLY the fail-root repo-name assertion fails
+#                (unique-tail-repo-zzz never appears in `top`, so `affected`
+#                is empty). The backtick-phrase and FLOOR-phrase assertions
+#                still PASS under this mutation: `pr_query_error_total` is
+#                read from the top-level JSON field (never re-derived from
+#                `top`), so the NOTE block's `if pr_query_error_total:`
+#                guard still fires and the NOTE still prints - degenerately,
+#                as "across 0 repo(s) ... Affected: " - carrying both the
+#                backtick phrase and the FLOOR phrase intact. Measured: 1
+#                failure, not 3.
 #            (2) make the NOTE block unconditional (drop the
 #                `if pr_query_error_total:` guard) - the clean-root
 #                negative assertion (NOTE phrase absent) fails, since the
 #                NOTE then prints even when the failure count is 0.
+#            (3) change the shared `gh pr list` NOTE-prefix wording in
+#                either run.sh or bin/ds-cleanup-worktrees (e.g. append a
+#                character to "never treated") - the cross-file wording-
+#                parity assertion fails, since the two sources no longer
+#                share the pinned literal substring verbatim.
 #
 # Public API: ./bin/tests/test_worktree_reap_summary_query_failures.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -50,8 +62,13 @@
 #                asserts exit 0, a non-empty log, AND the positive control
 #                "worst-repos summary:" BEFORE asserting the NOTE phrase is
 #                absent, so an accidentally-empty or never-written log
-#                cannot be misread as "the NOTE is correctly absent". Both
-#                named mutations above were manually applied to run.sh and
+#                cannot be misread as "the NOTE is correctly absent". The
+#                cross-file wording-parity assertion (mutation 3) checks
+#                for presence of the pinned literal in each source file
+#                independently, so it cannot pass vacuously on a grep that
+#                matches neither file - it fails loud whenever either file
+#                lacks the shared phrase, including when both are missing.
+#                All three named mutations above were manually applied and
 #                confirmed to redden the specific assertions cited, then
 #                reverted before this file was committed.
 #
@@ -253,6 +270,29 @@ else
   else
     fail "clean-root: log missing positive-control 'worst-repos summary:' line - cannot trust the absence check below"
   fi
+fi
+
+# === Cross-file wording-parity check =======================================
+# run.sh's NOTE construction (automation/dinostack-worktree-reap/run.sh)
+# duplicates the "`gh pr list` query failure ... never treated" wording
+# from bin/ds-cleanup-worktrees's own SKIP_PR_QUERY_ERROR NOTE, with
+# nothing else pinning the two equal (extraction is impractical: separate
+# process, separate deployed snapshot, embedded heredoc). Both sources
+# carry the pinned literal on a single line each - grep -qF is checked
+# against EACH FILE INDEPENDENTLY, so an empty-to-empty comparison (the
+# recorded failure mode for this class of check) is not possible: either
+# file's grep can fail on its own, and both must independently succeed.
+CLEANUP_BIN_SRC="$REPO_ROOT/bin/ds-cleanup-worktrees"
+CROSS_FILE_PHRASE='`gh pr list` query failure (SKIP_PR_QUERY_ERROR) - never treated'
+
+if [[ ! -f "$CLEANUP_BIN_SRC" ]]; then
+  fail "cross-file: bin/ds-cleanup-worktrees not found at $CLEANUP_BIN_SRC"
+elif ! grep -qF "$CROSS_FILE_PHRASE" "$REAL_RUN_SH"; then
+  fail "cross-file: run.sh no longer contains the shared NOTE-prefix phrase verbatim"
+elif ! grep -qF "$CROSS_FILE_PHRASE" "$CLEANUP_BIN_SRC"; then
+  fail "cross-file: bin/ds-cleanup-worktrees no longer contains the shared NOTE-prefix phrase verbatim"
+else
+  pass "cross-file: NOTE-prefix wording matches verbatim between run.sh and bin/ds-cleanup-worktrees"
 fi
 
 if [[ "$FAILURES" -gt 0 ]]; then

@@ -67,9 +67,9 @@ Each run invokes the DEEP tier: `ds-cleanup-worktrees --multi-repo --report --js
 `--count-only` - a scheduled, unattended run is off the interactive fast-first-look path, so it
 always pays for the accurate per-entry evaluation). The JSON `rows` are re-sorted worst-first by
 `nonroot_worktrees` and the top ~5 repos are summarized as `<count> worktree(s) (<eligible>
-eligible to remove)  <repo path>`; if any repo's entries hit a `gh pr list` query failure
+eligible to remove)  <repo path>`. If any repo's entries hit a `gh pr list` query failure
 (`SKIP_PR_QUERY_ERROR`), a NOTE naming the affected repos (capped at 5) is appended, since
-`eligible` is a FLOOR (not an exact count) for those repos, then pushed via:
+`eligible` is a FLOOR (not an exact count) for those repos. The summary is then pushed via:
 
 - **macOS banner** (`osascript`, best-effort - macOS frequently suppresses notifications posted
   by `launchd` background jobs, so don't rely on it as the primary channel).
