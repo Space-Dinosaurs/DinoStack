@@ -3822,3 +3822,279 @@ def test_git_status_and_ignored_unquotes_offenders(tmp_path):
     _dirty_status, offenders = ds_cleanup_worktrees._git_status_and_ignored(str(repo), False)
     assert "config with space.local" in offenders, offenders
     assert not any(o.startswith('"') for o in offenders), offenders
+
+
+# --------------------------------------------------------------------------
+# OUT_OF_TREE (worktree cleanup blind spots): a git-registered worktree
+# physically outside the repo's directory tree is evidence-gated, not a
+# blind SKIP_UNMANAGED. See bin/tests/worktree_model.py's classify_entry
+# bifurcation on host==repo_root.
+# --------------------------------------------------------------------------
+
+
+def test_evaluate_entry_out_of_tree_reaches_evidence_gates(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "fix/external"
+    # `add_worktree` joins `repo / rel_path`; Path discards the left operand
+    # when the right is absolute (`Path('/repo') / '/abs/path' ==
+    # Path('/abs/path')`, verified by execution), so passing an absolute
+    # `rel_path` builds a genuinely out-of-tree worktree with the existing
+    # helper - no new helper needed.
+    external_path = add_worktree(repo, str(tmp_path / "external-wt"), branch, push=False)
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(external_path, branch)
+    result = mod.evaluate_entry(
+        str(repo),
+        entry,
+        mod.WorktreeClass.OUT_OF_TREE,
+        "main",
+        gh_ok=False,
+        allow_network=False,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    assert result["outcome"] == "REMOVE", result
+
+    # Reddening mutation: change evaluate_entry's
+    # `if wt_class is WorktreeClass.UNMANAGED:` guard to
+    # `if wt_class in (WorktreeClass.UNMANAGED, WorktreeClass.OUT_OF_TREE):`
+    # -> reddens to SKIP_UNMANAGED.
+
+
+def test_evaluate_entry_out_of_tree_removed_via_origin_reachable(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "fix/external-origin-reachable"
+    # Ordering matters (round-3 minor 1): push AFTER the unique commit
+    # exists, not at creation (push=False here), mirroring the existing
+    # DS-196 scenario-(a) fixture at :2941-2947 - a push at creation time
+    # (before any unique commit exists) would push a ref that does not
+    # contain it, and origin_reachable could never resolve "reachable" for
+    # it.
+    external_path = add_worktree(repo, str(tmp_path / "external-wt-origin-reachable"), branch, push=False)
+    (external_path / "unique.txt").write_text("unique work, pushed but not merged into main\n")
+    _git(external_path, "add", "unique.txt")
+    _git(external_path, "commit", "-q", "-m", "unique work")
+    _git(external_path, "push", "-q", "-u", "origin", branch)
+
+    fake_gh_dir = _fake_gh_dir(tmp_path, pr_state="NONE")
+    monkeypatch.setenv("PATH", f"{fake_gh_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+
+    mod = _load_module_directly()
+    entry = _worktree_entry(external_path, branch)
+    kwargs = dict(
+        gh_ok=True,
+        allow_network=True,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    result = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.OUT_OF_TREE, "main", **kwargs)
+    assert result["outcome"] == "REMOVE", result
+    assert result["reason"] == "origin-reachable"
+
+    monkeypatch.setitem(worktree_model._EVIDENCE_CHECKS_LENIENT, "origin_reachable", lambda facts: None)
+    mutated = mod.evaluate_entry(str(repo), entry, mod.WorktreeClass.OUT_OF_TREE, "main", **kwargs)
+    assert mutated["outcome"] == "SKIP_UNPROVEN", mutated
+
+
+def add_detached_worktree_with_unique_commit(repo: Path, external_path: Path, content: str) -> Path:
+    """Creates a DETACHED worktree at an absolute path outside `repo`,
+    then commits UNIQUE work inside it (never pushed, never referenced
+    by any branch/tag) - the commit is genuinely unreferenced, unlike
+    checking out the repo's current HEAD with no changes (round-3
+    finding 3: that shape's "unreferenced" property held only because
+    of the dead `head_reachable` field, not because the commit was
+    actually unreachable, and would break the moment `head_reachable`
+    is correctly wired by the sibling unit)."""
+    _git(repo, "worktree", "add", "--detach", str(external_path))
+    (external_path / "unique.txt").write_text(content)
+    _git(external_path, "add", "unique.txt")
+    _git(external_path, "commit", "-q", "-m", "unique unreferenced work")
+    return external_path
+
+
+def _detached_worktree_entry(wt_path: Path) -> "worktree_model.WorktreeEntry":
+    head_sha = _git(wt_path, "rev-parse", "HEAD").stdout.strip()
+    return worktree_model.WorktreeEntry(path=str(wt_path), head=head_sha, branch=None, is_detached=True)
+
+
+def test_evaluate_entry_out_of_tree_detached_stays_unreferenced(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    external_path = tmp_path / "external-detached"
+    add_detached_worktree_with_unique_commit(repo, external_path, "genuinely unreferenced\n")
+
+    mod = _load_module_directly()
+    entry = _detached_worktree_entry(external_path)
+    result = mod.evaluate_entry(
+        str(repo),
+        entry,
+        mod.WorktreeClass.OUT_OF_TREE,
+        "main",
+        gh_ok=False,
+        allow_network=False,
+        min_age_hours=0.0,
+        strict_ignored=False,
+        activity_window_hours=0.0,
+    )
+    assert result["outcome"].startswith("SKIP_UNPROVEN"), result
+    assert result["outcome"] != "REMOVE", result
+
+    # Reddening mutation: hardcode head_reachable="reachable" in
+    # _build_facts -> reddens to REMOVE (demonstrates the test would catch
+    # an unreviewed side effect of wiring head_reachable incorrectly).
+
+
+def _fake_git_dir_worktree_remove_always_reports_success(tmp_path: Path) -> Path:
+    """Unconditionally reports success (exit 0) for ANY `git worktree
+    remove` invocation, regardless of target, WITHOUT ever invoking the
+    real git binary for that subcommand - passes every other
+    invocation through to the real binary. Used ONLY to test the
+    defensive floor: real git would never return rc==0 for a target
+    resolving to the repo root, so testing the floor's own redundant
+    protection requires bypassing git's validation, not reproducing
+    it."""
+    real_git = shutil.which("git")
+    assert real_git, "real `git` must be on PATH to build this stub"
+    bin_dir = tmp_path / "fakegitbin-always-succeeds"
+    bin_dir.mkdir(exist_ok=True)
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'args=("$@")\n'
+        'n=${#args[@]}\n'
+        'for ((i=0; i<n; i++)); do\n'
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "remove" ]; then\n'
+        '    exit 0\n'
+        '  fi\n'
+        'done\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    git_stub.chmod(0o755)
+    return bin_dir
+
+
+def test_salvage_and_remove_refuses_to_rmtree_repo_root(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    stub_dir = _fake_git_dir_worktree_remove_always_reports_success(tmp_path)
+    monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    mod = _load_module_directly()
+    outcome = mod._salvage_and_remove(str(repo), str(repo), None)
+    assert outcome["removed"] is False, outcome
+    assert outcome["already_unregistered"] is True, outcome
+    assert "resolves to or contains repo root" in outcome["detail"], outcome
+    assert repo.exists()  # never touched - the floor tripped before shutil.rmtree
+
+
+def _fake_git_dir_remove_succeeds_but_leaves_directory(tmp_path: Path) -> Path:
+    """Intercepts ONLY `git worktree remove`; on success, recreates
+    `<path>` with a placeholder file - reproducing the exact Class-2
+    shape `_salvage_and_remove`'s rmtree retry is responsible for
+    repairing. Used by the repair-SUCCESS test below."""
+    real_git = shutil.which("git")
+    assert real_git, "real `git` must be on PATH to build this stub"
+    bin_dir = tmp_path / "fakegitbin-partial-removal"
+    bin_dir.mkdir(exist_ok=True)
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'args=("$@")\n'
+        'n=${#args[@]}\n'
+        'for ((i=0; i<n; i++)); do\n'
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "remove" ]; then\n'
+        '    target="${args[$((i+2))]}"\n'
+        f'    "{real_git}" "$@"\n'
+        '    rc=$?\n'
+        '    if [ $rc -eq 0 ]; then\n'
+        '      mkdir -p "$target"\n'
+        '      echo leftover > "$target/leftover-file.txt"\n'
+        '    fi\n'
+        '    exit $rc\n'
+        '  fi\n'
+        'done\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    git_stub.chmod(0o755)
+    return bin_dir
+
+
+def _fake_git_dir_remove_succeeds_but_leaves_undeletable_directory(tmp_path: Path) -> Path:
+    """Variant for the repair-FAILURE path: identical to the sibling above,
+    but also `chmod 500`s the recreated leftover directory, so
+    `shutil.rmtree` fails to unlink the child file inside it and raises a
+    real `OSError` INSIDE the CLI subprocess - a failure a test-process
+    `monkeypatch` on `shutil.rmtree` could never reach. The calling test
+    MUST `chmod 700` the leftover back before teardown, or pytest's
+    `tmp_path` fixture cleanup will fail to remove it."""
+    real_git = shutil.which("git")
+    assert real_git, "real `git` must be on PATH to build this stub"
+    bin_dir = tmp_path / "fakegitbin-undeletable"
+    bin_dir.mkdir(exist_ok=True)
+    git_stub = bin_dir / "git"
+    git_stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'args=("$@")\n'
+        'n=${#args[@]}\n'
+        'for ((i=0; i<n; i++)); do\n'
+        '  if [ "${args[$i]}" = "worktree" ] && [ "${args[$((i+1))]}" = "remove" ]; then\n'
+        '    target="${args[$((i+2))]}"\n'
+        f'    "{real_git}" "$@"\n'
+        '    rc=$?\n'
+        '    if [ $rc -eq 0 ]; then\n'
+        '      mkdir -p "$target"\n'
+        '      echo leftover > "$target/leftover-file.txt"\n'
+        '      chmod 500 "$target"\n'
+        '    fi\n'
+        '    exit $rc\n'
+        '  fi\n'
+        'done\n'
+        f'exec "{real_git}" "$@"\n'
+    )
+    git_stub.chmod(0o755)
+    return bin_dir
+
+
+def test_partial_removal_is_repaired_by_rmtree_retry(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-partial", "worktree-agent-partial", push=False)
+    stub_dir = _fake_git_dir_remove_succeeds_but_leaves_directory(tmp_path)
+    monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    mod = _load_module_directly()
+    outcome = mod._salvage_and_remove(str(repo), str(wt), "worktree-agent-partial")
+    assert outcome["removed"] is True, outcome
+    assert not wt.exists()
+    # Reddening mutation: delete the shutil.rmtree retry (keep only the
+    # Path(...).exists() detection) -> reddens to removed=False with the
+    # directory still present.
+
+
+def test_partial_removal_repair_failure_reports_unregistered_accurately(tmp_path, monkeypatch):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-partial-fail", "worktree-agent-partial-fail", push=False)
+    stub_dir = _fake_git_dir_remove_succeeds_but_leaves_directory(tmp_path)
+    monkeypatch.setenv("PATH", f"{stub_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    mod = _load_module_directly()
+    monkeypatch.setattr(mod.shutil, "rmtree", lambda *_a, **_k: (_ for _ in ()).throw(OSError("simulated")))
+    outcome = mod._salvage_and_remove(str(repo), str(wt), "worktree-agent-partial-fail")
+    assert outcome["removed"] is False, outcome
+    assert outcome["already_unregistered"] is True, outcome
+    assert "UNREGISTERED" in outcome["detail"], outcome
+    assert "git worktree remove failed" not in outcome["detail"], outcome
+
+
+def test_partial_removal_repair_failure_cli_warning_is_accurate(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    wt = add_worktree(repo, ".claude/worktrees/agent-undeletable", "worktree-agent-undeletable", push=False)
+    stub_dir = _fake_git_dir_remove_succeeds_but_leaves_undeletable_directory(tmp_path)
+    try:
+        proc = run_reap(repo, dry_run=False, git_dir=stub_dir)
+        assert proc.returncode == 0, proc.stderr
+        assert "UNREGISTERED" in proc.stderr, proc.stderr
+        assert "git worktree remove failed" not in proc.stderr, proc.stderr
+    finally:
+        # chmod 500 on the leftover blocks tmp_path's own teardown - restore
+        # write permission regardless of assertion outcome.
+        leftover = Path(str(wt))
+        if leftover.exists():
+            leftover.chmod(0o700)

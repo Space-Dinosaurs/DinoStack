@@ -9089,11 +9089,12 @@ worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
 (`bin/tests/worktree_model.py:701-707`) is `ELIGIBLE` only when
 `facts.head_reachable == "reachable"`, else `SKIP_UNREFERENCED_COMMIT`.
-`bin/ds-cleanup-worktrees:1917` hardcodes `head_reachable="not_checked"`
+`bin/ds-cleanup-worktrees:2585` hardcodes `head_reachable="not_checked"`
 at every construction site, and `_compute_origin_reachable`'s own
-docstring (`:1392-1394`) calls the field "unrelated, dead code" -
-distinct from the separate, live `origin_reachable` field DS-196 added,
-which does not feed this branch at all (`worktree_model.py:428-438`).
+docstring (`bin/ds-cleanup-worktrees:1760-1780`) calls the field
+"unrelated, dead code" at `:1775` - distinct from the separate, live
+`origin_reachable` field DS-196 added, which does not feed this branch at
+all (`worktree_model.py:462-471`).
 Since `"not_checked" != "reachable"`, the `ELIGIBLE` arm can never fire
 today: **every detached harness worktree, whether its push already
 landed or not, resolves `SKIP_UNREFERENCED_COMMIT`** and is left for
@@ -9117,7 +9118,40 @@ existing pattern) would let a crash-after-push leftover auto-sweep
 instead of needing the manual triage above. Out of scope for this
 change - the honest-docs fix (stating the true, current behavior) is
 minimal-diff; wiring up dead code to change tool behavior is a separate,
-larger change with its own review.
+larger change with its own review. This paragraph is a per-change scope
+note from the docs revision that added it, not a standing cross-unit repo
+decision - deferring `head_reachable`-wiring to its own separately-scoped
+unit remains the right sequencing call, but no repo-level decision
+mandates that split.
+
+**A registered-but-out-of-tree worktree (`OUT_OF_TREE`).** A worktree THIS
+repo's own git registered, but which lives physically outside
+`repo_root`'s directory tree, is not `UNMANAGED` - `classify_entry`
+bifurcates on `host == repo_root` (`bin/tests/worktree_model.py:414-424`):
+when equal (the sole real call site's shape), it classifies `OUT_OF_TREE`
+and is evidence-gated exactly like ISOLATION/CONDUCTOR_CREATED, including
+via `origin_reachable` (DS-196) for a branched entry - a second, ALREADY-
+LIVE removal path beyond ancestor-of-base evidence, independent of
+`head_reachable` staying dead. `--no-origin-reachable-evidence` rolls back
+to the pre-DS-196 evidence order for an operator who wants the more
+conservative behavior, including for `OUT_OF_TREE`. When `host !=
+repo_root` (a hypothetical caller relativizing against a different root
+than the containment boundary - the genuine cross-repo case), the entry
+stays `UNMANAGED`, unchanged - the cross-repo non-collision guarantee this
+module documents.
+
+**Orphaned unregistered directories - decision.** No sweep/report
+mechanism was built to find EXISTING orphaned, unregistered worktree
+directories on disk (no git object/ref/admin entry survives to verify
+"nothing unrecoverable" against). The only mechanism added is
+source-hardening: `_salvage_and_remove` now attempts an active repair
+(an `rmtree` retry) when `git worktree remove` reports success but leaves
+the directory present on disk, guarded by a defensive floor that refuses
+to `rmtree` a path resolving to or containing `repo_root`. A residual
+TOCTOU risk between git's `rc==0` and the `rmtree` call is accepted as
+disclosed debt, not closed - see this module's own `_salvage_and_remove`
+docstring for the full disclosure. Disposition of any pre-existing
+orphan of unknown provenance is left to the operator.
 
 ### Discovery: draft-only, with a bounded backstop
 
@@ -14845,7 +14879,7 @@ else
 fi
 ```
 
-This removes worktrees only - both isolation (`.claude/worktrees/*`) and feature/conductor-created (`.agentic/worktrees/*`) entries, per `classify_entry`'s path-prefix classification - never a branch. Branch deletion is Step 3's job, below, on its own separate proof: a bare `MERGE_EVIDENCE=merged`/PR-`MERGED` read is sufficient to reclaim a worktree (`git worktree remove` does not destroy commits) but is NOT sufficient evidence for `git branch -D` (DS-153 Amendment B1 - see the Notes section below). An `UNMANAGED` entry (a bare-repo entry, a path outside this repo's own host, or a path under neither admin directory, e.g. `evals/.worktrees/wt-*`) is always reported, never touched.
+This removes worktrees only - isolation (`.claude/worktrees/*`), feature/conductor-created (`.agentic/worktrees/*`), and registered-but-out-of-tree entries (`OUT_OF_TREE`), per `classify_entry`'s classification - never a branch. Branch deletion is Step 3's job, below, on its own separate proof: a bare `MERGE_EVIDENCE=merged`/PR-`MERGED` read is sufficient to reclaim a worktree (`git worktree remove` does not destroy commits) but is NOT sufficient evidence for `git branch -D` (DS-153 Amendment B1 - see the Notes section below). An `UNMANAGED` entry (a bare-repo entry, or a path under neither admin directory, e.g. `evals/.worktrees/wt-*`) is always reported, never touched; a registered worktree physically outside this repo's own directory tree is `OUT_OF_TREE`, not `UNMANAGED` - it is evaluated by the same evidence gates as ISOLATION/CONDUCTOR_CREATED and may be REMOVEd, via ancestor-of-base OR origin-reachable evidence (DS-196). A genuinely foreign entry (a different repository's worktree) remains `UNMANAGED`.
 
 **The default 24h age floor.** A worktree younger than `--min-age-hours` (default 24) resolves `SKIP_TOO_YOUNG`, never `REMOVE`, regardless of how otherwise-eligible it is - the binary itself now prints an unconditional `NOTE:` line naming the count whenever that bucket is nonzero, so a `removed=0` run is never left unexplained. Similarly, when at least half of a run's entries resolve `SKIP_UNPROVEN (SKIP_LS_REMOTE_ERROR)` (a `git ls-remote` failure reaching origin, not proof of an unmerged branch), the binary prints its own `NOTE:` line - check network/auth to origin before trusting a low `removed` count from that run. If the operator explicitly wants a specific, just-merged worktree gone right now, pass `--min-age-hours 0` for that invocation, but state the tradeoff when doing so: this narrows only one gate among several, so the worktree may still be skipped for another reason (dirty, locked, unproven branch, an unreadable activity timestamp, etc.), and it removes the protection against reaping a concurrent session's still-in-flight worktree (unlocked does not mean idle - a resumable session can leave its worktree unlocked between tool calls). Otherwise leave every flag but `--explain`/`--dry-run` at its default - `--base` is resolved automatically (see above) and is never operator-variable here; omit it, do not re-derive it.
 
