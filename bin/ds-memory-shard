@@ -128,6 +128,27 @@ function main() {
     return;
   }
 
+  // Skeptic round-2 Minor fix: the round-1 unknown-flag fix closed the
+  // TYPO case (an unrecognized flag string) but not the WRONG-SUBCOMMAND
+  // case - `--check` is a real, recognized flag, but `split` never
+  // consults it (splitCommand() takes no `check` param), so
+  // `split --check` silently performed a real write while looking like a
+  // dry-run check; symmetrically `regenerate --force` was silently
+  // accepted with no effect. Reject a recognized-but-inapplicable flag for
+  // the given subcommand explicitly, rather than letting it no-op.
+  if (cmd === 'split' && check) {
+    process.stderr.write('ds-memory-shard: --check does not apply to split (it is a regenerate-only flag) - split always performs a real write/reconcile\n');
+    usage();
+    process.exit(2);
+    return;
+  }
+  if (cmd === 'regenerate' && force) {
+    process.stderr.write('ds-memory-shard: --force does not apply to regenerate (it is a split-only flag) - regenerate has no re-run-reconciliation concept --force gates\n');
+    usage();
+    process.exit(2);
+    return;
+  }
+
   const shardDir = path.join(dir, '.agentic', 'memory-shards');
   const memoryPath = path.join(dir, 'MEMORY.md');
 

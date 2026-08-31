@@ -224,6 +224,18 @@ function case2() {
   fs.rmSync(path.join(shardDir, seventhRecord.file));
   const beforeAttempt = fs.readFileSync(memoryPath, 'utf8');
 
+  // BUG FIX (Skeptic round-2 Major 1): the assertion here used to be
+  // `threw !== null` plus `/REFUSING/.test(threw.message)` - both guards'
+  // refusal messages contain the word "REFUSING", so this could not tell
+  // apart "the entry-loss guard fired" from "some OTHER guard fired for a
+  // different reason". Measured: mutating ONLY the entry-loss guard to
+  // `if (false && lost.length > 0)` still passed both assertions, because
+  // findPermutedLines' own fail-safe (`if (!arr || arr.length === 0)
+  // return true` for a line that no longer exists anywhere in the
+  // compiled output) throws the REORDER refusal instead - which also says
+  // "REFUSING". The fix asserts on a LOSS-SPECIFIC marker
+  // (`describeLostLines`'s own "would be LOST" text), the same
+  // discipline case 3 already uses for `/REORDER/`.
   let threw = null;
   try {
     lib.regenerateCommand({ shardDir, memoryPath, check: false, allowRemoval: false });
@@ -231,13 +243,47 @@ function case2() {
     threw = err;
   }
   assert(threw !== null, 'regenerate REFUSES (throws) when the current file lost an entry line');
-  assert(/REFUSING/.test(threw.message), 'refusal message says REFUSING');
+  if (threw !== null) {
+    assert(/would be LOST/.test(threw.message), 'refusal message names the LOSS specifically (not just any refusal)');
+  }
   const afterAttempt = fs.readFileSync(memoryPath, 'utf8');
   assert(afterAttempt === beforeAttempt, 'nothing was written to MEMORY.md on refusal');
 
   // CLI-level: nonzero exit
   const cli = runCli(['regenerate', '--dir', dir]);
   assert(cli.status !== 0, 'CLI regenerate exits nonzero on entry-loss refusal');
+
+  // Skeptic round-2 Major 1 (independent-guard verification): mutate ONLY
+  // the entry-loss guard, leaving the reordering guard fully intact, and
+  // confirm the loss-specific assertion above is what actually catches
+  // it - not merely "some refusal happened". With the loss guard
+  // disabled, regenerateCommand still throws (the reordering guard's own
+  // fail-safe catches the now-vanished line), so a bare "did it throw"
+  // check stays green; the loss-specific marker must NOT appear in that
+  // thrown message, proving the marker - not the mutation - is what
+  // discriminates which guard actually fired.
+  console.log('  Mutation: disable ONLY the entry-loss guard (reordering guard stays active)');
+  const lossGuardOnlyLib = loadMutatedLib((src) => {
+    const marker = 'if (lost.length > 0) {';
+    if (!src.includes(marker)) throw new Error('entry-loss guard marker not found - mutation site moved');
+    return src.replace(marker, 'if (false && lost.length > 0) { // MUTANT: entry-loss guard disabled');
+  }, 'disable-entry-loss-guard-only');
+  let lossGuardMutantThrew = null;
+  try {
+    lossGuardOnlyLib.regenerateCommand({ shardDir, memoryPath, check: false, allowRemoval: false });
+  } catch (err) {
+    lossGuardMutantThrew = err;
+  }
+  assert(
+    lossGuardMutantThrew !== null,
+    'with the entry-loss guard disabled, regenerate STILL throws (via the reordering guard\'s own fail-safe on the vanished line) - so a bare "did it throw" check cannot discriminate',
+  );
+  if (lossGuardMutantThrew !== null) {
+    assert(
+      !/would be LOST/.test(lossGuardMutantThrew.message),
+      'REDDENED: with the entry-loss guard disabled, the thrown message does NOT contain the loss-specific marker - proving the marker (not "any refusal") is what actually verifies this guard',
+    );
+  }
 
   console.log('  Mutation: replace the multiset check with substring containment');
   const mutatedLib = loadMutatedLib((src) => {
@@ -313,7 +359,15 @@ function case3() {
     threw = err;
   }
   assert(threw !== null, 'regenerate REFUSES when two shards\' sequences are swapped (zero loss, pure reorder)');
-  assert(/REORDER/.test(threw.message), 'refusal message names the reordering');
+  // Skeptic Minor fix: `threw.message` used to be dereferenced unguarded
+  // right after the `threw !== null` assertion - a FAILED assertion here
+  // (threw === null) would then throw a TypeError reading `.message` off
+  // null, aborting the whole run and SILENTLY SKIPPING every later case.
+  // Guard the dereference so a genuine failure here is reported as a
+  // normal FAIL line, not a silent skip of the rest of the suite.
+  if (threw !== null) {
+    assert(/REORDER/.test(threw.message), 'refusal message names the reordering');
+  }
   const afterAttempt = fs.readFileSync(memoryPath, 'utf8');
   assert(afterAttempt === beforeAttempt, 'nothing was written to MEMORY.md on reorder refusal');
 

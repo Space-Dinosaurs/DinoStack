@@ -991,19 +991,37 @@ def _directory_negation_probes(dir_path: str, project_root: Path | None) -> list
     `ok` while a real knowledge file directly under the directory (or one
     level deeper) was ignored.
 
-    Four probe shapes, in this order:
+    Five probe shapes, in this order:
       1. Every REAL file currently on disk under `dir_path` (relative to
          `project_root`), if any - the strongest possible probe, since it is
          the actual file this check exists to protect, not a synthetic
          stand-in.
       2. A depth-1, extension-carrying synthetic probe
-         (`<dir>/.ds-migrate-probe.jsonl`) - matches the one shape dinostack
-         actually writes under a directory-form negation today:
-         `.agentic/session-log/<developer_id>.jsonl`.
-      3. A depth-2 synthetic probe (`<dir>/.ds-migrate-probe/.ds-migrate-probe.jsonl`)
+         (`<dir>/.ds-migrate-probe.jsonl`) - matches the `.jsonl` shape
+         dinostack writes under `.agentic/session-log/<developer_id>.jsonl`.
+      3. A depth-1, `.md`-extension synthetic probe
+         (`<dir>/.ds-migrate-probe.md`) - matches the SECOND shape dinostack
+         writes under a directory-form negation as of DS-221 Unit 1:
+         `.agentic/memory-shards/<date>-<slug>.md`. CORRECTED (Skeptic
+         round-2 Major 3): an earlier version of this docstring claimed
+         `.jsonl` was "the one shape dinostack actually writes under a
+         directory-form negation today" - that was true when only
+         session-log existed and is false now. Measured consequence of the
+         gap before this shape was added: a `.agentic/memory-shards/*.md`
+         defeater appended to the real v8 manifest's `.gitignore` was NOT
+         detected (`gitignore_negations_defeated: false` while
+         `git check-ignore -q` reported the probed file as actually
+         ignored) - an extension-scoped defeater this probe set is
+         specifically designed to catch (see the "Measured round 11"
+         paragraph above) but could not, because no probe carried the `.md`
+         extension. This falls inside the documented probe-guessing
+         residual (narrower than a correctness regression), but a docstring
+         asserting the opposite extension coverage is what made it a
+         Major finding.
+      4. A depth-2 synthetic probe (`<dir>/.ds-migrate-probe/.ds-migrate-probe.jsonl`)
          - catches a negation scoped to exactly one nesting level (e.g.
          `<dir>/*/*`) that a depth-1 probe cannot reach.
-      4. The original depth-1, extension-less synthetic probe
+      5. The original depth-1, extension-less synthetic probe
          (`<dir>/.ds-migrate-probe`) - kept for continuity; it is still the
          correct probe for a plain ordering/bare-defeater regression and
          costs nothing extra to keep checking.
@@ -1023,6 +1041,7 @@ def _directory_negation_probes(dir_path: str, project_root: Path | None) -> list
                     str(real_file.relative_to(project_root).as_posix())
                 )
     probes.append(f"{dir_clean}/.ds-migrate-probe.jsonl")
+    probes.append(f"{dir_clean}/.ds-migrate-probe.md")
     probes.append(f"{dir_clean}/.ds-migrate-probe/.ds-migrate-probe.jsonl")
     probes.append(f"{dir_clean}/.ds-migrate-probe")
     return probes
@@ -1607,14 +1626,19 @@ def cmd_verify_commit_path(args: argparse.Namespace) -> int:
     safe to `git add`/commit right now, at the moment a caller is about to
     stage it - not a manifest-wide, probe-based sweep.
 
-    Closes the residual `_compute_negations_defeated`'s docstring documents
-    for the 2 directory-form manifest negations (`!.agentic/session-log/`
-    and its `/**` twin): that check must synthesize candidate probe paths
-    when no real file exists yet on disk, and a defeater keyed to an
-    unguessed name returns "ok" undetected. At a commit site the exact
-    target path is already known - no probe-guessing is required, so this
-    check is exact where the manifest-wide sweep is necessarily
-    probabilistic for those 2 patterns. This does NOT shrink or replace
+    Closes the residual `_compute_negations_defeated`'s docstring documents,
+    for the SUBSET of directory-form manifest negations this function's
+    three call sites actually target - `!.agentic/session-log/` and its
+    `/**` twin (2 of the manifest's now-4 directory-form negations as of
+    DS-221 Unit 1; the other 2, `!.agentic/memory-shards/` + its `/**`
+    twin, are NOT covered here, since no knowledge-commit site stages a
+    path under that directory): that check must synthesize candidate
+    probe paths when no real file exists yet on disk, and a defeater keyed
+    to an unguessed name returns "ok" undetected. At a commit site the
+    exact target path is already known - no probe-guessing is required, so
+    this check is exact where the manifest-wide sweep is necessarily
+    probabilistic for those 2 patterns (the session-log pair specifically,
+    not the manifest's directory-form total). This does NOT shrink or replace
     that documented residual in `check`/`apply` (the probe-guessing gap in
     the manifest-wide sweep still exists exactly as documented there) - it
     closes the operational CONSEQUENCE of it at the three sites that

@@ -408,15 +408,21 @@ function compileFromDir(dir) {
  * hybrid. Staged as a SIBLING of `targetPath` (never a fixed temp dir) so
  * an EXDEV rename failure across filesystems can never happen here. */
 function writeFileAtomic(targetPath, content) {
-  // Skeptic Minor fix: `targetPath` is typically a project's MEMORY.md at
-  // the repo root, which is git-tracked (not ignored) - so a sibling
-  // `.tmp-<pid>-<ts>` file is itself outside any ignore rule. This cannot
-  // be made fully crash-proof (a SIGKILL between writeFileSync and
-  // renameSync leaves the tmp file regardless of what surrounds it - no
-  // tmp+rename scheme anywhere in this codebase, including splitCommand's
-  // staging dir, can close that gap), but a rename failure that DOES throw
-  // synchronously (permissions, disk full, EXDEV) is now cleaned up rather
-  // than leaving an orphaned tmp file as a side effect of the failure.
+  // Skeptic Minor fix (round 2 correction: the round-1 comment overstated
+  // this by conflating "cannot avoid an orphan tmp file at all" with
+  // "cannot avoid an orphan at the consumer's repo ROOT" - the staging
+  // location IS choosable; this function deliberately keeps it as a
+  // sibling of `targetPath` anyway, the same discipline splitCommand's own
+  // staging dir uses, so a crash mid-rename can never leave a truncated
+  // hybrid of old and new content). `targetPath` is typically a project's
+  // MEMORY.md at the repo root, which is git-tracked (not ignored) - so a
+  // sibling `.tmp-<pid>-<ts>` file is itself outside any ignore rule. A
+  // SIGKILL between writeFileSync and renameSync still leaves the tmp file
+  // regardless of where it is staged - that crash-proofing gap is real and
+  // inherent to any tmp+rename scheme, sibling-staged or not - but a
+  // rename failure that DOES throw synchronously (permissions, disk full,
+  // EXDEV) is now cleaned up rather than leaving an orphaned tmp file as a
+  // side effect of the failure.
   const tmpPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmpPath, content, 'utf8');
   try {
@@ -631,11 +637,22 @@ function splitCommand({ shardDir, memoryPath, force, allowRemoval }) {
 function regenerateCommand({ shardDir, memoryPath, check, allowRemoval }) {
   const compiled = compileFromDir(shardDir);
 
+  // Skeptic Minor fix (near-Major per reviewer): a bare `catch {}` here
+  // swallowed EVERY read error, not just "file absent". A non-ENOENT
+  // failure (permissions, an I/O error, memoryPath being a directory)
+  // would silently disable BOTH the entry-loss and reordering guards
+  // (current stays null, so neither guard's `current != null` branch ever
+  // runs) and then proceed to write - the opposite of this function's
+  // whole safety contract. Only ENOENT ("absent memoryPath - nothing to
+  // lose, nothing to check against") is legitimately swallowed; anything
+  // else propagates.
   let current = null;
   try {
     current = fs.readFileSync(memoryPath, 'utf8');
-  } catch {
-    // absent memoryPath - nothing to lose, nothing to check against
+  } catch (err) {
+    if (!err || err.code !== 'ENOENT') {
+      throw err;
+    }
   }
 
   if (current != null && !allowRemoval) {
