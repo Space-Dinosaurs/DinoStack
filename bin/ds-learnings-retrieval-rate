@@ -1,0 +1,680 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read-only measurement tool. Answers one question per agent run,
+         from the harness's own subagent transcripts: did this run issue a
+         tool call whose execution reads the contents of
+         `.agentic/learnings.md`? Reports the per-role firing rate of the
+         DS-73 prior-learnings retrieval step against the roles that carry
+         no such instruction, so the rate is measured rather than asserted.
+         Not a judgement about why the file was read, not a detector of
+         DS-73-shaped keyword retrieval specifically, and not a write
+         detector - the metric is observed read-access.
+
+Public API: ds-learnings-retrieval-rate [--json]
+            Exactly one flag. Prints one row per role - role, wiring, runs,
+            fired, not_fired, unreadable, rate - wired roles first, then a
+            pooled wired line, a pooled unwired-control line, and a footer
+            stating the measurement's scope and its two-sided error. --json
+            emits the same data as a single JSON object. Exit 0 on EVERY
+            path, including no-data; errors are reported in the envelope's
+            `error` field and never raised.
+
+            `wiring` is DERIVED, not hardcoded: a role is `wired` when
+            `content/agents/<role>.md` exists and carries a
+            `<!-- shared:learnings-retrieval -->` span, so the column
+            self-updates the moment the fragment is stamped into (or
+            removed from) an agent file. `n/a` covers a role with no agent
+            file (`general-purpose`, `Explore`, `unknown`) and the three
+            roles whose own job is handling the learnings file
+            (INTRINSIC_LEARNINGS_ROLES) - those read it by construction and
+            are neither instrumented by the instruction nor a control for
+            it. Everything else is `unwired-control`.
+
+            Retroactivity caveat, stated because it changes how the pooled
+            lines read: wiring is derived from the CURRENT agent files but
+            applied to a HISTORICAL corpus. A role wired today carries its
+            pre-wiring runs into the wired pool, so the pooled wired rate
+            is depressed until post-wiring runs dominate the denominator.
+            The footer says so on every run.
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
+               glob, pathlib, collections). Resolves the harness config dir
+               via bin/_lib.py::resolve_claude_config_dir() - never a
+               hardcoded ~/.claude (bin/ds-parse-subagent-usage shipped
+               exactly that bug). Reads
+               <config_dir>/projects/*/*/subagents/agent-*.jsonl and each
+               transcript's paired agent-<id>.meta.json sidecar for
+               `agentType`. Reads content/agents/*.md from this checkout to
+               derive the `wiring` column. Writes nothing, anywhere.
+
+Downstream consumers: the operator or conductor, on demand. No hook, no
+                      SessionStart nudge, no wiring into /ds-implement-ticket
+                      or /ds-wrap - keeping it strictly pull-only is what
+                      holds the tool inside Pillar 1. Not imported by any
+                      other module; bin/tests/test_ds_learnings_retrieval_rate.py
+                      loads it via importlib and drives its classifier
+                      against the DS-223 plan's normative case table.
+
+Failure modes: never raises, never exits nonzero. A missing config dir, a
+               missing projects/ dir, or zero discovered transcripts exits 0
+               with error="no_transcripts" and one human line naming the
+               harness limitation. A transcript that parses to zero records,
+               or is >= 20 MiB (MAX_TRANSCRIPT_BYTES, mirroring
+               hooks/subagent-stop-spawn-emit.js), counts as `unreadable`:
+               a run the tool could not read. `unreadable` is excluded from
+               both the numerator and the denominator of `rate` and is NEVER
+               folded into `not_fired`. Row identity is total -
+               transcripts_scanned == sum(by_role[*].runs) and
+               runs == fired + not_fired + unreadable in every row;
+               skipped_oversize is a subset count of the unreadable total,
+               not an addend. A missing or unparseable sidecar yields role
+               "unknown", counted as its own row and never folded into a
+               named role. Malformed JSONL lines inside an otherwise
+               readable transcript are skipped individually. An absent
+               content/agents/ directory degrades every wiring value to
+               "n/a" and says so in the footer.
+
+Performance: O(total transcript bytes), single streaming pass per file with
+             an early exit on the first satisfying call in a run. ~900
+             transcripts / ~35k tool calls measured at a few seconds.
+
+R2 (Pillar 8 simplicity test), stated verbatim as the DS-223 outcome rubric
+requires it, so the retirement condition ships with the mechanism:
+
+  (a) Specific failure caught: the 2026-08-30 investigator run that
+  executed under investigator.md's retrieval step and performed no
+  retrieval pass. The tool classifies that run NOT_FIRED and generalizes
+  it: architect fires on 7 of 85 runs (8.2%), against the pooled
+  unwired-control floor this tool emits, and debugger has never fired.
+  Neither fact was knowable before.
+
+  (b) Retirement condition. The instrument persists until one of three
+  named conditions holds; these three are NOT claimed to be exhaustive
+  over the outcome space - a pooled rate below 80% that moves more than
+  5 pp between readings satisfies none of them, and that is the expected
+  post-change trajectory once engineer (~7.13 runs/day, the majority of
+  the pooled denominator) enters from a measured 0.0%. The three:
+  (i) the retrieval instruction is removed from all agent files - nothing
+  left to measure; (ii) the pooled rate across instruction-bearing roles
+  is >= 80% with a pooled denominator >= 50, on two consecutive readings
+  at least 30 days apart; (iii) bounded-time review: 180 days after the
+  first reading, if neither (i) nor (ii) has fired, the operator makes an
+  explicit keep-or-retire call on the record to date. (iii) is what makes
+  the instrument non-permanent without asserting a false dichotomy: it
+  cannot outlive 180 days unreviewed, whatever the rate trajectory does.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import re
+import shlex
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _lib import resolve_claude_config_dir  # noqa: E402
+
+REPO_DIR = Path(__file__).resolve().parent.parent
+AGENTS_DIR = REPO_DIR / "content" / "agents"
+
+# Mirrors hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES.
+MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024
+
+FRAGMENT_ID = "learnings-retrieval"
+SPAN_MARKER = f"<!-- shared:{FRAGMENT_ID} -->"
+
+# Roles whose own job is handling the learnings file. They read it by
+# construction, so they are neither instrumented by the retrieval
+# instruction nor a control for it: `n/a` on both counts. Kept short and
+# explicit rather than inferred, because "is this role's purpose the
+# learnings file itself?" is not derivable from the file's text.
+INTRINSIC_LEARNINGS_ROLES = frozenset(
+    {"learnings-agent", "learning-extractor", "wrap-ticket"}
+)
+
+WIRING_WIRED = "wired"
+WIRING_CONTROL = "unwired-control"
+WIRING_NA = "n/a"
+
+# ---------------------------------------------------------------------------
+# Classification predicate. The normative specification is the DS-223 plan's
+# case table, transcribed into bin/tests/test_ds_learnings_retrieval_rate.py
+# as CASE_TABLE and driven against this module. Every named constant and
+# rule below exists to satisfy a row of that table; the row is cited.
+# ---------------------------------------------------------------------------
+
+# C7, C17, C20: a write tool never fires, and the exclusion is applied
+# BEFORE the unlisted-tool carrier scan - otherwise an Edit whose
+# new_string contains a read command would fire on text being written.
+WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
+
+# C1, C8, C12, C14, C18: an allowlist of commands whose execution reads
+# their file operands. `git` is deliberately absent (C8, C12 are metadata
+# probes). `wc` is deliberately present; measured effect of removing it is
+# zero on every role row.
+READ_CMDS = frozenset(
+    {
+        "grep", "rg", "egrep", "fgrep", "cat", "head", "tail", "sed",
+        "awk", "less", "wc", "sort", "uniq", "nl", "cut",
+    }
+)
+
+# C2, C5, C6, C10, C23: the path branch applies ONLY to these tool/field
+# pairs. Any tool not named here is examined only as a possible carrier of
+# shell command strings, so no bare-path field of an unlisted tool fires.
+FIELD_ALLOWLIST = {
+    "Read": ("file_path",),
+    "Grep": ("path",),
+    "Bash": ("command",),
+}
+
+# C3, C19: these commands consume their first non-option argument as a
+# pattern/script rather than as a read operand, unless the pattern was
+# supplied out-of-band by one of the suppressing flags below.
+PATTERN_ARG_CMDS = frozenset({"grep", "rg", "egrep", "fgrep", "sed", "awk"})
+PATTERN_SUPPRESS_FLAGS = frozenset(
+    {"-e", "--regexp", "--expression", "-f", "--file"}
+)
+# A flag whose VALUE is a file the command reads (grep -f PATTERNFILE).
+FILE_VALUE_FLAGS = frozenset({"-f", "--file"})
+
+TARGET_SUFFIX = ".agentic/learnings.md"
+GLOB_CHARS = frozenset("*?[]")
+
+OPERATOR_TOKENS = frozenset({";", ";;", "&&", "||", "|", "&", "(", ")", "{", "}"})
+# C26: shell keywords and transparent prefixes that occupy the command-word
+# slot without being the command. `do grep ... file` reads the file.
+COMMAND_WORD_SKIP = frozenset(
+    {"do", "then", "else", "elif", "!", "time", "sudo", "env", "command",
+     "nohup", "exec", "builtin"}
+)
+REDIRECT_PUNCT = frozenset("<>&")
+# A token consisting solely of redirect punctuation, optionally digit-
+# prefixed (C14, C16, C21). Which spellings survive tokenization is a lexer
+# detail, so the shape is recognized structurally rather than enumerated.
+PURE_REDIRECT_RE = re.compile(r"^[0-9]*[<>]+&?[0-9]*-?$")
+
+HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def is_path_token(token: str) -> bool:
+    """Precise PATH_TOKEN definition (DS-223 Minor 1).
+
+    True iff the token, after quote removal, does not begin with `-` (that
+    is an option, never an operand), contains no glob character, and either
+    equals `.agentic/learnings.md` or ends with `/.agentic/learnings.md`.
+    The boundary is a `/` so `xx.agentic/learnings.md` does not match, and
+    `~` is deliberately NOT excluded: C13's `~/DinoStack/.agentic/
+    learnings.md` must satisfy this.
+    """
+    token = token.strip()
+    if not token or token.startswith("-"):
+        return False
+    if any(ch in GLOB_CHARS for ch in token):
+        return False
+    return token == TARGET_SUFFIX or token.endswith("/" + TARGET_SUFFIX)
+
+
+def strip_heredocs(command: str) -> str:
+    """Remove heredoc bodies BEFORE any segmentation (C4, C9, C18).
+
+    An in-segment cutoff cannot work: newline-to-`;` segmentation splits a
+    heredoc body into segments of its own, so the body must be gone before
+    the token stream is ever built.
+    """
+    lines = command.split("\n")
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = HEREDOC_RE.search(line)
+        kept.append(HEREDOC_RE.sub("", line) if match else line)
+        i += 1
+        if match:
+            delimiter = match.group(2)
+            while i < len(lines) and lines[i].strip() != delimiter:
+                i += 1
+            if i < len(lines):
+                i += 1
+    return "\n".join(kept)
+
+
+def lex(text: str) -> list[str]:
+    """Tolerant POSIX lex. Returns the tokens read before the first lexing
+    error (an unterminated quote left behind by heredoc stripping, C9)
+    rather than raising.
+
+    `punctuation_chars=True` is load-bearing (C25): a whitespace-only lexer
+    glues an operator onto the preceding word, so `cd /repo; grep x file`
+    lexes as ONE segment whose command word is `cd`, and the grep that
+    follows is never classified. It still respects quoting, so C15's
+    `'a|b'` remains a single token.
+    """
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    tokens: list[str] = []
+    while True:
+        try:
+            token = lexer.get_token()
+        except ValueError:
+            break
+        if token is None or token == lexer.eof:
+            break
+        tokens.append(token)
+    return tokens
+
+
+def segment(tokens: list[str]) -> list[list[str]]:
+    """Split a token stream on unquoted operator tokens. Only operators the
+    lexer emitted as standalone tokens split (C15: a `|` inside a quoted
+    regex is part of one token and must not split)."""
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in OPERATOR_TOKENS:
+            segments.append(current)
+            current = []
+        else:
+            current.append(token)
+    segments.append(current)
+    return [s for s in segments if s]
+
+
+def command_word(segment_tokens: list[str]) -> tuple[str, int]:
+    """Return (basename of the command word, index of its first argument).
+
+    Skips leading `VAR=value` environment assignments and shell keywords /
+    transparent prefixes (COMMAND_WORD_SKIP), and takes the basename so
+    `/usr/bin/grep` reads as `grep`.
+    """
+    for index, token in enumerate(segment_tokens):
+        if "=" in token and not token.startswith("-") and "/" not in token.split("=")[0]:
+            continue
+        base = os.path.basename(token)
+        if base in COMMAND_WORD_SKIP:
+            continue
+        return base, index + 1
+    return "", len(segment_tokens)
+
+
+def read_operands(segment_tokens: list[str]) -> list[str]:
+    """Extract the tokens a read command would open for reading.
+
+    Applies, in order: the redirect skip (C14, C16, C21 - a redirect token
+    and the token after it are both skipped, and a token that merely starts
+    with redirect punctuation is skipped alone), option skipping, the
+    pattern-slot rule for PATTERN_ARG_CMDS (C3, C19), and the `-f
+    PATTERNFILE` carve-out whose value IS read.
+    """
+    cmd, arg_start = command_word(segment_tokens)
+    if cmd not in READ_CMDS:
+        return []
+
+    takes_pattern_arg = cmd in PATTERN_ARG_CMDS
+    pattern_consumed = not takes_pattern_arg
+    operands: list[str] = []
+
+    index = arg_start
+    while index < len(segment_tokens):
+        token = segment_tokens[index]
+        index += 1
+        if not token:
+            # An empty token is still an argument (C16's `grep -c ''`).
+            if not pattern_consumed:
+                pattern_consumed = True
+            continue
+        if PURE_REDIRECT_RE.match(token):
+            index += 1  # skip the redirect target too
+            continue
+        if token[0] in REDIRECT_PUNCT:
+            continue  # `>file` / `2>/dev/null`: redirect and target in one token
+        if token.startswith("-") and token != "-":
+            base = token.split("=", 1)[0]
+            if base in PATTERN_SUPPRESS_FLAGS:
+                pattern_consumed = True
+                value_is_read_file = base in FILE_VALUE_FLAGS
+                if "=" in token:
+                    if value_is_read_file:
+                        operands.append(token.split("=", 1)[1])
+                elif index < len(segment_tokens):
+                    if value_is_read_file:
+                        operands.append(segment_tokens[index])
+                    index += 1
+            continue
+        if not pattern_consumed:
+            pattern_consumed = True
+            continue
+        operands.append(token)
+    return operands
+
+
+def command_string_reads_target(command: str) -> bool:
+    """True iff any segment of the shell string is a read command with the
+    target file among its read operands."""
+    if not command:
+        return False
+    stripped = strip_heredocs(command).replace("\n", " ; ")
+    for segment_tokens in segment(lex(stripped)):
+        for operand in read_operands(segment_tokens):
+            if is_path_token(operand):
+                return True
+    return False
+
+
+def _walk_strings(value) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        out: list[str] = []
+        for item in value.values():
+            out.extend(_walk_strings(item))
+        return out
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            out.extend(_walk_strings(item))
+        return out
+    return []
+
+
+def call_is_fired(tool_name: str, tool_input) -> bool:
+    """Classify one tool_use call. The DS-223 case table is normative; see
+    bin/tests/test_ds_learnings_retrieval_rate.py::CASE_TABLE."""
+    if tool_name in WRITE_TOOLS:
+        return False
+    if not isinstance(tool_input, dict):
+        return False
+
+    if tool_name in FIELD_ALLOWLIST:
+        for field in FIELD_ALLOWLIST[tool_name]:
+            value = tool_input.get(field)
+            if not isinstance(value, str):
+                continue
+            if field == "command":
+                if command_string_reads_target(value):
+                    return True
+            elif is_path_token(value):
+                return True
+        return False
+
+    # Unlisted tool: examined ONLY as a carrier of shell command strings
+    # (C22), never via the path branch (C23).
+    for text in _walk_strings(tool_input):
+        if command_string_reads_target(text):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Transcript scanning
+# ---------------------------------------------------------------------------
+
+STATUS_FIRED = "fired"
+STATUS_NOT_FIRED = "not_fired"
+STATUS_UNREADABLE = "unreadable"
+
+
+def classify_transcript(path: Path) -> tuple[str, bool]:
+    """Return (status, was_oversize) for one transcript file."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return STATUS_UNREADABLE, False
+    if size >= MAX_TRANSCRIPT_BYTES:
+        return STATUS_UNREADABLE, True
+
+    parsed = 0
+    fired = False
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                parsed += 1
+                if fired or record.get("type") != "assistant":
+                    continue
+                message = record.get("message")
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue
+                for element in content:
+                    if not isinstance(element, dict):
+                        continue
+                    if element.get("type") != "tool_use":
+                        continue
+                    if call_is_fired(element.get("name") or "", element.get("input")):
+                        fired = True
+                        break
+    except OSError:
+        return STATUS_UNREADABLE, False
+
+    if parsed == 0:
+        return STATUS_UNREADABLE, False
+    return (STATUS_FIRED if fired else STATUS_NOT_FIRED), False
+
+
+def role_for(path: Path) -> str:
+    sidecar = path.with_name(path.stem + ".meta.json")
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return "unknown"
+    if not isinstance(data, dict):
+        return "unknown"
+    role = data.get("agentType")
+    if not isinstance(role, str) or not role.strip():
+        return "unknown"
+    return role.strip()
+
+
+def wiring_for(role: str, agents_dir: Path) -> str:
+    """Derive the wiring column from the live agent files (DS-223 M4).
+
+    `wired` iff content/agents/<role>.md exists and carries a
+    `<!-- shared:learnings-retrieval -->` span. This is what makes the
+    column self-updating: stamping the fragment into a fourth agent file
+    moves that role from unwired-control to wired with no edit here.
+    """
+    if role in INTRINSIC_LEARNINGS_ROLES:
+        return WIRING_NA
+    path = agents_dir / f"{role}.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return WIRING_NA
+    return WIRING_WIRED if SPAN_MARKER in text else WIRING_CONTROL
+
+
+def rate_of(fired: int, runs: int, unreadable: int):
+    denominator = runs - unreadable
+    if denominator <= 0:
+        return None
+    return fired / denominator
+
+
+def collect(config_dir: Path, agents_dir: Path) -> dict:
+    pattern = str(config_dir / "projects" / "*" / "*" / "subagents" / "agent-*.jsonl")
+    transcripts = sorted(glob.glob(pattern))
+
+    payload = {
+        "harness": "claude-code",
+        "config_dir": str(config_dir),
+        "transcripts_scanned": 0,
+        "by_role": {},
+        "pooled": {
+            "wired": {"runs": 0, "fired": 0, "unreadable": 0, "rate": None},
+            "unwired_control": {"runs": 0, "fired": 0, "unreadable": 0, "rate": None},
+        },
+        "skipped_oversize": 0,
+        "error": None,
+    }
+
+    if not transcripts:
+        payload["error"] = "no_transcripts"
+        return payload
+
+    for name in transcripts:
+        path = Path(name)
+        role = role_for(path)
+        status, oversize = classify_transcript(path)
+        row = payload["by_role"].setdefault(
+            role,
+            {
+                "wiring": wiring_for(role, agents_dir),
+                "runs": 0,
+                "fired": 0,
+                "not_fired": 0,
+                "unreadable": 0,
+                "rate": None,
+            },
+        )
+        row["runs"] += 1
+        row[status] += 1
+        payload["transcripts_scanned"] += 1
+        if oversize:
+            payload["skipped_oversize"] += 1
+
+    for row in payload["by_role"].values():
+        row["rate"] = rate_of(row["fired"], row["runs"], row["unreadable"])
+        arm = None
+        if row["wiring"] == WIRING_WIRED:
+            arm = "wired"
+        elif row["wiring"] == WIRING_CONTROL:
+            arm = "unwired_control"
+        if arm:
+            pooled = payload["pooled"][arm]
+            pooled["runs"] += row["runs"]
+            pooled["fired"] += row["fired"]
+            pooled["unreadable"] += row["unreadable"]
+
+    for pooled in payload["pooled"].values():
+        pooled["rate"] = rate_of(pooled["fired"], pooled["runs"], pooled["unreadable"])
+
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+WIRING_ORDER = {WIRING_WIRED: 0, WIRING_CONTROL: 1, WIRING_NA: 2}
+
+FOOTER = [
+    "",
+    "Notes:",
+    "  - `rate` is raw observed read-access to .agentic/learnings.md. It is NOT",
+    "    net of the unwired-control floor; read a wired role's rate as lift over",
+    "    the pooled unwired-control line above and net it yourself.",
+    "  - Claude-Code-only and machine-local. It measures this operator's",
+    "    transcripts on this machine; it is not shared and is not CI-visible,",
+    "    and it reads zero on a fresh machine.",
+    "  - `wiring` is derived from the CURRENT content/agents/*.md files but",
+    "    applied to a HISTORICAL corpus, so a newly wired role carries its",
+    "    pre-wiring runs into the wired pool and depresses the pooled wired",
+    "    rate until post-wiring runs dominate the denominator.",
+    "  - Two-sided estimate, not a bound. False negatives: a Grep with the",
+    "    file reached via `glob=` rather than `path=`; a read through an opaque",
+    "    MCP handle carrying no literal path; a read via python3, git show, or",
+    "    another interpreter outside READ_CMDS. False positives: a read that is",
+    "    not domain-keyword retrieval - verifying a cited LRN-*/KNW-* id, or a",
+    "    `wc` size probe; and a read of a TEMPLATE copy whose path also ends in",
+    "    .agentic/learnings.md (this repo ships one at content/templates/). A",
+    "    multi-target grep naming the file alongside other paths is a TRUE",
+    "    positive of this metric: that command does read the file.",
+    "  - `unreadable` (zero parsed records, or >= 20 MiB) is excluded from both",
+    "    the numerator and the denominator of `rate`, and is never folded into",
+    "    `not_fired`. `skipped_oversize` is a subset count of `unreadable`.",
+]
+
+
+def format_rate(value) -> str:
+    return "n/a" if value is None else f"{value * 100:.1f}%"
+
+
+def render(payload: dict, agents_dir_present: bool) -> str:
+    lines: list[str] = []
+    lines.append(f"harness: {payload['harness']}   config_dir: {payload['config_dir']}")
+
+    if payload["error"] == "no_transcripts":
+        lines.append("")
+        lines.append(
+            "No subagent transcripts found. This measurement reads Claude Code's "
+            "own per-subagent transcripts under"
+        )
+        lines.append(
+            "  <config_dir>/projects/*/*/subagents/agent-*.jsonl "
+            "- absent on a harness that does not write them, and on a fresh machine."
+        )
+        lines.append("error: no_transcripts")
+        return "\n".join(lines)
+
+    rows = sorted(
+        payload["by_role"].items(),
+        key=lambda item: (WIRING_ORDER.get(item[1]["wiring"], 3), item[0]),
+    )
+    header = f"{'role':<24}{'wiring':<16}{'runs':>6}{'fired':>7}{'not_fired':>11}{'unreadable':>12}{'rate':>8}"
+    lines.append("")
+    lines.append(header)
+    lines.append("-" * len(header))
+    for role, row in rows:
+        lines.append(
+            f"{role:<24}{row['wiring']:<16}{row['runs']:>6}{row['fired']:>7}"
+            f"{row['not_fired']:>11}{row['unreadable']:>12}{format_rate(row['rate']):>8}"
+        )
+    lines.append("-" * len(header))
+    lines.append(f"{'TOTAL':<24}{'':<16}{payload['transcripts_scanned']:>6}")
+    lines.append("")
+    for label, key in (("pooled wired", "wired"), ("pooled unwired-control", "unwired_control")):
+        pooled = payload["pooled"][key]
+        lines.append(
+            f"{label}: {pooled['fired']}/{pooled['runs'] - pooled['unreadable']} "
+            f"= {format_rate(pooled['rate'])}"
+        )
+    lines.append(f"skipped_oversize: {payload['skipped_oversize']}")
+    if not agents_dir_present:
+        lines.append("")
+        lines.append(
+            "WARNING: content/agents/ not found next to this script, so every "
+            "`wiring` value degraded to n/a and both pooled lines are empty."
+        )
+    lines.extend(FOOTER)
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Measure the per-role firing rate of the prior-learnings retrieval "
+            "step, from Claude Code's own subagent transcripts. Read-only."
+        )
+    )
+    parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    args = parser.parse_args(argv)
+
+    config_dir = resolve_claude_config_dir()
+    agents_dir = AGENTS_DIR
+    payload = collect(config_dir, agents_dir)
+
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render(payload, agents_dir.is_dir()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

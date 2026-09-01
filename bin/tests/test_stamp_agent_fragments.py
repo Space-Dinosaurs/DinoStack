@@ -102,15 +102,22 @@ class TestFragmentBodyRejectsMarkerLikeStrings(unittest.TestCase):
 # update this map in the same commit as any deliberate span addition or
 # removal.
 EXPECTED_SPAN_IDS = {
+    "architect.md": frozenset({"learnings-retrieval"}),
+    "debugger.md": frozenset({"learnings-retrieval"}),
     "engineer.md": frozenset(
         {
             "async-primitive-list",
             "identifier-rename-trigger",
             "identifier-type-list",
+            "learnings-retrieval",
             "rename-exemption-clause",
             "test-file-glob-list",
         }
     ),
+    "investigator.md": frozenset({"learnings-retrieval"}),
+    # skeptic.md deliberately carries NO learnings-retrieval span: wiring
+    # retrieval into the Skeptic was cut on independence grounds (DS-223
+    # hard constraint 2). This absence is load-bearing, not an oversight.
     "skeptic.md": frozenset(
         {
             "async-primitive-list",
@@ -121,6 +128,14 @@ EXPECTED_SPAN_IDS = {
         }
     ),
 }
+
+# The exact set of agent files that must carry a learnings-retrieval span.
+# Pinned separately from EXPECTED_SPAN_IDS because that dict is iterated by
+# KEY - a span leaking into an agent file absent from the dict is invisible
+# to every assertion driven off it.
+LEARNINGS_RETRIEVAL_FILES = frozenset(
+    {"architect.md", "debugger.md", "engineer.md", "investigator.md"}
+)
 
 
 class TestLiveTreeIsStamped(unittest.TestCase):
@@ -200,6 +215,39 @@ class TestLiveTreeIsStamped(unittest.TestCase):
                     )
                 else:
                     seen[frag_id] = (path, interior)
+
+    def test_learnings_retrieval_span_file_set_over_full_glob(self):
+        """Globs ALL of content/agents/*.md rather than iterating
+        EXPECTED_SPAN_IDS's keys, so a learnings-retrieval span stamped into
+        an agent file that is absent from that dict still reds a test. Both
+        sibling glob-based assertions above pass on a correctly stamped leak,
+        and test_expected_span_ids_are_present never opens the file."""
+        found = set()
+        for path in sorted(stamp_agent_fragments.AGENTS_DIR.glob("*.md")):
+            text = path.read_text(encoding="utf-8")
+            for match in stamp_agent_fragments.SHARED_RE.finditer(text):
+                if match.group("id") == "learnings-retrieval":
+                    found.add(path.name)
+        self.assertEqual(
+            found,
+            set(LEARNINGS_RETRIEVAL_FILES),
+            "the set of content/agents/*.md files carrying a "
+            "learnings-retrieval span must be exactly "
+            f"{sorted(LEARNINGS_RETRIEVAL_FILES)}. skeptic.md in particular "
+            "must never carry one (DS-223 hard constraint 2). If this is a "
+            "deliberate change, update LEARNINGS_RETRIEVAL_FILES and "
+            "EXPECTED_SPAN_IDS in the same commit.",
+        )
+
+    def test_learnings_retrieval_fragment_preserves_silent_degradation(self):
+        """The retrieval instruction must stay a silent no-op when there is
+        nothing to retrieve. Every worktree-isolated engineer in this repo
+        hits the absent-file case on every run (.gitignore's /.agentic/*), so
+        a clause that turns the empty case into a reported gap would produce
+        operator-visible noise on literally every run."""
+        body = self.fragments["learnings-retrieval"]
+        self.assertIn("silent no-ops", body)
+        self.assertIn("no reported gap", body)
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ CASES = [
     # fine, since the shim still runs at import time either way.
     ("agentic-parse-subagent-usage", ["--help"], 0),
     ("agentic-ticket-grant", ["--help"], 0),
+    ("agentic-learnings-retrieval-rate", ["--help"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the

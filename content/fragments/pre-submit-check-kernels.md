@@ -1,11 +1,21 @@
-# Shared pre-submit / Skeptic check kernels
+# Shared wording kernels for content/agents/
 
-This file is the single hand-edited source for wording shared between
-`content/agents/engineer.md`'s "Pre-submit self-check" block and
-`content/agents/skeptic.md`'s numbered steps 4.5, 4.6, and 11.5. Both files
-state the same mechanical checks in their own voice; this file holds the
-identifier lists, trigger phrases, and exemption clauses that must read
-identically in both places so they cannot drift word-by-word again.
+This file is the single hand-edited source for any wording that must read
+identically in more than one `content/agents/*.md` file. Each agent states
+the surrounding instruction in its own voice; this file holds the identifier
+lists, trigger phrases, exemption clauses, and whole instruction bodies that
+must not drift word-by-word between them.
+
+Two id families live here today. The five pre-submit / Skeptic check kernels
+are shared between `content/agents/engineer.md`'s "Pre-submit self-check"
+block and `content/agents/skeptic.md`'s numbered steps 4.5, 4.6, and 11.5.
+The `learnings-retrieval` id is the whole prior-learnings retrieval
+instruction, shared by `architect.md`, `debugger.md`, `engineer.md`, and
+`investigator.md` - deliberately not `skeptic.md`, whose independence from
+prior conclusions is the point of the role. The file keeps its historical
+name; the name is a mild misnomer now, and renaming it would move
+`KERNELS_FILE`, `CONTRIBUTING.md`, and the test module for no behavioral
+gain.
 
 Edit fragment text here, then run `bash scripts/stamp-agent-fragments.sh`
 (or `bash scripts/build-all.sh`, which runs it first) to propagate the
@@ -34,4 +44,8 @@ purely local variable or parameter renames that nothing outside the function can
 
 <!-- FRAGMENT:async-primitive-list -->
 an async function, Promise, goroutine, or background task without the caller awaiting or otherwise observing its outcome
+<!-- /FRAGMENT -->
+
+<!-- FRAGMENT:learnings-retrieval -->
+Grep `.agentic/learnings.md` for entries matching this task's domain keywords (e.g. `grep -i -E '<kw1>|<kw2>' .agentic/learnings.md`). Cite an entry ID (`LRN-*` / `KNW-*`) only when that entry's own text actually matches the keywords - never cite a spurious or tangential ID to pad confidence. Two cases are both silent no-ops with zero confidence impact and no reported gap: the file is absent, or the file exists but no entry matches. Only a genuine match changes downstream output.
 <!-- /FRAGMENT -->

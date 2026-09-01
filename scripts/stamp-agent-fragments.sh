@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Purpose: Stamp shared wording fragments from content/fragments/
 #          pre-submit-check-kernels.md into every `<!-- shared:<id> -->
-#          ...<!-- /shared -->` span in content/agents/*.md, so a rule
-#          stated in both engineer.md and skeptic.md has exactly one
-#          hand-edited source of truth.
+#          ...<!-- /shared -->` span in content/agents/*.md, so wording that
+#          must read identically in two or more agent definitions has
+#          exactly one hand-edited source of truth. The mechanism is
+#          file-set agnostic: it stamps whichever agent files carry a span,
+#          so adding a consumer is a span in that file plus a key in
+#          bin/tests/test_stamp_agent_fragments.py's EXPECTED_SPAN_IDS - no
+#          change here.
 #
 # Public API: bash scripts/stamp-agent-fragments.sh
 #             No arguments. Writes to content/agents/*.md in place; prints
