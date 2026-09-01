@@ -45,12 +45,19 @@ NOT_FIRED = False
 # itself. C1-C18 are the round-3 plan's rows; C19-C23 close the five Majors
 # the plan reached its review cap with (pattern-position discrimination,
 # the WRITE_TOOLS exclusion, the redirect skip, and the shell-string
-# carrier rule in both directions). C27-C41 close the DS-223 iteration-2
-# findings: the `<` input-redirect asymmetry (J1), the `if` idiom (Minor 1),
-# a disclosed command-substitution false negative (Minor 2), and a per-member
-# row for every previously unpinned member of PATTERN_SUPPRESS_FLAGS,
-# FILE_VALUE_FLAGS, WRITE_TOOLS and FIELD_ALLOWLIST (J2). The remaining
-# constants are closed sets pinned behaviourally by TestCommandSets below.
+# carrier rule in both directions). C24-C26 pin three FIRED shapes taken
+# from the live corpus, each of which the predicate missed before the row
+# existed: the `Grep.path` retrieval target (which is what makes removing
+# Grep.path from FIELD_ALLOWLIST detectable), glued-punctuation
+# segmentation, and the loop-keyword command-word slot. C27-C41 close the
+# DS-223 iteration-2 findings: the `<` input-redirect asymmetry (J1), the
+# `if` idiom (Minor 1), a disclosed command-substitution false negative
+# (Minor 2), and a per-member row for every previously unpinned member of
+# PATTERN_SUPPRESS_FLAGS, FILE_VALUE_FLAGS, WRITE_TOOLS and
+# FIELD_ALLOWLIST (J2). C42 pins the iteration-3 Minor 1 separate-token
+# option-value false positive as the disclosed behaviour it is. The
+# remaining constants are closed sets pinned behaviourally by
+# TestCommandSets below.
 # ---------------------------------------------------------------------------
 CASE_TABLE = [
     (
@@ -364,6 +371,18 @@ CASE_TABLE = [
         "command substitution, so the outer `cat`'s operand list never contains a "
         "literal path token",
     ),
+    (
+        "C42", "Bash",
+        {"command": "grep -A 40 '.agentic/learnings.md' docs/"},
+        FIRED,
+        "a knowing FALSE POSITIVE, disclosed in the footer and pinned here rather "
+        "than closed: `-A`'s value is a separate token, so `40` takes the pattern "
+        "slot and the real pattern is misread as a read operand. The glued form "
+        "`-A40` classifies correctly (C3's class). Closing this needs a per-option "
+        "arity table for every command in READ_CMDS - more surface than the defect, "
+        "at zero measured corpus incidence. FIRED is asserted here so the behaviour "
+        "cannot change silently in either direction",
+    ),
 ]
 
 
@@ -672,6 +691,57 @@ class TestRender(unittest.TestCase):
         self.assertIn("command substitution", footer)
         self.assertIn("INFLATES", footer)
         self.assertIn("REMOVED", footer)
+
+    def test_wired_rows_are_starred_and_the_star_carves_out_the_n20_rule(self):
+        """DS-223 iteration-3 K1: the tool's most prominent row reported
+        0.0% at n >= 20 while events-log.md told the reader a zero at that n
+        is strong evidence of non-compliance - and none of those runs had
+        carried the instruction, because the wiring lands in the same commit.
+        The star plus its footer note is the carve-out; without both, the
+        headline row invites exactly the wrong inference.
+        """
+        payload = {
+            "harness": "claude-code", "config_dir": "/x", "transcripts_scanned": 2,
+            "by_role": {
+                "engineer": {"wiring": "wired", "runs": 1, "fired": 0,
+                             "not_fired": 1, "unreadable": 0, "rate": 0.0},
+                "skeptic": {"wiring": "unwired-control", "runs": 1, "fired": 0,
+                            "not_fired": 1, "unreadable": 0, "rate": 0.0},
+            },
+            "pooled": {
+                "wired": {"runs": 1, "fired": 0, "unreadable": 0, "rate": 0.0},
+                "unwired_control": {"runs": 1, "fired": 0, "unreadable": 0, "rate": 0.0},
+            },
+            "skipped_oversize": 0, "error": None,
+        }
+        out = lrr.render(payload, agents_dir_present=True)
+        engineer_line = next(ln for ln in out.splitlines() if ln.startswith("engineer"))
+        skeptic_line = next(ln for ln in out.splitlines() if ln.startswith("skeptic"))
+        self.assertIn(f"wired {lrr.RETRO_MARK}", engineer_line)
+        # The control row must NOT be starred: the star's whole meaning is
+        # "this row's wiring postdates an unknown share of its runs".
+        self.assertNotIn(lrr.RETRO_MARK, skeptic_line)
+        # The star is worthless without the note that explains it, and the
+        # note is worthless unless it names the n >= 20 rule it carves out.
+        footer = "\n".join(lrr.FOOTER)
+        self.assertIn(f"`{lrr.RETRO_MARK}` on a wiring cell", footer)
+        self.assertIn("n >= 20", footer)
+        self.assertIn("does not apply", footer)
+
+    def test_footer_discloses_the_separate_token_option_value_false_positive(self):
+        """DS-223 iteration-3 Minor 1: disclosed, not closed. The disclosure
+        IS the fix, so its absence is the whole defect."""
+        footer = "\n".join(lrr.FOOTER)
+        self.assertIn("SEPARATE token", footer)
+        self.assertIn("-A 40", footer)
+        # And the predicate's actual behaviour is pinned by C42, so the
+        # disclosure cannot drift away from what the code does.
+        self.assertTrue(
+            lrr.call_is_fired("Bash", {"command": "grep -A 40 '.agentic/learnings.md' docs/"})
+        )
+        self.assertFalse(
+            lrr.call_is_fired("Bash", {"command": "grep -A40 '.agentic/learnings.md' docs/"})
+        )
 
 
 class TestEndToEnd(unittest.TestCase):

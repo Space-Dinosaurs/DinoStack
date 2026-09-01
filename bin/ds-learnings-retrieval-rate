@@ -38,13 +38,17 @@ Public API: ds-learnings-retrieval-rate [--json]
             dominate the denominator; a role UNWIRED today carries its
             historical post-wiring fires into the unwired-control pool and
             inflates the floor the footer tells the reader to net against.
-            The footer states both directions on every run. There is
-            deliberately no instructed-runs-only figure: the tool has no
-            per-run wiring timestamp, so any such number would be a hand
-            composition dressed as a measurement (DS-223 J3).
+            The footer states both directions on every run, and every
+            `wired` row carries a `*` in its wiring cell pointing at the
+            footer note that says so - because the tool cannot tell which
+            of a row's runs postdate the span, and where the span is
+            stamped in the same commit as the reading, NONE of them do.
+            There is deliberately no instructed-runs-only figure: the tool
+            has no per-run wiring timestamp, so any such number would be a
+            hand composition dressed as a measurement (DS-223 J3).
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
-               glob, pathlib, collections). Resolves the harness config dir
+               glob, pathlib). Resolves the harness config dir
                via bin/_lib.py::resolve_claude_config_dir() - never a
                hardcoded ~/.claude (bin/ds-parse-subagent-usage shipped
                exactly that bug). Reads
@@ -97,14 +101,21 @@ requires it, so the retirement condition ships with the mechanism:
   one `ds-learnings-retrieval-rate` invocation away. Read the rate off
   the tool, and read it only for roles whose denominator is large enough
   to carry it - a zero at single-digit n is not yet evidence of anything
-  (content/references/events-log.md states the same n >= 20 floor).
+  (content/references/events-log.md states the same n >= 20 floor). That
+  floor counts only runs that POSTDATE the role's span, and the tool
+  cannot separate those out, so it does not apply at all to a role whose
+  span postdates the runs in its row - most sharply the run in which the
+  span is first stamped, where every run predates it and a zero is the
+  expected reading rather than evidence of non-compliance. The `*` on
+  every wired row is the marker for exactly this.
 
   (b) Retirement condition. The instrument persists until one of three
   named conditions holds; these three are NOT claimed to be exhaustive
   over the outcome space - a pooled rate below 80% that moves more than
   5 pp between readings satisfies none of them, and that is the expected
-  post-change trajectory once engineer (~7.13 runs/day, the majority of
-  the pooled denominator) enters from a measured 0.0%. The three:
+  post-change trajectory once engineer (the majority of the pooled
+  denominator) enters. No run-count or rate figure is quoted here for the
+  same reason none is quoted in (a): read them off the tool. The three:
   (i) the retrieval instruction is removed from all agent files - nothing
   left to measure; (ii) the pooled rate across instruction-bearing roles
   is >= 80% with a pooled denominator >= 50, on two consecutive readings
@@ -626,6 +637,12 @@ def collect(config_dir: Path, agents_dir: Path) -> dict:
 
 WIRING_ORDER = {WIRING_WIRED: 0, WIRING_CONTROL: 1, WIRING_NA: 2}
 
+# Marks a wired row as retroactively classified. Not a per-run timestamp
+# (DS-223 J3 rejected building one) - the marker is unconditional on every
+# wired row precisely because the tool cannot tell which runs postdate the
+# span, so it can only say "an unknown share of this row predates it".
+RETRO_MARK = "*"
+
 FOOTER = [
     "",
     "Notes:",
@@ -644,6 +661,17 @@ FOOTER = [
     "    unwired-control pool and INFLATES the very floor these notes tell you",
     "    to net against. Neither pooled line is a like-for-like comparison",
     "    across a wiring change; only per-role rows read cleanly through one.",
+    "  - `*` on a wiring cell means that row was classified retroactively:",
+    "    the span is read from the role's CURRENT agent file, the tool holds",
+    "    no per-run wiring timestamp, and an unknown share of the row's runs",
+    "    therefore predate the span and carried no instruction. Where the",
+    "    span is stamped in the same commit as the reading, NONE of the row's",
+    "    runs carried it, and a 0.0% there is the expected value rather than",
+    "    evidence of non-compliance. The n >= 20 rule in",
+    "    content/references/events-log.md counts only runs that postdate the",
+    "    span, so it does not apply to a starred row until that role has",
+    "    accumulated >= 20 post-span runs - which this tool cannot confirm",
+    "    for you. Every wired row is starred, unconditionally.",
     "  - Two-sided estimate, not a bound. False negatives: a Grep with the",
     "    file reached via `glob=` rather than `path=`; a read through an opaque",
     "    MCP handle carrying no literal path; a read via python3, git show, or",
@@ -655,7 +683,14 @@ FOOTER = [
     "    copy whose path also ends in .agentic/learnings.md (this repo ships",
     "    one at content/templates/). A multi-target grep naming the file",
     "    alongside other paths is a TRUE positive of this metric: that",
-    "    command does read the file.",
+    "    command does read the file. One further false positive is known and",
+    "    deliberately left open: an option whose value is a SEPARATE token",
+    "    (`grep -A 40 '.agentic/learnings.md' docs/`) hands the pattern slot",
+    "    to that value, so the pattern is misread as a read operand and the",
+    "    call fires. The glued form (`-A40`) classifies correctly. Zero",
+    "    incidence in the measured corpus; closing it would need per-option",
+    "    arity tables for every command in READ_CMDS, which is more surface",
+    "    than the defect. Same class as C3 and C19 in the case table.",
     "  - `unreadable` (zero parsed records, or >= 20 MiB) is excluded from both",
     "    the numerator and the denominator of `rate`, and is never folded into",
     "    `not_fired`. `skipped_oversize` is a subset count of `unreadable`.",
@@ -692,8 +727,11 @@ def render(payload: dict, agents_dir_present: bool) -> str:
     lines.append(header)
     lines.append("-" * len(header))
     for role, row in rows:
+        wiring_cell = row["wiring"]
+        if wiring_cell == WIRING_WIRED:
+            wiring_cell = f"{wiring_cell} {RETRO_MARK}"
         lines.append(
-            f"{role:<24}{row['wiring']:<16}{row['runs']:>6}{row['fired']:>7}"
+            f"{role:<24}{wiring_cell:<16}{row['runs']:>6}{row['fired']:>7}"
             f"{row['not_fired']:>11}{row['unreadable']:>12}{format_rate(row['rate']):>8}"
         )
     lines.append("-" * len(header))
