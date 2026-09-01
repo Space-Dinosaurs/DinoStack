@@ -31,11 +31,17 @@ Public API: ds-learnings-retrieval-rate [--json]
             it. Everything else is `unwired-control`.
 
             Retroactivity caveat, stated because it changes how the pooled
-            lines read: wiring is derived from the CURRENT agent files but
-            applied to a HISTORICAL corpus. A role wired today carries its
-            pre-wiring runs into the wired pool, so the pooled wired rate
-            is depressed until post-wiring runs dominate the denominator.
-            The footer says so on every run.
+            lines read, and it cuts BOTH ways: wiring is derived from the
+            CURRENT agent files but applied to a HISTORICAL corpus. A role
+            wired today carries its pre-wiring runs into the wired pool, so
+            the pooled wired rate is depressed until post-wiring runs
+            dominate the denominator; a role UNWIRED today carries its
+            historical post-wiring fires into the unwired-control pool and
+            inflates the floor the footer tells the reader to net against.
+            The footer states both directions on every run. There is
+            deliberately no instructed-runs-only figure: the tool has no
+            per-run wiring timestamp, so any such number would be a hand
+            composition dressed as a measurement (DS-223 J3).
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
                glob, pathlib, collections). Resolves the harness config dir
@@ -84,9 +90,14 @@ requires it, so the retirement condition ships with the mechanism:
   (a) Specific failure caught: the 2026-08-30 investigator run that
   executed under investigator.md's retrieval step and performed no
   retrieval pass. The tool classifies that run NOT_FIRED and generalizes
-  it: architect fires on 7 of 85 runs (8.2%), against the pooled
-  unwired-control floor this tool emits, and debugger has never fired.
-  Neither fact was knowable before.
+  it from one anecdote to a per-role rate, read against the pooled
+  unwired-control floor the tool emits on the same run. No figure is
+  quoted here on purpose: any number written into this header is a
+  snapshot that drifts with the next run, and every role's live rate is
+  one `ds-learnings-retrieval-rate` invocation away. Read the rate off
+  the tool, and read it only for roles whose denominator is large enough
+  to carry it - a zero at single-digit n is not yet evidence of anything
+  (content/references/events-log.md states the same n >= 20 floor).
 
   (b) Retirement condition. The instrument persists until one of three
   named conditions holds; these three are NOT claimed to be exhaustive
@@ -125,6 +136,15 @@ AGENTS_DIR = REPO_DIR / "content" / "agents"
 MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024
 
 FRAGMENT_ID = "learnings-retrieval"
+# A second site that knows the shared-fragment marker syntax; the first is
+# scripts/lib/stamp_agent_fragments.py::SHARED_RE. Deliberately duplicated
+# rather than imported: a read-only bin/ measurement tool importing from
+# scripts/lib/ to obtain one f-string is a heavier coupling than the
+# duplication it removes. The divergence risk is closed mechanically
+# instead, by two tests that fail loudly rather than degrading the metric -
+# test_span_marker_matches_the_stamper (opener-syntax equality against
+# SHARED_RE itself) and test_engineer_is_wired_in_the_live_tree (an
+# end-to-end assertion that a really-stamped file reads as `wired`).
 SPAN_MARKER = f"<!-- shared:{FRAGMENT_ID} -->"
 
 # Roles whose own job is handling the learnings file. They read it by
@@ -147,15 +167,22 @@ WIRING_NA = "n/a"
 # rule below exists to satisfy a row of that table; the row is cited.
 # ---------------------------------------------------------------------------
 
-# C7, C17, C20: a write tool never fires, and the exclusion is applied
-# BEFORE the unlisted-tool carrier scan - otherwise an Edit whose
-# new_string contains a read command would fire on text being written.
+# C7, C17, C20, C37, C38, C39: a write tool never fires, and the exclusion
+# is applied BEFORE the unlisted-tool carrier scan - otherwise a write whose
+# payload contains a read command would fire on text being written. Every
+# member carries its own row whose payload is exactly that shape, so
+# dropping any one of the four flips a case.
 WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 
 # C1, C8, C12, C14, C18: an allowlist of commands whose execution reads
 # their file operands. `git` is deliberately absent (C8, C12 are metadata
-# probes). `wc` is deliberately present; measured effect of removing it is
-# zero on every role row.
+# probes). Kept as a closed POSIX set rather than pruned to the members the
+# corpus happens to exercise: membership has one uniform meaning (this
+# command opens its operands for reading), so a member with no corpus hit is
+# not dead logic, it is the set being complete. Every member IS pinned
+# behaviourally, and jointly with PATTERN_ARG_CMDS, by
+# TestCommandSets::test_every_read_cmd_reads_its_operands - deleting any one
+# member reddens two assertions.
 READ_CMDS = frozenset(
     {
         "grep", "rg", "egrep", "fgrep", "cat", "head", "tail", "sed",
@@ -163,9 +190,12 @@ READ_CMDS = frozenset(
     }
 )
 
-# C2, C5, C6, C10, C23: the path branch applies ONLY to these tool/field
-# pairs. Any tool not named here is examined only as a possible carrier of
-# shell command strings, so no bare-path field of an unlisted tool fires.
+# C2, C5, C6, C10, C23, C24, C40: the path branch applies ONLY to these
+# tool/field pairs. Any tool not named here is examined only as a possible
+# carrier of shell command strings, so no bare-path field of an unlisted
+# tool fires. The Bash entry is not redundant with the carrier scan: it
+# narrows Bash to `command` alone, so a read command paraphrased in Bash's
+# `description` field does not fire (C40).
 FIELD_ALLOWLIST = {
     "Read": ("file_path",),
     "Grep": ("path",),
@@ -174,29 +204,46 @@ FIELD_ALLOWLIST = {
 
 # C3, C19: these commands consume their first non-option argument as a
 # pattern/script rather than as a read operand, unless the pattern was
-# supplied out-of-band by one of the suppressing flags below.
+# supplied out-of-band by one of the suppressing flags below. Every member
+# is pinned by TestCommandSets::test_every_read_cmd_reads_its_operands,
+# which asserts the bare `<cmd> <path>` form fires iff the command is NOT
+# in this set.
 PATTERN_ARG_CMDS = frozenset({"grep", "rg", "egrep", "fgrep", "sed", "awk"})
+# A flag that supplies the pattern out-of-band, so the first bare argument
+# is an operand rather than the pattern. Per-member rows: `-e` C32,
+# `--regexp` C33, `--expression` C34, `-f` C35, `--file` C36.
 PATTERN_SUPPRESS_FLAGS = frozenset(
     {"-e", "--regexp", "--expression", "-f", "--file"}
 )
 # A flag whose VALUE is a file the command reads (grep -f PATTERNFILE).
+# `-f` is pinned by C35, `--file` by C36 - each row flips on removal from
+# EITHER set, so both memberships of both flags are load-bearing.
 FILE_VALUE_FLAGS = frozenset({"-f", "--file"})
 
 TARGET_SUFFIX = ".agentic/learnings.md"
 GLOB_CHARS = frozenset("*?[]")
 
+# Closed POSIX set of the tokens that end one command and begin another.
+# Every member is emitted standalone by this module's lexer (measured) and
+# every member is pinned by
+# TestCommandSets::test_every_operator_token_splits_a_segment.
 OPERATOR_TOKENS = frozenset({";", ";;", "&&", "||", "|", "&", "(", ")", "{", "}"})
-# C26: shell keywords and transparent prefixes that occupy the command-word
-# slot without being the command. `do grep ... file` reads the file.
+# C26, C31: shell keywords and transparent prefixes that occupy the
+# command-word slot without being the command. `do grep ... file` reads the
+# file, and so does `if grep -q ... file; then`. Every member is pinned by
+# TestCommandSets::test_every_skipped_command_word_is_transparent.
 COMMAND_WORD_SKIP = frozenset(
-    {"do", "then", "else", "elif", "!", "time", "sudo", "env", "command",
-     "nohup", "exec", "builtin"}
+    {"do", "then", "else", "elif", "if", "while", "until", "!", "time",
+     "sudo", "env", "command", "nohup", "exec", "builtin"}
 )
 REDIRECT_PUNCT = frozenset("<>&")
-# A token consisting solely of redirect punctuation, optionally digit-
-# prefixed (C14, C16, C21). Which spellings survive tokenization is a lexer
-# detail, so the shape is recognized structurally rather than enumerated.
-PURE_REDIRECT_RE = re.compile(r"^[0-9]*[<>]+&?[0-9]*-?$")
+# An INPUT redirect: exactly one `<` with an optional fd-number prefix. Its
+# target is READ, so it is an operand (C27, C28) - the asymmetry with the
+# `>` family, whose target is WRITTEN, is the whole point of this constant.
+# Deliberately narrow: `<<<` is a herestring carrying a literal word rather
+# than a filename (C30), `<&` duplicates a descriptor, and `<>` opens for
+# read-write; all three fall to the write-side skip instead.
+INPUT_REDIRECT_RE = re.compile(r"^[0-9]*<$")
 
 HEREDOC_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
@@ -305,11 +352,12 @@ def command_word(segment_tokens: list[str]) -> tuple[str, int]:
 def read_operands(segment_tokens: list[str]) -> list[str]:
     """Extract the tokens a read command would open for reading.
 
-    Applies, in order: the redirect skip (C14, C16, C21 - a redirect token
-    and the token after it are both skipped, and a token that merely starts
-    with redirect punctuation is skipped alone), option skipping, the
-    pattern-slot rule for PATTERN_ARG_CMDS (C3, C19), and the `-f
-    PATTERNFILE` carve-out whose value IS read.
+    Applies, in order: the redirect rule (C14, C16, C21, C27-C30 - the
+    token after an INPUT redirect is an operand because it is read, the
+    token after any other redirect is skipped because it is written or is a
+    descriptor), option skipping, the pattern-slot rule for
+    PATTERN_ARG_CMDS (C3, C19, C32), and the `-f PATTERNFILE` carve-out
+    whose value IS read (C35, C36).
     """
     cmd, arg_start = command_word(segment_tokens)
     if cmd not in READ_CMDS:
@@ -328,11 +376,16 @@ def read_operands(segment_tokens: list[str]) -> list[str]:
             if not pattern_consumed:
                 pattern_consumed = True
             continue
-        if PURE_REDIRECT_RE.match(token):
-            index += 1  # skip the redirect target too
-            continue
         if token[0] in REDIRECT_PUNCT:
-            continue  # `>file` / `2>/dev/null`: redirect and target in one token
+            # Measured under punctuation_chars=True: the lexer always emits a
+            # redirect operator as its own token, separate from its target
+            # and from any fd-number prefix. So one branch covers every
+            # spelling - `<` contributes its target as a read operand, and
+            # every other redirect consumes its target silently.
+            if INPUT_REDIRECT_RE.match(token) and index < len(segment_tokens):
+                operands.append(segment_tokens[index])
+            index += 1
+            continue
         if token.startswith("-") and token != "-":
             base = token.split("=", 1)[0]
             if base in PATTERN_SUPPRESS_FLAGS:
@@ -583,18 +636,26 @@ FOOTER = [
     "    transcripts on this machine; it is not shared and is not CI-visible,",
     "    and it reads zero on a fresh machine.",
     "  - `wiring` is derived from the CURRENT content/agents/*.md files but",
-    "    applied to a HISTORICAL corpus, so a newly wired role carries its",
-    "    pre-wiring runs into the wired pool and depresses the pooled wired",
-    "    rate until post-wiring runs dominate the denominator.",
+    "    applied to a HISTORICAL corpus, and the distortion runs in BOTH",
+    "    directions. On a span being ADDED, that role's pre-wiring runs enter",
+    "    the wired pool and depress the pooled wired rate until post-wiring",
+    "    runs dominate the denominator. On a span being REMOVED, every one of",
+    "    that role's historical post-wiring fires migrates into the",
+    "    unwired-control pool and INFLATES the very floor these notes tell you",
+    "    to net against. Neither pooled line is a like-for-like comparison",
+    "    across a wiring change; only per-role rows read cleanly through one.",
     "  - Two-sided estimate, not a bound. False negatives: a Grep with the",
     "    file reached via `glob=` rather than `path=`; a read through an opaque",
     "    MCP handle carrying no literal path; a read via python3, git show, or",
-    "    another interpreter outside READ_CMDS. False positives: a read that is",
-    "    not domain-keyword retrieval - verifying a cited LRN-*/KNW-* id, or a",
-    "    `wc` size probe; and a read of a TEMPLATE copy whose path also ends in",
-    "    .agentic/learnings.md (this repo ships one at content/templates/). A",
-    "    multi-target grep naming the file alongside other paths is a TRUE",
-    "    positive of this metric: that command does read the file.",
+    "    another interpreter outside READ_CMDS; a path reached only through a",
+    "    command substitution (`cat $(ls .agentic/learnings.md)` - the outer",
+    "    command's operand list never contains a literal path). False",
+    "    positives: a read that is not domain-keyword retrieval - verifying a",
+    "    cited LRN-*/KNW-* id, or a `wc` size probe; and a read of a TEMPLATE",
+    "    copy whose path also ends in .agentic/learnings.md (this repo ships",
+    "    one at content/templates/). A multi-target grep naming the file",
+    "    alongside other paths is a TRUE positive of this metric: that",
+    "    command does read the file.",
     "  - `unreadable` (zero parsed records, or >= 20 MiB) is excluded from both",
     "    the numerator and the denominator of `rate`, and is never folded into",
     "    `not_fired`. `skipped_oversize` is a subset count of `unreadable`.",

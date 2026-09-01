@@ -24,7 +24,18 @@
 #                        calls check_marker_balance(), parse_fragments(),
 #                        and reads SHARED_RE/KERNELS_FILE/AGENTS_DIR - that
 #                        test runs under the required `python-bin-tests` CI
-#                        check.
+#                        check. Plus one consumer of the MARKER SYNTAX
+#                        rather than of this module:
+#                        bin/ds-learnings-retrieval-rate hardcodes the
+#                        `<!-- shared:<id> -->` opener (its SPAN_MARKER) to
+#                        derive its per-role `wiring` column from
+#                        content/agents/*.md. It does not import from here,
+#                        so a change to SHARED_RE's spelling would degrade
+#                        every role in that tool to `unwired-control` with
+#                        no error; the coupling is held by
+#                        bin/tests/test_ds_learnings_retrieval_rate.py::
+#                        test_span_marker_matches_the_stamper, which
+#                        fullmatches that tool's marker against SHARED_RE.
 
 import re
 import sys

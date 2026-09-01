@@ -45,7 +45,12 @@ NOT_FIRED = False
 # itself. C1-C18 are the round-3 plan's rows; C19-C23 close the five Majors
 # the plan reached its review cap with (pattern-position discrimination,
 # the WRITE_TOOLS exclusion, the redirect skip, and the shell-string
-# carrier rule in both directions).
+# carrier rule in both directions). C27-C41 close the DS-223 iteration-2
+# findings: the `<` input-redirect asymmetry (J1), the `if` idiom (Minor 1),
+# a disclosed command-substitution false negative (Minor 2), and a per-member
+# row for every previously unpinned member of PATTERN_SUPPRESS_FLAGS,
+# FILE_VALUE_FLAGS, WRITE_TOOLS and FIELD_ALLOWLIST (J2). The remaining
+# constants are closed sets pinned behaviourally by TestCommandSets below.
 # ---------------------------------------------------------------------------
 CASE_TABLE = [
     (
@@ -240,6 +245,125 @@ CASE_TABLE = [
         "COMMAND_WORD_SKIP reachable - a multi-command body would be split by the "
         "`;` instead and would pin nothing",
     ),
+    (
+        "C27", "Bash",
+        {"command": "cat < .agentic/learnings.md"},
+        FIRED,
+        "an INPUT redirect's target is READ. Before DS-223 J1 the `<` target was "
+        "skipped exactly as a `>` target is, so the single most common shell way "
+        "of reading a file classified NOT_FIRED",
+    ),
+    (
+        "C28", "Bash",
+        {"command": "grep -i kw < .agentic/learnings.md"},
+        FIRED,
+        "input redirect on a pattern-taking command: the pattern slot is filled by "
+        "`kw`, and the redirect target is still an operand",
+    ),
+    (
+        "C29", "Bash",
+        {"command": "grep -c x docs/index.html &> .agentic/learnings.md"},
+        NOT_FIRED,
+        "`&>` is an output redirect, so its target is written. This is the row that "
+        "makes the `&` member of REDIRECT_PUNCT reachable - `&` alone is an "
+        "OPERATOR_TOKEN and splits before it can reach the operand scan",
+    ),
+    (
+        "C30", "Bash",
+        {"command": "cat <<< .agentic/learnings.md"},
+        NOT_FIRED,
+        "a herestring's operand is a literal word fed on stdin, not a filename to "
+        "open. This is what keeps INPUT_REDIRECT_RE narrow to exactly one `<`",
+    ),
+    (
+        "C31", "Bash",
+        {"command": "if grep -q kw .agentic/learnings.md; then echo y; fi"},
+        FIRED,
+        "`if` occupies the command-word slot of the same segment as the grep, so "
+        "without `if` in COMMAND_WORD_SKIP the command word reads as `if` and one "
+        "of the most common shell idioms there is classifies NOT_FIRED",
+    ),
+    (
+        "C32", "Bash",
+        {"command": "grep -e kw -e .agentic/learnings.md docs/"},
+        NOT_FIRED,
+        "two out-of-band patterns, the second of which is the literal path. `-e` "
+        "must consume its value, or that value falls through as an operand and the "
+        "row becomes a false positive. This is the row that pins `-e` in "
+        "PATTERN_SUPPRESS_FLAGS",
+    ),
+    (
+        "C33", "Bash",
+        {"command": "grep --regexp=kw .agentic/learnings.md"},
+        FIRED,
+        "the `=` spelling of an out-of-band pattern: the path is an operand, not the "
+        "pattern slot. Pins `--regexp`, and pins the `=`-form branch of the "
+        "suppress rule",
+    ),
+    (
+        "C34", "Bash",
+        {"command": "sed --expression='s|a|b|' .agentic/learnings.md"},
+        FIRED,
+        "same shape for sed's script flag. Pins `--expression`; without it the "
+        "script is skipped as a plain option and the path is eaten by the pattern "
+        "slot",
+    ),
+    (
+        "C35", "Bash",
+        {"command": "grep -f .agentic/learnings.md docs/"},
+        FIRED,
+        "the file is grep's PATTERN FILE - genuinely opened and read, even though "
+        "the search target is docs/. Pins `-f` in FILE_VALUE_FLAGS (drop it and the "
+        "value is skipped unread) and in PATTERN_SUPPRESS_FLAGS (drop it there and "
+        "the value is eaten by the pattern slot)",
+    ),
+    (
+        "C36", "Bash",
+        {"command": "grep --file=.agentic/learnings.md docs/"},
+        FIRED,
+        "the `=` spelling of the same carve-out; pins `--file` in both sets",
+    ),
+    (
+        "C37", "Write",
+        {"file_path": "probe.sh", "content": "grep -i kw .agentic/learnings.md\n"},
+        NOT_FIRED,
+        "authoring a script that WOULD read the file is not reading it. This is the "
+        "row that makes the `Write` member of WRITE_TOOLS reachable: C17's bare "
+        "file_path cannot fire through the carrier scan, so removing `Write` from "
+        "WRITE_TOOLS flips nothing there",
+    ),
+    (
+        "C38", "MultiEdit",
+        {
+            "file_path": "content/agents/engineer.md",
+            "edits": [{"old_string": "a", "new_string": "cat .agentic/learnings.md"}],
+        },
+        NOT_FIRED,
+        "same, for MultiEdit's nested edit payload; pins the `MultiEdit` member",
+    ),
+    (
+        "C39", "NotebookEdit",
+        {"notebook_path": "nb.ipynb", "new_source": "cat .agentic/learnings.md"},
+        NOT_FIRED,
+        "same, for a notebook cell body; pins the `NotebookEdit` member",
+    ),
+    (
+        "C40", "Bash",
+        {"command": "ls -la", "description": "cat .agentic/learnings.md for priors"},
+        NOT_FIRED,
+        "a Bash call whose DESCRIPTION paraphrases a read that the command does not "
+        "perform. This is the row that makes Bash's FIELD_ALLOWLIST entry "
+        "load-bearing: without it Bash falls to the carrier scan, which reads every "
+        "string field including this one",
+    ),
+    (
+        "C41", "Bash",
+        {"command": "cat $(ls .agentic/learnings.md)"},
+        NOT_FIRED,
+        "a knowing false negative, disclosed in the footer: the path is inside a "
+        "command substitution, so the outer `cat`'s operand list never contains a "
+        "literal path token",
+    ),
 ]
 
 
@@ -276,6 +400,141 @@ class TestPathToken(unittest.TestCase):
         self.assertFalse(lrr.is_path_token("--file=.agentic/learnings.md"))
 
 
+# Test-OWNED expected membership for the four closed sets. These literals
+# are the second operand that makes the loops below falsifiable: iterating
+# `lrr.READ_CMDS` directly cannot detect a deletion, because the deleted
+# member takes its own subtest away with it and the suite stays green with a
+# silently smaller subtest count. (Measured: the first cut of these tests
+# survived 24 of 29 per-member deletions for exactly that reason.) Keep each
+# literal in sync with the CLI deliberately - a diff here is the point.
+EXPECTED_READ_CMDS = frozenset({
+    "grep", "rg", "egrep", "fgrep", "cat", "head", "tail", "sed",
+    "awk", "less", "wc", "sort", "uniq", "nl", "cut",
+})
+EXPECTED_PATTERN_ARG_CMDS = frozenset({"grep", "rg", "egrep", "fgrep", "sed", "awk"})
+EXPECTED_OPERATOR_TOKENS = frozenset({
+    ";", ";;", "&&", "||", "|", "&", "(", ")", "{", "}",
+})
+EXPECTED_COMMAND_WORD_SKIP = frozenset({
+    "do", "then", "else", "elif", "if", "while", "until", "!", "time",
+    "sudo", "env", "command", "nohup", "exec", "builtin",
+})
+
+
+class TestCommandSets(unittest.TestCase):
+    """Pins for the four closed sets whose members are too numerous for one
+    case-table row each (DS-223 J2).
+
+    Two layers, because either alone is defeatable. The membership layer
+    asserts the CLI's set equals a test-owned literal, bidirectionally, so
+    adding OR deleting a member reddens. The behaviour layer then iterates
+    the LITERAL and asserts what membership MEANS for each named member, so
+    the equality assertion is not a bare golden hash - every member has an
+    executed consequence. The paired non-member assertions pin the
+    exclusion boundary, which a membership-only loop leaves open.
+    """
+
+    TARGET = ".agentic/learnings.md"
+
+    # Deliberately NOT read commands: metadata probes, writers, and
+    # interpreters. The footer names the interpreter case as a known false
+    # negative, so this is the boundary that keeps it honest.
+    NON_READ_CMDS = ("git", "tee", "echo", "python3", "ls", "touch", "cp", "tar")
+
+    NON_TRANSPARENT_WORDS = ("cd", "xargs", "echo", "python3")
+
+    def test_command_sets_match_expected_membership(self):
+        self.assertEqual(lrr.READ_CMDS, EXPECTED_READ_CMDS)
+        self.assertEqual(lrr.PATTERN_ARG_CMDS, EXPECTED_PATTERN_ARG_CMDS)
+        self.assertEqual(lrr.OPERATOR_TOKENS, EXPECTED_OPERATOR_TOKENS)
+        self.assertEqual(lrr.COMMAND_WORD_SKIP, EXPECTED_COMMAND_WORD_SKIP)
+        # PATTERN_ARG_CMDS is meaningless for a command whose operands are
+        # never read, so the containment is part of the contract.
+        self.assertTrue(EXPECTED_PATTERN_ARG_CMDS <= EXPECTED_READ_CMDS)
+
+    def test_every_read_cmd_reads_its_operands(self):
+        for cmd in sorted(EXPECTED_READ_CMDS):
+            with self.subTest(cmd=cmd):
+                # With the pattern slot explicitly filled, every read
+                # command's trailing operand is read.
+                self.assertTrue(
+                    lrr.command_string_reads_target(f"{cmd} kw {self.TARGET}"),
+                    f"{cmd} is in READ_CMDS, so its file operand must be read",
+                )
+                # And the bare form fires iff the command does NOT consume
+                # its first argument as a pattern. Both operands here are
+                # test-owned, so this pins PATTERN_ARG_CMDS member-by-member.
+                self.assertEqual(
+                    lrr.command_string_reads_target(f"{cmd} {self.TARGET}"),
+                    cmd not in EXPECTED_PATTERN_ARG_CMDS,
+                    f"bare `{cmd} <path>` must fire iff {cmd} takes no pattern arg",
+                )
+
+    def test_non_read_commands_never_fire(self):
+        for cmd in self.NON_READ_CMDS:
+            with self.subTest(cmd=cmd):
+                self.assertNotIn(cmd, lrr.READ_CMDS)
+                self.assertFalse(
+                    lrr.command_string_reads_target(f"{cmd} kw {self.TARGET}")
+                )
+                self.assertFalse(
+                    lrr.command_string_reads_target(f"{cmd} {self.TARGET}")
+                )
+
+    def test_every_operator_token_splits_a_segment(self):
+        for op in sorted(EXPECTED_OPERATOR_TOKENS):
+            with self.subTest(op=op):
+                # `echo` is not a read command, so the target is only seen
+                # if the operator actually ended echo's segment.
+                self.assertTrue(
+                    lrr.command_string_reads_target(
+                        f"echo x {op} grep kw {self.TARGET}"
+                    ),
+                    f"`{op}` must end the preceding command's segment",
+                )
+
+    def test_every_skipped_command_word_is_transparent(self):
+        for word in sorted(EXPECTED_COMMAND_WORD_SKIP):
+            with self.subTest(word=word):
+                self.assertTrue(
+                    lrr.command_string_reads_target(
+                        f"{word} grep kw {self.TARGET}"
+                    ),
+                    f"`{word}` must not occupy the command-word slot",
+                )
+
+    def test_non_transparent_command_words_are_opaque(self):
+        for word in self.NON_TRANSPARENT_WORDS:
+            with self.subTest(word=word):
+                self.assertNotIn(word, lrr.COMMAND_WORD_SKIP)
+                self.assertFalse(
+                    lrr.command_string_reads_target(
+                        f"{word} grep kw {self.TARGET}"
+                    ),
+                    f"`{word}` is the command; the rest is its argv, not a command",
+                )
+
+    def test_span_marker_matches_the_stamper(self):
+        """The CLI's SPAN_MARKER is a second site that knows the shared-
+        fragment marker syntax (DS-223 Minor 5). Assert it against the
+        stamper's own regex rather than against a hand-typed copy, so a
+        marker-syntax change in scripts/lib/ reddens here instead of
+        silently degrading every role to unwired-control."""
+        loader = SourceFileLoader(
+            "stamp_agent_fragments",
+            str(REPO_DIR / "scripts" / "lib" / "stamp_agent_fragments.py"),
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        stamper = importlib.util.module_from_spec(spec)
+        loader.exec_module(stamper)
+        span = f"{lrr.SPAN_MARKER}body<!-- /shared -->"
+        match = stamper.SHARED_RE.fullmatch(span)
+        self.assertIsNotNone(
+            match, "the CLI's SPAN_MARKER must open a span the stamper recognizes"
+        )
+        self.assertEqual(match.group("id"), lrr.FRAGMENT_ID)
+
+
 def _write_transcript(store: Path, session: str, agent_id: str, role, calls):
     directory = store / "projects" / "hash1" / session / "subagents"
     directory.mkdir(parents=True, exist_ok=True)
@@ -302,17 +561,117 @@ def _write_transcript(store: Path, session: str, agent_id: str, role, calls):
     return path
 
 
-def _run_cli(store: Path, executable: Path = CLI_PATH):
+def _run_cli(store: Path, executable: Path = CLI_PATH, json_flag: bool = True):
     env = dict(os.environ)
     env["CLAUDE_CONFIG_DIR"] = str(store)
     env.pop("AGENTIC_CONFIG_DIR", None)
-    result = subprocess.run(
-        [sys.executable, str(executable), "--json"],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
+    argv = [sys.executable, str(executable)]
+    if json_flag:
+        argv.append("--json")
+    result = subprocess.run(argv, capture_output=True, text=True, env=env)
     return result
+
+
+class TestRender(unittest.TestCase):
+    """The default (non---json) path is the one an operator actually reads,
+    and it is where both pooled human lines compute their own denominator.
+    Before DS-223 J4 every end-to-end test passed --json, so none of this
+    was executed at all.
+    """
+
+    def test_format_rate_renders_percent_and_na(self):
+        self.assertEqual(lrr.format_rate(None), "n/a")
+        self.assertEqual(lrr.format_rate(0.0), "0.0%")
+        self.assertEqual(lrr.format_rate(1.0), "100.0%")
+        self.assertEqual(lrr.format_rate(0.076), "7.6%")
+
+    def test_table_path_renders_rows_total_pooled_and_footer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            _write_transcript(
+                store, "s1", "aaa", "architect",
+                [("Bash", {"command": "grep -i -E 'kw' .agentic/learnings.md"})],
+            )
+            _write_transcript(store, "s1", "bbb", "skeptic", [("Read", {"file_path": "x"})])
+            result = _run_cli(store, json_flag=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = result.stdout
+            self.assertNotIn("Traceback", result.stderr)
+            # The table is a table, not JSON.
+            self.assertNotIn("{", out)
+            for token in ("role", "wiring", "runs", "fired", "not_fired",
+                          "unreadable", "rate"):
+                self.assertIn(token, out)
+            self.assertIn("architect", out)
+            self.assertIn("wired", out)
+            self.assertIn("skeptic", out)
+            self.assertIn("unwired-control", out)
+            self.assertIn("100.0%", out)
+            self.assertIn("TOTAL", out)
+            self.assertIn("skipped_oversize: 0", out)
+            self.assertIn("Notes:", out)
+            # Wired roles sort ahead of controls, which is what makes the
+            # pooled control line readable as a floor for the rows above it.
+            self.assertLess(out.index("architect"), out.index("skeptic"))
+
+    def test_pooled_human_lines_exclude_unreadable_from_the_denominator(self):
+        """`runs - unreadable` is computed ONLY in the render layer, so this
+        invariant is unasserted on the operator's path without this test."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            _write_transcript(
+                store, "s1", "aaa", "architect",
+                [("Bash", {"command": "grep -i -E 'kw' .agentic/learnings.md"})],
+            )
+            _write_transcript(store, "s1", "bbb", "architect", [])  # zero records
+            out = _run_cli(store, json_flag=False).stdout
+            self.assertIn("pooled wired: 1/1 = 100.0%", out)
+            self.assertNotIn("pooled wired: 1/2", out)
+            self.assertIn("pooled unwired-control: 0/0 = n/a", out)
+
+    def test_no_transcripts_human_branch_says_why_and_prints_no_table(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(Path(tmp), json_flag=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = result.stdout
+            self.assertIn("No subagent transcripts found.", out)
+            self.assertIn("subagents/agent-*.jsonl", out)
+            self.assertIn("error: no_transcripts", out)
+            # The early return must skip the table AND the footer entirely -
+            # a header of empty columns over no data is worse than nothing.
+            self.assertNotIn("not_fired", out)
+            self.assertNotIn("Notes:", out)
+            self.assertNotIn("pooled wired", out)
+
+    def test_missing_agents_dir_renders_a_warning(self):
+        payload = {
+            "harness": "claude-code",
+            "config_dir": "/x",
+            "transcripts_scanned": 1,
+            "by_role": {
+                "architect": {
+                    "wiring": "n/a", "runs": 1, "fired": 0,
+                    "not_fired": 1, "unreadable": 0, "rate": 0.0,
+                }
+            },
+            "pooled": {
+                "wired": {"runs": 0, "fired": 0, "unreadable": 0, "rate": None},
+                "unwired_control": {"runs": 0, "fired": 0, "unreadable": 0, "rate": None},
+            },
+            "skipped_oversize": 0,
+            "error": None,
+        }
+        self.assertIn("WARNING", lrr.render(payload, agents_dir_present=False))
+        self.assertNotIn("WARNING", lrr.render(payload, agents_dir_present=True))
+
+    def test_footer_discloses_both_retroactivity_directions_and_substitution(self):
+        """DS-223 Minors 2 and 3: an undisclosed false-negative class and a
+        one-directional caveat are both defects in a tool whose entire
+        output is a number someone will act on."""
+        footer = "\n".join(lrr.FOOTER)
+        self.assertIn("command substitution", footer)
+        self.assertIn("INFLATES", footer)
+        self.assertIn("REMOVED", footer)
 
 
 class TestEndToEnd(unittest.TestCase):

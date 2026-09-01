@@ -5,9 +5,12 @@
 #          must read identically in two or more agent definitions has
 #          exactly one hand-edited source of truth. The mechanism is
 #          file-set agnostic: it stamps whichever agent files carry a span,
-#          so adding a consumer is a span in that file plus a key in
-#          bin/tests/test_stamp_agent_fragments.py's EXPECTED_SPAN_IDS - no
-#          change here.
+#          so adding a consumer needs no change here - but it does need TWO
+#          pins in bin/tests/test_stamp_agent_fragments.py, not one: a key
+#          in EXPECTED_SPAN_IDS, and (for a fragment whose consumer set is
+#          itself asserted, as learnings-retrieval's is) the matching entry
+#          in LEARNINGS_RETRIEVAL_FILES, which is checked bidirectionally
+#          and so fails on an unlisted addition as well as a removal.
 #
 # Public API: bash scripts/stamp-agent-fragments.sh
 #             No arguments. Writes to content/agents/*.md in place; prints
@@ -30,7 +33,17 @@
 #                        .github/workflows/agent-fragment-sync.yml (runs
 #                        this then diffs content/agents/*.md against the
 #                        working tree to catch a hand-edit that skipped the
-#                        stamp).
+#                        stamp); bin/ds-learnings-retrieval-rate, which is a
+#                        consumer of the `<!-- shared:<id> -->` MARKER
+#                        SYNTAX rather than of this script - it derives its
+#                        `wiring` column by looking for that literal opener
+#                        in content/agents/*.md, so a change to the marker
+#                        spelling silently degrades every role in that tool
+#                        to `unwired-control`. Its SPAN_MARKER is pinned
+#                        against SHARED_RE by
+#                        bin/tests/test_ds_learnings_retrieval_rate.py::
+#                        test_span_marker_matches_the_stamper; change the
+#                        syntax and that test reddens.
 #
 # Failure modes: exits non-zero if a `<!-- shared:<id> -->` span in any
 #                content/agents/*.md file references a fragment id with no
