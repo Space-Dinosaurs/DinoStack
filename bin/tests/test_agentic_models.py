@@ -10,6 +10,11 @@ Test groups:
   5. test_suggestions_shape - payload has models[], roles{} (9 keys), reviewer_pool[].
   6. test_suggestions_handles_empty_models - empty input yields None primaries.
   7. test_suggestions_distinct_families - reviewer pool pulls from >=2 families.
+  8. test_fable_ranks_first_for_skeptic - claude-fable-5-1 outranks claude-opus-4-8
+     for skeptic in ROLE_HINTS (DS-226).
+  9. test_reviewer_pool_does_not_favor_fable_over_opus - REVIEWER_POOL_HINTS scores
+     fable <= opus, so the pool never defaults to the most expensive model (DS-226
+     round 2).
 
 Run with: python3 -m pytest bin/tests/test_agentic_models.py -x
        or: python3 bin/tests/test_agentic_models.py
@@ -114,6 +119,29 @@ def test_fable_ranks_first_for_skeptic():
     assert payload["roles"]["skeptic"]["primary"] == "claude-fable-5-1"
 
 
+def test_reviewer_pool_does_not_favor_fable_over_opus():
+    """DS-226 round 2 (Skeptic Major 1): REVIEWER_POOL_HINTS must score
+    "fable" <= "opus", not above it - that table's own comment says it
+    biases toward "capable but cheaper models ... without spending the most
+    expensive model on every review", so scoring fable above opus would
+    make a Claude-only reviewer pool default to the most expensive model,
+    contradicting the comment. This is distinct from ROLE_HINTS (test above),
+    where fable legitimately outranks opus for the Tier-3-mandated roles.
+    Reddening mutation: restoring REVIEWER_POOL_HINTS["fable"] to a value
+    greater than REVIEWER_POOL_HINTS["opus"] (e.g. 5) makes claude-fable-5-1
+    the pool leader over claude-opus-4-8."""
+    assert _mod.REVIEWER_POOL_HINTS["fable"] <= _mod.REVIEWER_POOL_HINTS["opus"], (
+        "REVIEWER_POOL_HINTS must not score fable above opus"
+    )
+    models = ["claude-opus-4-8", "claude-fable-5-1", "claude-sonnet-4-5"]
+    payload = _suggestions(models)
+    pool = payload["reviewer_pool"]
+    assert pool, f"reviewer pool unexpectedly empty: {pool}"
+    assert pool[0] != "claude-fable-5-1", (
+        f"reviewer pool defaulted to the most expensive model (fable): {pool}"
+    )
+
+
 def test_cli_help_runs():
     """Issue #1 regression: `main()` must be defined; --help exits 0."""
     r = subprocess.run([sys.executable, str(_BIN_PATH), "--help"],
@@ -152,6 +180,7 @@ def main() -> int:
         test_suggestions_handles_empty_models,
         test_suggestions_distinct_families,
         test_fable_ranks_first_for_skeptic,
+        test_reviewer_pool_does_not_favor_fable_over_opus,
         test_cli_help_runs,
         test_cli_positional_args_json,
     ]

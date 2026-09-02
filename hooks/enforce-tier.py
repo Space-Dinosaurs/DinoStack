@@ -80,10 +80,9 @@ Failure modes:
       deterministically detect an ADR-tier authoring spawn; the PRIMARY
       control is the conductor passing model: opus explicitly (see
       content/references/risk-config-and-tiers.md §Mandatory Tier-3 authoring
-      escalation). This hook only BACKSTOPS an explicit sub-Opus downgrade
+      escalation). This hook only BACKSTOPS an explicit sub-Tier-3 downgrade
       when the brief matches `_AUTHOR_MARKER_PATTERNS` - best-effort, and it
-      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary
-      (this hook only backstops an explicit sub-Tier-3 downgrade).
+      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary.
       Critically, an OMITTED model param on an authoring-role spawn resolves
       to the Sonnet frontmatter default (Role-default tier table) and is
       ALLOWED by this hook - the omit path is the conductor's responsibility
@@ -115,7 +114,7 @@ MANDATED_TIER3 = {"skeptic", "security-auditor"}
 # "Mandatory Tier-3 review escalation" rule in
 # content/references/risk-config-and-tiers.md. These roles default to Sonnet/Tier 2
 # (Role-default tier table) - the escalation is a CONDITIONAL rule, not a default.
-# This hook only backstops an explicit sub-Opus downgrade when the brief names the
+# This hook only backstops an explicit sub-Tier-3 downgrade when the brief names the
 # architecture/ADR signal; it CANNOT see the structural Plan+ADR trigger. See the
 # manifest Failure modes "authoring roles" carve-out.
 MANDATED_TIER3_AUTHOR = {"architect", "adr-generator", "product-discovery"}

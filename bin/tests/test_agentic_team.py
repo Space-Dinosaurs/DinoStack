@@ -20,6 +20,9 @@ Additional coverage:
   test_scalar_role_treated_as_harness   - scalar string role value sets harness
   test_dispatch_block_parsed             - dispatch sub-block round-trips
   test_normalize_role_spec_imported      - _role_spec.normalize_role_spec is wired
+  test_claude_fable_scores_at_least_claude_opus_for_review_roles - DS-226 round 2:
+    claude-fable-5-1 >= claude-opus-4-8 for skeptic and architect in
+    _TEAM_CAPABILITY_TABLE
 
 Run with: python3 -m pytest bin/tests/test_agentic_team.py -x
 """
@@ -53,6 +56,7 @@ _validate_config = _mod._validate_config
 _role_entry = _mod._role_entry
 _resolve_role_model = _mod._resolve_role_model
 _parse_team_yml = _mod._parse_team_yml
+_score_model_for_role = _mod._score_model_for_role
 main = _mod.main
 
 # ---------------------------------------------------------------------------
@@ -1754,3 +1758,21 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
     explicit = "glm/glm-5.2"
     resolved = explicit or _resolve_role_model("engineer", "omp")
     assert resolved == "glm/glm-5.2"
+
+
+def test_claude_fable_scores_at_least_claude_opus_for_review_roles():
+    """DS-226 round 2 (Skeptic Minor 7): bin/ds-team's "claude-fable" capability
+    row must score claude-fable-5-1 at least as high as claude-opus-4-8 for
+    skeptic and architect - the Tier-3-mandated review/authoring roles - via
+    the module's own _score_model_for_role helper (no hand-rolled scoring
+    logic in the test). Reddening mutation: deleting the "claude-fable" entry
+    from _TEAM_CAPABILITY_TABLE (or scoring it below "claude-opus" for either
+    role) makes claude-fable-5-1 score lower than claude-opus-4-8 for that
+    role."""
+    for role in ("skeptic", "architect"):
+        fable_score = _score_model_for_role("claude-fable-5-1", role)
+        opus_score = _score_model_for_role("claude-opus-4-8", role)
+        assert fable_score >= opus_score, (
+            f"claude-fable-5-1 ({fable_score}) scored below "
+            f"claude-opus-4-8 ({opus_score}) for role {role!r}"
+        )

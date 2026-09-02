@@ -567,7 +567,7 @@ for label, payload, expected, extra_env in cases:
         print(f"         stderr:   {stderr!r}")
         print(f"         expected: {expected}")
 
-# 35 (Skeptic-required Fix 1): lock the AUTHOR branch's deny-message wording.
+# 38 (Skeptic-required Fix 1): lock the AUTHOR branch's deny-message wording.
 # The behavioral ALLOW/DENY cases above can't catch a pure message-wording
 # revert, so this asserts on permissionDecisionReason content directly.
 # POSITIVE: the reason must instruct "pass model: opus". NEGATIVE: the reason
@@ -576,8 +576,8 @@ for label, payload, expected, extra_env in cases:
 # default to Opus, so omitting is right), but on the AUTHOR branch it would
 # be WRONG (architect/adr-generator/product-discovery default to Sonnet, so
 # telling the operator to omit would silently defeat the escalation).
-label_35 = "38: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
-reason_35 = deny_reason(json.dumps({
+label_38 = "38: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
+reason_38 = deny_reason(json.dumps({
     "tool_name": "Agent",
     "tool_input": {
         "subagent_type": "architect",
@@ -585,29 +585,29 @@ reason_35 = deny_reason(json.dumps({
         "prompt": "author the ADR",
     },
 }))
-ok_35 = (
-    reason_35 is not None
-    and "pass model: opus" in reason_35
-    and "omit the model param to use" not in reason_35
+ok_38 = (
+    reason_38 is not None
+    and "pass model: opus" in reason_38
+    and "omit the model param to use" not in reason_38
 )
-status_35 = "PASS" if ok_35 else "FAIL"
-if not ok_35:
+status_38 = "PASS" if ok_38 else "FAIL"
+if not ok_38:
     failed += 1
-print(f"  [{status_35}] {label_35}")
-if not ok_35:
-    print(f"         reason:   {reason_35!r}")
+print(f"  [{status_38}] {label_38}")
+if not ok_38:
+    print(f"         reason:   {reason_38!r}")
 
-# 36 (fire-log integration): a DENY action must append a well-formed line to
+# 39 (fire-log integration): a DENY action must append a well-formed line to
 # <cwd>/.agentic/.enforcement-fires.jsonl (hooks/lib/enforcement_log.py);
 # a passthrough ALLOW (case 1, model omitted) must write nothing at all -
 # no .agentic/ dir is even created. Uses an explicit "cwd" in the payload
 # (rather than relying on the subprocess cwd= isolation _TEST_CWD provides)
 # so this test exercises the same data["cwd"] read path a real Claude Code
 # payload uses.
-import tempfile as _tempfile_36
+import tempfile as _tempfile_39
 
-label_36 = "39: fire-log integration - deny writes a line, passthrough writes nothing"
-_fire_cwd = _tempfile_36.mkdtemp(prefix="test-enforce-tier-firelog-")
+label_39 = "39: fire-log integration - deny writes a line, passthrough writes nothing"
+_fire_cwd = _tempfile_39.mkdtemp(prefix="test-enforce-tier-firelog-")
 _fire_log_path = os.path.join(_fire_cwd, ".agentic", ".enforcement-fires.jsonl")
 
 # (a) DENY case: security-auditor downgraded below Opus.
@@ -616,11 +616,11 @@ run_hook(json.dumps({
     "cwd": _fire_cwd,
     "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
 }))
-ok_36a = os.path.exists(_fire_log_path)
-if ok_36a:
+ok_39a = os.path.exists(_fire_log_path)
+if ok_39a:
     with open(_fire_log_path, "r", encoding="utf-8") as f:
         _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
-    ok_36a = (
+    ok_39a = (
         len(_fire_lines) == 1
         and _fire_lines[0].get("hook") == "enforce-tier"
         and _fire_lines[0].get("decision") == "deny"
@@ -634,35 +634,35 @@ run_hook(json.dumps({
 }))
 with open(_fire_log_path, "r", encoding="utf-8") as f:
     _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
-ok_36b = len(_fire_lines_after) == 1  # unchanged - passthrough logged nothing
+ok_39b = len(_fire_lines_after) == 1  # unchanged - passthrough logged nothing
 
-ok_36 = ok_36a and ok_36b
-status_36 = "PASS" if ok_36 else "FAIL"
-if not ok_36:
+ok_39 = ok_39a and ok_39b
+status_39 = "PASS" if ok_39 else "FAIL"
+if not ok_39:
     failed += 1
-print(f"  [{status_36}] {label_36}")
+print(f"  [{status_39}] {label_39}")
 
-# 37 (Skeptic Critical regression): a raising log_fire() must NOT suppress
+# 40 (Skeptic Critical regression): a raising log_fire() must NOT suppress
 # the deny decision. Confirmed failing pre-fix: against a8ded298 (the
 # commit under review), the copied-hook subprocess exits 0 with EMPTY
 # stdout - the deny is silently lost - because the pre-fix _deny() called
 # log_fire() BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
-label_37 = "40: raising log_fire cannot suppress the deny decision"
-_rc_37, _stdout_37, _stderr_37 = run_hook_with_raising_log_fire(
+label_40 = "40: raising log_fire cannot suppress the deny decision"
+_rc_40, _stdout_40, _stderr_40 = run_hook_with_raising_log_fire(
     "enforce-tier.py",
     json.dumps({
         "tool_name": "Agent",
         "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
     }),
 )
-ok_37 = _rc_37 == 0 and not is_allow(_rc_37, _stdout_37)
-status_37 = "PASS" if ok_37 else "FAIL"
-if not ok_37:
+ok_40 = _rc_40 == 0 and not is_allow(_rc_40, _stdout_40)
+status_40 = "PASS" if ok_40 else "FAIL"
+if not ok_40:
     failed += 1
-print(f"  [{status_37}] {label_37}")
-if not ok_37:
-    print(f"         stdout: {_stdout_37!r}")
-    print(f"         stderr: {_stderr_37[-500:]!r}")
+print(f"  [{status_40}] {label_40}")
+if not ok_40:
+    print(f"         stdout: {_stdout_40!r}")
+    print(f"         stderr: {_stderr_40[-500:]!r}")
 
 total_tests = len(cases) + 3
 

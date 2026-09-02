@@ -58,8 +58,13 @@ ROLE_HINTS: dict[str, dict[str, int]] = {
 # strategies can draw from. We bias toward capable but cheaper models so the
 # antagonist is plausibly as good as the author without spending the most
 # expensive model on every review. Substring match is case-insensitive.
+# "fable" (DS-226) is scored BELOW "opus" here, not above it (unlike
+# ROLE_HINTS) - this table's own bias is toward cheaper-but-capable, so
+# scoring fable >= opus would make the reviewer pool default to the most
+# expensive model on a tie-break (alphabetical: "claude-fable..." sorts
+# before "claude-opus..."), contradicting the comment above (round-2 fix).
 REVIEWER_POOL_HINTS: dict[str, int] = {
-    "opus": 4, "fable": 5, "sonnet": 2, "haiku": -1,
+    "opus": 4, "fable": 3, "sonnet": 2, "haiku": -1,
     "gpt-5.5": 5, "gpt-5.4": 4, "gpt-5.3-codex": 3, "gpt-5": 4,
     "gemini-2.5-pro": 4, "gemini-3-pro-preview": 5, "gemini-2.5-flash": 2,
     "kimi-k2.7": 5, "kimi-k2.6": 4, "kimi-k2.5-thinking": 5, "kimi-latest": 3,
