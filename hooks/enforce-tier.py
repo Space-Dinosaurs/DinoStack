@@ -105,7 +105,7 @@ import os
 import re
 import sys
 
-# Agents whose review quality is mandated Tier 3 (Opus). Source of truth:
+# Agents whose review quality is mandated Tier 3 or above (opus/fable). Source of truth:
 # content/references/risk-config-and-tiers.md Role-default tier table.
 MANDATED_TIER3 = {"skeptic", "security-auditor"}
 

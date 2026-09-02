@@ -15,6 +15,10 @@ Test groups:
   9. test_reviewer_pool_does_not_favor_fable_over_opus - REVIEWER_POOL_HINTS scores
      fable <= opus, so the pool never defaults to the most expensive model (DS-226
      round 2).
+  10. test_cli_help_runs - `--help` exits 0 (Issue #1 regression: main() must be
+      defined).
+  11. test_cli_positional_args_json - positional model args + --json produce a
+      ranking payload with models[]/roles/reviewer_pool.
 
 Run with: python3 -m pytest bin/tests/test_agentic_models.py -x
        or: python3 bin/tests/test_agentic_models.py
