@@ -39,23 +39,32 @@ from typing import Any
 # Heuristics for per-role ranking. These are *hints*, not opinions -- the
 # model name is what determines the final pick, the score just orders them.
 ROLE_HINTS: dict[str, dict[str, int]] = {
-    "conductor":          {"opus": 5, "sonnet": 2, "haiku": -3, "gpt-5": 3, "gemini-2.5-pro": 2},
+    # "fable" (DS-226) is the Claude tier above Opus (alias "fable" or a full
+    # id like claude-fable-5-1). Scored above opus for architect/skeptic/
+    # security-auditor (the Tier-3-mandated review/authoring roles); equal to
+    # opus everywhere else, so it never ranks below opus on any role.
+    "conductor":          {"opus": 5, "fable": 5, "sonnet": 2, "haiku": -3, "gpt-5": 3, "gemini-2.5-pro": 2},
     "investigator":       {"haiku": 3, "sonnet": 2, "gpt-5": 1, "kimi-k2.5": 2, "kimi-k2.6": 3},
-    "architect":          {"opus": 6, "gpt-5": 4, "gemini-2.5-pro": 3, "sonnet": 2},
-    "orchestration-planner": {"opus": 5, "gpt-5": 4, "sonnet": 2, "haiku": -2},
-    "engineer":           {"sonnet": 5, "haiku": 3, "opus": 3, "gpt-5": 3, "kimi-k2.6": 3, "kimi-k2.7": 3},
-    "debugger":           {"sonnet": 4, "opus": 3, "gpt-5": 3, "haiku": 2, "kimi-k2.5-thinking": 4},
-    "qa-engineer":        {"haiku": 4, "sonnet": 3, "opus": 1},
-    "skeptic":            {"opus": 6, "gpt-5": 4, "gemini-2.5-pro": 3, "sonnet": 2, "kimi-k2.7": 3},
-    "security-auditor":   {"opus": 7, "gpt-5": 5, "gemini-2.5-pro": 4, "sonnet": 2},
+    "architect":          {"opus": 6, "fable": 7, "gpt-5": 4, "gemini-2.5-pro": 3, "sonnet": 2},
+    "orchestration-planner": {"opus": 5, "fable": 5, "gpt-5": 4, "sonnet": 2, "haiku": -2},
+    "engineer":           {"sonnet": 5, "haiku": 3, "opus": 3, "fable": 3, "gpt-5": 3, "kimi-k2.6": 3, "kimi-k2.7": 3},
+    "debugger":           {"sonnet": 4, "opus": 3, "fable": 3, "gpt-5": 3, "haiku": 2, "kimi-k2.5-thinking": 4},
+    "qa-engineer":        {"haiku": 4, "sonnet": 3, "opus": 1, "fable": 1},
+    "skeptic":            {"opus": 6, "fable": 7, "gpt-5": 4, "gemini-2.5-pro": 3, "sonnet": 2, "kimi-k2.7": 3},
+    "security-auditor":   {"opus": 7, "fable": 8, "gpt-5": 5, "gemini-2.5-pro": 4, "sonnet": 2},
 }
 
 # Reviewer pool candidates -- the list the distinct-from-author / round-robin
 # strategies can draw from. We bias toward capable but cheaper models so the
 # antagonist is plausibly as good as the author without spending the most
 # expensive model on every review. Substring match is case-insensitive.
+# "fable" (DS-226) is scored BELOW "opus" here, not above it (unlike
+# ROLE_HINTS) - this table's own bias is toward cheaper-but-capable, so
+# scoring fable >= opus would make the reviewer pool default to the most
+# expensive model on a tie-break (alphabetical: "claude-fable..." sorts
+# before "claude-opus..."), contradicting the comment above (round-2 fix).
 REVIEWER_POOL_HINTS: dict[str, int] = {
-    "opus": 4, "sonnet": 2, "haiku": -1,
+    "opus": 4, "fable": 3, "sonnet": 2, "haiku": -1,
     "gpt-5.5": 5, "gpt-5.4": 4, "gpt-5.3-codex": 3, "gpt-5": 4,
     "gemini-2.5-pro": 4, "gemini-3-pro-preview": 5, "gemini-2.5-flash": 2,
     "kimi-k2.7": 5, "kimi-k2.6": 4, "kimi-k2.5-thinking": 5, "kimi-latest": 3,

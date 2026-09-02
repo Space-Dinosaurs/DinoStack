@@ -832,7 +832,7 @@ When using this strategy, the conductor declares before spawning:
 
 ```
 Risk: Elevated (multi-dimensional review) - [specific signal]
-Tier: 3 (Opus)
+Tier: 3 (Opus or above)
 Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 ```
 

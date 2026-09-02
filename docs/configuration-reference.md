@@ -118,7 +118,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_SKEPTIC_NEUTRALITY_GUARD_DISABLE=1` | guard active | Skeptic-brief neutrality hook (`hooks/enforce-skeptic-neutrality.py`) |
 | `AE_TEAM_ROUTING_DISABLE=1` | guard active | Cross-harness team-routing branch of the background-spawn guard (`hooks/enforce-background-spawn.py`) |
 | `AE_TICKET_BATCH_GUARD_DISABLE=1` | guard active | Ticket-batching guard denying the 3rd+ same-session tracker-ticket creation (`hooks/enforce-ticket-batching.py`) |
-| `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
+| `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Tier-3 downgrades on mandated Tier-3 spawns; accepts `opus` or `fable`, DS-226) |
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check (`_execution_prose_flag`) and the advisory operator-decisions per-item check (`_decision_item_sprawl_flag`), the hook's only two remaining checks as of DS-171 (only relevant when `turn_shape_guard_enabled: true`) |
 | `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` | guard active | Worktree-isolation-spawn enforcement hook (`hooks/enforce-worktree-isolation-spawn.py`) |
 | `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |

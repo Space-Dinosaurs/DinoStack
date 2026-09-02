@@ -54,9 +54,9 @@ Default mode prints a human-readable summary. `--json` emits the structured payl
 
 Model names are supplied as positional arguments, via `--models-from FILE` (one name per line), or piped from stdin. Empty input returns empty suggestions with exit 0.
 
-**Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-class models surface for the architect / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
+**Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-or-above-class models (Opus, and Fable - the Claude tier above Opus, DS-226) surface for the architect / skeptic / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
 
-**No hardcoded model IDs.** The hint tables in `bin/ds-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
+**No hardcoded model IDs.** The hint tables in `bin/ds-models` use family names (`opus`, `fable`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
 
 ## Schema extension: effort and reasoning
 
