@@ -183,8 +183,12 @@ _TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
     "kimi-k2.7":      {"engineer": 4, "skeptic": 3, "debugger": 3},
     "kimi-k2.6":      {"engineer": 3, "investigator": 3},
     "kimi-k2.5-thinking": {"architect": 4, "skeptic": 4, "security-auditor": 3},
-    # Claude family (as worker)
+    # Claude family (as worker). "claude-fable" (DS-226) is the tier above
+    # claude-opus - scored above it for the Tier-3-mandated review/authoring
+    # roles (architect, skeptic, security-auditor); equal to opus for
+    # conductor so it never ranks below opus there.
     "claude-opus":    {"architect": 5, "skeptic": 5, "security-auditor": 4, "conductor": 4},
+    "claude-fable":   {"architect": 6, "skeptic": 6, "security-auditor": 5, "conductor": 4},
     "claude-sonnet":  {"engineer": 4, "debugger": 4, "qa-engineer": 3},
     "claude-haiku":   {"investigator": 3, "qa-engineer": 3},
     # Cursor

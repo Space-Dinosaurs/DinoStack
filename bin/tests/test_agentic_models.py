@@ -101,6 +101,19 @@ def test_suggestions_distinct_families():
 
 
 
+def test_fable_ranks_first_for_skeptic():
+    """DS-226: claude-fable-5-1 must outrank claude-opus-4-8 for skeptic - Fable
+    is the tier above Opus, and skeptic is one of the Tier-3-mandated roles
+    scored above opus in ROLE_HINTS. Reddening mutation: removing the "fable"
+    key from ROLE_HINTS["skeptic"] (or scoring it <= opus) makes
+    claude-opus-4-8 rank first instead."""
+    models = ["claude-opus-4-8", "claude-fable-5-1", "claude-sonnet-4-5"]
+    ranked = _rank(models, _mod.ROLE_HINTS["skeptic"])
+    assert ranked[0][0] == "claude-fable-5-1", f"unexpected top skeptic pick: {ranked}"
+    payload = _suggestions(models)
+    assert payload["roles"]["skeptic"]["primary"] == "claude-fable-5-1"
+
+
 def test_cli_help_runs():
     """Issue #1 regression: `main()` must be defined; --help exits 0."""
     r = subprocess.run([sys.executable, str(_BIN_PATH), "--help"],
@@ -138,6 +151,7 @@ def main() -> int:
         test_suggestions_shape,
         test_suggestions_handles_empty_models,
         test_suggestions_distinct_families,
+        test_fable_ranks_first_for_skeptic,
         test_cli_help_runs,
         test_cli_positional_args_json,
     ]

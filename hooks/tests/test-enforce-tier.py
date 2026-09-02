@@ -507,6 +507,46 @@ cases = [
         "DENY",
         None,
     ),
+    # 35 (DS-226): security-auditor model="fable" -> ALLOW. Fable is the tier
+    # ABOVE Opus, so it must satisfy the Tier-3-or-above accept check.
+    # security-auditor's deny is UNCONDITIONAL on any sub-Tier-3 model
+    # (independent of the brief - see case 7/9), which makes this a true test
+    # of the model-tier accept path rather than of the brief-marker path (a
+    # skeptic case with no brief would ALLOW regardless of model, since the
+    # marker check never fires - that shape was tried and rejected during
+    # development because it could not actually redden). Reddening mutation:
+    # reverting TIER3_OR_ABOVE_MARKERS = ("opus", "fable") to ("opus",) alone
+    # turns this case into a DENY (the pre-DS-226 "opus" in model.lower()
+    # check also fails it, since "opus" is not a substring of "fable").
+    (
+        "35: Agent security-auditor model=fable -> ALLOW (DS-226 Fable tier)",
+        json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "security-auditor", "model": "fable"}}),
+        "ALLOW",
+        None,
+    ),
+    # 36 (DS-226): security-auditor model=full Fable id -> ALLOW. Mirrors
+    # case 3's full-id coverage for opus. Same reddening mutation as case 35.
+    (
+        "36: Agent security-auditor model=claude-fable-5-1 -> ALLOW (DS-226 Fable tier, full id)",
+        json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": "security-auditor", "model": "claude-fable-5-1"}}),
+        "ALLOW",
+        None,
+    ),
+    # 37 (DS-226): security-auditor model="sonnet" on the SAME spawn shape as
+    # 35/36 must still be DENIED (mirrors case 7) - proves widening the
+    # accept set to include "fable" did not also loosen the sonnet/haiku/
+    # other deny paths. Reddening mutation: any change that makes
+    # TIER3_OR_ABOVE_MARKERS match "sonnet" (e.g. an overbroad substring or a
+    # bug making the check unconditional) turns this ALLOW-when-it-should-DENY.
+    (
+        "37: Agent security-auditor model=sonnet -> DENY (still denied post-DS-226)",
+        json.dumps({
+            "tool_name": "Agent",
+            "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
+        }),
+        "DENY",
+        None,
+    ),
 ]
 
 failed = 0
@@ -536,7 +576,7 @@ for label, payload, expected, extra_env in cases:
 # default to Opus, so omitting is right), but on the AUTHOR branch it would
 # be WRONG (architect/adr-generator/product-discovery default to Sonnet, so
 # telling the operator to omit would silently defeat the escalation).
-label_35 = "35: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
+label_35 = "38: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
 reason_35 = deny_reason(json.dumps({
     "tool_name": "Agent",
     "tool_input": {
@@ -566,7 +606,7 @@ if not ok_35:
 # payload uses.
 import tempfile as _tempfile_36
 
-label_36 = "36: fire-log integration - deny writes a line, passthrough writes nothing"
+label_36 = "39: fire-log integration - deny writes a line, passthrough writes nothing"
 _fire_cwd = _tempfile_36.mkdtemp(prefix="test-enforce-tier-firelog-")
 _fire_log_path = os.path.join(_fire_cwd, ".agentic", ".enforcement-fires.jsonl")
 
@@ -607,7 +647,7 @@ print(f"  [{status_36}] {label_36}")
 # commit under review), the copied-hook subprocess exits 0 with EMPTY
 # stdout - the deny is silently lost - because the pre-fix _deny() called
 # log_fire() BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
-label_37 = "37: raising log_fire cannot suppress the deny decision"
+label_37 = "40: raising log_fire cannot suppress the deny decision"
 _rc_37, _stdout_37, _stderr_37 = run_hook_with_raising_log_fire(
     "enforce-tier.py",
     json.dumps({

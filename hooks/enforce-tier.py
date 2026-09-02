@@ -2,18 +2,20 @@
 """
 Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
          "Mandatory Tier-3 review escalation" rule on Claude Code by denying an
-         EXPLICIT model downgrade on a mandated-Tier-3 review spawn. As of PR
-         #313 the skeptic and security-auditor frontmatter default to
-         model: opus, so OMITTING the model param already yields Tier 3. The
-         only way to get a sub-Opus review is an explicit downgrade param - so
-         this hook gates on "explicit non-opus model param", the precise,
-         low-false-positive signal. Escalate-only: it never blocks the
-         omit-the-param (role-default) path, and never touches non-review agents.
+         EXPLICIT model downgrade below Tier-3-or-above on a mandated-Tier-3
+         review spawn. As of PR #313 the skeptic and security-auditor
+         frontmatter default to model: opus, so OMITTING the model param
+         already yields Tier 3. The only way to get a sub-Tier-3 review is an
+         explicit downgrade param - so this hook gates on "explicit
+         sub-Tier-3 model param" (anything not matching TIER3_OR_ABOVE_MARKERS
+         - "opus" or "fable", per DS-226), the precise, low-false-positive
+         signal. Escalate-only: it never blocks the omit-the-param
+         (role-default) path, and never touches non-review agents.
 
          As of DS-77, the hook ALSO backstops the "Mandatory Tier-3 authoring
          escalation (Plan+ADR-tier units)" rule for AUTHORING roles (architect,
-         adr-generator, product-discovery): it denies an explicit sub-Opus
-         model param on those spawns when the brief matches an authoring
+         adr-generator, product-discovery): it denies an explicit
+         sub-Tier-3 model param on those spawns when the brief matches an authoring
          Tier-3 escalation marker (ADR / cross-track / architecture-decision
          vocabulary). See the "authoring roles" Failure-modes carve-out below
          for the important limitations of this backstop.
@@ -23,12 +25,12 @@ Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
          (`tool_name in ("Task", "Agent")`). install.sh wires both matcher
          blocks; the internal guard is belt-and-suspenders.
 
-         security-auditor: ANY explicit non-opus downgrade is denied (spec
-         mandates Tier 3 unconditionally). skeptic: an explicit non-opus
+         security-auditor: ANY explicit sub-Tier-3 downgrade is denied (spec
+         mandates Tier 3 unconditionally). skeptic: an explicit sub-Tier-3
          downgrade is denied ONLY when the spawn brief (prompt + description)
          matches a Tier-3 escalation marker - a non-mandated skeptic may
          legitimately run a cheaper model (e.g. budget mode). architect /
-         adr-generator / product-discovery: an explicit non-opus downgrade is
+         adr-generator / product-discovery: an explicit sub-Tier-3 downgrade is
          denied ONLY when the spawn brief matches an authoring Tier-3
          escalation marker (independent marker list from the review-role one).
 
@@ -55,8 +57,8 @@ Failure modes:
       reading stdin. To disable: set AE_TIER_GUARD_DISABLE=1 in the shell that
       launches Claude Code, or remove the hook from ~/.claude/settings.json.
     - Non-Task/Agent tool_name: passthrough (exit 0).
-    - Non-review, non-authoring subagent_type, absent model param, or any opus
-      model: allow.
+    - Non-review, non-authoring subagent_type, absent model param, or any
+      Tier-3-or-above (opus/fable) model: allow.
     - Coverage gap (documented, intentional; scoped to the REVIEW-role /
       `_MARKERS` path only - see the separate authoring-roles carve-out below
       for the authoring-role path): the "novel architecture constraining
@@ -80,7 +82,8 @@ Failure modes:
       content/references/risk-config-and-tiers.md §Mandatory Tier-3 authoring
       escalation). This hook only BACKSTOPS an explicit sub-Opus downgrade
       when the brief matches `_AUTHOR_MARKER_PATTERNS` - best-effort, and it
-      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary.
+      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary
+      (this hook only backstops an explicit sub-Tier-3 downgrade).
       Critically, an OMITTED model param on an authoring-role spawn resolves
       to the Sonnet frontmatter default (Role-default tier table) and is
       ALLOWED by this hook - the omit path is the conductor's responsibility
@@ -116,6 +119,12 @@ MANDATED_TIER3 = {"skeptic", "security-auditor"}
 # architecture/ADR signal; it CANNOT see the structural Plan+ADR trigger. See the
 # manifest Failure modes "authoring roles" carve-out.
 MANDATED_TIER3_AUTHOR = {"architect", "adr-generator", "product-discovery"}
+
+# Tier-3-or-above model markers (case-insensitive substrings of the model
+# param). Opus and Fable (the tier above Opus) both satisfy Tier 3 or above;
+# this is a floor WIDENING (DS-226) - every existing sonnet/haiku/other deny
+# path is unchanged.
+TIER3_OR_ABOVE_MARKERS = ("opus", "fable")
 
 # Tier-3 escalation markers (case-insensitive, word-boundary anchored) tracking
 # four of the five signals in §Risk-Classification "Mandatory Tier-3 review
@@ -253,8 +262,10 @@ def main():
         if not isinstance(model, str) or not model.strip():
             sys.exit(0)
 
-        # Any Opus model (alias "opus" or full id like claude-opus-4-8) -> allow.
-        if "opus" in model.lower():
+        # Any Tier-3-or-above model (alias "opus"/"fable" or a full id like
+        # claude-opus-4-8 / claude-fable-5-1) -> allow.
+        model_lower = model.lower()
+        if any(marker in model_lower for marker in TIER3_OR_ABOVE_MARKERS):
             sys.exit(0)
 
         brief = (
@@ -263,16 +274,16 @@ def main():
             + str(tinput.get("description") or "")
         )
 
-        # Explicit non-Opus downgrade on a mandated-Tier-3 agent.
+        # Explicit sub-Tier-3 downgrade on a mandated-Tier-3 agent.
         if agent == "security-auditor":
             _deny(
                 data,
                 f"{tool_name} spawn blocked: security-auditor was spawned with "
-                f"model={model!r}, an explicit downgrade below Opus. The "
-                "security-auditor spec mandates Tier 3 (Opus) unconditionally "
+                f"model={model!r}, an explicit downgrade below Tier 3. The "
+                "security-auditor spec mandates Tier 3 (Opus or above) unconditionally "
                 "(METHODOLOGY.md Risk-Classification: Mandatory Tier-3 review "
                 "escalation + Role-default tier table). Fix: omit the model "
-                "param to use the Opus role default, or pass model: opus. "
+                "param to use the Opus role default, or pass model: opus (or fable). "
                 "To disable this guard: set AE_TIER_GUARD_DISABLE=1 and restart "
                 "Claude Code."
             )
@@ -289,13 +300,14 @@ def main():
                 _deny(
                     data,
                     f"{tool_name} spawn blocked: {agent} was spawned with "
-                    f"model={model!r}, an explicit downgrade below Opus, but "
+                    f"model={model!r}, an explicit downgrade below Tier 3, but "
                     "the brief matches an authoring Tier-3 escalation signal "
                     f"(pattern {marker!r}). Per the Mandatory Tier-3 review "
                     "escalation rule, an architect/adr-generator/"
                     "product-discovery authoring a Plan+ADR-tier (cross-track "
-                    "/ architecture-constraining) unit MUST be Tier 3 (Opus). "
-                    "Fix: pass model: opus on this spawn. (Do NOT omit the "
+                    "/ architecture-constraining) unit MUST be Tier 3 (Opus or "
+                    "above). "
+                    "Fix: pass model: opus (or fable) on this spawn. (Do NOT omit the "
                     "model param - these roles default to Sonnet. To disable "
                     "this guard: set AE_TIER_GUARD_DISABLE=1 and restart "
                     "Claude Code.)"
@@ -308,13 +320,13 @@ def main():
             _deny(
                 data,
                 f"{tool_name} spawn blocked: skeptic was spawned with "
-                f"model={model!r}, an explicit downgrade below Opus, but the "
+                f"model={model!r}, an explicit downgrade below Tier 3, but the "
                 f"brief matches a Tier-3 escalation signal (pattern {marker!r}). "
                 "Per METHODOLOGY.md Risk-Classification (Mandatory Tier-3 review "
                 "escalation), a Skeptic reviewing a security/irreversible/"
-                "high-blast-radius/release unit MUST be Tier 3 (Opus). Fix: omit "
-                "the model param to use the Opus role default, or pass "
-                "model: opus. If this unit is genuinely not Tier-3 and you intend "
+                "high-blast-radius/release unit MUST be Tier 3 (Opus or above). Fix: "
+                "omit the model param to use the Opus role default, or pass "
+                "model: opus (or fable). If this unit is genuinely not Tier-3 and you intend "
                 "a budget review, set AE_TIER_GUARD_DISABLE=1 and restart."
             )
 
