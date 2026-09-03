@@ -936,83 +936,133 @@ console.log('\n[TELEMETRY] concurrent helper appends remain complete JSONL recor
   cleanup(tmpDir);
 }
 
-console.log('\n[CEILING] full Stop hook run stays bounded by the production write-hook ceiling when BOTH project and global logs are permanently contended');
+console.log('\n[CEILING] a second permanently-contended session-log append costs the full Stop hook run no second lock budget: one contended append vs two differ by ~0ms, and the helper reports a graceful failure rather than being SIGKILLed by the production write-hook ceiling');
 {
   // DS-158 round 3 Minor 6: the other TELEMETRY/J-suite concurrency tests
   // in this file invoke `bin/ds-identity write-hook` DIRECTLY (bypassing
   // stop-context.js entirely) with a harness timeout (10000ms) more
   // permissive than production's spawnSync ceiling - they cannot fail on a
   // regression to that ceiling. This test runs the REAL Stop hook
-  // end-to-end against a permanently-held flock on BOTH the project and
-  // global session logs (not just global - locking only global leaves the
-  // project append uncontended and never exercises Major 1's shared-vs-
-  // doubled budget distinction, since only a target that ALSO genuinely
-  // contends can absorb a share of the budget) and measures the full run's
-  // wall clock from the JS side (not via in-script `date` arithmetic,
-  // which is non-portable across BSD/GNU `date`), asserting it stays
-  // bounded by the production ceiling plus a small margin - not the
-  // harness's own generous outer timeout. A regression to round 2's
-  // per-append budget (or an unshared JS ceiling) would let this run
-  // consume roughly double the shared budget before the JS-side spawnSync
-  // ceiling force-kills it.
-  const { tmpDir, fakeHome, projectDir, globalIdentityDir } = makeTmp('ae-id-ceiling-');
-  writeIdentity(globalIdentityDir, 'ceiling-dev', false);
-  execFileSync('git', ['init', '-q'], { cwd: projectDir });
+  // end-to-end against a permanently-held flock, and measures a
+  // DIFFERENTIAL rather than an absolute wall clock:
+  //
+  //   run ONE   only the GLOBAL log locked - exactly one contended append
+  //   run BOTH  project AND global locked  - two contended appends
+  //
+  // The shared-deadline implementation spends ONE lock budget in both runs
+  // (BOTH - ONE ~ 0ms). Round 2's per-append budget (Major 1) spends a
+  // fresh budget per append, so run BOTH overruns while run ONE still fits
+  // and the two diverge. Locking only global would leave the project append
+  // uncontended and never exercise that distinction, which is why run BOTH
+  // locks both targets.
+  //
+  // Absolute wall clock was abandoned here: node/python/git startup sits
+  // inside the measured interval, moves by seconds under concurrent test
+  // load, and left the old `< 5800ms` bound roughly 450ms of margin over a
+  // ~5350ms baseline. It flaked repeatedly and `hooks-js-tests` is a
+  // required check. Startup appears in both runs and cancels in the
+  // subtraction; the deadline-bounded lock wait does not.
+  //
+  // Two assertions, because the production ceiling caps how far apart the
+  // two runs' wall clocks can drift: stop-context.js force-kills the helper
+  // at WRITE_HOOK_SPAWN_CEILING_MS (6000ms), so a doubled budget surfaces as
+  // roughly +1000ms of wall clock, not the +5000ms it would cost unbounded.
+  // The differential bound is therefore deliberately loose - its target is
+  // a doubled budget that ALSO escapes the ceiling (the ceiling raised in
+  // the same change), and tightening it onto today's ~+1000ms would just
+  // reintroduce the flake: measured over 10 runs under a concurrent pytest
+  // load, the fixed code's differential ranged -366ms to +1437ms while the
+  // ceiling-capped regression sat at +730ms to +833ms, inside that spread.
+  // Detection at today's ceiling is carried instead by the telemetry-health
+  // assertion: a doubled budget needs 10s inside a 6s ceiling, so it is
+  // killed BETWEEN the two appends every time, leaving the project append
+  // reported and the global append indeterminate. Note the two margins are
+  // not the same number - detection has ~4000ms (10s of need against the 6s
+  // kill), while the PASSING side has ~780ms, the fixed code's contended
+  // helper measuring ~5200ms against that same 6s kill. That ~780ms has only
+  // the helper's own ~140ms of python startup to absorb, which is why it
+  // beats the deleted `< 5800ms` bound's ~450ms: that bound sat outside the
+  // whole harness and had to absorb bash, the python locker, `git init` and
+  // node as well, and every loaded run measured here (5806-6112ms) exceeded
+  // it.
+  function runContended(lockGlobalOnly) {
+    const { tmpDir, fakeHome, projectDir, globalIdentityDir } = makeTmp('ae-id-ceiling-');
+    writeIdentity(globalIdentityDir, 'ceiling-dev', false);
+    execFileSync('git', ['init', '-q'], { cwd: projectDir });
 
-  const globalLog = sessionLogFor(fakeHome, 'ceiling-dev');
-  const projectLog = sessionLogFor(projectDir, 'ceiling-dev');
-  fs.mkdirSync(path.dirname(globalLog), { recursive: true });
-  fs.mkdirSync(path.dirname(projectLog), { recursive: true });
-  fs.writeFileSync(globalLog, '');
-  fs.writeFileSync(projectLog, '');
+    const globalLog = sessionLogFor(fakeHome, 'ceiling-dev');
+    const projectLog = sessionLogFor(projectDir, 'ceiling-dev');
+    fs.mkdirSync(path.dirname(globalLog), { recursive: true });
+    fs.mkdirSync(path.dirname(projectLog), { recursive: true });
+    fs.writeFileSync(globalLog, '');
+    fs.writeFileSync(projectLog, '');
 
-  const ready = path.join(tmpDir, 'ready');
-  const release = path.join(tmpDir, 'release');
-  const payloadFile = path.join(tmpDir, 'payload.json');
-  fs.writeFileSync(payloadFile, JSON.stringify({
-    cwd: projectDir,
-    session_id: 'ceiling-uuid',
-    transcript: [],
-  }));
+    const ready = path.join(tmpDir, 'ready');
+    const release = path.join(tmpDir, 'release');
+    const payloadFile = path.join(tmpDir, 'payload.json');
+    fs.writeFileSync(payloadFile, JSON.stringify({
+      cwd: projectDir,
+      session_id: 'ceiling-uuid',
+      transcript: [],
+    }));
 
-  const script = [
-    // Locks BOTH targets from a single process before signaling ready, so
-    // the hook's project AND global appends are simultaneously contended
-    // for the entire run.
-    'python3 -c \'import fcntl,os,sys,time;',
-    'fd1=os.open(sys.argv[1], os.O_RDONLY); fcntl.flock(fd1, fcntl.LOCK_EX);',
-    'fd2=os.open(sys.argv[2], os.O_RDONLY); fcntl.flock(fd2, fcntl.LOCK_EX);',
-    'open(sys.argv[3],"w").close();',
-    'exec("while not os.path.exists(sys.argv[4]): time.sleep(0.002)");',
-    'os.close(fd1); os.close(fd2)\'',
-    '"$1" "$2" "$3" "$4" & locker=$!;',
-    'while [ ! -f "$3" ]; do sleep 0.002; done;',
-    '"$5" "$6" < "$7" >/dev/null 2>&1; hookrc=$?;',
-    'touch "$4"; wait "$locker";',
-    'exit "$hookrc"',
-  ].join(' ');
+    const script = [
+      // Locks every target passed after the payload path from a single
+      // process before signaling ready, so those appends are contended for
+      // the entire run.
+      'python3 -c \'import fcntl,os,sys,time;',
+      'fds=[os.open(p, os.O_RDONLY) for p in sys.argv[3:]];',
+      'exec("for fd in fds: fcntl.flock(fd, fcntl.LOCK_EX)");',
+      'open(sys.argv[1],"w").close();',
+      'exec("while not os.path.exists(sys.argv[2]): time.sleep(0.002)");',
+      'exec("for fd in fds: os.close(fd)")\'',
+      '"$1" "$2" "${@:6}" & locker=$!;',
+      'while [ ! -f "$1" ]; do sleep 0.002; done;',
+      '"$3" "$4" < "$5" >/dev/null 2>&1; hookrc=$?;',
+      'touch "$2"; wait "$locker";',
+      'exit "$hookrc"',
+    ].join(' ');
 
-  const started = Date.now();
-  const result = spawnSync('bash', [
-    '-c', script, 'bash', projectLog, globalLog, ready, release,
-    process.execPath, hookScript, payloadFile,
-  ], { env: buildEnv(fakeHome), encoding: 'utf8', timeout: 10000 });
-  const elapsedMs = Date.now() - started;
+    const locked = lockGlobalOnly ? [globalLog] : [projectLog, globalLog];
+    const started = Date.now();
+    const result = spawnSync('bash', [
+      '-c', script, 'bash', ready, release,
+      process.execPath, hookScript, payloadFile, ...locked,
+    ], { env: buildEnv(fakeHome), encoding: 'utf8', timeout: 10000 });
+    const elapsedMs = Date.now() - started;
 
-  assert(!result.error && result.status === 0,
-    `Stop hook exits 0 even when both logs are permanently contended (status=${result.status}, error=${result.error && result.error.message})`);
-  // Measured: fixed (shared-deadline) code lands at ~5330-5370ms across
-  // repeated local runs; reverting to a separate 5s budget per append (the
-  // exact Major 1 regression) lands at ~6180-6200ms, because the JS-side
-  // spawnSync ceiling (unmutated, still 6000ms) force-kills the child
-  // before Python's own doubled budget would otherwise let it run to
-  // ~10s. 5800ms sits between the two with margin on both sides.
-  assert(elapsedMs < 5800,
-    `Stop hook run stays bounded by the production write-hook ceiling `
-    + `(~5300-5400ms observed for a shared budget; a reversion to a `
-    + `separate per-append budget lands at ~6200ms - the JS-side spawnSync `
-    + `ceiling still caps it below the theoretical ~10s), got ${elapsedMs}ms`);
-  cleanup(tmpDir);
+    let health = {};
+    try {
+      health = JSON.parse(fs.readFileSync(
+        path.join(projectDir, '.agentic', '.telemetry-health.json'),
+        'utf8',
+      )).targets || {};
+    } catch (_) { /* absent or unparseable - the assertions below report it */ }
+    cleanup(tmpDir);
+    return { elapsedMs, result, health };
+  }
+
+  const one = runContended(true);
+  const both = runContended(false);
+  for (const [label, run] of [['the global log is', one], ['both logs are', both]]) {
+    assert(!run.result.error && run.result.status === 0,
+      `Stop hook exits 0 when ${label} permanently contended `
+      + `(status=${run.result.status}, error=${run.result.error && run.result.error.message})`);
+  }
+
+  const differentialMs = both.elapsedMs - one.elapsedMs;
+  assert(differentialMs < 3000,
+    `a second contended append costs no second lock budget (shared deadline: `
+    + `~0ms; a per-append budget that also escaped the spawnSync ceiling: `
+    + `~5000ms), got ${differentialMs}ms `
+    + `(one=${one.elapsedMs}ms, both=${both.elapsedMs}ms)`);
+
+  const globalTarget = both.health.writeSessionLogGlobal || {};
+  assert(Boolean(globalTarget.last_error) && !globalTarget.last_unknown,
+    `both-contended run reports a graceful global-append failure rather than `
+    + `an indeterminate one - the helper exhausted ONE shared budget and `
+    + `returned, it was not SIGKILLed mid-invocation by the production `
+    + `spawnSync ceiling (${JSON.stringify(globalTarget)})`);
 }
 
 // ---------------------------------------------------------------------------
