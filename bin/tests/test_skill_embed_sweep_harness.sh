@@ -758,32 +758,55 @@ else
   # whether the message text is mechanically kept in sync, closing the
   # false-provenance class this gate has now shipped multiple times (see
   # AGENTS.md for the prior closed reviews). A raise within the already-
-  # swept range (up to and including 160,000 B) legitimately passes without
-  # requiring a new sweep, since that range is exactly what 2026-09-03
-  # already confirmed intact.
+  # swept range (up to and including 160,000 B) legitimately passes
+  # without requiring a new sweep, since that range is exactly what
+  # 2026-09-03 already confirmed intact - note that such a raise leaves
+  # the message's "(145,000 B)" parenthetical describing the sweep's
+  # anchor point rather than CEILING's new live value; that mismatch is
+  # deliberate (pinning the figure to live state instead of the swept
+  # fact is exactly round-6's mistake), not a gap in this assertion.
+  #
+  # Round-7 review found two parse-level bugs in the round-6 fix, each
+  # closable without touching the design above:
+  # (1) `(( live_ceiling <= 160000 ))` parses a leading-zero value as
+  #     OCTAL - CEILING=0175000 read as 64,000 there while the gate's own
+  #     `[ -gt ]` reads it as 175,000 decimal, so a single leading zero
+  #     let a real ceiling exceed the swept bound while this assertion
+  #     certified compliance. Fixed by forcing base 10: `10#$live_ceiling`.
+  # (2) the duplicate-assignment grep only matched the single plain form
+  #     (`CEILING=<digits>` at column 0) and missed five other live-
+  #     assignment shapes bash itself honors (quoted value, indented,
+  #     `readonly`-prefixed, arithmetic-expansion value, trailing inline
+  #     comment) - each let a second, effective CEILING= raise slip past
+  #     undetected. Broadened to match any line that opens an assignment
+  #     to CEILING regardless of value shape, prefix, or indentation.
   above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
-  # Round-6 Minor 1: assert exactly one CEILING= assignment rather than
-  # reading the first match - a duplicate 'CEILING=145000' followed by an
-  # effective 'CEILING=175000' would otherwise let awk's first-match read
-  # silently see only the (correct-looking) first one.
-  live_ceiling_matches="$(grep -c '^CEILING=[0-9]\+$' "$CEILING_SCRIPT")"
+  # Round-6 Minor 1, broadened in round 7 (see above): assert exactly one
+  # CEILING-opening line rather than reading the first plain-form match -
+  # a duplicate/overriding assignment in ANY of the shapes above would
+  # otherwise let this count miss it while awk's first-match value read
+  # silently keeps seeing only the (correct-looking) first one.
+  live_ceiling_matches="$(grep -cE '^[[:space:]]*(readonly |export )?CEILING=' "$CEILING_SCRIPT")"
   live_ceiling="$(awk -F= '/^CEILING=[0-9]+$/{print $2; exit}' "$CEILING_SCRIPT")"
   # Mutations that would redden this: (a) delete the sweep citation from
   # the ABOVE-CEILING block; (b) change either pinned historical figure
   # (145,000 B or 160,000 B) to a different value, with or without a
   # matching CEILING edit - the literals no longer match regardless;
-  # (c) raise CEILING above 160,000, the swept upper bound, with or
-  # without an updated message - the numeric relation fails regardless
-  # of the message text; (d) a second CEILING= assignment anywhere in the
-  # file.
+  # (c) raise CEILING above 160,000, the swept upper bound (including via
+  # a leading-zero octal-looking literal), with or without an updated
+  # message - the numeric relation fails regardless of the message text;
+  # (d) a second line that opens a CEILING= assignment anywhere in the
+  # file, in the plain, quoted, indented, readonly-prefixed, arithmetic-
+  # expansion, or trailing-comment shape - the exactly-one-match count
+  # catches any of them, not only the plain form.
   if [[ "$live_ceiling_matches" -eq 1 ]] \
      && [[ -n "$live_ceiling" ]] \
-     && (( live_ceiling <= 160000 )) \
+     && (( 10#$live_ceiling <= 160000 )) \
      && [[ "$above_ceiling_block" == *"(145,000 B) as an intact injection point"* ]] \
      && [[ "$above_ceiling_block" == *"160,000 B"* ]]; then
     _pass "CEILING script's ABOVE-CEILING framing cites the swept figures and CEILING stays within the swept bound"
   else
-    _fail "CEILING script's ABOVE-CEILING framing is missing the swept figures, has other than one CEILING= assignment (found $live_ceiling_matches), or CEILING ($live_ceiling) exceeds the swept 160,000 B upper bound"
+    _fail "CEILING script's ABOVE-CEILING framing is missing the swept figures, has other than one CEILING-opening line (found $live_ceiling_matches), or CEILING ($live_ceiling) exceeds the swept 160,000 B upper bound"
   fi
   # Single distinctive phrase, not two separable bare-token greps (a
   # co-occurrence of '2026-09-03' and '160,000' from unrelated sentences
