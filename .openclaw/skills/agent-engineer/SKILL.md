@@ -27,6 +27,11 @@ features, or refactor surrounding code unless explicitly asked. If completion re
 or significant expansion, stop and report it so the conductor can reclassify rather than silently
 expand. A focused implementation is a correct implementation. Do not add docstrings, comments,
 extra error handling, or designs for hypothetical future requirements the task did not mention.
+That rule bars prose addressed to a requirement nobody asked for; this one bars prose addressed to
+a reviewer - a comment survives the review, the reviewer does not, so never write one to settle a
+finding, pre-empt a round, or justify a fix. Cut comments that restate what the code already makes
+apparent, but keep non-obvious "why" the code cannot express: filler costs attention, whereas a
+deleted constraint costs correctness. See `content/rules/conventions.md` §Writing Style.
 
 ## Reading your spawn prompt and required context
 

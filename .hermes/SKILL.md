@@ -738,6 +738,18 @@ Read `content/references/code-standards-detail.md` §Per-Language Strict Default
 
 Never use em dashes (--). Use a regular hyphen (-) instead in all generated text, copy, comments, documentation, and commit messages.
 
+### Length discipline
+
+Operator attention is the scarce resource this methodology protects and the primary consideration when a trade-off is unclear: output volume scales with the number of agents while reading capacity does not, so an artifact that must be waded through makes the operator a bottleneck. The length and ordering rules here govern durable artifacts; in-session turns to the operator are governed by `content/references/conductor-turn-format.md` §Length discipline, except the emphasis cap below, which reaches turns as well.
+
+**Lead with the primary information.** An operator reads an artifact to make a decision, to unblock an agent, or to understand a result. Name which, then open with what that reader needs: the decision and its options, what is blocked and what would clear it, or the outcome. Everything else earns its place by supporting that, including material that is merely adjacent, defensive, or present for completeness. Accuracy is not a licence to include: true, verified, well-written content that competes with the primary information is noise, and noise is a defect. Per-surface caps (`content/references/conventions-detail.md` §External Comment Discipline) are proxies for this rule, so meeting a bullet count while burying the answer defeats it. (The "parse test": can the reader find the primary information and act on it without reading the rest?)
+
+**Write for the permanent audience.** Review residue is what usually buries it. An artifact written during a review loop has a temporary audience - the reviewer, the Skeptic, the QA round - and a permanent one, reading the source, the commit history, the PR, or the ticket months later. Only the permanent audience remains, so write for it alone. Prose that exists to stop a reviewer raising a point again is review exhaust: a reviewer is answered in the round, not in the artifact. Round history and rejected-alternative defences are two instances, not the set - the test is whether the line would earn its place had no review happened. State a real constraint once, neutrally, where it applies, and prefer an assertion that fails over a comment that asks.
+
+**Delete comments that explain what the code already makes apparent.** That is the test for a comment, not length or comment-to-code ratio, and filler bloats the diff so a reviewer pays for every line of it. Over-applying this is the worse defect: filler costs attention, a deleted constraint costs correctness. What earns its place is the non-obvious "why" the code cannot express - why this ordering, why a name is excluded from a guard, why something cannot be deleted and what would allow it. The test reaches explanatory comments only and never licenses cutting a mandated module manifest (`content/rules/module-manifest.md`); equally, a manifest is no licence to narrate - fill its fields, not a rationale essay.
+
+**Emphasis is a scarce budget, not a per-item defence.** In agent-authored output addressed to an operator - a PR body, tracker comment, commit message, source comment, or turn to the operator - thirty bolded phrases compete with the primary information and obscure it, the same defect expressed typographically; if more than about five phrases in one such artifact are bolded, none should be. Never use capitals for emphasis. Methodology reference prose is outside this cap, where bolded lead-ins carry the scannability the parse test rewards.
+
 ## Project Structure Convention
 
 `AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
@@ -2969,7 +2981,7 @@ The body below the blank line is uncapped; put detail there. Trailer lines (Clos
 
 ### Assembled PR bodies
 
-The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - the answer-relevance rule applies over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:160`, unchanged).
+The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - the answer-relevance rule applies over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:169`, unchanged). The general principle these per-surface rules instantiate is `content/rules/conventions.md` §Writing Style (length discipline).
 
 This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.
 
@@ -11407,6 +11419,11 @@ features, or refactor surrounding code unless explicitly asked. If completion re
 or significant expansion, stop and report it so the conductor can reclassify rather than silently
 expand. A focused implementation is a correct implementation. Do not add docstrings, comments,
 extra error handling, or designs for hypothetical future requirements the task did not mention.
+That rule bars prose addressed to a requirement nobody asked for; this one bars prose addressed to
+a reviewer - a comment survives the review, the reviewer does not, so never write one to settle a
+finding, pre-empt a round, or justify a fix. Cut comments that restate what the code already makes
+apparent, but keep non-obvious "why" the code cannot express: filler costs attention, whereas a
+deleted constraint costs correctness. See `content/rules/conventions.md` §Writing Style.
 
 ## Reading your spawn prompt and required context
 
@@ -19520,6 +19537,8 @@ Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation fir
 
 Use the existing Summary-first body and append QA evidence after PR creation.
 
+**Filling the free-text slots (binding, both cases).** The templates below are lean; `[bullet N]` and `[step N]` are where a PR body bloats. Fill them under `content/rules/conventions.md` §Writing Style (lead with the primary information, write for the permanent audience - so no review-round or QA-round narration) and the per-surface rules in `content/references/conventions-detail.md` §External Comment Discipline and §Assembled PR bodies.
+
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
   # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
@@ -19891,6 +19910,8 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > ```
 >
 > (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
+>
+> **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`content/references/tracker-writeback.md` `## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
 
