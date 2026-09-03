@@ -738,41 +738,52 @@ else
   # 145,000 / 150,000 / 160,000 B intact), not the now-false pre-sweep
   # "14,985 B unswept gap" framing. Rounds 2-4 hardened a prose substring
   # match against this same message four times (whole-file grep -> single
-  # phrase -> awk-scoped block -> anchored awk block), each fix closing
-  # one escape and revealing another one level up, ending with round-5's
-  # finding that even the anchored block-scoped match still only pinned
-  # the connective English ("as an intact injection point, up to and
-  # including") and none of the figures that carry the claim - so the
-  # message could assert a stale CEILING figure, or a wrong sweep bound,
-  # and still pass. Replaced with a DERIVED check instead of a fifth
-  # layer of prose hardening: read the live CEILING= value out of the
-  # script and assert the ABOVE-CEILING block cites that exact number,
-  # plus the historical 160,000 B sweep upper bound. This makes the
-  # message and the constant structurally unable to disagree - a future
-  # CEILING raise with an unrevised message fails here rather than
-  # shipping the same false-provenance defect a third time (see AGENTS.md
-  # for the two closed provenance-comment reviews this gate already had
-  # before this ticket).
+  # phrase -> awk-scoped block -> anchored awk block), ending with
+  # round-5's finding that even the anchored block-scoped match only
+  # pinned the connective English and none of the figures carrying the
+  # claim.
+  #
+  # Round-6 review: round-5's own fix (deriving the cited figure from the
+  # live CEILING= value) was itself the wrong invariant - it can only
+  # prove the message agrees with the constant, never that the constant
+  # is within what was actually swept. CEILING=999000 with the message
+  # mechanically updated to match passed 44/0, asserting a swept-confirmed
+  # injection point six times the sweep's own stated upper bound.
+  #
+  # Fixed by pinning what the sweep actually measured as LITERALS (they
+  # cannot change without a new sweep: 145,000 B was the CEILING value
+  # swept, 160,000 B was the highest point tested) and adding the numeric
+  # relation the sweep licenses - live CEILING must not exceed the swept
+  # upper bound. A raise above 160,000 B then hard-fails regardless of
+  # whether the message text is mechanically kept in sync, closing the
+  # false-provenance class this gate has now shipped multiple times (see
+  # AGENTS.md for the prior closed reviews). A raise within the already-
+  # swept range (up to and including 160,000 B) legitimately passes without
+  # requiring a new sweep, since that range is exactly what 2026-09-03
+  # already confirmed intact.
   above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
+  # Round-6 Minor 1: assert exactly one CEILING= assignment rather than
+  # reading the first match - a duplicate 'CEILING=145000' followed by an
+  # effective 'CEILING=175000' would otherwise let awk's first-match read
+  # silently see only the (correct-looking) first one.
+  live_ceiling_matches="$(grep -c '^CEILING=[0-9]\+$' "$CEILING_SCRIPT")"
   live_ceiling="$(awk -F= '/^CEILING=[0-9]+$/{print $2; exit}' "$CEILING_SCRIPT")"
-  # Format with thousands separators to match the message's "145,000 B"
-  # style (e.g. 145000 -> 145,000). Portable (no locale/printf %'d
-  # dependency): reverse the digits, comma every 3, reverse back.
-  live_ceiling_formatted="$(printf '%s' "$live_ceiling" | rev | sed -E 's/([0-9]{3})/\1,/g' | rev | sed 's/^,//')"
   # Mutations that would redden this: (a) delete the sweep citation from
-  # the ABOVE-CEILING block; (b) change the swept figure the block cites
-  # (e.g. "145,000 B" -> "175,000 B") without changing CEILING - the
-  # derived value no longer matches the block's literal text; (c) raise
-  # CEILING without updating the block's cited figure - the derived value
-  # changes but the block's literal text doesn't, so they disagree;
-  # (d) change the cited sweep upper bound (160,000 B) to a different
-  # figure.
-  if [[ -n "$live_ceiling_formatted" ]] \
-     && [[ "$above_ceiling_block" == *"($live_ceiling_formatted B) as an intact injection point"* ]] \
+  # the ABOVE-CEILING block; (b) change either pinned historical figure
+  # (145,000 B or 160,000 B) to a different value, with or without a
+  # matching CEILING edit - the literals no longer match regardless;
+  # (c) raise CEILING above 160,000, the swept upper bound, with or
+  # without an updated message - the numeric relation fails regardless
+  # of the message text; (d) a second CEILING= assignment anywhere in the
+  # file.
+  if [[ "$live_ceiling_matches" -eq 1 ]] \
+     && [[ -n "$live_ceiling" ]] \
+     && (( live_ceiling <= 160000 )) \
+     && [[ "$above_ceiling_block" == *"(145,000 B) as an intact injection point"* ]] \
      && [[ "$above_ceiling_block" == *"160,000 B"* ]]; then
-    _pass "CEILING script's ABOVE-CEILING framing cites the live CEILING value and the 160,000 B sweep bound"
+    _pass "CEILING script's ABOVE-CEILING framing cites the swept figures and CEILING stays within the swept bound"
   else
-    _fail "CEILING script's ABOVE-CEILING framing does not agree with the live CEILING value (read: '$live_ceiling_formatted') or is missing the 160,000 B sweep bound"
+    _fail "CEILING script's ABOVE-CEILING framing is missing the swept figures, has other than one CEILING= assignment (found $live_ceiling_matches), or CEILING ($live_ceiling) exceeds the swept 160,000 B upper bound"
   fi
   # Single distinctive phrase, not two separable bare-token greps (a
   # co-occurrence of '2026-09-03' and '160,000' from unrelated sentences
