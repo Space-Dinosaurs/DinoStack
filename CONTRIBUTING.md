@@ -6,11 +6,41 @@
    ```bash
    git clone git@github.com:Space-Dinosaurs/DinoStack.git ~/DinoStack
    ```
-2. Install PyYAML for your `python3` (`pip install pyyaml`). Several adapter build scripts (`.codex/build.sh`, `.copilot/build.sh`, `.openclaw/build.sh`, `.opencode/build.sh`, `.cursor/build.sh`) parse frontmatter with it; without it, `hooks/pre-commit` fails loudly (an `import yaml` `ModuleNotFoundError`) the moment you stage a `content/` change - that failure is intentional and correct, not a bug to work around.
+2. Install the full local toolchain (see [Local toolchain](#local-toolchain) below). PyYAML alone is not enough. Several adapter build scripts (`.codex/build.sh`, `.copilot/build.sh`, `.openclaw/build.sh`, `.opencode/build.sh`, `.cursor/build.sh`) parse frontmatter with it; without it, `hooks/pre-commit` fails loudly (an `import yaml` `ModuleNotFoundError`) the moment you stage a `content/` change - that failure is intentional and correct, not a bug to work around.
 3. Install the adapter for your tool:
    - Claude Code: `.claude/install.sh` (runs the initial build and wires up the pre-commit hook)
    - Cursor: `.cursor/install.sh` (runs the initial build for the Cursor adapter)
 4. Test changes locally by re-running the relevant `install.sh` and verifying behavior in a session
+
+## Local toolchain
+
+One command runs the locally-runnable part of CI's gate set, in CI's order:
+
+```bash
+bash scripts/check-local.sh   # exit 0 = every covered gate passed, 1 = a gate failed, 2 = toolchain preflight failed
+```
+
+**It does not run everything, and it tells you so.** Three gates are excluded on cost, not because they are optional, and every run ends with a `NOT RUN LOCALLY (run in CI)` block naming them with their exact commands: the full Codex skill suite (`codex-skill-sync`), the slide build and its overflow checks (`slides-sync`, described under [Editing content](#editing-content) below), and the gitleaks full-history scan. A green run means the covered set passed. It does not mean CI will be green. Run the excluded ones by hand when your change touches what they cover.
+
+Everything else CI runs is covered, including the gates that are easy to forget: the adapter and agent-fragment drift diffs and the pathspec-existence step that keeps them honest, the `no-planning-docs` guard, the collected-count floors, `check-codex-skill-sync.sh`, the seven budget gates, and the `wrap-lock-tests` pair that lives outside the main hooks-JS loop.
+
+Exit 2 is deliberately distinct from exit 1: it means no gate ran, so it says nothing about your change. The preflight prints the exact install command for whatever is missing. What it requires:
+
+| Tool | Why | Install |
+|---|---|---|
+| bash >= 5 | macOS ships 3.2, under which `scripts/check-methodology-drift.sh` and `bin/tests/test_update_shared_constants.sh` fail for reasons unrelated to your change (below) | `brew install bash` |
+| node + `npm ci` | `hooks/tests/test-stdin-guard.js` loads `espree`, a transitive `eslint` dependency | `npm ci` |
+| pytest, pytest-timeout, pyyaml | `bin/tests/`, and the adapter build scripts | `pip install pytest pytest-timeout pyyaml` |
+| zsh | the bash/zsh parity assertions in `test_check_resident_budget.sh` and `test_phase8_telemetry_shell.py` | `brew install zsh` |
+| gitleaks | `test_gitleaks_allowlist_scope.sh` hard-fails without it | `brew install gitleaks` |
+| gh >= 2.52 | PR tooling | `brew upgrade gh` |
+
+**Correcting the record on local test failures.** Two beliefs about this repo circulate and are both wrong:
+
+- "`pytest bin/tests/` has 4 pre-existing failures." It does not. Run serially, the suite is green. If you see failures, check whether a second suite is running against the same checkout: two concurrent full runs were measured producing 3 and 6 failures respectively, with a different set each time, all in `test_agentic_migrate.py` and `test_agentic_identity.py`. That is a shared-checkout race, not a pre-existing failure, and CI never runs the suite that way. (`test_agentic_cost_retro.py` collects zero tests under pytest, so it can neither pass nor fail there.)
+- "`test_check_methodology_drift.sh` and `test_update_shared_constants.sh` fail here." Half wrong, and the half that is right names the wrong artifact. `bin/tests/test_check_methodology_drift.sh` passes under bash 3.2 (13 passed). What fails under bash 3.2 is the GATE SCRIPT it exercises, `scripts/check-methodology-drift.sh`, at `manifest_names[@]: unbound variable` - an empty-array expansion under `set -u`, fixed in bash 4.4. `bin/tests/test_update_shared_constants.sh` is the one test file that genuinely fails under bash 3.2, with a parser error. Both are toolchain failures, not code failures; they are why the preflight requires bash 5, and `scripts/check-local.sh` runs every shell gate under the resolved bash 5 rather than `/bin/bash`.
+
+Never skip a failing gate as "known environmental". Install the dependency so the test actually runs.
 
 ## What to contribute
 
