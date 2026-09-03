@@ -762,13 +762,32 @@ else
   # point...' on a single grep-matchable line) plus deleting the phrase
   # from the ABOVE-CEILING echo block reddened nothing, because the
   # reflowed comment line then satisfied the same whole-file grep. Fixed
-  # by scoping the search to the ABOVE-CEILING echo block itself, the
-  # same awk block-extraction pattern this file already uses at the
-  # Upstream-deps manifest check below (SELF_SCRIPT's
-  # self_manifest_block): from the line containing 'ABOVE CEILING.' up to
-  # the block's own 'exit 1' line. This is immune to reflowing content
-  # anywhere else in the file, including the CEILING comment.
-  above_ceiling_block="$(awk '/ABOVE CEILING\.\"/{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
+  # by scoping the search to the ABOVE-CEILING echo block itself, an awk
+  # block-extraction shape modeled on the Upstream-deps manifest check
+  # below (SELF_SCRIPT's self_manifest_block).
+  #
+  # Round-4 review: the round-3 fix's awk start pattern
+  # (`/ABOVE CEILING\."/`) was unanchored, unlike the Upstream-deps
+  # sibling it was modeled on (which anchors with `^# Upstream deps:`) -
+  # it matches the phrase 'ABOVE CEILING.' anywhere a line contains it,
+  # not specifically the operator-message echo line. Two demonstrated
+  # failure directions: (1) moving the sweep citation into a header
+  # comment mentioning the same headline text, with the echo lines
+  # deleted, would start the extraction at that header line instead and
+  # still find the phrase there - a vacuous pass with the real operator
+  # message silent; (2) a purely documentary edit adding the headline
+  # text to a comment ABOVE the real echo block, with the echo block
+  # fully intact, would start the extraction early and falsely fail if
+  # the header text before it lacked the pinned phrase. Fixed by
+  # anchoring the start to the literal echo line itself
+  # (`^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\.`), so only
+  # that specific line can open the block - a comment or any other line
+  # merely containing the same words cannot. The terminator
+  # (`^  exit 1$`) needs no change: it matches only the block's own
+  # exit, an unterminated block would extend to EOF, and an empty
+  # extraction (start never matched) fails closed on the substring
+  # check below rather than passing.
+  above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
   # Mutation that would redden this: delete the phrase 'as an intact
   # injection point, up to and including' from the ABOVE-CEILING echo
   # block specifically (a whole-file delete is equivalent, since the

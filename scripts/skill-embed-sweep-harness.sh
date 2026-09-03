@@ -5,12 +5,14 @@
 #          executable, or an interactive session) can confirm whether the
 #          harness (Claude Code) injects it intact. This is the swept
 #          measurement scripts/check-skill-embed-budget.sh's CEILING
-#          constant was never actually anchored to when first set (its
-#          arithmetic origin is a separate, unswept build-size snapshot -
-#          see that constant's own comment); as of the 2026-09-03 sweep
-#          (DS-45), CEILING's current VALUE (145,000 B) is now genuinely
-#          confirmed intact by this harness, though the constant's
-#          arithmetic still isn't derived from that confirmation. Built
+#          constant was never actually anchored to when first set: its
+#          PREDECESSOR value (139,160 B) had an arithmetic origin (1.1x a
+#          separate, unswept build-size snapshot), but the CURRENT value
+#          (145,000 B) came from a later operator round-number raise and
+#          has no arithmetic origin at all - see that constant's own
+#          comment. As of the 2026-09-03 sweep (DS-45), CEILING's current
+#          VALUE (145,000 B) is now genuinely confirmed intact by this
+#          harness, independent of either predecessor's arithmetic. Built
 #          because DS-146's prior injection observation was never written
 #          down as anything reusable - this closes that gap without
 #          itself running a sweep (see docs/skill-embed-injection-sweep.md
