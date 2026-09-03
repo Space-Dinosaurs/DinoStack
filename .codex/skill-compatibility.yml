@@ -5182,6 +5182,16 @@
       "source_token": "true"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "224993faa4498fc21940df4b91342674ae473a174953d0df4221845c424a495e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "RR_APPEND_FILE",
       "kind": "display-only",
@@ -9172,6 +9182,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "5eebb27626b0fc1925602464d1c1cfdecb3034f269f6f5fc3dd75b0efb03d3ae",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "W1_FETCH_FAILED",
       "kind": "display-only",
@@ -11260,6 +11280,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/tmp"
+    },
+    {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "7c9bded66e10f12cdb4f9160a4820628eb3cc039a537c6069c39a69012f8365d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/conventions-detail.md"
     },
     {
       "expected_target": ".agentic/config.json",

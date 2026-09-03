@@ -2800,6 +2800,8 @@ Lead the PR body with `## QA Evidence` so reviewers see runtime confirmation fir
 
 Use the existing Summary-first body and append QA evidence after PR creation.
 
+**Filling the free-text slots (binding, both cases).** The templates below are lean; `[bullet N]` and `[step N]` are where a PR body bloats. Fill them under `$AE_REPO_DIR/content/rules/conventions.md` §Writing Style (lead with the primary information, write for the permanent audience - so no review-round or QA-round narration) and the per-surface rules in `$AE_REPO_DIR/content/references/conventions-detail.md` §External Comment Discipline and §Assembled PR bodies.
+
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
   # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
@@ -3171,6 +3173,8 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > ```
 >
 > (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
+>
+> **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `$AE_REPO_DIR/content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`$AE_REPO_DIR/content/references/tracker-writeback.md` `## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
 
