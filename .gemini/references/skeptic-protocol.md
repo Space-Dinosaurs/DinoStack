@@ -659,18 +659,20 @@ Changes made:
 
 The structured sign-off format is required for every Skeptic response, whether findings exist or not:
 
+The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the four attestations form the audit tail.
+
 ```
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
+Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
-No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
 ```
@@ -725,7 +727,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"

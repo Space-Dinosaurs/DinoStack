@@ -348,7 +348,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted.`
+   Require the standard sign-off format: `No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:` (verdict first - see `content/agents/skeptic.md` §Sign-off format)
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 

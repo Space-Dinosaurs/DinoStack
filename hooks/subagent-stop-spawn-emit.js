@@ -674,9 +674,119 @@ const _FINDINGS_NONE_RE = /Findings:\s*(?:\*\*)?\s*No findings\.?/i;
 // format"): "No unresolved Critical or Major findings. Sign-off granted."
 // and "Sign-off withheld. The following must be resolved:". Matching the
 // short literal substring, not the full sentence, is deliberate - the
-// preceding clause is prose, not part of the format contract.
+// preceding clause is prose, not part of the format contract. Both the
+// line-anchored regexes below and the substring fallback honour this: each
+// side matches only the SHORT literal, symmetrically. An earlier revision
+// made the granted side require the full two-sentence form; that silently
+// made the "No unresolved ..." clause load-bearing, contradicting this
+// comment and leaving a bare `Sign-off granted.` verdict line unmatched.
 const _SIGNOFF_GRANTED_LITERAL = 'Sign-off granted.';
 const _SIGNOFF_WITHHELD_LITERAL = 'Sign-off withheld.';
+// Markers that may precede content on a line, in any combination:
+// indentation, blockquote carets, an ATX heading, and a bullet or numbered
+// list item. Shared by the verdict regexes AND the fence regex - a fence
+// opened inside a list item or blockquote must be tracked, or every line
+// after it is mis-bucketed.
+const _LINE_MARKER_PREFIX = '^[ \\t]*(?:>[ \\t]*)*(?:#{1,6}[ \\t]+)?(?:(?:[-*+]|\\d+[.)])[ \\t]+)?';
+// A verdict line may additionally be bold-wrapped, with or without a space
+// between the `**` and the literal.
+const _VERDICT_LINE_PREFIX = _LINE_MARKER_PREFIX + '(?:\\*\\*[ \\t]*)?';
+// The granted verdict's mandated line opens with a prose clause ("No
+// unresolved Critical or Major findings.") before the literal, where the
+// withheld line opens with its literal directly. That clause is therefore
+// OPTIONAL here, not required: the short literal stays the only token
+// either side matches on - honouring the comment above - while the
+// canonical two-sentence line and a bare `Sign-off granted.` line both
+// anchor. Requiring the clause instead would leave the bare form unmatched
+// and bias every ambiguous case toward withheld.
+const _SIGNOFF_GRANTED_CLAUSE = '(?:No unresolved Critical or Major findings\\.[ \\t]*(?:\\*\\*)?)?';
+const _SIGNOFF_GRANTED_LINE_RE = new RegExp(
+  _VERDICT_LINE_PREFIX + _SIGNOFF_GRANTED_CLAUSE + 'Sign-off granted\\.');
+const _SIGNOFF_WITHHELD_LINE_RE = new RegExp(_VERDICT_LINE_PREFIX + 'Sign-off withheld\\.');
+// Opening/closing marker of a fenced code block (``` or ~~~), carrying the
+// same marker prefixes a verdict line may carry. The marker must be the
+// LAST content on the line, optionally followed by a language tag (which
+// cannot itself contain a fence character). Without that end anchor an
+// inline code span that opens and closes on one line - "- ```inline```
+// code", "1. ```x``` y", "# ```z" - would toggle fence state, and an odd
+// number of such lines mis-buckets every line after it.
+const _CODE_FENCE_RE = new RegExp(
+  _LINE_MARKER_PREFIX + '(?:```|~~~)[ \\t]*[A-Za-z0-9_+.-]*[ \\t]*$');
+
+/**
+ * Resolve the verdict from a Skeptic's last assistant message.
+ *
+ * The rule is deliberately ORDER-FREE, because document order cannot tell
+ * a real verdict from a quoted one under both template shapes at once:
+ * the verdict-first template (current) puts the real verdict at the TOP of
+ * the block, the verdict-last template (superseded, but still emitted by
+ * any agent whose adapter/skill copy has not been re-installed yet - the
+ * same per-machine dormancy gap AGENTS.md documents for hook snapshots)
+ * puts it at the BOTTOM. A first-wins rule mis-scores the second shape and
+ * a last-wins rule mis-scores the first, so neither is usable during the
+ * rollout window when both shapes coexist.
+ *
+ * Instead: consider only literals that BEGIN their own line, and resolve
+ * in two tiers - UNFENCED lines first, then FENCED lines. Fencing does NOT
+ * discriminate a decoy from a real verdict, and must not be read that way:
+ * skeptic.md displays the sign-off template as a fenced block, so agents
+ * routinely emit their own real block fenced. Treating "fenced" as
+ * "quoted" therefore discards the dominant emission shape and silently
+ * falls through to the substring rule this function exists to replace.
+ * What the tiering actually buys is precedence: when a quoted template
+ * excerpt and a real verdict coexist, the excerpt is nearly always the
+ * fenced one, so an unfenced verdict outranks a fenced one - while a
+ * wholly-fenced block still resolves, from tier 2, rather than falling
+ * through.
+ *
+ * Within each tier, if BOTH verdicts appear, withheld wins: recording a
+ * blocking review as a pass is the failure furthest from Pillar 2, so the
+ * ambiguous case fails safe toward the blocking verdict.
+ *
+ * Two known, accepted mis-scores. Both need a line that OPENS with a
+ * verdict literal; a literal appearing anywhere later on a line is
+ * unaffected.
+ *
+ * (1) SAFE direction. Because a verdict line may be bulleted, a granted
+ * block whose findings list contains a bullet that itself starts with the
+ * withheld literal (e.g. "- Sign-off withheld. is still the wording in the
+ * stale copy (a.md:12)") resolves withheld. A real granted review recorded
+ * as blocking - noisy, but it over-reports blocking rather than
+ * under-reporting it, which is the trade this function is calibrated for.
+ *
+ * (2) UNSAFE direction, disclosed deliberately. Because tier 1 resolves
+ * before tier 2, a FENCED real withheld block loses to any UNFENCED line
+ * that starts with the granted literal - e.g. a closing recap after the
+ * fenced block: "Sign-off granted. would require the Major above to be
+ * resolved first." That records a blocking review as a pass. It is the
+ * price of tier-1 precedence, which is what makes the far more common
+ * quoted-excerpt case come out right; narrowing it would need to
+ * distinguish a recap from a verdict, which no line-shape rule can do.
+ * Prefer withheld-wins ACROSS tiers only if this shape is ever measured
+ * in the wild - it is not, today.
+ *
+ * Returns true (granted), false (withheld), or null (no line-anchored
+ * verdict in either tier - caller falls back to the substring rule).
+ */
+function _resolveVerdictLineAnchored(text) {
+  let inFence = false;
+  const unfenced = { granted: false, withheld: false };
+  const fenced = { granted: false, withheld: false };
+  for (const line of text.split('\n')) {
+    if (_CODE_FENCE_RE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    const tier = inFence ? fenced : unfenced;
+    if (_SIGNOFF_WITHHELD_LINE_RE.test(line)) tier.withheld = true;
+    else if (_SIGNOFF_GRANTED_LINE_RE.test(line)) tier.granted = true;
+  }
+  for (const tier of [unfenced, fenced]) {
+    if (tier.withheld) return false;
+    if (tier.granted) return true;
+  }
+  return null;
+}
 
 /**
  * Parse the LAST assistant message in a Skeptic transcript for the
@@ -693,6 +803,16 @@ const _SIGNOFF_WITHHELD_LITERAL = 'Sign-off withheld.';
  * true` is set alongside the parsed counts (measured frequency ~2-3%; a
  * separate boolean, never folded into `calibrationNote` - those two fields
  * are not mutually exclusive with each other).
+ *
+ * Verdict resolution is ORDER-FREE and tiered: among verdict literals that
+ * begin their own line, unfenced lines are consulted first and fenced
+ * lines second, withheld winning over granted within each tier. This
+ * scores the verdict-first and verdict-last template shapes identically,
+ * which matters while both are in the wild during adapter rollout, and
+ * resolves a wholly-fenced block (the shape agents copy from skeptic.md)
+ * rather than dropping it. See _resolveVerdictLineAnchored. Only when
+ * neither tier yields a verdict does the older substring "last literal
+ * wins" rule apply as a fallback.
  *
  * Both a `Findings:` line (either the `Critical: N, Major: N, Minor: N`
  * form or the `No findings.` form, mapping to three explicit zeros - never
@@ -763,25 +883,22 @@ function parseSkepticSignoff(transcriptPath) {
     return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
   }
 
-  // Tie-break (round-2 fix, m5): use the LAST occurrence of either verdict
-  // literal, not "withheld always wins whenever both are present." A
-  // Skeptic transcript can legitimately contain both literals in the same
-  // last message - content/agents/skeptic.md's own sign-off-format section
-  // quotes both templates verbatim, and a Skeptic reviewing that file (or
-  // any file that reproduces the format contract) scored signed_off:false
-  // even on a real "granted" verdict under the prior first-match logic.
-  // The verdict is whichever literal actually appears LAST in the text,
-  // matching the same "last one wins" convention already used for the
-  // multi-`Findings:` tie-break above.
-  const lastWithheldIdx = lastAssistantText.lastIndexOf(_SIGNOFF_WITHHELD_LITERAL);
-  const lastGrantedIdx = lastAssistantText.lastIndexOf(_SIGNOFF_GRANTED_LITERAL);
-  let signedOff;
-  if (lastWithheldIdx === -1 && lastGrantedIdx === -1) {
-    return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
-  } else if (lastGrantedIdx > lastWithheldIdx) {
-    signedOff = true;
-  } else {
-    signedOff = false;
+  // Verdict resolution: see _resolveVerdictLineAnchored for the rule and
+  // why it is deliberately order-free (it must score the verdict-first and
+  // verdict-last template shapes correctly at the same time).
+  let signedOff = _resolveVerdictLineAnchored(lastAssistantText);
+  if (signedOff === null) {
+    // Fallback: no line-anchored verdict in EITHER tier (e.g. a Skeptic
+    // that inlined its verdict into a sentence). Retain the
+    // pre-existing substring "last literal wins" behaviour rather than
+    // dropping to a calibrationNote, so this stays a strict superset of
+    // prior coverage.
+    const lastWithheldIdx = lastAssistantText.lastIndexOf(_SIGNOFF_WITHHELD_LITERAL);
+    const lastGrantedIdx = lastAssistantText.lastIndexOf(_SIGNOFF_GRANTED_LITERAL);
+    if (lastWithheldIdx === -1 && lastGrantedIdx === -1) {
+      return { calibrationNote: 'unavailable (no sign-off found in transcript)' };
+    }
+    signedOff = lastGrantedIdx > lastWithheldIdx;
   }
 
   const result = { findingsCount, signedOff };

@@ -123,17 +123,19 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 
 The conductor validates this format exactly. Use it verbatim - do not paraphrase the structural lines.
 
+The verdict line comes FIRST - it is the one piece of information every reader of this block needs, and it must never be buried behind the process attestations. The findings that justify it follow, then the audit tail (`Reviewed:` and the four attestations). Every line below is mandatory; the ordering is what changed, not the content.
+
 ```
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
+Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
-No unresolved Critical or Major findings. Sign-off granted.
 ```
 
 **Prose-scoped re-check mode.** When the spawn prompt invokes the narrowed lever (see `content/references/skeptic-protocol.md` §Prose-scoped re-check), the sign-off requires one additional mandatory line, inserted directly after `Active search:`:
@@ -144,7 +146,7 @@ Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)
 
 In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
 
-If Critical or Major findings remain unresolved, replace the last line with:
+If Critical or Major findings remain unresolved, replace the first line (the granted verdict) with the withheld verdict and its resolution list, keeping both at the top of the block ahead of the findings list:
 
 ```
 Sign-off withheld. The following must be resolved:
@@ -154,7 +156,7 @@ Sign-off withheld. The following must be resolved:
 
 Every entry in the resolution list retains its `[CLASSIFICATION]:` prefix (colon form), including a finding referenced by name from Step 12's fabrication check - the "do not re-emit" instruction there bans a second `Critical -`/`Major -`/`Minor -`-prefixed (hyphen form) finding bullet duplicating the same fabrication earlier in the findings list, not the classification prefix on this resolution-list entry itself.
 
-**Two optional lines (round-cost signaling).** Add either or both, only when applicable, directly after the sign-off line (granted or withheld):
+**Two optional lines (round-cost signaling).** Add either or both, only when applicable, at the END of the block - after `Neutrality check:` - not adjacent to the verdict line. They are cost signals for the conductor, not part of the verdict the operator reads first:
 
 ```
 Round value: low - [one-line reason another round would buy little, e.g. "remaining findings are Minor-only style notes"]
