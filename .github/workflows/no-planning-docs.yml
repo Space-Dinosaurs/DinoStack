@@ -1,9 +1,11 @@
 name: no-planning-docs
 on:
+  # PR-only. The post-merge run is not deleted, it is consolidated into
+  # verify-merged-tree.yml, which re-runs this check on `main` only when an
+  # `--admin` merge bypassed the ruleset's up-to-date requirement and landed
+  # a tree no PR run tested. Measurement, policy and retirement (the only
+  # site carrying the figures): .github/workflows/AGENTS.md
   pull_request:
-  push:
-    branches:
-      - main
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

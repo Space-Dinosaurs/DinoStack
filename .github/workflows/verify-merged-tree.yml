@@ -1,0 +1,721 @@
+name: verify-merged-tree
+
+# The consolidated post-merge run, conditional on need.
+#
+# WHY THIS EXISTS. `main`'s ruleset (14778332) sets
+# `strict_required_status_checks_policy: true`, which would mean every PR was
+# up to date with its base at merge time and its run therefore evaluated the
+# exact tree that landed. But the same ruleset carries
+# `bypass_actors: [{RepositoryRole admin, bypass_mode: always}]`, and
+# `gh pr merge --admin --squash` is this repo's normal unattended-agent merge
+# path (root AGENTS.md documents it as such, because GitHub disallows
+# self-approval). Admin bypass defeats strict.
+#
+# A measured minority of recent merges landed a tree byte-different from the
+# one their PR run tested; for those, the post-merge run was the ONLY
+# evaluation the merged tree ever received. The figures, the PR numbers, and
+# the method are deliberately NOT restated here - .github/workflows/AGENTS.md
+# is the single site that carries them, so re-measuring (which the retirement
+# condition anticipates) touches one file rather than seventeen.
+#
+# So the post-merge run stays. What changes is that it is now ONE workflow
+# that asks first whether the merged tree differs from the tree already
+# tested on the PR, and skips the whole suite when it does not. On an
+# up-to-date merge that is a ~10-second gate job instead of ~19 duplicate
+# workflow runs; on a behind-base merge it is the full evaluation that
+# nothing else would perform.
+#
+# Policy, the measurement, the named catch, and the retirement condition:
+# .github/workflows/AGENTS.md
+#
+# FILENAME. Sorts after `slides-sync.yml` deliberately.
+# `scripts/gate-provenance.sh`'s D1 rule scans `.github/workflows/*.yml` in
+# sorted order and cites the FIRST workflow whose `git diff --exit-code`
+# pathspec covers the queried target, so a name sorting earlier than
+# `slides-sync.yml` would silently re-point `gate-provenance.sh
+# docs/slides/<deck>.md` at this file instead of at the canonical PR gate.
+# Same verdict, wrong citation. Do not rename this file to anything sorting
+# before `slides-sync.yml`.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+# Keyed on the pushed commit, NOT on the ref: each merge is its own subject
+# and must be evaluated on its own. `cancel-in-progress` is deliberately
+# false - cancelling a merge's verification because a later merge arrived is
+# precisely how a behind-base tree would go unevaluated.
+concurrency:
+  group: verify-merged-tree-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# TIMEOUT POLICY - see bin-tests.yml's header for the full rationale. A job's
+# `started_at` is stamped at runner assignment, so job-level `timeout-minutes`
+# is a BACKSTOP ONLY; every network install step and every build/check
+# execution step carries its own step-level bound. `actions/checkout`,
+# `actions/setup-python` and `actions/setup-node` are exempt, as they are
+# there: cache-backed GitHub-hosted actions, not custom network commands.
+jobs:
+  # --- The gate -------------------------------------------------------------
+  #
+  # Compares the tree object of the pushed commit against the tree object of
+  # the merged PR's head commit. Identical trees mean the PR run already
+  # evaluated exactly this content and the suite below is pure duplication.
+  #
+  # FAIL-OPEN, ALWAYS TOWARD RUNNING, on BOTH axes:
+  #   - inside the script: any inability to resolve the PR, fetch its head, or
+  #     read either tree yields run_full=true;
+  #   - at the job boundary: every suite job below guards on
+  #     `${{ !cancelled() && (needs.needs-full-run.result != 'success' || ...) }}`,
+  #     so a gate job that FAILS or times out runs the suite rather than
+  #     skipping it. Without a status-check function GitHub applies the
+  #     implicit `success()` and a failed gate would skip everything - the
+  #     exact inversion of this contract. `!cancelled()` rather than
+  #     `always()`: same run-on-gate-failure behavior, but an operator/API
+  #     cancel does not go on to start all 10 suite jobs.
+  # A gate that cannot prove the tree was already tested must not assert that
+  # it was, and a gate that never finished has proven nothing.
+  #
+  # There are exactly two run_full=false paths: an identical tree pair, and a
+  # non-PR direct push touching only UNTESTED_SAFE_PATHS (see that block).
+  needs-full-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run_full: ${{ steps.compare.outputs.run_full }}
+    steps:
+      # fetch-depth: 2 is required, not incidental: the non-PR direct-push
+      # branch below diffs `<sha>^ <sha>`, and the default depth-1 checkout
+      # has no parent commit to diff against.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Compare merged tree against the PR head tree
+        id: compare
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MERGED_SHA: ${{ github.sha }}
+          COMMIT_SUBJECT: ${{ github.event.head_commit.message }}
+        # `shell: bash {0}` is REQUIRED, not stylistic. GitHub's default for a
+        # `run:` block is `bash -e {0}` - errexit ON - which silently defeats
+        # the "no set -e" contract below: a parentless commit or an unreadable
+        # merged SHA aborted the step at the first failing `git rev-parse`
+        # with NO verdict line and NOTHING written to $GITHUB_OUTPUT, making
+        # the `emit true` branches for both dead code. (Measured: exit 128 on
+        # both.) The job-boundary guard still produced the fail-open OUTCOME,
+        # so nothing was unsafe - but the operator lost the diagnostic line on
+        # exactly the paths where it explains the behavior. `{0}` with no `-e`
+        # is what actually gives this script the semantics it documents.
+        #
+        # No `set -e`: every failure path here must fall through to
+        # run_full=true rather than abort the step. `set -u` and the pipefail
+        # option are still on so a genuinely malformed script is loud.
+        shell: bash {0}
+        run: |
+          set -uo pipefail
+
+          emit() {
+            echo "run_full=$1" >> "$GITHUB_OUTPUT"
+            echo "verdict: run_full=$1 ($2)"
+            exit 0
+          }
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            emit true "manually dispatched - always runs the full suite"
+          fi
+
+          # `--verify` is load-bearing on every rev-parse here: WITHOUT it
+          # git echoes the unresolvable argument back on stdout and exits
+          # 128, so an emptiness test never fires and the operator sees a
+          # nonsense line like `merged tree: 0000...^{tree}`. Measured.
+          merged_tree="$(git rev-parse --verify "${MERGED_SHA}^{tree}" 2>/dev/null)"
+          if [ -z "${merged_tree:-}" ]; then
+            emit true "could not read the merged commit's tree object"
+          fi
+          echo "merged commit: ${MERGED_SHA}"
+          echo "merged tree:   ${merged_tree}"
+
+          # Primary resolution: ask the API which PR this commit closed.
+          #
+          # The numeric `case` guard is load-bearing, not defensive style. On
+          # an API error `gh api` writes the error JSON body to STDOUT, so a
+          # bare capture assigns that whole blob to `pr`; the variable is then
+          # non-empty, the subject fallback below never fires, and the fetch
+          # fails on a garbage ref. Verified locally against a 422. It also
+          # catches the literal `null` that `--jq '.[0].number'` emits for an
+          # empty array.
+          pr=""
+          if api_pr="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${MERGED_SHA}/pulls" \
+                         --jq '.[0].number' 2>/dev/null)"; then
+            case "${api_pr:-}" in
+              ''|*[!0-9]*) ;;
+              *) pr="$api_pr" ;;
+            esac
+          fi
+
+          # Fallback: parse the `(#N)` suffix GitHub appends to a squash
+          # commit's subject line. Used when the API returns nothing or errs -
+          # the commit/PR association is eventually consistent, and this
+          # workflow runs inside exactly that window.
+          if [ -z "${pr:-}" ]; then
+            pr="$(printf '%s' "${COMMIT_SUBJECT}" | head -1 \
+                    | sed -n 's/.*(#\([0-9]\{1,\}\))[[:space:]]*$/\1/p')"
+            [ -n "${pr:-}" ] && echo "resolved PR #${pr} from the commit subject (API gave no usable number)"
+          fi
+
+          # No PR resolved. Before falling open, classify the one PUSH shape
+          # that is legitimately PR-less: changelog-publish.yml's daily 00:00
+          # UTC bot commit. It checks out with a PAT (CHANGELOG_PUSH_TOKEN, so
+          # it DOES trigger this workflow), runs
+          # `git add CHANGELOG.md docs/changelog.html`, commits
+          # "chore(changelog): regenerate from merged PRs" with no `(#N)`
+          # suffix, and pushes straight to main. Without this branch that bot
+          # commit fires the entire suite - merged-codex-skill-sync alone is
+          # budgeted 45 minutes - every single day, and makes the Pillar 8
+          # retirement condition unsatisfiable by construction.
+          #
+          # The allowlist is deliberately two entries. Verified by
+          # `grep -rn 'CHANGELOG\.md\|changelog\.html' .github/workflows/
+          # scripts/ bin/ hooks/`: no check reads the CONTENT of either file.
+          # The only hits are changelog-publish.yml's own `git add`,
+          # generate-changelog.js (the producer), update-needsrebuild.test.js
+          # (uses the paths as literal test data), and test_gate_provenance.sh
+          # (asserts CHANGELOG.md classifies DERIVED via D2, which reads
+          # changelog-publish.yml's `git add` line, never the file). The slide
+          # tooling is scoped to `docs/slides/*` and never sees
+          # docs/changelog.html.
+          #
+          # Catch: the daily 45-minute bot run. Retires when
+          # changelog-publish.yml opens a PR instead of pushing to main.
+          # A bash ARRAY, not a space-separated string: a future entry
+          # containing a space would silently split into two, and a split
+          # fragment could coincidentally equal an unrelated changed path.
+          UNTESTED_SAFE_PATHS=(CHANGELOG.md docs/changelog.html)
+          if [ -z "${pr:-}" ]; then
+            parent="$(git rev-parse --verify "${MERGED_SHA}^" 2>/dev/null)"
+            if [ -z "${parent:-}" ]; then
+              emit true "no PR resolved and the parent commit is unavailable - cannot classify this push"
+            fi
+            changed="$(git diff --name-only "${parent}" "${MERGED_SHA}" 2>/dev/null)"
+            if [ -z "${changed:-}" ]; then
+              emit true "no PR resolved and no changed paths could be read"
+            fi
+            echo "no PR resolved; changed paths vs ${parent}:"
+            printf '%s\n' "${changed}" | sed 's/^/  /'
+            # UNTESTED_SAFE_PATHS is the SINGLE source of the match, not just
+            # of the message: an earlier revision matched against a hardcoded
+            # `case CHANGELOG.md|docs/changelog.html)` arm while reporting the
+            # variable, which is the same silent-divergence shape the adapter
+            # pathspec guard exists to prevent. Exact string equality only -
+            # no globbing, no prefix matching.
+            outside=0
+            while IFS= read -r changed_path; do
+              [ -z "${changed_path}" ] && continue
+              path_ok=0
+              for allowed in "${UNTESTED_SAFE_PATHS[@]}"; do
+                if [ "${changed_path}" = "${allowed}" ]; then
+                  path_ok=1
+                  break
+                fi
+              done
+              if [ "${path_ok}" -eq 0 ]; then
+                outside=1
+                break
+              fi
+            done <<< "${changed}"
+            if [ "${outside}" -eq 0 ]; then
+              emit false "non-PR push touching only files no check reads (${UNTESTED_SAFE_PATHS[*]})"
+            fi
+            emit true "could not resolve a PR for this commit - cannot prove the tree was already tested"
+          fi
+          echo "pull request:  #${pr}"
+
+          # refs/pull/N/head stays fetchable after the branch is deleted,
+          # unlike the raw head SHA.
+          if ! git fetch --depth=1 --quiet origin "refs/pull/${pr}/head" 2>/dev/null; then
+            emit true "could not fetch refs/pull/${pr}/head"
+          fi
+
+          head_tree="$(git rev-parse --verify 'FETCH_HEAD^{tree}' 2>/dev/null)"
+          if [ -z "${head_tree:-}" ]; then
+            emit true "could not read PR #${pr}'s head tree object"
+          fi
+          echo "PR head tree:  ${head_tree}"
+
+          if [ "${merged_tree}" = "${head_tree}" ]; then
+            emit false "merged tree is byte-identical to the tree PR #${pr} already tested"
+          fi
+          emit true "merged tree differs from PR #${pr}'s head tree - this content was never evaluated"
+
+  # --- The full suite -------------------------------------------------------
+  #
+  # Every check below is a verbatim reuse of the `run:` block from the
+  # PR-triggered workflow named in each job's comment. The duplication is
+  # deliberate and disclosed (see AGENTS.md); where it is mechanically
+  # guardable, it is guarded rather than trusted.
+
+  # Mirrors adapter-sync.yml's check-adapter-sync job.
+  merged-adapter-sync:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+        timeout-minutes: 5
+      # The 16-path pathspec below is duplicated from adapter-sync.yml, as
+      # root AGENTS.md requires of any adapter-drift check. It is NOT
+      # extracted into a composite action: gate-provenance.sh's D1 rule only
+      # scans .github/workflows/*.yml, so moving the assertion out of a
+      # workflow file would stop `.claude`/`.codex`/... classifying as
+      # DERIVED and would break bin/tests/test_gate_provenance.sh - and
+      # scripts/ is outside this change's ownership. This step makes the
+      # duplication fail loudly instead of silently diverging.
+      - name: Guard - adapter pathspec here is byte-identical to adapter-sync.yml's
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          # The `[.]claude` character class is deliberate: it matches the two
+          # real assertion lines while ensuring this grep's own pattern text
+          # does not match itself (a literal `.claude` here would make the
+          # guard count its own line and fail on a correct tree - observed).
+          pat='git diff --exit-code -- [.]claude'
+          lines="$(grep -hE "$pat" \
+                     .github/workflows/adapter-sync.yml \
+                     .github/workflows/verify-merged-tree.yml \
+                   | sed 's/^[[:space:]]*//; s/^if ! //; s/; then$//')"
+          found="$(printf '%s\n' "$lines" | grep -c . || true)"
+          uniq_count="$(printf '%s\n' "$lines" | sort -u | grep -c . || true)"
+          if [ "$found" != "2" ]; then
+            echo "::error::expected exactly 2 adapter drift pathspec lines (one per workflow), found $found - the guard is no longer measuring what it claims." >&2
+            exit 1
+          fi
+          if [ "$uniq_count" != "1" ]; then
+            echo "::error::the adapter drift pathspec has diverged between adapter-sync.yml and verify-merged-tree.yml ($uniq_count distinct forms). Copy it verbatim from 'Fail on adapter drift' in adapter-sync.yml." >&2
+            exit 1
+          fi
+      - name: Rebuild all adapters
+        timeout-minutes: 10
+        run: |
+          bash .claude/build.sh
+          bash .cursor/build.sh
+          bash .codex/build.sh
+          bash .gemini/build.sh
+          bash .kimi/build.sh
+          bash .opencode/build.sh
+          bash .omp/build.sh
+          bash .pi/build.sh
+          bash .hermes/build.sh
+          bash .openclaw/build.sh
+          bash .copilot/build.sh
+      - name: Verify adapter-sync pathspec entries exist
+        timeout-minutes: 5
+        run: |
+          for p in .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot \
+                   .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; do
+            if [[ ! -e "$p" ]]; then
+              echo "::error::adapter-sync pathspec entry missing: $p (drift check would silently pass on this)" >&2
+              exit 1
+            fi
+          done
+      - name: Fail on adapter drift
+        timeout-minutes: 5
+        run: |
+          if ! git diff --exit-code -- .claude .codex .cursor .gemini .kimi .opencode .omp .pi .hermes .openclaw .copilot .github/copilot-instructions.md .github/agents .github/prompts .github/instructions .github/hooks .github/skills; then
+            echo "::error::Adapter output is out of sync with content/ on the merged tree. Open a PR that runs the build scripts and commits the regenerated adapter files." >&2
+            exit 1
+          fi
+      - name: Verify Codex hook commands resolve (DS-57 regression guard)
+        timeout-minutes: 5
+        run: bash bin/tests/test_codex_hooks_resolve.sh
+      - name: Verify dinostack skill symlinks are relative (DS-104 regression guard)
+        timeout-minutes: 5
+        run: bash scripts/check-symlinks-relative.sh "${{ github.sha }}"
+
+  # Mirrors methodology-drift.yml's check-drift job.
+  merged-methodology-drift:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run methodology drift check
+        timeout-minutes: 10
+        run: bash scripts/check-methodology-drift.sh
+      - name: Run corpus coverage check
+        timeout-minutes: 10
+        run: python3 scripts/check-corpus-coverage.py
+
+  # Mirrors agent-fragment-sync.yml's check-agent-fragment-sync job.
+  merged-agent-fragment-sync:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Stamp shared agent-check fragments
+        timeout-minutes: 10
+        run: bash scripts/stamp-agent-fragments.sh
+      - name: Fail on agent-check fragment drift
+        timeout-minutes: 5
+        run: |
+          if ! git diff --exit-code -- content/agents/; then
+            echo "::error::one or more content/agents/*.md files are out of sync with content/fragments/pre-submit-check-kernels.md on the merged tree. Open a PR that runs 'bash scripts/stamp-agent-fragments.sh' and commits the result." >&2
+            exit 1
+          fi
+
+  # Mirrors both jobs of slides-sync.yml. check-slide-overflow is advisory on
+  # PRs (not on the ruleset's required list) but is included here on purpose:
+  # excluding a check because it "cannot matter" is the reasoning that left
+  # the behind-base merges unevaluated in the first place.
+  merged-slides-sync:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: scripts/package-lock.json
+      - run: npm ci --prefix scripts --no-audit --no-fund
+        timeout-minutes: 10
+      - run: bash scripts/build-slides.sh
+        timeout-minutes: 10
+      - name: Fail on slide drift
+        timeout-minutes: 5
+        run: |
+          if ! git diff --exit-code -- docs/slides; then
+            echo "::error::Slide HTML is out of sync on the merged tree. Open a PR that runs 'bash scripts/build-slides.sh' and commits docs/slides/*.html." >&2
+            exit 1
+          fi
+      # ORDERING DIFFERENCE, disclosed rather than "fixed". slides-sync.yml
+      # runs these in a separate job against the COMMITTED html; here they run
+      # after `build-slides.sh`, so they measure the REGENERATED html. The two
+      # are equivalent in practice because the drift step above reddens first
+      # whenever committed and regenerated differ - if that step passes, the
+      # two are byte-identical by construction. Reordering to measure the
+      # committed html instead would mean skipping the build, and a stale
+      # committed deck would then be measured as if current.
+      - run: bash scripts/check-slide-overflow.sh
+        timeout-minutes: 10
+      - run: bash scripts/check-slide-overflow-live-selftest.sh
+        timeout-minutes: 10
+
+  # Mirrors codex-skill-sync.yml's check-codex-skill-sync job.
+  merged-codex-skill-sync:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+        timeout-minutes: 2
+      - name: Bootstrap ignored prompt runtime
+        run: python3 .codex/lib/prompt-wrappers.py build --repo .
+        timeout-minutes: 2
+      - name: Check codex skill sync
+        run: bash scripts/check-codex-skill-sync.sh
+        timeout-minutes: 2
+      - name: Run full Codex skill test suite
+        run: python3 scripts/test/test_codex_skills.py
+        timeout-minutes: 25
+      - name: Run clean-clone mutation gate
+        run: python3 scripts/test/test_codex_skills.py --clean-clone
+        timeout-minutes: 5
+      - name: Run public Codex build
+        run: bash .codex/build.sh
+        timeout-minutes: 2
+      # Scoped to `-- .codex` rather than copied bare from
+      # codex-skill-sync.yml. gate-provenance.sh's D4 rule takes as its input
+      # the FIRST bare, no-pathspec `git diff --exit-code` across the sorted
+      # workflow files, and both that script's comments and
+      # bin/tests/test_gate_provenance.sh's D4 extraction test treat
+      # codex-skill-sync.yml as the repo's only such assertion. A second bare
+      # one here would make D4's input filename-ordering-dependent. `.codex`
+      # is the only tree these generator steps write, so the scoped form
+      # asserts the same thing this job can actually assert.
+      - name: Verify public build is clean
+        run: git diff --exit-code -- .codex
+        timeout-minutes: 1
+
+  # Mirrors resident-budget.yml (both jobs), command-file-budget.yml, and the
+  # four skill-budget workflows. `fetch-depth: 0` is required: every gate
+  # except check-resident-budget carries a git axis (budget_base_resolve /
+  # budget_delta / budget_burn_line) that silently degrades to its SKIPPED
+  # variant on a shallow checkout.
+  merged-budget-gates:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Run resident budget check
+        timeout-minutes: 2
+        run: bash scripts/check-resident-budget.sh
+      - name: Run skill embed budget check
+        timeout-minutes: 2
+        run: bash scripts/check-skill-embed-budget.sh
+      - name: Run command file budget check
+        timeout-minutes: 2
+        run: bash scripts/check-command-file-budget.sh
+      - name: Run Codex skill budget check
+        timeout-minutes: 2
+        run: bash scripts/check-codex-skill-budget.sh
+      - name: Run Copilot skill budget check
+        timeout-minutes: 2
+        run: bash scripts/check-copilot-skill-budget.sh
+      - name: Run Gemini skill budget check
+        timeout-minutes: 2
+        run: bash scripts/check-gemini-skill-budget.sh
+      - name: Run Kimi skill embed budget check
+        timeout-minutes: 2
+        run: bash scripts/check-kimi-skill-embed-budget.sh
+
+  # Mirrors no-planning-docs.yml, no-false-umbrella-claims.yml, and
+  # command-arg-substitution.yml.
+  merged-content-guards:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Guard - docs/planning must not be tracked
+        timeout-minutes: 2
+        run: |
+          tracked=$(git ls-files docs/planning/)
+          if [ -n "$tracked" ]; then
+            echo "::error::docs/planning/ files are tracked in git. Briefs, Plans, and working notes are gitignored by design." >&2
+            printf '%s\n' "$tracked" >&2
+            exit 1
+          fi
+      - name: Guard - no stale /ds-init-project Step 9 targeted-umbrella claims
+        timeout-minutes: 2
+        run: bash scripts/check-no-false-umbrella-claims.sh
+      - name: Run command arg-substitution gate
+        timeout-minutes: 2
+        run: python3 scripts/check-command-arg-substitution.py content/commands
+
+  # Mirrors hooks-tests.yml's wrap-lock-tests job.
+  merged-wrap-lock-tests:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: wrap-lock acquire test
+        timeout-minutes: 5
+        run: node hooks/tests/test-wrap-acquire-lock.js
+      - name: wrap-lock release test
+        timeout-minutes: 5
+        run: node hooks/tests/test-wrap-release-lock.js
+
+  # Mirrors hooks-tests.yml's hooks-js-tests job.
+  #
+  # This is a SEPARATE job from merged-hooks-sh-tests, not two steps of one
+  # job, and that is load-bearing: bin/tests/test_discovery_zero_match_guard_spec.py
+  # keys LIVE_GUARD_SITES on (file, job), so two discovery loops sharing one
+  # job collapse to a single pin and deleting either loop's zero-match guard
+  # would leave the spec green. One loop per job = one pin per loop.
+  merged-hooks-js-tests:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '20'
+      - name: Install locked hook-test parser dependencies
+        timeout-minutes: 5
+        run: npm ci
+      - name: run JS hook tests
+        timeout-minutes: 10
+        run: |
+          set -e
+          count=0
+          for f in hooks/tests/test-*.js; do
+            case "$f" in
+              hooks/tests/test-wrap-acquire-lock.js|hooks/tests/test-wrap-release-lock.js)
+                # Run by the merged-wrap-lock-tests job above, exactly as
+                # hooks-tests.yml runs them in its own separate wrap-lock-tests
+                # job. If that job is removed, DELETE these case arms so the
+                # files fall back into this loop.
+                continue
+                ;;
+            esac
+            echo "::group::$f"
+            node "$f"
+            echo "::endgroup::"
+            count=$((count+1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: glob hooks/tests/test-*.js matched zero runnable files - discovery is broken, not clean" >&2
+            exit 1
+          fi
+          echo "Ran $count JS hook test files (excludes the 2 covered by merged-wrap-lock-tests)"
+
+  # Mirrors hooks-tests.yml's hooks-sh-tests job. Separate job for the same
+  # per-loop pin reason given on merged-hooks-js-tests above.
+  merged-hooks-sh-tests:
+    needs: needs-full-run
+    # The `!cancelled() &&` prefix is load-bearing: without a status-check
+    # function GitHub applies the implicit `success()`, so a FAILED gate job
+    # (step timeout on a slow fetch, lost runner) would SKIP every suite job
+    # rather than run it - inverting the fail-open contract at the job
+    # boundary. A gate that did not finish has not proven the tree was tested.
+    # `!cancelled()` rather than `always()`: identical run-on-gate-failure
+    # behavior, but an operator/API cancel of the gate does not go on to start
+    # all 10 suite jobs.
+    # Wrapped in `${{ }}` because a bare `!` opens a YAML tag - `if: !cancelled()`
+    # is a YAML scanner error, not merely a style choice.
+    if: ${{ !cancelled() && (needs.needs-full-run.result != 'success' || needs.needs-full-run.outputs.run_full == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: run shell hook tests
+        timeout-minutes: 5
+        run: |
+          set -e
+          count=0
+          for f in hooks/tests/test-*.sh; do
+            case "$f" in
+              hooks/tests/test-version-check-core-repo-dir.sh)
+                # QUARANTINED (DS-89) - copied verbatim from hooks-tests.yml.
+                # Re-enable by deleting this arm once DS-89 lands, in the
+                # same commit that deletes it there.
+                continue
+                ;;
+            esac
+            echo "::group::$f"
+            bash "$f"
+            echo "::endgroup::"
+            count=$((count+1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: glob hooks/tests/test-*.sh matched zero runnable files - discovery is broken, not clean" >&2
+            exit 1
+          fi
+          echo "Ran $count shell hook test files (excludes 1 quarantined pending DS-89)"
