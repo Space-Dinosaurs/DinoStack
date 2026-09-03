@@ -119,8 +119,9 @@ SKILL_FLOOR=100000
 # other closely but are not byte-identical. No swept injection-safety
 # measurement has been run for the Gemini adapter specifically (the
 # procedure at docs/skill-embed-injection-sweep.md targets the Claude
-# harness) - treat this CEILING with the same caveat the Claude gate's own
-# CEILING comment documents: a headroom boundary against known-good
+# harness, and the 2026-09-03 sweep result documented in Claude's
+# check-skill-embed-budget.sh CEILING comment applies only to that
+# harness) - treat this CEILING as a headroom boundary against known-good
 # measurements at authoring time, not a verified-safe injection size.
 #
 # DS-204 (unit B): SKILL.md's embed flipped from the full corpus to the

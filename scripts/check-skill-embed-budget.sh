@@ -195,8 +195,9 @@ FLOOR=100000
 # first written, that did not make 127,753 B a verified-safe size on its
 # own - only a fresh sweep does that. That sweep has now been run (see the
 # 2026-09-03 paragraph below), and confirms CEILING (145,000 B) itself as
-# an intact injection point, superseding the 130,015 B figure as the
-# largest confirmed point on record.
+# an intact injection point - the largest confirmed point on record is now
+# 160,000 B (the sweep's highest tested target), superseding the 130,015 B
+# figure above.
 #
 # 2026-08-19 raise: CEILING moved from 139,160 B to 145,000 B by explicit
 # operator decision, to unblock work. At the time, this was not done on
@@ -212,10 +213,14 @@ FLOOR=100000
 # probe sessions, `--allowedTools "Skill"`, explicit `/dinostack`
 # invocation, answer-from-context-only prompts (no file-read tools
 # permitted in the probe), each verified by both a tail-canary marker AND
-# a sha256 cross-check of the pad block (the hash match is the
-# load-bearing evidence - a model can claim to see a marker without the
-# bytes genuinely being in its context, but it cannot reproduce a
-# pad-block hash without them). Measured intact - tail canary found,
+# a sha256 cross-check of the literal pad_block_sha256 value the tail
+# block declares (the hash match is the load-bearing evidence over a bare
+# marker claim - it is a high-entropy string a model could not plausibly
+# guess, so reproducing it correctly evidences the tail block genuinely
+# reached context; like the rest of the canary scheme it is still a
+# tail-region check, not independent proof the mid-file pad-block bytes
+# are bit-exact in context - see docs/skill-embed-injection-sweep.md's
+# canary-scheme section for that disclosure). Measured intact - tail canary found,
 # declared_total_bytes correct, DS-45-SWEEP-END-OF-FILE present, exact
 # pad_block_sha256 match - at 140,000 B, 145,000 B, 150,000 B, and
 # 160,000 B. Every install was cmp-verified and every probe followed by a

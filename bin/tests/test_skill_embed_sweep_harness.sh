@@ -748,7 +748,10 @@ else
   else
     _fail "CEILING script's ABOVE-CEILING framing is missing the 2026-09-03 sweep result"
   fi
-  if grep -qF '2026-09-03' "$REPO_DIR/AGENTS.md" && grep -qF '160,000' "$REPO_DIR/AGENTS.md"; then
+  # Single distinctive phrase, not two separable bare-token greps (a
+  # co-occurrence of '2026-09-03' and '160,000' from unrelated sentences
+  # could otherwise satisfy this).
+  if grep -qF '140,000 / 145,000 / 150,000 / 160,000 B' "$REPO_DIR/AGENTS.md"; then
     _pass "AGENTS.md cites the 2026-09-03 sweep result up to 160,000 B"
   else
     _fail "AGENTS.md is missing the 2026-09-03 sweep result"

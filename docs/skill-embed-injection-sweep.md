@@ -25,12 +25,13 @@ reconstructing it from prose. This runbook, plus
 via the headless method described in Step 3 below. It confirmed intact
 injection - tail canary present, `declared_total_bytes` correct, and an
 exact `pad_block_sha256` match - at 140,000 / 145,000 / 150,000 /
-160,000 B, so `CEILING` (145,000 B) is now a genuinely verified-safe
-injection point. See `scripts/check-skill-embed-budget.sh`'s `CEILING`
-comment for the full result. This does NOT establish that no truncation
-point exists above 160,000 B; running this runbook once at these four
-points is not license to raise `CEILING` above 160,000 B without a new
-swept confirmation.
+160,000 B, so `CEILING`'s current value (145,000 B) is now a genuinely
+verified-safe injection point. See `scripts/check-skill-embed-budget.sh`'s
+`CEILING` comment for the full result. This result says nothing about
+whether raising `CEILING` is warranted - do not raise `CEILING` on the
+basis of this sweep. Raising it remains a separate operator decision
+requiring its own justification and a new swept confirmation at the
+higher value, exactly as before this sweep was run.
 
 ## What the harness does and does not do
 
@@ -161,12 +162,19 @@ answer only from what is currently in your context, do not read any file"
 Run this against the currently-installed candidate (from Step 2), then
 independently recompute the pad-block sha256 from the candidate file itself
 and compare it to what the subprocess reported - the hash match, not the
-model's bare claim of seeing a marker, is the load-bearing evidence: a model
-can assert it sees a marker without the bytes genuinely being in its
-context, but it cannot reproduce a pad-block hash without them. A bare
-`-p` probe with no `/dinostack` invocation and no invoke instruction should
-report the skill NOT loaded - use this as a negative control confirming the
-probe methodology is sound before trusting a positive result.
+model's bare claim of seeing a marker, is the load-bearing evidence. Be
+precise about what this proves: `pad_block_sha256` is itself written as a
+literal string inside the tail block, so reproducing it correctly is
+evidence the tail block reached the model's context intact (a
+high-entropy string a model could not plausibly guess or hallucinate,
+unlike a short marker phrase it could paraphrase from memory) - it is
+still, like the rest of the canary scheme, a tail-region check. It does
+not independently verify, on its own, that the pad-block bytes earlier in
+the file are bit-exact in context; the runbook's canary-scheme section
+above already discloses that limitation. A bare `-p` probe with no
+`/dinostack` invocation and no invoke instruction should report the skill
+NOT loaded - use this as a negative control confirming the probe
+methodology is sound before trusting a positive result.
 
 **Alternative method (interactive, human-only):**
 
