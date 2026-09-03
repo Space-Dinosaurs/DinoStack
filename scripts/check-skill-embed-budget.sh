@@ -27,9 +27,9 @@
 #              the value itself, 145,000 B, IS now confirmed to load intact
 #              via a real swept measurement on 2026-09-03 (DS-45 sweep,
 #              see below) - do not treat a future CEILING bump as routine
-#              housekeeping regardless: raising it further without a new
-#              swept injection measurement above the current confirmed
-#              point re-opens the exact risk this gate exists to close.
+#              housekeeping regardless: raising it without a new swept
+#              injection measurement re-opens the exact risk this gate
+#              exists to close.
 #
 # Public API: bash scripts/check-skill-embed-budget.sh
 #             Exits 0 when the embed-completeness check passes AND
@@ -217,10 +217,13 @@ FLOOR=100000
 # block declares (the hash match is the load-bearing evidence over a bare
 # marker claim - it is a high-entropy string a model could not plausibly
 # guess, so reproducing it correctly evidences the tail block genuinely
-# reached context; like the rest of the canary scheme it is still a
-# tail-region check, not independent proof the mid-file pad-block bytes
-# are bit-exact in context - see docs/skill-embed-injection-sweep.md's
-# canary-scheme section for that disclosure). Measured intact - tail canary found,
+# reached context; this is narrower than a full read-and-recompute check
+# against the actual file bytes, since the probe model only reports what
+# it sees rather than independently counting the pad-line run or
+# recomputing the hash itself - see
+# docs/skill-embed-injection-sweep.md's Step 3 for the full distinction
+# from the canary scheme's stronger, reader-side guarantee). Measured
+# intact - tail canary found,
 # declared_total_bytes correct, DS-45-SWEEP-END-OF-FILE present, exact
 # pad_block_sha256 match - at 140,000 B, 145,000 B, 150,000 B, and
 # 160,000 B. Every install was cmp-verified and every probe followed by a
@@ -229,13 +232,15 @@ FLOOR=100000
 # (145,000 B) as a genuinely verified-safe injection point - the first
 # real measurement this gate has ever had. It does NOT establish that no
 # truncation point exists above 160,000 B; do not read this result as
-# unlimited headroom. Do not raise CEILING as routine housekeeping when
-# content grows: only raise it alongside a new swept confirmation that a
-# larger body still loads untruncated in the live harness (extending
-# above the 160,000 B point measured here), and say so explicitly in the
-# PR that raises it. The reusable procedure for producing that swept
-# confirmation is documented at docs/skill-embed-injection-sweep.md
-# (DS-45) - use it rather than reconstructing an ad hoc measurement.
+# unlimited headroom, and do not treat it as license to raise CEILING to
+# any value. This sweep says nothing about whether raising CEILING is
+# warranted. Do not raise CEILING as routine housekeeping when content
+# grows: raising it remains a separate operator decision requiring its
+# own new swept confirmation that the larger body still loads untruncated
+# in the live harness, and say so explicitly in the PR that raises it.
+# The reusable procedure for producing that swept confirmation is
+# documented at docs/skill-embed-injection-sweep.md (DS-45) - use it
+# rather than reconstructing an ad hoc measurement.
 CEILING=145000
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted the

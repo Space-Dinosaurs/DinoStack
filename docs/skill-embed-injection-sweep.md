@@ -163,18 +163,27 @@ Run this against the currently-installed candidate (from Step 2), then
 independently recompute the pad-block sha256 from the candidate file itself
 and compare it to what the subprocess reported - the hash match, not the
 model's bare claim of seeing a marker, is the load-bearing evidence. Be
-precise about what this proves: `pad_block_sha256` is itself written as a
-literal string inside the tail block, so reproducing it correctly is
-evidence the tail block reached the model's context intact (a
-high-entropy string a model could not plausibly guess or hallucinate,
-unlike a short marker phrase it could paraphrase from memory) - it is
-still, like the rest of the canary scheme, a tail-region check. It does
-not independently verify, on its own, that the pad-block bytes earlier in
-the file are bit-exact in context; the runbook's canary-scheme section
-above already discloses that limitation. A bare `-p` probe with no
-`/dinostack` invocation and no invoke instruction should report the skill
-NOT loaded - use this as a negative control confirming the probe
-methodology is sound before trusting a positive result.
+precise about what this proves and does not prove: `pad_block_sha256` is
+itself written as a literal string inside the tail block, so a probe
+model reproducing it correctly is evidence the tail block reached the
+model's context intact (a high-entropy string a model could not plausibly
+guess or hallucinate, unlike a short marker phrase it could paraphrase
+from memory). This is narrower than the canary-scheme section's own
+description above: that section describes a reader with direct access to
+the candidate file (or the injected context) independently counting the
+numbered pad-line run for gaps and recomputing the hash from the actual
+bytes present - done that way, the scheme does prove the pad block and
+tail survived intact, per that section. The headless probe here does
+neither of those two steps itself; it only reports what it sees. Treat a
+matching `pad_block_sha256` from the probe as strong evidence the tail
+block reached context, not as an independent guarantee that the pad-block
+bytes earlier in the file are bit-exact in context - if that stronger
+guarantee matters for a given sweep, do the reader-side recomputation
+(this Step already does that half, against the real file) and count the
+pad-line run for gaps as well. A bare `-p` probe with no `/dinostack`
+invocation and no invoke instruction should report the skill NOT loaded -
+use this as a negative control confirming the probe methodology is sound
+before trusting a positive result.
 
 **Alternative method (interactive, human-only):**
 

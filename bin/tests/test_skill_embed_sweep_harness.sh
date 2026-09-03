@@ -741,9 +741,24 @@ else
   # measured CEILING (145,000 B) directly and confirmed it intact, so the
   # "14,985 B unswept gap" framing is now false and was deliberately
   # removed rather than kept. The pin now requires the 2026-09-03 result to
-  # be cited instead. Mutation that would redden this: delete the
-  # 2026-09-03 sweep-result citation from either file.
-  if grep -q '2026-09-03' "$CEILING_SCRIPT" && grep -q '160,000' "$CEILING_SCRIPT"; then
+  # be cited instead.
+  #
+  # Round-2 review (post-sweep-status-fix): the original replacement here
+  # used two independent bare-token greps ('2026-09-03' and '160,000')
+  # against the WHOLE file - both tokens also occur in the CEILING
+  # constant's own comment block earlier in the file (the provenance
+  # narrative), so deleting the 2026-09-03 citation from the ABOVE-CEILING
+  # operator-facing message alone left both greps satisfied by the
+  # unrelated comment text and the suite stayed green - the assertion was
+  # vacuous for the one thing it claimed to check (an operator-facing
+  # message reddening this check actually explains the current state).
+  # Fixed by pinning a single phrase unique to the ABOVE-CEILING message
+  # itself: 'as an intact injection point, up to and including' appears
+  # exactly once in the file, inside that echo block. Mutation that would
+  # redden this: delete that phrase from the ABOVE-CEILING message (a
+  # whole-file delete of every occurrence of the phrase, since it is
+  # unique, is equivalent).
+  if grep -qF 'as an intact injection point, up to and including' "$CEILING_SCRIPT"; then
     _pass "CEILING script's ABOVE-CEILING framing cites the 2026-09-03 sweep result up to 160,000 B"
   else
     _fail "CEILING script's ABOVE-CEILING framing is missing the 2026-09-03 sweep result"
