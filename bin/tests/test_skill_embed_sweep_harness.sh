@@ -752,13 +752,28 @@ else
   # unrelated comment text and the suite stayed green - the assertion was
   # vacuous for the one thing it claimed to check (an operator-facing
   # message reddening this check actually explains the current state).
-  # Fixed by pinning a single phrase unique to the ABOVE-CEILING message
-  # itself: 'as an intact injection point, up to and including' appears
-  # exactly once in the file, inside that echo block. Mutation that would
-  # redden this: delete that phrase from the ABOVE-CEILING message (a
-  # whole-file delete of every occurrence of the phrase, since it is
-  # unique, is equivalent).
-  if grep -qF 'as an intact injection point, up to and including' "$CEILING_SCRIPT"; then
+  #
+  # Round-3 review: the round-2 fix (a single-phrase grep for 'as an
+  # intact injection point, up to and including') was still WHOLE-FILE,
+  # justified only by that phrase happening to appear exactly once given
+  # today's line wrapping in the CEILING comment - not by any structural
+  # scoping. Reflowing that comment onto one line (so the phrase reads
+  # '...confirmed CEILING (145,000 B) itself as an intact injection
+  # point...' on a single grep-matchable line) plus deleting the phrase
+  # from the ABOVE-CEILING echo block reddened nothing, because the
+  # reflowed comment line then satisfied the same whole-file grep. Fixed
+  # by scoping the search to the ABOVE-CEILING echo block itself, the
+  # same awk block-extraction pattern this file already uses at the
+  # Upstream-deps manifest check below (SELF_SCRIPT's
+  # self_manifest_block): from the line containing 'ABOVE CEILING.' up to
+  # the block's own 'exit 1' line. This is immune to reflowing content
+  # anywhere else in the file, including the CEILING comment.
+  above_ceiling_block="$(awk '/ABOVE CEILING\.\"/{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
+  # Mutation that would redden this: delete the phrase 'as an intact
+  # injection point, up to and including' from the ABOVE-CEILING echo
+  # block specifically (a whole-file delete is equivalent, since the
+  # phrase now only needs to survive within the scoped block).
+  if [[ "$above_ceiling_block" == *"as an intact injection point, up to and including"* ]]; then
     _pass "CEILING script's ABOVE-CEILING framing cites the 2026-09-03 sweep result up to 160,000 B"
   else
     _fail "CEILING script's ABOVE-CEILING framing is missing the 2026-09-03 sweep result"

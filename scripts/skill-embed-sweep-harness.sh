@@ -3,15 +3,19 @@
 #          dinostack/SKILL.md at a target byte size, carrying detectable
 #          canaries, so a fresh session (headless `claude -p`, agent-
 #          executable, or an interactive session) can confirm whether the
-#          harness (Claude Code) injects it intact - the swept measurement
-#          scripts/check-skill-embed-budget.sh's CEILING constant claims
-#          to be anchored to, and now genuinely is at its current value
-#          (2026-09-03 sweep, DS-45). Built because DS-146's prior
-#          injection observation was never written down as anything
-#          reusable - this closes that gap without itself running a sweep
-#          (see docs/skill-embed-injection-sweep.md for the runbook,
-#          including the primary headless-probe method for the step that
-#          observes a fresh session's context).
+#          harness (Claude Code) injects it intact. This is the swept
+#          measurement scripts/check-skill-embed-budget.sh's CEILING
+#          constant was never actually anchored to when first set (its
+#          arithmetic origin is a separate, unswept build-size snapshot -
+#          see that constant's own comment); as of the 2026-09-03 sweep
+#          (DS-45), CEILING's current VALUE (145,000 B) is now genuinely
+#          confirmed intact by this harness, though the constant's
+#          arithmetic still isn't derived from that confirmation. Built
+#          because DS-146's prior injection observation was never written
+#          down as anything reusable - this closes that gap without
+#          itself running a sweep (see docs/skill-embed-injection-sweep.md
+#          for the runbook, including the primary headless-probe method
+#          for the step that observes a fresh session's context).
 #
 # Public API: bash scripts/skill-embed-sweep-harness.sh candidate \
 #               --target-bytes N --out PATH [--base PATH] [--sweep-id ID]
