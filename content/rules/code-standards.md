@@ -29,13 +29,9 @@ When choosing between tool options for the same job, prefer the option that mini
 
 - **Prefer token-efficient output.** Text and tabular tool output is cheaper for models to consume than JSON dumps with identical semantic content. When a tool offers multiple output formats, pick the one that gives the model the signal it needs with the least surrounding structure.
 - **Prefer CLI over MCP server when the CLI is cheaper.** An MCP server adds a protocol layer that inflates token cost and latency with no functional gain when a CLI covers the same job. Concrete reference: the GitHub MCP server costs approximately 3x the tokens and 2x the latency of the `gh` CLI for the same GitHub operations. AE uses `gh` for all GitHub operations (see AGENTS.md) - this is the principle in action.
-- **Measure before adopting.** Do not assume a new tool or MCP server is cost-neutral. Before integrating either, benchmark its token/latency profile against the alternative. The `ctx_*` context-mode tools earn their place because their token reduction is measured (~98% context savings versus raw Bash output) - not assumed.
+- **Measure before adopting.** Do not assume a new tool or MCP server is cost-neutral. Before integrating either, benchmark its token/latency profile against the alternative.
 
-These rules complement the existing tool hierarchy above (Read/Glob/Grep over Bash) and the Context Window Management rules below (`ctx_*` over raw Bash for large output). Together they form AE's tool-selection standard: reach for the tool whose output-to-signal ratio is best for the model reading it.
-
-## Context Window Management
-
-**When `ctx_execute` or `ctx_batch_execute` MCP tools are available, prefer them over raw `Bash` for any operation expected to produce more than ~20 lines of output.** For tool usage detail, the create/modify-files prohibition, the `ctx_fetch_and_index`-over-`WebFetch` preference, and platform support: read `content/references/code-standards-detail.md` §Context Window Management.
+These rules complement the existing tool hierarchy above (Read/Glob/Grep over Bash). Together they form AE's tool-selection standard: reach for the tool whose output-to-signal ratio is best for the model reading it.
 
 ## Module Manifests
 
