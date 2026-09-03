@@ -733,69 +733,46 @@ else
   # a pin that never covered it. See the Major 1 fix in
   # scripts/check-skill-embed-budget.sh's CEILING comment.
 
-  # Round-4 Minor 2 (superseded 2026-09-03, DS-45 sweep RUN): this pin
-  # originally required the ABOVE-CEILING message and AGENTS.md to cite the
-  # 130,015 B largest-recorded-intact-injection figure and a 14,985 B
-  # unswept gap to CEILING, because CEILING itself had never been swept.
-  # The 2026-09-03 sweep (docs/skill-embed-injection-sweep.md, DS-45)
-  # measured CEILING (145,000 B) directly and confirmed it intact, so the
-  # "14,985 B unswept gap" framing is now false and was deliberately
-  # removed rather than kept. The pin now requires the 2026-09-03 result to
-  # be cited instead.
-  #
-  # Round-2 review (post-sweep-status-fix): the original replacement here
-  # used two independent bare-token greps ('2026-09-03' and '160,000')
-  # against the WHOLE file - both tokens also occur in the CEILING
-  # constant's own comment block earlier in the file (the provenance
-  # narrative), so deleting the 2026-09-03 citation from the ABOVE-CEILING
-  # operator-facing message alone left both greps satisfied by the
-  # unrelated comment text and the suite stayed green - the assertion was
-  # vacuous for the one thing it claimed to check (an operator-facing
-  # message reddening this check actually explains the current state).
-  #
-  # Round-3 review: the round-2 fix (a single-phrase grep for 'as an
-  # intact injection point, up to and including') was still WHOLE-FILE,
-  # justified only by that phrase happening to appear exactly once given
-  # today's line wrapping in the CEILING comment - not by any structural
-  # scoping. Reflowing that comment onto one line (so the phrase reads
-  # '...confirmed CEILING (145,000 B) itself as an intact injection
-  # point...' on a single grep-matchable line) plus deleting the phrase
-  # from the ABOVE-CEILING echo block reddened nothing, because the
-  # reflowed comment line then satisfied the same whole-file grep. Fixed
-  # by scoping the search to the ABOVE-CEILING echo block itself, an awk
-  # block-extraction shape modeled on the Upstream-deps manifest check
-  # below (SELF_SCRIPT's self_manifest_block).
-  #
-  # Round-4 review: the round-3 fix's awk start pattern
-  # (`/ABOVE CEILING\."/`) was unanchored, unlike the Upstream-deps
-  # sibling it was modeled on (which anchors with `^# Upstream deps:`) -
-  # it matches the phrase 'ABOVE CEILING.' anywhere a line contains it,
-  # not specifically the operator-message echo line. Two demonstrated
-  # failure directions: (1) moving the sweep citation into a header
-  # comment mentioning the same headline text, with the echo lines
-  # deleted, would start the extraction at that header line instead and
-  # still find the phrase there - a vacuous pass with the real operator
-  # message silent; (2) a purely documentary edit adding the headline
-  # text to a comment ABOVE the real echo block, with the echo block
-  # fully intact, would start the extraction early and falsely fail if
-  # the header text before it lacked the pinned phrase. Fixed by
-  # anchoring the start to the literal echo line itself
-  # (`^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\.`), so only
-  # that specific line can open the block - a comment or any other line
-  # merely containing the same words cannot. The terminator
-  # (`^  exit 1$`) needs no change: it matches only the block's own
-  # exit, an unterminated block would extend to EOF, and an empty
-  # extraction (start never matched) fails closed on the substring
-  # check below rather than passing.
+  # Round-4 Minor 2 (superseded 2026-09-03, DS-45 sweep RUN): the
+  # ABOVE-CEILING message must cite the 2026-09-03 sweep result (140,000 /
+  # 145,000 / 150,000 / 160,000 B intact), not the now-false pre-sweep
+  # "14,985 B unswept gap" framing. Rounds 2-4 hardened a prose substring
+  # match against this same message four times (whole-file grep -> single
+  # phrase -> awk-scoped block -> anchored awk block), each fix closing
+  # one escape and revealing another one level up, ending with round-5's
+  # finding that even the anchored block-scoped match still only pinned
+  # the connective English ("as an intact injection point, up to and
+  # including") and none of the figures that carry the claim - so the
+  # message could assert a stale CEILING figure, or a wrong sweep bound,
+  # and still pass. Replaced with a DERIVED check instead of a fifth
+  # layer of prose hardening: read the live CEILING= value out of the
+  # script and assert the ABOVE-CEILING block cites that exact number,
+  # plus the historical 160,000 B sweep upper bound. This makes the
+  # message and the constant structurally unable to disagree - a future
+  # CEILING raise with an unrevised message fails here rather than
+  # shipping the same false-provenance defect a third time (see AGENTS.md
+  # for the two closed provenance-comment reviews this gate already had
+  # before this ticket).
   above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
-  # Mutation that would redden this: delete the phrase 'as an intact
-  # injection point, up to and including' from the ABOVE-CEILING echo
-  # block specifically (a whole-file delete is equivalent, since the
-  # phrase now only needs to survive within the scoped block).
-  if [[ "$above_ceiling_block" == *"as an intact injection point, up to and including"* ]]; then
-    _pass "CEILING script's ABOVE-CEILING framing cites the 2026-09-03 sweep result up to 160,000 B"
+  live_ceiling="$(awk -F= '/^CEILING=[0-9]+$/{print $2; exit}' "$CEILING_SCRIPT")"
+  # Format with thousands separators to match the message's "145,000 B"
+  # style (e.g. 145000 -> 145,000). Portable (no locale/printf %'d
+  # dependency): reverse the digits, comma every 3, reverse back.
+  live_ceiling_formatted="$(printf '%s' "$live_ceiling" | rev | sed -E 's/([0-9]{3})/\1,/g' | rev | sed 's/^,//')"
+  # Mutations that would redden this: (a) delete the sweep citation from
+  # the ABOVE-CEILING block; (b) change the swept figure the block cites
+  # (e.g. "145,000 B" -> "175,000 B") without changing CEILING - the
+  # derived value no longer matches the block's literal text; (c) raise
+  # CEILING without updating the block's cited figure - the derived value
+  # changes but the block's literal text doesn't, so they disagree;
+  # (d) change the cited sweep upper bound (160,000 B) to a different
+  # figure.
+  if [[ -n "$live_ceiling_formatted" ]] \
+     && [[ "$above_ceiling_block" == *"($live_ceiling_formatted B) as an intact injection point"* ]] \
+     && [[ "$above_ceiling_block" == *"160,000 B"* ]]; then
+    _pass "CEILING script's ABOVE-CEILING framing cites the live CEILING value and the 160,000 B sweep bound"
   else
-    _fail "CEILING script's ABOVE-CEILING framing is missing the 2026-09-03 sweep result"
+    _fail "CEILING script's ABOVE-CEILING framing does not agree with the live CEILING value (read: '$live_ceiling_formatted') or is missing the 160,000 B sweep bound"
   fi
   # Single distinctive phrase, not two separable bare-token greps (a
   # co-occurrence of '2026-09-03' and '160,000' from unrelated sentences

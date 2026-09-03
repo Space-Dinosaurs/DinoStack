@@ -339,10 +339,10 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   echo "  CEILING is intended as a safety boundary, not a tidiness budget." >&2
   echo "  A 2026-09-03 swept measurement (DS-45) confirmed CEILING itself" >&2
   echo "  (145,000 B) as an intact injection point, up to and including" >&2
-  echo "  160,000 B - but it does NOT establish that no truncation point" >&2
-  echo "  exists above 160,000 B. See the CEILING constant's own comment" >&2
-  echo "  above for the full DS-45 provenance and the 2026-09-03 sweep" >&2
-  echo "  result. Do not raise CEILING as routine housekeeping - only" >&2
+  echo "  160,000 B - but that does NOT establish no truncation point" >&2
+  echo "  exists above that figure. See the CEILING constant's own" >&2
+  echo "  comment above for the full DS-45 provenance and sweep result." >&2
+  echo "  Do not raise CEILING as routine housekeeping - only" >&2
   echo "  raise it alongside a new swept confirmation that the larger" >&2
   echo "  body still loads untruncated in the live harness (procedure:" >&2
   echo "  docs/skill-embed-injection-sweep.md), and say so" >&2

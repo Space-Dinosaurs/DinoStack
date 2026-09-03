@@ -12,9 +12,9 @@
 #          has no arithmetic origin at all - see that constant's own
 #          comment. As of the 2026-09-03 sweep (DS-45), CEILING's current
 #          VALUE (145,000 B) is now genuinely confirmed intact by this
-#          harness, independent of either predecessor's arithmetic. Built
-#          because DS-146's prior injection observation was never written
-#          down as anything reusable - this closes that gap without
+#          harness, independent of the predecessor value's arithmetic.
+#          Built because DS-146's prior injection observation was never
+#          written down as anything reusable - this closes that gap without
 #          itself running a sweep (see docs/skill-embed-injection-sweep.md
 #          for the runbook, including the primary headless-probe method
 #          for the step that observes a fresh session's context).
