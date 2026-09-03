@@ -1,6 +1,11 @@
 name: vision-alignment-check
 on:
+  # `edited` is required: this check reads the PR BODY, and a body-only edit
+  # fires no synchronize event. Without it, adding the section to an already-open
+  # PR leaves the red permanently until an unrelated push. In-repo precedent:
+  # pr-review-rigor.yml, which reads the body for the same reason.
   pull_request:
+    types: [opened, edited, synchronize, reopened]
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -46,10 +51,36 @@ jobs:
           # still read this public repo's PR files and body - no elevated token needed.
           BODY="$(gh pr view "$PR_NUMBER" --json body -q '.body')"
           SECTION="$(printf '%s\n' "$BODY" | awk '/## North Star alignment/{flag=1; next} /^## /{flag=0} flag')"
-          STRIPPED="$(printf '%s\n' "$SECTION" | sed 's/<!--.*-->//g' | tr -d '[:space:]')"
+          # Reduce the section to its ANSWERS before testing for emptiness. Presence alone is
+          # not an answer: a body still carrying "[pillar]" verbatim, or carrying only the
+          # template's own bullet labels, satisfies a bare presence test while answering
+          # nothing - which would make this check vacuous exactly where it used to be
+          # unmissably red. Three reductions, in order:
+          #   1. HTML comments, single-line AND multi-line. Both passes are needed and the
+          #      ORDER is load-bearing. The template ships its instructions as a MULTI-LINE
+          #      comment, which a line-based s/<!--.*-->//g does not touch at all - fed the
+          #      unfilled template verbatim, the surviving comment text became the "answer"
+          #      and the check passed. The range delete alone is also wrong: a range whose
+          #      start and end match on the SAME line does not end there (sed resumes looking
+          #      from the next line), so a trailing inline comment on a filled answer would
+          #      swallow the rest of the section and fail a good body. So: close single-line
+          #      comments first, then delete what genuinely spans lines.
+          #   2. On a bullet line, the label up to its first colon - scaffolding, not content.
+          #      Generic rather than an enumeration of the two current labels, so a reworded
+          #      template does not silently reopen the hole. A bare line (e.g. "N/A - ...")
+          #      has no leading "- <label>:" and survives untouched.
+          #   3. The literal placeholder tokens Phase 9 emits.
+          # What remains is what the author actually wrote. Empty => not filled in.
+          # Disclosed residual: this is a presence check, so a punctuation-only answer
+          # ("- Pillar(s) ...: .") still passes - deliberate evasion is out of its reach.
+          STRIPPED="$(printf '%s\n' "$SECTION" \
+            | sed -e 's/<!--.*-->//g' -e '/<!--/,/-->/d' \
+            | sed 's/^[[:space:]]*-[^:]*:/ /' \
+            | sed -e 's/\[pillar\]//g' -e 's/\[trade-off, or "none identified"\]//g' \
+            | tr -d '[:space:]')"
 
           if [ -z "$STRIPPED" ]; then
-            echo "::error::This PR changes methodology-shaping paths but the PR body has no filled-in '## North Star alignment' section (or the section is empty). Add it (see .github/PULL_REQUEST_TEMPLATE.md) - a one-line N/A is fine for trivial changes; a fuller pillar/trade-off answer is expected for behavioral changes. This is an advisory check, not a merge blocker."
+            echo "::error::This PR changes methodology-shaping paths but its '## North Star alignment' section is missing, empty, or still holds the [pillar]/[trade-off] placeholders. Fill it per .github/PULL_REQUEST_TEMPLATE.md - a one-line N/A is fine when no methodology-shaping path is touched. Editing the body re-runs this check; no push needed."
             exit 1
           fi
 

@@ -2802,6 +2802,8 @@ Use the existing Summary-first body and append QA evidence after PR creation.
 
 **Filling the free-text slots (binding, both cases).** The templates below are lean; `[bullet N]` and `[step N]` are where a PR body bloats. Fill them under `$AE_REPO_DIR/content/rules/conventions.md` §Writing Style (lead with the primary information, write for the permanent audience - so no review-round or QA-round narration) and the per-surface rules in `$AE_REPO_DIR/content/references/conventions-detail.md` §External Comment Discipline and §Assembled PR bodies.
 
+**`## North Star alignment` (binding, both cases).** Never leave `[pillar]` or `[trade-off]` literal - an unfilled placeholder counts as an absent section. With no `docs/overview/vision.md` in the ticket repo, fill the section `N/A - no docs/overview/vision.md in this repository`. With one, fill from the architect plan's pillars - including those cutting AGAINST the change, not only the supporting ones - or `N/A - <reason>` under the rule `.github/PULL_REQUEST_TEMPLATE.md` states for its own copy. Emit at `gh pr create` time, not a later `gh pr edit`: `--body-file` bypasses that template, which only populates web-UI PRs. `check-vision-alignment` gates this on the DinoStack repo; elsewhere it may not gate at all.
+
 ```bash
 if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0 ]; then
   # Case A: behavior-visible unit - lead with QA Evidence so reviewers see runtime confirmation first
@@ -2822,6 +2824,11 @@ if [ "$UNIT_IS_BEHAVIOR_VISIBLE" = "true" ] && [ "${#QA_EVIDENCE_URLS[@]}" -gt 0
 - [bullet 2]
 
 [TRACKER_REFERENCE_BLOCK]
+
+## North Star alignment
+
+- Pillar(s) advanced (see docs/overview/vision.md): [pillar]
+- Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
 
 ## Test plan
 - [ ] [step 1]
@@ -2848,6 +2855,11 @@ else
 - [bullet 2]
 
 [TRACKER_REFERENCE_BLOCK]
+
+## North Star alignment
+
+- Pillar(s) advanced (see docs/overview/vision.md): [pillar]
+- Trade-off or pillar this could regress, if any: [trade-off, or "none identified"]
 
 ## Test plan
 - [ ] [step 1]
