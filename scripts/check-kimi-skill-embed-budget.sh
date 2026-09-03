@@ -95,7 +95,14 @@ SKILL_FLOOR=100000
 # SKILL.md ceiling: informational safety boundary, NOT a verified-safe
 # injection size for the Kimi harness - see the header comment above.
 # 153,205 B = ceil(139,277 B measured at gate creation * 1.1).
-SKILL_CEILING=153205
+# Raised 153205 -> 157000 on 2026-09-03 for the conventions.md
+# length-discipline rule (155,003 B live at the raise, ~1.3% headroom).
+# Still informational and unswept - no injection measurement has been run
+# against the Kimi harness. Raised explicitly, per this gate's own
+# instruction to say so in the PR that raises it, after the growth was
+# triaged (operator-directed, three Skeptic rounds, subsection compressed
+# 4518 -> 3416 B); not routine housekeeping.
+SKILL_CEILING=157000
 
 # AGENTS.md stub ceiling: catches an accidental re-embed of the
 # methodology body. 1,462 B measured at gate creation; a re-embedded body

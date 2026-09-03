@@ -47,8 +47,9 @@ in a blocker. Canonical candidate-branch and fail-closed details:
   otherwise), code quality gates, package management conventions, and browser verification with
   agent-browser.
 
-- **rules/conventions.md** - writing style, project structure, session context and memory handling,
-  and git workflow including protected branches and worktree-per-feature conventions.
+- **rules/conventions.md** - writing style including length discipline (write for the permanent
+  audience), project structure, session context and memory handling, and git workflow including
+  protected branches and worktree-per-feature conventions.
 
 ## Commands (invoke by name)
 

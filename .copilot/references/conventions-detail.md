@@ -204,6 +204,6 @@ The body below the blank line is uncapped; put detail there. Trailer lines (Clos
 
 ### Assembled PR bodies
 
-The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - the answer-relevance rule applies over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:160`, unchanged).
+The conductor assembles the final PR body. The **Summary** section is ≤ 5 single-line bullets. QA Evidence, the tracker reference block, and the Test plan checkboxes are separate fixed-form sections, excluded from the Summary budget. The whole body is uncapped - the answer-relevance rule applies over any line arithmetic. The conductor seeds the Summary from the engineer's `pr_description_body` (2000-character cap at `content/agents/engineer.md:169`, unchanged). The general principle these per-surface rules instantiate is `content/rules/conventions.md` §Writing Style (length discipline).
 
 This rule layers conciseness expectations on top of the structural templates in `content/commands/ds-implement-ticket.md` (PR body, tracker comment, ticket description). The templates still apply; this rule governs the substance that fills them.

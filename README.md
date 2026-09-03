@@ -258,7 +258,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 - Agent methodology - delegation, risk classification, task decomposition, worktree lifecycle
 - Code standards - tool discipline, quality gates, package management, browser verification
-- Conventions - writing style, project structure, session context, git workflow
+- Conventions - writing style and length discipline, project structure, session context, git workflow
 
 **Reference docs** (41 files) - detailed protocol specs loaded on trigger:
 
