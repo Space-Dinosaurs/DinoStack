@@ -230,13 +230,9 @@ The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) popu
 > - **3-4 points:** no warning. `context_risk` is unset.
 > - **≤ 2 points or estimate absent:** no warning. Safe to run as-is.
 >
-> **Token-reduction reminder** - if any ticket has `context_risk: high`, append this one-time callout at the end of the story-size preflight output:
+> **Context-fill reminder** - if any ticket has `context_risk: high`, append this one-time callout at the end of the story-size preflight output:
 > ```
-> 💡 Token-reduction tools: if your harness supports ctx_* context-mode tools
->    (ctx_execute, ctx_batch_execute), prefer them over raw shell output for any
->    operation producing > 20 lines - they reduce context consumption by ~98%
->    (see content/rules/code-standards.md §Context Window Management).
->    If context fills mid-session, /ds-wrap → /clear → re-invoke /ds-implement-ticket
+> 💡 If context fills mid-session, /ds-wrap → /clear → re-invoke /ds-implement-ticket
 >    with the remaining ticket IDs to continue in a fresh window.
 > ```
 >
