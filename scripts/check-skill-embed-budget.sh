@@ -21,14 +21,15 @@
 #              skill still builds, still passes adapter-sync, and only fails
 #              at runtime when an agent needs content that never loaded.
 #            - CEILING: intended as a safety boundary, not a tidiness
-#              budget, but its own arithmetic does not currently anchor it
-#              to the one injection-verified data point it claims to
-#              protect (DS-45 finding - see the CEILING constant's own
-#              comment below for the full provenance and the gap it
-#              documents). Do not treat a future CEILING bump as routine
-#              housekeeping regardless: raising it without a new swept
-#              injection measurement re-opens the exact risk this gate
-#              exists to close.
+#              budget. Its arithmetic origin was never anchored to a swept
+#              injection measurement (DS-45 finding - see the CEILING
+#              constant's own comment below for the full provenance), but
+#              the value itself, 145,000 B, IS now confirmed to load intact
+#              via a real swept measurement on 2026-09-03 (DS-45 sweep,
+#              see below) - do not treat a future CEILING bump as routine
+#              housekeeping regardless: raising it further without a new
+#              swept injection measurement above the current confirmed
+#              point re-opens the exact risk this gate exists to close.
 #
 # Public API: bash scripts/check-skill-embed-budget.sh
 #             Exits 0 when the embed-completeness check passes AND
@@ -190,33 +191,46 @@ FLOOR=100000
 # favorable versus the prior state: 127,753 B is the first live default on
 # record that sits BELOW the 130,015 B largest-recorded-intact-injection
 # figure above, rather than above it (138,990 B was 8,975 B over that
-# figure; 127,753 B is 2,262 B under it). That does not make 127,753 B a
-# verified-safe size on its own - only a fresh sweep does that, per the
-# DS-45 procedure below - it only means the gap this gate's CEILING has
-# been silently papering over (see the 2026-08-19 raise paragraph below)
-# is, for the first time, not also a gap the live default itself falls
-# into. The region strictly above 130,015 B remains unswept regardless of
-# where CEILING (145,000 B, unrelated to and well above both the
-# injection figure and the live default) sits above it, or which corpus
-# produced the measured size.
+# figure; 127,753 B is 2,262 B under it). At the time this paragraph was
+# first written, that did not make 127,753 B a verified-safe size on its
+# own - only a fresh sweep does that. That sweep has now been run (see the
+# 2026-09-03 paragraph below), and confirms CEILING (145,000 B) itself as
+# an intact injection point, superseding the 130,015 B figure as the
+# largest confirmed point on record.
 #
 # 2026-08-19 raise: CEILING moved from 139,160 B to 145,000 B by explicit
-# operator decision, to unblock work. This was not done on the basis of a
-# new swept injection measurement - none has been run since the 130,015 B
-# figure above - and the raise does not make the gate more verified than
-# it was: the prior value was itself unswept and arbitrary (1.1x a
-# build-size snapshot, never anchored to an injection measurement), so
-# raising it moves an arbitrary number rather than spending verified
-# evidence. The unswept region above the largest confirmed intact
-# injection widens accordingly, from 9,145 B to 14,985 B. Do not raise
-# CEILING as routine housekeeping when content grows: only raise it
-# alongside a new swept confirmation that a larger body still loads
-# untruncated in the live harness, and say so explicitly in the PR that
-# raises it - this raise is the exact event that guidance warns against,
-# taken deliberately and documented as such rather than skipped. A
-# reusable procedure for producing that swept confirmation is documented
-# at docs/skill-embed-injection-sweep.md (DS-45) - use it rather than
-# reconstructing an ad hoc measurement.
+# operator decision, to unblock work. At the time, this was not done on
+# the basis of a new swept injection measurement - none had been run
+# since the 130,015 B figure above - so the raise did not make the gate
+# more verified than it was: the prior value was itself unswept and
+# arbitrary (1.1x a build-size snapshot, never anchored to an injection
+# measurement), so raising it moved an arbitrary number rather than
+# spending verified evidence. That gap is closed by the 2026-09-03 sweep
+# below, which measured CEILING's own value directly.
+#
+# 2026-09-03 sweep (DS-45, RUN for the first time): headless `claude -p`
+# probe sessions, `--allowedTools "Skill"`, explicit `/dinostack`
+# invocation, answer-from-context-only prompts (no file-read tools
+# permitted in the probe), each verified by both a tail-canary marker AND
+# a sha256 cross-check of the pad block (the hash match is the
+# load-bearing evidence - a model can claim to see a marker without the
+# bytes genuinely being in its context, but it cannot reproduce a
+# pad-block hash without them). Measured intact - tail canary found,
+# declared_total_bytes correct, DS-45-SWEEP-END-OF-FILE present, exact
+# pad_block_sha256 match - at 140,000 B, 145,000 B, 150,000 B, and
+# 160,000 B. Every install was cmp-verified and every probe followed by a
+# verified restore; final state confirmed clean (real SKILL.md at
+# 138,320 B, zero canaries, clean git status). This confirms CEILING
+# (145,000 B) as a genuinely verified-safe injection point - the first
+# real measurement this gate has ever had. It does NOT establish that no
+# truncation point exists above 160,000 B; do not read this result as
+# unlimited headroom. Do not raise CEILING as routine housekeeping when
+# content grows: only raise it alongside a new swept confirmation that a
+# larger body still loads untruncated in the live harness (extending
+# above the 160,000 B point measured here), and say so explicitly in the
+# PR that raises it. The reusable procedure for producing that swept
+# confirmation is documented at docs/skill-embed-injection-sweep.md
+# (DS-45) - use it rather than reconstructing an ad hoc measurement.
 CEILING=145000
 
 # EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted the
@@ -312,14 +326,15 @@ if [ "$skill_bytes" -gt "$CEILING" ]; then
   echo "  $SKILL_FILE measured $skill_bytes B," >&2
   echo "  above the $CEILING B ceiling ($overage B over)." >&2
   echo "" >&2
-  echo "  CEILING is intended as a safety boundary, not a tidiness budget," >&2
-  echo "  but the largest recorded intact injection on file is 130,015 B" >&2
-  echo "  (DS-146) - CEILING sits 14,985 B above that point, unswept. See" >&2
-  echo "  the CEILING constant's own comment above for the full DS-45" >&2
-  echo "  provenance correction and the 2026-08-19 raise. Do not raise" >&2
-  echo "  CEILING as routine housekeeping - only raise it alongside a new" >&2
-  echo "  swept confirmation that the larger body still loads untruncated" >&2
-  echo "  in the live harness (procedure:" >&2
+  echo "  CEILING is intended as a safety boundary, not a tidiness budget." >&2
+  echo "  A 2026-09-03 swept measurement (DS-45) confirmed CEILING itself" >&2
+  echo "  (145,000 B) as an intact injection point, up to and including" >&2
+  echo "  160,000 B - but it does NOT establish that no truncation point" >&2
+  echo "  exists above 160,000 B. See the CEILING constant's own comment" >&2
+  echo "  above for the full DS-45 provenance and the 2026-09-03 sweep" >&2
+  echo "  result. Do not raise CEILING as routine housekeeping - only" >&2
+  echo "  raise it alongside a new swept confirmation that the larger" >&2
+  echo "  body still loads untruncated in the live harness (procedure:" >&2
   echo "  docs/skill-embed-injection-sweep.md), and say so" >&2
   echo "  explicitly in the PR that raises it. Otherwise, trim content." >&2
   echo "  $burn_line" >&2

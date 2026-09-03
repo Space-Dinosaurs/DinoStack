@@ -733,22 +733,25 @@ else
   # a pin that never covered it. See the Major 1 fix in
   # scripts/check-skill-embed-budget.sh's CEILING comment.
 
-  # Round-4 Minor 2: the ABOVE-CEILING failure message and AGENTS.md must
-  # both cite the actually-verified 130,015 B figure and the correct gap
-  # to CEILING (14,985 B as of the 2026-08-19 raise to 145,000 B; was
-  # 9,145 B against the prior 139,160 B value), not stay silent on it
-  # while only citing the unswept 127,107 B figure. Mutation that would
-  # redden this: delete either figure from the CEILING script's
-  # ABOVE-CEILING message.
-  if grep -q '130,015 B' "$CEILING_SCRIPT" && grep -q '14,985 B' "$CEILING_SCRIPT"; then
-    _pass "CEILING script's ABOVE-CEILING framing cites the verified 130,015 B figure and 14,985 B gap"
+  # Round-4 Minor 2 (superseded 2026-09-03, DS-45 sweep RUN): this pin
+  # originally required the ABOVE-CEILING message and AGENTS.md to cite the
+  # 130,015 B largest-recorded-intact-injection figure and a 14,985 B
+  # unswept gap to CEILING, because CEILING itself had never been swept.
+  # The 2026-09-03 sweep (docs/skill-embed-injection-sweep.md, DS-45)
+  # measured CEILING (145,000 B) directly and confirmed it intact, so the
+  # "14,985 B unswept gap" framing is now false and was deliberately
+  # removed rather than kept. The pin now requires the 2026-09-03 result to
+  # be cited instead. Mutation that would redden this: delete the
+  # 2026-09-03 sweep-result citation from either file.
+  if grep -q '2026-09-03' "$CEILING_SCRIPT" && grep -q '160,000' "$CEILING_SCRIPT"; then
+    _pass "CEILING script's ABOVE-CEILING framing cites the 2026-09-03 sweep result up to 160,000 B"
   else
-    _fail "CEILING script's ABOVE-CEILING framing is missing the verified 130,015 B figure or the 14,985 B gap"
+    _fail "CEILING script's ABOVE-CEILING framing is missing the 2026-09-03 sweep result"
   fi
-  if grep -qF '130,015 B (DS-146), 14,985 B below CEILING' "$REPO_DIR/AGENTS.md"; then
-    _pass "AGENTS.md cites the verified 130,015 B figure and 14,985 B gap"
+  if grep -qF '2026-09-03' "$REPO_DIR/AGENTS.md" && grep -qF '160,000' "$REPO_DIR/AGENTS.md"; then
+    _pass "AGENTS.md cites the 2026-09-03 sweep result up to 160,000 B"
   else
-    _fail "AGENTS.md is missing the verified 130,015 B figure or the 14,985 B gap"
+    _fail "AGENTS.md is missing the 2026-09-03 sweep result"
   fi
 
   # Round-4 Minor 3: the CEILING comment must attribute the 126,509 B
