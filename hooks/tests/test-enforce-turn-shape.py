@@ -3,12 +3,18 @@
 Unit tests for hooks/enforce-turn-shape.py (DS-122).
 
 Each case pipes a JSON payload into the hook via stdin and asserts:
+  BLOCKING - exit 0, stdout carries {"decision": "block", "reason":
+             "TURN-SHAPE: ..."} containing the expected finding substring.
   ADVISORY - exit 0, hookSpecificOutput.additionalContext starts with
              "TURN-SHAPE:" and contains the expected finding substring.
   QUIET    - exit 0, no stdout at all (silent allow).
 
-The hook MUST NEVER emit a blocking decision under any input - there is no
-{"decision": "block", ...} shape this hook can produce.
+The process exit code is 0 on EVERY path, including a blocking one - it is
+the {"decision": "block", ...} payload, not the exit code, that stops the
+turn. (This paragraph previously read "The hook MUST NEVER emit a blocking
+decision under any input", which DS-156 falsified when
+`_execution_prose_flag` became blocking; DS-ANSWERFIRST adds a second
+blocking path, `_status_only_flag`. Corrected rather than narrowed.)
 
 DS-155: the identity-line check is REMOVED (operator decision - see
 hooks/enforce-turn-shape.py's module docstring "DS-155 round 3 history
@@ -93,6 +99,20 @@ the deleted identity-check cases):
      constants they pinned; u3/u4 assert the fence-cap and per-item-cap
      BOUNDARIES through the hook's actual QUIET/ADVISORY behavior, not by
      importing and comparing an integer.
+  af. DS-ANSWERFIRST: `_status_only_flag` RESTORED and BLOCKING on the
+     zero-warrant leaf (af1 the §Worked non-example silent continue; af2
+     suppressor 1, a genuine operator question, as a differential against
+     af1's identical body; af4 a one-line "Yes."; af3 suppressor 2, a
+     multi-paragraph answer-shaped body with no transcript), plus
+     SLOT_LINE_MAX_COUNT on `_execution_prose_flag`'s GENERAL branch
+     (af5 count axis, af6 duplicate-label axis, af6b the maximum
+     compliant three-distinct-label shape as the negative control, af7
+     the §7 carve-out proving the sole-stoppage `Waiting:` count stays
+     unbounded). Note the `s.` entry above still describes the flat
+     BASE_BODY_BUDGET model DS-171 deleted: s1/s3/s4's assertions are now
+     FLIPPED to BLOCKING on the slot-line count, and s7/s8/s9's slot
+     filler was reduced to a compliant size so each still pins its own
+     claim. Each carries the reason at its own call site.
 """
 
 from __future__ import annotations
@@ -191,6 +211,93 @@ def is_blocking(returncode: int, stdout: str, contains: str | None = None) -> bo
     return True
 
 
+# DS-ANSWERFIRST: shared label suffix for every fixture whose assertion
+# flipped from QUIET to BLOCKING purely because `_status_only_flag` was
+# restored. Defined once so the reason cannot drift between the ~6 sites
+# that state it.
+FLIP_NOTE = (
+    "DS-ANSWERFIRST FLIP: the restored, BLOCKING _status_only_flag is what a "
+    "zero-warrant turn now trips. The underlying warrant-classification claim "
+    "is unchanged and is what the block PROVES - the finding text names the "
+    "zero-warrant leaf, not any other check"
+)
+
+
+# DS-ANSWERFIRST round 2: a process-lifetime MID-TASK transcript - the
+# operator spoke, the conductor already replied once, and a background
+# task-notification then arrived. Under the round-2 suppressor 1 this is
+# what makes a zero-warrant turn blockable: the turn is NOT the first
+# assistant turn after a genuine operator message, so it is UNPROMPTED.
+#
+# Round 1 used a bare statement-transcript (one operator message, nothing
+# else) on the theory that suppressor 1 asked "was that a question". It
+# asked the wrong thing - an operator request is routinely imperative -
+# and blocked real terse answers. A bare operator message now correctly
+# ALLOWS, so every fixture expecting a BLOCK needs a transcript that
+# actually models mid-task position. This is also simply the realistic
+# payload for a status ping: they happen between operator messages, not
+# immediately after one.
+#
+# The task-notification entry is load-bearing: `loop_guard`'s
+# `is_genuine_user_turn` must NOT count it as an operator message (it is a
+# harness-injected `type:"user"` line). If it ever did, this transcript
+# would read as "operator just spoke" and every BLOCK fixture below would
+# silently go quiet.
+#
+# NOT a TemporaryDirectory context manager: this must outlive every
+# `with` block in the file, so it is torn down by process exit instead.
+_MIDTASK_TMPDIR = tempfile.mkdtemp()
+MIDTASK_TRANSCRIPT = os.path.join(_MIDTASK_TMPDIR, "midtask-transcript.jsonl")
+with open(MIDTASK_TRANSCRIPT, "w", encoding="utf-8") as _f:
+    for _entry in (
+        {"type": "user", "message": {"content": "Go ahead and start on the next unit."}},
+        {
+            "type": "assistant",
+            "message": {
+                "id": "msg_midtask_prior",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": IDENTITY_OK + "\nWaiting: engineer on the next unit.",
+                    }
+                ],
+            },
+        },
+        {
+            "type": "user",
+            "message": {"content": "<task-notification>Unit complete</task-notification>"},
+        },
+    ):
+        _f.write(json.dumps(_entry) + "\n")
+
+# An operator message and nothing since - the shape that must ALLOW.
+_REPLY_TMPDIR = tempfile.mkdtemp()
+REPLY_TRANSCRIPT = os.path.join(_REPLY_TMPDIR, "reply-transcript.jsonl")
+with open(REPLY_TRANSCRIPT, "w", encoding="utf-8") as _f:
+    _f.write(
+        json.dumps(
+            {"type": "user", "message": {"content": "summarize what you found."}}
+        )
+        + "\n"
+    )
+
+
+def with_statement_transcript(message: str) -> str:
+    """make_payload() plus the shared MID-TASK transcript above.
+
+    Name kept from round 1 so the ~12 call sites below did not all churn in
+    a round that was already touching them for other reasons; what changed
+    is which transcript it supplies and why. Read MIDTASK_TRANSCRIPT's own
+    comment for the predicate this now exercises.
+    """
+    return make_payload(message, extra={"transcript_path": MIDTASK_TRANSCRIPT})
+
+
+def with_reply_transcript(message: str) -> str:
+    """make_payload() plus a transcript where the operator just spoke."""
+    return make_payload(message, extra={"transcript_path": REPLY_TRANSCRIPT})
+
+
 def check(label: str, condition: bool):
     global total, failed
     total += 1
@@ -283,11 +390,16 @@ check(
 #    bare done/shipped/merged does NOT count as completion
 # ---------------------------------------------------------------------------
 
+# DS-ANSWERFIRST: was `State:` / `Blocked:` / `State:` - a duplicate label
+# is now a BLOCKING SLOT_LINE_MAX_COUNT violation, which would mask this
+# fixture's claim (the completion warrant is recognized off a slot line).
+# The completion phrase moves onto the Blocked: line; the label set is now
+# distinct. `Running:` is deliberately avoided - a non-empty Running:
+# field vetoes the completion warrant.
 completion_explicit_msg = (
     IDENTITY_OK + "\n"
     "State: first thing done.\n"
-    "Blocked: nothing.\n"
-    "State: task is complete.\n"
+    "Blocked: nothing; the task is complete.\n"
 )
 rc, out, err = run_hook(make_payload(completion_explicit_msg))
 check(
@@ -302,15 +414,11 @@ bare_done_msg = (
     "Second line of prose.\n"
     "Unit 2 merged.\n"
 )
-rc, out, err = run_hook(make_payload(bare_done_msg))
+rc, out, err = run_hook(with_statement_transcript(bare_done_msg))
 check(
-    "e2. bare 'merged' does NOT satisfy completion warrant -> QUIET "
-    "(DS-171: status-only check retired, so the zero-warrant fallback is "
-    "now silent regardless; the underlying warrant-classification claim "
-    "is covered directly by section e's other cases and the c-* corpus "
-    "loop, both of which assert `_classify_warrants` without depending "
-    "on the retired hook-level distinction)",
-    is_quiet(rc, out),
+    "e2. bare 'merged' does NOT satisfy completion warrant -> BLOCKING "
+    "on the zero-warrant leaf (" + FLIP_NOTE + ")",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 bare_shipped_msg = (
@@ -319,11 +427,11 @@ bare_shipped_msg = (
     "Second line of prose.\n"
     "PR shipped, pulling main.\n"
 )
-rc, out, err = run_hook(make_payload(bare_shipped_msg))
+rc, out, err = run_hook(with_statement_transcript(bare_shipped_msg))
 check(
-    "e3. bare 'shipped' does NOT satisfy completion warrant -> QUIET "
-    "(DS-171: status-only check retired)",
-    is_quiet(rc, out),
+    "e3. bare 'shipped' does NOT satisfy completion warrant -> BLOCKING "
+    "on the zero-warrant leaf (" + FLIP_NOTE + ")",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 # ---------------------------------------------------------------------------
@@ -514,13 +622,13 @@ apostrophe_msg = (
     "The engineer's branch isn't stale.\n"
     "I don't think we can't merge yet.\n"
 )
-rc, out, err = run_hook(make_payload(apostrophe_msg))
+rc, out, err = run_hook(with_statement_transcript(apostrophe_msg))
 check(
-    "p. apostrophes do NOT satisfy the answer warrant -> QUIET (DS-171: "
-    "status-only check retired, so this is silent regardless; kept as a "
-    "regression pin that no code path re-derives the answer warrant from "
-    "these apostrophes)",
-    is_quiet(rc, out),
+    "p. apostrophes do NOT satisfy the answer warrant -> BLOCKING on the "
+    "zero-warrant leaf (" + FLIP_NOTE + "; the block is now the "
+    "non-vacuous proof that no code path re-derives the answer warrant "
+    "from these apostrophes)",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 # ---------------------------------------------------------------------------
@@ -699,7 +807,10 @@ def _nlines(n: int, prefix: str = "Line") -> str:
     return "\n".join(f"{prefix} {i}." for i in range(1, n + 1)) + "\n"
 
 
-def _status_slot_lines(n: int, label: str = "State") -> str:
+_SLOT_LABEL_CYCLE = ("State", "Running", "Blocked")
+
+
+def _status_slot_lines(n: int, label: str | None = None) -> str:
     """DS-156: recognized State:/Running:/Blocked: slot-line filler for
     tests that need N charged status-region lines on a GENERAL-branch
     execution turn (decision and/or completion present). Unlike
@@ -708,8 +819,27 @@ def _status_slot_lines(n: int, label: str = "State") -> str:
     shape whitelist while still charging 1 in the volume check (a slot
     line is never exempt the way a well-formed Waiting: line can be) -
     letting these fixtures keep pinning the SAME volume-charge math as
-    before DS-156 without tripping the new BLOCKING shape check."""
-    return "\n".join(f"{label}: filler {i}." for i in range(1, n + 1)) + "\n"
+    before DS-156 without tripping the new BLOCKING shape check.
+
+    DS-ANSWERFIRST: labels now CYCLE through State/Running/Blocked by
+    default instead of repeating one label N times. SLOT_LINE_MAX_COUNT's
+    duplicate-label half makes a repeated label a BLOCKING violation on
+    the general branch, so the old default silently converted every
+    caller into a duplicate-label fixture. Pass `label` explicitly to
+    force the old repeat-one-label shape where a fixture is deliberately
+    exercising THAT violation. Note n > SLOT_LINE_MAX_COUNT (3) is itself
+    a violation regardless of labels - the several legacy volume-model
+    fixtures below that call this with 7/9/10 are flipped to BLOCKING
+    accordingly, and say so at their own call sites."""
+    if label is not None:
+        return "\n".join(f"{label}: filler {i}." for i in range(1, n + 1)) + "\n"
+    return (
+        "\n".join(
+            f"{_SLOT_LABEL_CYCLE[(i - 1) % len(_SLOT_LABEL_CYCLE)]}: filler {i}."
+            for i in range(1, n + 1)
+        )
+        + "\n"
+    )
 
 
 # s1. decision warrant, body AT the flat budget (10 lines) -> QUIET.
@@ -722,7 +852,16 @@ def _status_slot_lines(n: int, label: str = "State") -> str:
 # line) while staying shape-compliant.
 s1_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
 rc, out, err = run_hook(make_payload(s1_msg))
-check("s1. decision warrant, body at flat budget (10 lines) -> QUIET", is_quiet(rc, out))
+# DS-ANSWERFIRST FLIP: this fixture's whole point was the retired
+# turn-charge model's line math. SLOT_LINE_MAX_COUNT (3) now makes the
+# same shape a genuine, BLOCKING slot-line-count violation on the
+# general branch. The assertion is inverted, not deleted, so a
+# regression that unbounds the slot-line count is caught here.
+check(
+    "s1. decision warrant, 10 slot lines -> BLOCKING (DS-ANSWERFIRST "
+    "slot-line count over SLOT_LINE_MAX_COUNT)",
+    is_blocking(rc, out, "status slot lines in the status region"),
+)
 
 # s2. RETIRED (DS-171): pinned the flat-budget-plus-one-line ADVISORY via
 # the now-deleted turn-charge volume check.
@@ -731,7 +870,16 @@ check("s1. decision warrant, body at flat budget (10 lines) -> QUIET", is_quiet(
 # (A9: relabeled from the old COMPLETION budget of 6.)
 s3_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(BASE_BODY_BUDGET, label="State")
 rc, out, err = run_hook(make_payload(s3_msg))
-check("s3. completion warrant, body at flat budget (10 lines) -> QUIET", is_quiet(rc, out))
+# DS-ANSWERFIRST FLIP: this fixture's whole point was the retired
+# turn-charge model's line math. SLOT_LINE_MAX_COUNT (3) now makes the
+# same shape a genuine, BLOCKING slot-line-count violation on the
+# general branch. The assertion is inverted, not deleted, so a
+# regression that unbounds the slot-line count is caught here.
+check(
+    "s3. completion warrant, 10 slot lines -> BLOCKING (DS-ANSWERFIRST "
+    "slot-line count over SLOT_LINE_MAX_COUNT)",
+    is_blocking(rc, out, "status slot lines in the status region"),
+)
 
 # s4. FLIP (plan test-strategy table): under the deleted per-warrant model
 # this 7-line completion turn was ADVISORY (over the old COMPLETION budget
@@ -740,10 +888,16 @@ check("s3. completion warrant, body at flat budget (10 lines) -> QUIET", is_quie
 # so a regression back to a tight per-warrant budget is caught.
 s4_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(7, label="State")
 rc, out, err = run_hook(make_payload(s4_msg))
+# DS-ANSWERFIRST FLIP: this fixture's whole point was the retired
+# turn-charge model's line math. SLOT_LINE_MAX_COUNT (3) now makes the
+# same shape a genuine, BLOCKING slot-line-count violation on the
+# general branch. The assertion is inverted, not deleted, so a
+# regression that unbounds the slot-line count is caught here.
 check(
-    "s4. FLIP: completion warrant, 7-line body (was ADVISORY under the deleted "
-    "per-warrant model - this WAS the round-2 FP) -> now QUIET under the flat budget",
-    is_quiet(rc, out),
+    "s4. FLIP (again, DS-ANSWERFIRST): completion warrant, 7 slot lines -> "
+    "BLOCKING on the slot-line count (was ADVISORY under the deleted "
+    "per-warrant model, then QUIET under the deleted flat budget)",
+    is_blocking(rc, out, "status slot lines in the status region"),
 )
 
 # s4b. RETIRED (DS-171): pinned the over-flat-budget ADVISORY via the now-
@@ -848,10 +1002,16 @@ check(
 # that content/sections/02-delegation.md's ban on a decision-item cap is
 # respected (no item-count limit is applied anywhere in this hook).
 s7_decision_items = "\n".join(f"{i}. Action {i} - reason. Reply STOP to skip." for i in range(1, 11))
-s7_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET) + "\n## Operator decisions\n" + s7_decision_items + "\n"
+# DS-ANSWERFIRST: the status-slot filler drops from BASE_BODY_BUDGET (10)
+# to 3 lines. This fixture's claim is the decision-ITEM-count exemption -
+# 10 items must not be penalised - which is unchanged; 10 SLOT lines is a
+# separate, now-genuine SLOT_LINE_MAX_COUNT violation (pinned by s1/s3/s4)
+# that would mask the claim being made here.
+s7_msg = IDENTITY_OK + "\n" + _status_slot_lines(3) + "\n## Operator decisions\n" + s7_decision_items + "\n"
 rc, out, err = run_hook(make_payload(s7_msg))
 check(
-    "s7. decisions-block exemption: 10 decision items, body at flat budget -> QUIET",
+    "s7. decisions-block exemption: 10 decision items, 3 compliant slot "
+    "lines -> QUIET (item COUNT is unbounded)",
     is_quiet(rc, out),
 )
 
@@ -865,11 +1025,12 @@ check(
 # line count, same as s9's boundary case, at 10 lines (9 prose + 1
 # Waiting:) -> QUIET. s8_over below (11 lines) pins the genuine over-budget
 # case.
-s8_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
+s8_msg = IDENTITY_COMPLETE + "\n" + "State: filler 1.\nBlocked: filler 2.\n" + "Waiting: nothing further.\n"
 rc, out, err = run_hook(make_payload(s8_msg))
 check(
-    "s8. stoppage+completion combo, 10 lines (9 prose + 1 Waiting:, not sole "
-    "stoppage so it charges) -> QUIET at the flat budget",
+    "s8. stoppage+completion combo, 2 compliant slot lines + 1 Waiting: -> "
+    "QUIET (DS-ANSWERFIRST: slot filler reduced from 9 to 2 - see s1/s3/s4 "
+    "for the slot-count bound this fixture is not about)",
     is_quiet(rc, out),
 )
 
@@ -889,7 +1050,7 @@ check(
 # always passed) and is confirmed non-vacuous here (see round-2 report).
 s8b_msg = (
     IDENTITY_COMPLETE
-    + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
+    + "\n" + "State: filler 1.\nBlocked: filler 2.\n" + "Waiting: nothing further.\n"
     + "```\nAn aside, fenced, that is still not a Waiting: line.\n```\n"
 )
 rc, out, err = run_hook(make_payload(s8b_msg))
@@ -908,9 +1069,13 @@ check(
 # per-warrant COMPLETION budget no longer exists; this pins the flat
 # 10-line boundary for the combo shape, identical to s8 above by
 # construction - kept as a separate fixture per the plan's fixture table.)
-s9_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
+s9_msg = IDENTITY_COMPLETE + "\n" + "State: filler 1.\nBlocked: filler 2.\n" + "Waiting: nothing further.\n"
 rc, out, err = run_hook(make_payload(s9_msg))
-check("s9. stoppage+completion combo, at the flat budget (10 lines) -> QUIET", is_quiet(rc, out))
+check(
+    "s9. stoppage+completion combo, 2 compliant slot lines + 1 Waiting: -> "
+    "QUIET (identical to s8 by construction, kept as a separate fixture)",
+    is_quiet(rc, out),
+)
 
 # s10. forced-yield turn (stoppage as SOLE warrant) is unaffected by the
 # volume check - the identity + Waiting:-only shape (2 lines, well under
@@ -971,7 +1136,10 @@ s11_msg = (
     IDENTITY_OK
     + "\nState: here is the diff.\n```python\n"
     + s11_code_lines
-    + "\n```\nState: applied cleanly.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
+    # DS-ANSWERFIRST: was a second `State:` line - a duplicate label is now
+    # a BLOCKING SLOT_LINE_MAX_COUNT violation, which would mask this
+    # fixture's actual claim (fenced content is excluded from the domain).
+    + "\n```\nBlocked: nothing outstanding.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
 )
 rc, out, err = run_hook(make_payload(s11_msg))
 check(
@@ -995,7 +1163,10 @@ s12b_msg = (
     IDENTITY_COMPLETE
     + "\nState: here is the summary.\n```\n"
     + s12b_fence_lines
-    + "\n```\nState: done reporting.\n"
+    # DS-ANSWERFIRST: was a second `State:` line. Deliberately NOT
+    # `Running:` - a non-empty Running: field vetoes the completion warrant
+    # and would flip this to a zero-warrant turn.
+    + "\n```\nBlocked: nothing outstanding.\n"
 )
 rc, out, err = run_hook(make_payload(s12b_msg))
 check(
@@ -1024,7 +1195,10 @@ s13_fence_body = "\n".join(f"line_{i} = {i}" for i in range(1, 16))
 # evaluated on an execution turn any more. Wrapper lines are still
 # converted to State: slot lines for consistency (they no longer determine
 # the outcome, since the fence body itself is what trips the finding).
-s13_msg = IDENTITY_COMPLETE + "\nState: here is the diff.\nState: more prose here.\n```python\n" + s13_fence_body + "\n"
+# DS-ANSWERFIRST: the second wrapper line was another `State:`; a
+# duplicate label now BLOCKS on its own and would mask the
+# unclosed-fence finding this fixture exists to pin.
+s13_msg = IDENTITY_COMPLETE + "\nState: here is the diff.\nBlocked: nothing outstanding.\n```python\n" + s13_fence_body + "\n"
 rc, out, err = run_hook(make_payload(s13_msg))
 check(
     "s13. unclosed fence (15 lines) at true EOF -> BLOCKING (DS-156: the "
@@ -1036,9 +1210,12 @@ check(
 
 s13_closed_msg = (
     IDENTITY_COMPLETE
-    + "\nState: here is the diff.\nState: more prose here.\n```python\n"
+    # DS-ANSWERFIRST: three `State:` lines became one State: + one Blocked:.
+    # A third distinct label would have to be `Running:`, which vetoes the
+    # completion warrant - so the count drops to two rather than re-labelling.
+    + "\nState: here is the diff.\nBlocked: nothing outstanding.\n```python\n"
     + s13_fence_body
-    + "\n```\nState: done reporting.\n"
+    + "\n```\n"
 )
 rc, out, err = run_hook(make_payload(s13_closed_msg))
 check(
@@ -1560,19 +1737,33 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # (status-only). Restores what w2 originally proved before signal 2
     # existed: a terse, undeveloped body still nags regardless of body
     # shape being present at all.
-    rc, out, err = run_hook(
-        json.dumps(
-            {
-                "last_assistant_message": NARRATIVE_CREEP_BODY,
-                "transcript_path": statement_transcript,
-            }
-        )
-    )
+    # DS-ANSWERFIRST round 2: re-pointed from `statement_transcript` to
+    # MIDTASK_TRANSCRIPT. This fixture's job is to prove the RECALL
+    # suppressor discriminates on body shape, so it must actually REACH
+    # the recall; under round 2's position-based suppressor 1 a bare
+    # operator message allows first, short-circuiting the very thing this
+    # pins. w2b2 below re-pins the round-1 claim on the new predicate.
+    rc, out, err = run_hook(with_statement_transcript(NARRATIVE_CREEP_BODY))
     check(
-        "w2b. narrative-creep body (~3 words/unit), statement transcript -> "
-        "QUIET (DS-171: status-only check retired, so this is silent "
-        "regardless of signal 2; kept as a regression pin that the "
-        "bonus/signal-2 machinery itself is unaffected)",
+        "w2b. narrative-creep body (~3 words/unit), MID-TASK transcript -> "
+        "BLOCKING (DS-ANSWERFIRST: suppressor 1 does not fire because the "
+        "turn follows a task-notification, and the recall suppressor "
+        "rejects the body at ~3 words/unit. The differential against "
+        "w2b2 - identical body, operator-just-spoke transcript, allowed - "
+        "isolates suppressor 1; the differential against the mid-task "
+        "prose probe isolates the recall)",
+        is_blocking(rc, out, "zero-warrant turn"),
+    )
+
+    # w2b2. Same narrative-creep body, but the operator has JUST spoken and
+    # nothing has happened since -> suppressor 1 allows unconditionally,
+    # whatever the body looks like. This is the round-2 predicate's whole
+    # point: position decides, not prose shape and not grammatical mood.
+    rc, out, err = run_hook(with_reply_transcript(NARRATIVE_CREEP_BODY))
+    check(
+        "w2b2. IDENTICAL narrative-creep body, but first turn after a "
+        "genuine operator message -> QUIET (suppressor 1; isolates "
+        "position from body shape against w2b)",
         is_quiet(rc, out),
     )
 
@@ -1592,8 +1783,13 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     # body signal 2 correctly does not recognize as explanatory.
     rc, out, err = run_hook(json.dumps({"last_assistant_message": NARRATIVE_CREEP_BODY}))
     check(
-        "w3b. no transcript_path, narrative-creep body -> QUIET (DS-171: "
-        "status-only check retired)",
+        "w3b. no transcript_path, narrative-creep body -> QUIET "
+        "(DS-ANSWERFIRST: an absent transcript means suppressor 1 cannot "
+        "be EVALUATED - an empty last-genuine message is 'unknown', never "
+        "'not a question' - so the check fails open. w2b is the same body "
+        "WITH a statement transcript and does BLOCK; that pair is the "
+        "differential proving this is the fail-open path and not a dead "
+        "check)",
         is_quiet(rc, out),
     )
 
@@ -1604,7 +1800,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     rc, out, err = run_hook(json.dumps({"last_assistant_message": BOUNDARY_PROSE_ANSWER}))
     check(
         "w3c. boundary body at 7.9 words/unit, no transcript -> QUIET "
-        "(DS-171: status-only check retired)",
+        "(DS-ANSWERFIRST: fails open on the absent transcript before the "
+        "7.9-vs-8.0 recall boundary is ever reached - see w3b. The "
+        "words-per-unit boundary itself is pinned by the "
+        "BOUNDARY_PROSE_ANSWER fixture's own unit/word assertions)",
         is_quiet(rc, out),
     )
 
@@ -1678,11 +1877,14 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": stale_question_transcript})
     )
     check(
-        "w6. stale question (2 intervening assistant turns) -> QUIET (DS-171: "
-        "status-only check retired; kept as a regression pin that the "
-        "recency gate correctly withholds the bonus - w6a below pins the "
-        "bonus directly)",
-        is_quiet(rc, out),
+        "w6. stale question (2 intervening assistant turns) -> BLOCKING "
+        "(DS-ANSWERFIRST round 2: this turn is status-only prose sitting "
+        "two completed assistant turns after the operator last spoke - "
+        "structurally UNPROMPTED, which is exactly what the round-2 "
+        "suppressor 1 is for. It reads the SAME "
+        "_has_intervening_assistant_turn signal w6a pins directly, so the "
+        "two now agree by construction rather than by coincidence)",
+        is_blocking(rc, out, "zero-warrant turn"),
     )
     check(
         "w6a. bonus withheld directly (_transcript_answer_bonus returns "
@@ -1841,10 +2043,11 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         )
     )
     check(
-        "w9. current turn's own entry not yet on disk -> QUIET (DS-171: "
-        "status-only check retired; kept as a regression pin that the "
-        "staleness classification itself is unaffected)",
-        is_quiet(rc, out),
+        "w9. current turn's own entry not yet on disk -> BLOCKING "
+        "(DS-ANSWERFIRST round 2: stale-by-one is still intervening, so "
+        "the turn is unprompted; the staleness classification this "
+        "fixture pins is unchanged, only its downstream consequence)",
+        is_blocking(rc, out, "zero-warrant turn"),
     )
 
     # w10. REGRESSION (DS-155 round 4): the tool_use-pending flag must be
@@ -1886,9 +2089,11 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     )
     check(
         "w10. tool_use attribution is scoped to ONE preceding text entry, not the whole window "
-        "-> QUIET (DS-171: status-only check retired; kept as a "
-        "regression pin that turn A is still detected as intervening)",
-        is_quiet(rc, out),
+        "-> BLOCKING (DS-ANSWERFIRST round 2: turn A is still detected as "
+        "intervening, so the turn is unprompted. The assertion now "
+        "observes that detection through the hook's actual verdict rather "
+        "than through a check that had been retired)",
+        is_blocking(rc, out, "zero-warrant turn"),
     )
 
     # ---------------------------------------------------------------------
@@ -2163,16 +2368,34 @@ fp1_msg = (
     IDENTITY_OK
     + "\nState: DS-140 unit 2 merged, DS-141 unit 1 in review, DS-142 blocked on credentials.\n"
 )
-rc, out, err = run_hook(make_payload(fp1_msg))
-check("fp1. multi-ticket State: line -> QUIET", is_quiet(rc, out))
+rc, out, err = run_hook(with_statement_transcript(fp1_msg))
+# DS-ANSWERFIRST: this is a zero-warrant status ping - the canonical Rule
+# B violation - so it now BLOCKS on _status_only_flag. The fp claim being
+# made here is about _execution_prose_flag specifically, so it is
+# preserved by asserting WHICH check fired rather than by asserting
+# QUIET: a compliant-length multi-ticket State: line must not trip the
+# SHAPE check.
+check(
+    "fp1. multi-ticket State: line -> blocks on the zero-warrant leaf "
+    "only, NOT on _execution_prose_flag's shape/length check",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
 
 # fp2. A long branch name in the identity line (under 200 chars) -> QUIET.
 fp2_msg = (
     "DS-156 · fix/ds-156-turn-shape-hook-implementation-with-a-fairly-long-descriptive-name · [phase: implement]\n"
     + "State: engineer spawned, awaiting result.\n"
 )
-rc, out, err = run_hook(make_payload(fp2_msg))
-check("fp2. long (but compliant-length) branch name in identity line -> QUIET", is_quiet(rc, out))
+rc, out, err = run_hook(with_statement_transcript(fp2_msg))
+# DS-ANSWERFIRST: same as fp1 - a zero-warrant status ping. The fp claim
+# (a sub-200-character identity line must not trip the length bound) is
+# preserved by asserting which check fired.
+check(
+    "fp2. long (but compliant-length) branch name in identity line -> "
+    "blocks on the zero-warrant leaf only, NOT on the identity-line "
+    "length bound",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
 
 # fp3. Forced-yield turn with many Waiting: lines (already pinned as
 # s10/s10c above; restated here under the false-positive-discipline name).
@@ -2227,12 +2450,26 @@ z1_msg = (
     "| **DS-156** | Conductor turn shape bound to warrant. |\n"
     "| **DS-157** | Body-paragraph completion detection. |\n"
 )
-rc, out, err = run_hook(make_payload(z1_msg))
+rc, out, err = run_hook(with_statement_transcript(z1_msg))
+# DS-ANSWERFIRST FLIP - and this one is a DISCLOSED REINTRODUCED FALSE
+# POSITIVE, not a defect being pinned as correct. Restoring
+# _status_only_flag with only its two STRUCTURAL suppressors leaves
+# DS-157's `_has_body_completion_declaration` and DS-159's
+# `_identity_line_trailing_completion` deleted - both were phrase-shaped
+# helpers, the class Pillar 8 names as a smell - so this genuine
+# completion report, whose completion declaration is the identity line's
+# SECOND sentence, is no longer recognized and now BLOCKS. Recorded here
+# and in content/references/conductor-turn-format.md's residual
+# false-positive list rather than silently softened. Note the shape is
+# now shape-COMPLIANT as an execution turn (see z4c below, which asserts
+# _execution_prose_flag returns None on it once the warrant is granted -
+# DS-156's markdown-table recognition changed that), so widening the
+# completion warrant is the candidate fix; that is a separate change.
 check(
     "z1. DS-159 reported symptom - identity line's SECOND sentence is a "
     "bare completion declaration, first body paragraph is a table -> "
-    "QUIET (was ADVISORY pre-fix)",
-    is_quiet(rc, out),
+    "BLOCKING (DISCLOSED reintroduced false positive, see comment above)",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 # z2. REGRESSION (measured false positive, non-bare trailing sentence):
@@ -2250,14 +2487,12 @@ z2_msg = (
     "Extra detail line two.\n"
     "Extra detail line three.\n"
 )
-rc, out, err = run_hook(make_payload(z2_msg))
+rc, out, err = run_hook(with_statement_transcript(z2_msg))
 check(
     "z2. non-bare, non-final trailing sentence ('Both mechanical fixes "
-    "are done. Now finalizing...') is NOT suppressed -> QUIET (DS-171: "
-    "status-only check retired, so this is now silent regardless; kept "
-    "as a regression pin that no code path re-derives a completion "
-    "warrant from this shape)",
-    is_quiet(rc, out),
+    "are done. Now finalizing...') is NOT suppressed -> BLOCKING on the "
+    "zero-warrant leaf (" + FLIP_NOTE + ")",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 # z3. REGRESSION (measured false positive, partial-word absorption): "Status
@@ -2277,13 +2512,12 @@ z3_msg = (
     "Extra detail line one.\n"
     "Extra detail line two.\n"
 )
-rc, out, err = run_hook(make_payload(z3_msg))
+rc, out, err = run_hook(with_statement_transcript(z3_msg))
 check(
     "z3. 'Status while it completes:' (partial-word, not a bare "
-    "completion token) is NOT suppressed -> QUIET (DS-171: status-only "
-    "check retired, so this is now silent regardless; kept as a "
-    "regression pin on the underlying classification)",
-    is_quiet(rc, out),
+    "completion token) is NOT suppressed -> BLOCKING on the zero-warrant "
+    "leaf (" + FLIP_NOTE + ")",
+    is_blocking(rc, out, "zero-warrant turn"),
 )
 
 # z4. BLOCKING-PATH SAFETY REGRESSION (this ticket's central concern,
@@ -3224,6 +3458,395 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# DS-ANSWERFIRST. Two new mechanisms, seven pinned shapes.
+#
+#   af1-af4  `_status_only_flag`, RESTORED and BLOCKING on the zero-warrant
+#            leaf, with its two STRUCTURAL suppressors (a genuine operator
+#            question in the transcript; a whole-body answer-shaped-prose
+#            recall). Neither is a phrase list.
+#   af5-af7  SLOT_LINE_MAX_COUNT (3) on `_execution_prose_flag`'s GENERAL
+#            branch only - a count axis and a duplicate-label axis - plus
+#            the negative control proving the sole-stoppage branch's
+#            `Waiting:` count stays unbounded (§7).
+# ---------------------------------------------------------------------------
+
+# af1. The canonical shape, lifted verbatim from
+# content/references/conductor-turn-format.md's "Worked non-example - the
+# silent continue". This is THE turn Rule B exists to suppress, and the
+# founding reason this check is restored: between DS-171 and
+# DS-ANSWERFIRST it produced no finding on any harness.
+#
+# The unit floor in suppressor 2 is load-bearing here, not decorative:
+# this single `State:` line is 8 words, which clears
+# _ANSWER_PROSE_AVG_WORDS_PER_SENTENCE (8) on the average axis ALONE.
+# Only the _ANSWER_PROSE_MIN_SENTENCES (2) unit floor - the same pairing
+# _execution_prose_flag applies at every one of its own call sites -
+# keeps it blocking. Drop the floor and this assertion fails.
+af1_msg = (
+    "DS-123 · fix/foo · [phase: engineer-spawned]\n"
+    "State: engineer returned unit 2, spawning skeptic now\n"
+)
+rc, out, err = run_hook(with_statement_transcript(af1_msg))
+check(
+    "af1. §Worked non-example silent-continue turn -> BLOCKING "
+    "(zero-warrant leaf; single 8-word slot line clears the average axis "
+    "but fails the 2-unit floor)",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
+
+with tempfile.TemporaryDirectory() as _af_dir:
+    _af_question = _write_transcript(
+        _af_dir,
+        [{"role": "user", "content": "Did the macOS leg of CI ever go green?"}],
+    )
+
+    # af2. Suppressor 1: the IDENTICAL af1 body, but the operator's most
+    # recent genuine message is a direct question. A reply to a real
+    # question is an Answer turn even when the narrow `answer` warrant
+    # detectors miss it. The differential against af1 - same text, only
+    # the transcript differs - is what makes this non-vacuous.
+    rc, out, err = run_hook(make_payload(af1_msg, extra={"transcript_path": _af_question}))
+    check(
+        "af2. same zero-warrant body, but following a genuine operator "
+        "question -> QUIET (suppressor 1; differential against af1)",
+        is_quiet(rc, out),
+    )
+
+    # af4. The shape that motivated suppressor 1 having no length floor at
+    # all: a one-line "Yes." is a complete, correct answer that no body
+    # shape, quoted fragment, or unit count could ever recall.
+    rc, out, err = run_hook(make_payload("Yes.", extra={"transcript_path": _af_question}))
+    check(
+        "af4. one-line 'Yes.' after a genuine operator question -> QUIET "
+        "(suppressor 1 alone; no body-shape signal could recall this)",
+        is_quiet(rc, out),
+    )
+
+# af3. Suppressor 2 with NO transcript involved: a zero-warrant,
+# multi-paragraph, genuinely answer-shaped body. Both blocks clear the
+# average-words axis and their units sum past the floor.
+af3_msg = (
+    "The macOS leg failed on a stale codex skill inventory, not on the change itself.\n"
+    "Regenerating the inventory and rebuilding cleared it on the first retry.\n"
+    "\n"
+    "Nothing in the diff needed to move to make that leg pass.\n"
+)
+rc, out, err = run_hook(make_payload(af3_msg))
+check(
+    "af3. zero-warrant multi-paragraph answer-shaped body, no transcript "
+    "-> QUIET (suppressor 2, whole-body recall)",
+    is_quiet(rc, out),
+)
+
+# af5. SLOT_LINE_MAX_COUNT count axis: four recognized slot lines on a
+# general-branch execution turn. Every line is individually well-formed
+# and within STATUS_LINE_MAX_CHARS - the violation is the COUNT, which
+# nothing bounded between DS-171's retirement of the volume model and
+# DS-ANSWERFIRST.
+af5_msg = (
+    IDENTITY_OK + "\n"
+    "State: a\n"
+    "Running: b\n"
+    "Blocked: c\n"
+    "State: d\n"
+    "\n"
+    "## Operator decisions\n"
+    "- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(af5_msg))
+check(
+    "af5. four recognized slot lines on the general branch -> BLOCKING "
+    "(SLOT_LINE_MAX_COUNT count axis)",
+    is_blocking(rc, out, "status slot lines in the status region"),
+)
+
+# af6. SLOT_LINE_MAX_COUNT duplicate-label axis: only TWO slot lines, so
+# the count axis cannot fire - the violation is that both carry the same
+# label. "One line each, omitted when empty" means a repeated label is
+# structurally not the format, independent of how few lines there are.
+af6_msg = (
+    IDENTITY_OK + "\n"
+    "State: a\n"
+    "State: d\n"
+    "\n"
+    "## Operator decisions\n"
+    "- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(af6_msg))
+check(
+    "af6. two slot lines sharing a label -> BLOCKING (SLOT_LINE_MAX_COUNT "
+    "duplicate-label axis; under the count axis alone this would pass)",
+    is_blocking(rc, out, "appear on more than one line"),
+)
+
+# af6b. Negative control for af5/af6 together: three slot lines, all
+# distinct labels - the maximum compliant shape. Without this, af5 and
+# af6 would both pass against a mutation that blocked EVERY slot line.
+af6b_msg = (
+    IDENTITY_OK + "\n"
+    "State: a\n"
+    "Running: b\n"
+    "Blocked: c\n"
+    "\n"
+    "## Operator decisions\n"
+    "- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(af6b_msg))
+check(
+    "af6b. three slot lines, all distinct labels (the maximum compliant "
+    "shape) -> QUIET",
+    is_quiet(rc, out),
+)
+
+# af7. The §7 carve-out, pinned against the new bound: a sole-stoppage
+# forced-yield turn carries one `Waiting:` line per agent, however many
+# that is. SEVEN is well over SLOT_LINE_MAX_COUNT, and must stay QUIET -
+# the count axis is scoped to the general branch's recognized SLOT lines
+# only, never to `Waiting:` lines and never to the sole-stoppage branch.
+af7_msg = (
+    IDENTITY_OK
+    + "\n"
+    + "\n".join(f"Waiting: agent-{i} - unit {i} review." for i in range(1, 8))
+    + "\n"
+)
+rc, out, err = run_hook(make_payload(af7_msg))
+check(
+    "af7. sole-stoppage turn with 7 Waiting: lines -> QUIET "
+    "(SLOT_LINE_MAX_COUNT does not reach the sole-stoppage branch, §7)",
+    is_quiet(rc, out),
+)
+
+# ---------------------------------------------------------------------------
+# DS-ANSWERFIRST ROUND 2 (Skeptic Major 1 + Major 2). Round 1's suppressor 1
+# asked "is the operator's last genuine message question-shaped". Two
+# measured false positives killed that predicate:
+#   Major 1 - an operator request is routinely IMPERATIVE ("summarize what
+#             you found."), so a terse prose reply carries no `?` anywhere
+#             and was scored unprompted. 1-, 2- and 3-line replies all
+#             BLOCKED.
+#   Major 2 - `_looks_like_question` only credits a mid-text `?` under
+#             `_SHORT_QUESTION_TEXT_MAX_CHARS` (300), so the identical
+#             answer was allowed at a 299-char operator message and blocked
+#             at 301.
+# Both are fixed by replacing the predicate, not widening the heuristic:
+# suppressor 1 now asks whether this turn is the FIRST assistant turn after
+# a genuine operator message. Mood and length are how the operator happened
+# to phrase things; POSITION is what says whether the conductor was
+# replying. af8-af13 pin the FP side, af14-af16 the TP side - both are
+# required, because a predicate that allows everything would satisfy the
+# FP probes alone.
+# ---------------------------------------------------------------------------
+
+_AF2_TMPDIR = tempfile.mkdtemp()
+
+
+def _af2_transcript(name: str, entries: list) -> str:
+    path = os.path.join(_AF2_TMPDIR, name + ".jsonl")
+    with open(path, "w", encoding="utf-8") as fh:
+        for entry in entries:
+            fh.write(json.dumps(entry) + "\n")
+    return path
+
+
+def _af2_user(text: str) -> dict:
+    return {"type": "user", "message": {"content": text}}
+
+
+def _af2_assistant(text: str) -> dict:
+    return {
+        "type": "assistant",
+        "message": {"id": "msg_af2", "content": [{"type": "text", "text": text}]},
+    }
+
+
+# An IMPERATIVE operator request - no "?" anywhere. Major 1's shape.
+AF2_IMPERATIVE = _af2_transcript("imperative", [_af2_user("summarize what you found.")])
+
+# A 301+ character operator message whose question sits mid-text, past
+# _SHORT_QUESTION_TEXT_MAX_CHARS. Major 2's shape. Length asserted below
+# rather than eyeballed - at 299 chars this fixture would prove nothing.
+_AF2_LONG_TEXT = (
+    "Here is a lot of background context that I am pasting in for you to consider "
+    "before you reply, including several details about the environment and the "
+    "constraints we are working under this week, and somewhere in the middle of it "
+    "what do you think we should do, followed by yet more trailing context to push "
+    "this message safely past three hundred characters in total length."
+)
+check(
+    "af2-pin. the long-operator-message fixture really is over "
+    "_SHORT_QUESTION_TEXT_MAX_CHARS (else af9 proves nothing)",
+    len(_AF2_LONG_TEXT) > _mod._SHORT_QUESTION_TEXT_MAX_CHARS,
+)
+check(
+    "af2-pin2. ...and _looks_like_question really does score it False "
+    "(the exact blindness Major 2 reported)",
+    _mod._looks_like_question(_AF2_LONG_TEXT) is False,
+)
+AF2_LONG = _af2_transcript("long", [_af2_user(_AF2_LONG_TEXT)])
+
+# Mid-task: operator spoke, the conductor already replied once, then a
+# background task-notification arrived. This turn is UNPROMPTED.
+AF2_MIDTASK = _af2_transcript(
+    "midtask",
+    [
+        _af2_user("go ahead and start unit 2"),
+        _af2_assistant(IDENTITY_OK + "\nWaiting: engineer on unit 2."),
+        _af2_user("<task-notification>Unit 2 complete</task-notification>"),
+    ],
+)
+
+
+def _af2_run(msg: str, transcript: str):
+    return run_hook(make_payload(msg, extra={"transcript_path": transcript}))
+
+
+# af8a/b/c - Major 1, at three lengths. A terse answer is the shape most at
+# risk, because it has the fewest prose units to clear the recall floor.
+for _n, _lines, _body in (
+    ("a", 1, "The cache key was stale."),
+    ("b", 2, "The cache key was stale.\nRebuilding the index fixes it."),
+    (
+        "c",
+        3,
+        "The cache key was stale.\nRebuilding the index fixes it.\n"
+        "No code change was needed.",
+    ),
+):
+    # Line count is stated, not derived from the fixture: a derived count
+    # relabels itself if the fixture is edited, which would silently stop
+    # covering the 1-line case that has the fewest prose units and is
+    # therefore the one most at risk.
+    check(
+        "af8{}-pin. the {}-line fixture really has {} line(s)".format(_n, _n, _lines),
+        len([ln for ln in _body.splitlines() if ln.strip()]) == _lines,
+    )
+    rc, out, err = _af2_run(_body, AF2_IMPERATIVE)
+    check(
+        "af8{}. {}-line terse answer to an IMPERATIVE operator request -> "
+        "QUIET (Major 1 regression: BLOCKED at d3eb3cef)".format(_n, _lines),
+        is_quiet(rc, out),
+    )
+
+# af9 - Major 2. Same answer, operator message past the 300-char blindness.
+rc, out, err = _af2_run("The cache key was stale.\nRebuilding the index fixes it.", AF2_LONG)
+check(
+    "af9. same answer, 301+ char operator message with a MID-TEXT question "
+    "-> QUIET (Major 2 regression: BLOCKED at d3eb3cef; length is no longer "
+    "part of the predicate at all)",
+    is_quiet(rc, out),
+)
+
+# af10 - the one-word reply. No body shape, no quoted fragment, no length.
+rc, out, err = _af2_run("Yes.", AF2_IMPERATIVE)
+check(
+    "af10. one-word 'Yes.' as the first turn after an operator message -> "
+    "QUIET (only a position predicate can allow this)",
+    is_quiet(rc, out),
+)
+
+# af11 - multi-paragraph answer with NO identity line. `_segment` treats
+# line 1 as the identity line, so a body-only recall domain would delete
+# real answer content here.
+rc, out, err = _af2_run(
+    "The regression came from the cache key, not the parser.\n"
+    "Rebuilding the index between runs fixes it with no code change.\n"
+    "\nNothing else in the pipeline needed adjusting.\n",
+    AF2_IMPERATIVE,
+)
+check(
+    "af11. multi-paragraph answer with no identity line -> QUIET",
+    is_quiet(rc, out),
+)
+
+# --- TRUE-POSITIVE side. Without these, a predicate that allowed
+# everything would pass af8-af11. ---
+
+# af12 - the §Worked non-example, mid-task. The founding shape.
+rc, out, err = _af2_run(af1_msg, AF2_MIDTASK)
+check(
+    "af12. §Worked non-example silent-continue, emitted after a "
+    "task-notification -> BLOCKING (the TP side of af8-af11)",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
+
+# af13 - a status ping immediately after a task-notification, with no
+# operator message in between. The exact shape the Skeptic named.
+rc, out, err = _af2_run(
+    "DS-1 · b · [phase: ci-wait]\nState: 24/25 green, waiting on the macOS leg.\n",
+    AF2_MIDTASK,
+)
+check(
+    "af13. status ping emitted after a task-notification, no operator "
+    "message in between -> BLOCKING (a harness-injected task-notification "
+    "must NOT count as an operator message; if loop_guard ever counted it, "
+    "this goes silently quiet)",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
+
+# af14 - the recall suppressor still saves genuine mid-task prose, so
+# af12/af13 are not just "everything mid-task blocks".
+rc, out, err = _af2_run(
+    "The macOS leg failed on a stale codex skill inventory, not on the change itself.\n"
+    "Regenerating the inventory and rebuilding cleared it on the first retry.\n"
+    "\nNothing in the diff needed to move to make that leg pass.\n",
+    AF2_MIDTASK,
+)
+check(
+    "af14. genuine multi-paragraph prose emitted MID-TASK -> QUIET via the "
+    "recall suppressor (proves af12/af13 block on shape, not merely on "
+    "mid-task position)",
+    is_quiet(rc, out),
+)
+
+# af16 - RECALL DOMAIN pin (mutation-driven: without this, reverting
+# `_all_unfenced_lines` to `_body_after_identity_line` reddened NOTHING).
+# A TWO-line prose answer with no identity line, emitted MID-TASK so
+# suppressor 1 cannot rescue it and the recall is genuinely the deciding
+# mechanism. Under a body-only domain `_segment` deletes line 1, leaving
+# one unit, which fails the 2-unit floor and BLOCKS a real answer - the
+# Major 1 defect. Two lines is the tight boundary: at three lines a
+# body-only domain still leaves two units and passes either way, which is
+# why af14 above does not catch this.
+rc, out, err = _af2_run(
+    "The regression came from a stale cache key rather than the parser.\n"
+    "Rebuilding the index between runs clears it with no code change.\n",
+    AF2_MIDTASK,
+)
+check(
+    "af16. two-line prose answer, no identity line, MID-TASK -> QUIET "
+    "(pins the recall domain at _all_unfenced_lines; a body-only domain "
+    "deletes line 1 and blocks this)",
+    is_quiet(rc, out),
+)
+
+# af17 - the OTHER half of the same pin, and the reason the domain excludes
+# status vocabulary rather than simply including line 1. Identity line plus
+# ONE 13-word `State:` line: if slot lines counted as prose, this would be
+# two units averaging over the threshold and would launder through as an
+# "answer". Excluding recognized status vocabulary leaves the identity line
+# alone - one short unit - so it correctly BLOCKS. af16 and af17 together
+# bracket the domain from both sides; either one alone admits a wrong fix.
+rc, out, err = _af2_run(
+    IDENTITY_OK + "\nState: DS-140 unit 2 merged, DS-141 unit 1 in review, DS-142 blocked.\n",
+    AF2_MIDTASK,
+)
+check(
+    "af17. identity line + one long State: slot line, MID-TASK -> BLOCKING "
+    "(pins the status-vocabulary exclusion; counting slot lines as prose "
+    "launders this status ping into an 'answer')",
+    is_blocking(rc, out, "zero-warrant turn"),
+)
+
+# af15 - fail-open: an unreadable transcript path must never manufacture a
+# block, however status-only the turn looks.
+rc, out, err = _af2_run(af1_msg, os.path.join(_AF2_TMPDIR, "does-not-exist.jsonl"))
+check(
+    "af15. unreadable transcript path + the af12 body -> QUIET "
+    "(fail-open; position is unknowable, and unknown is never 'unprompted')",
+    is_quiet(rc, out),
+)
+
+# ---------------------------------------------------------------------------
 # Real-corpus regression replay (hooks/tests/fixtures/
 # turn-shape-real-corpus-sample.json): a curated 10-turn subset of the
 # 320-turn real conductor-transcript corpus this fix was measured
@@ -3238,8 +3861,20 @@ check(
 # `post_fix_class: "QUIET"` field: post-DS-171, `_status_only_flag` (the
 # check that produced their ADVISORY finding) is retired outright, so they
 # now emit no output at all - a deliberate, intended change from ADVISORY
-# to QUIET, not a regression. The loop below still only asserts "not
-# BLOCKING" for every control, which both ADVISORY and QUIET satisfy.
+# to QUIET, not a regression.
+#
+# DS-ANSWERFIRST: `_status_only_flag` is restored (BLOCKING), so one
+# control turn's declared class changed too. turn_0001_dinostack.txt now
+# carries `post_fix_class: "BLOCK"` plus a `post_fix_note` recording the
+# hand inspection - it is a zero-warrant CI-progress ping, so the block is
+# a TRUE positive of a check that simply did not exist at the measurement
+# commit, not a reintroduced false positive. The loop below asserts that
+# entry POSITIVELY (BLOCKING, with the zero-warrant finding text) rather
+# than exempting it, and the summary is now an exact set equality derived
+# from the fixture instead of a "count is zero" floor - the old form could
+# not catch a turn that is supposed to block and silently stops.
+# turn_0016 and turn_0037 stay QUIET: both are answer-shaped, so the
+# restored check's whole-body recall suppressor holds them.
 # ---------------------------------------------------------------------------
 
 with open(
@@ -3253,7 +3888,10 @@ with open(
 
 _real_corpus_still_blocking = []
 for _turn in _real_corpus["turns"]:
-    _rc_rc, _rc_out, _rc_err = run_hook(make_payload(_turn["text"]))
+    # DS-ANSWERFIRST: supply the shared non-question transcript - a real
+    # Stop payload always carries one, and without it _status_only_flag
+    # fails open before it can classify anything.
+    _rc_rc, _rc_out, _rc_err = run_hook(with_statement_transcript(_turn["text"]))
     _rc_is_block = '"decision": "block"' in _rc_out
     if _rc_is_block:
         _real_corpus_still_blocking.append(_turn["file"])
@@ -3262,6 +3900,22 @@ for _turn in _real_corpus["turns"]:
             "real-corpus {}. was the pre-fix BLOCKing false positive this "
             "fix targets -> no longer BLOCKING".format(_turn["file"]),
             not _rc_is_block,
+        )
+    elif _turn.get("post_fix_class") == "BLOCK":
+        # DS-ANSWERFIRST: a control turn whose fixture entry explicitly
+        # declares a post-fix BLOCK. Exactly one entry does
+        # (turn_0001_dinostack.txt) and it carries a `post_fix_note`
+        # recording the hand inspection: it is a zero-warrant CI-progress
+        # ping ("Waiting on it, then merging" is prose, not a `Waiting:`
+        # line), so the block is a TRUE positive of the restored
+        # `_status_only_flag`, not a reintroduced false positive. Asserted
+        # POSITIVELY rather than exempted from the loop, so a future change
+        # that silently stops blocking it fails here.
+        check(
+            "real-corpus {}. declared post-fix BLOCK (zero-warrant status "
+            "ping, true positive of the restored status-only check) -> "
+            "BLOCKING".format(_turn["file"]),
+            is_blocking(_rc_rc, _rc_out, "zero-warrant turn"),
         )
     else:
         # Control turn: assert it still does not BLOCK. This does NOT
@@ -3272,6 +3926,9 @@ for _turn in _real_corpus["turns"]:
         # outright, not merely fixed, so those two turns now produce no
         # output at all. That is intended, not a regression - the
         # non-BLOCKING property this loop checks is unaffected either way.
+        # DS-ANSWERFIRST restored that check, but with a three-condition
+        # gate neither of those two turns trips (both are answer-shaped),
+        # so they stay QUIET.
         check(
             "real-corpus {}. control turn ({}) -> still not BLOCKING".format(
                 _turn["file"], _turn["pre_fix_class"]
@@ -3279,10 +3936,18 @@ for _turn in _real_corpus["turns"]:
             not _rc_is_block,
         )
 
+# DS-ANSWERFIRST: the summary is now an EXACT SET equality, not a
+# "count is zero" floor. The old form could only catch a turn that newly
+# starts blocking; it could not catch one that is supposed to block and
+# silently stops. Derived from the fixture, never hand-typed.
+_expected_blocking = sorted(
+    t["file"] for t in _real_corpus["turns"] if t.get("post_fix_class") == "BLOCK"
+)
 check(
-    "real-corpus summary: 0 of the curated 10-turn subset BLOCK "
-    "post-fix (was 5 pre-fix)",
-    len(_real_corpus_still_blocking) == 0,
+    "real-corpus summary: exactly the declared post_fix_class==BLOCK "
+    "entries BLOCK ({} of the curated 10-turn subset; the 5 pre-fix "
+    "BLOCKs are all resolved)".format(len(_expected_blocking)),
+    sorted(_real_corpus_still_blocking) == _expected_blocking,
 )
 
 # ---------------------------------------------------------------------------

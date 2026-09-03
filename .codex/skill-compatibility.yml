@@ -32,16 +32,6 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
-      "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "05efbddde8fb6f3c540a6a0f08f37066013a9790d4d812322acb161b6dc46582",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Write"
-    },
-    {
       "expected_target": ".agentic/worktrees/*",
       "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
       "kind": "operational",
@@ -495,16 +485,6 @@
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
-      "occurrence_hash": "349b93a780089ed362afcf431b5cfeb0558d3babfe77f7db22aac8d682fba497",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
       "occurrence_hash": "34f2dc0a3be4f29faafc2f65d5b260f944c30da2950487160f5c857c6f211f9c",
       "resolution_mode": "compatibility-preamble",
       "scope": "codex-harness",
@@ -552,6 +532,16 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "3db527a16b16d56c14f81e368360bb868b3428c89b1c6c9a311e8697d47545e0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/commands/ds-skeptic.md",
       "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
@@ -560,6 +550,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "`/ds-skeptic`"
+    },
+    {
+      "expected_target": "content/references/conductor-turn-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
+      "kind": "operational",
+      "occurrence_hash": "3dbf430a9b62385efe0c99d49f8f023900e448c2e622b7ebac7d8af6e1a63f98",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conductor-turn-format.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -1412,16 +1412,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "content/references/conductor-turn-format.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
-      "kind": "operational",
-      "occurrence_hash": "9816727289251911c72825ee55b0dc74cbd1d5ff679a1464cdc1d7327693d7e1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/conductor-turn-format.md"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -1950,6 +1940,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/09-events-log.md"
+    },
+    {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d008ae61a72174fab5d8a55ee1f88aa5e27a1f56de85874f3d7fae62e4ac1e0a",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Write"
     },
     {
       "expected_target": "content/commands/ds-identity.md",

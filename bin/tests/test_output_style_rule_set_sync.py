@@ -20,6 +20,27 @@ Purpose: Regression guard for the `dinostack` output style's rule-set drift.
          "Canonical-plus-pointer" below). A stale cross-file assertion
          nothing pins is the defect class this spec exists to close.
 
+         DS-ANSWERFIRST: the five TOPIC NAMES are unchanged and
+         `ALL_KNOWN_RULE_TOPICS` needed no new entry, but what the sites
+         must SAY about one of them changed, and this spec deliberately
+         does not pin that. The status-only rule is no longer
+         "retired from the hook and carried by the output style" - it is
+         HOOK-BLOCKING again (`_status_only_flag`, restored by
+         DS-ANSWERFIRST), and the always-loaded prose carrier is the
+         kernel paragraph in `content/sections/02-delegation.md`, not the
+         output style, which `.claude/install.sh` installs but never
+         selects. This spec checks TOPIC PRESENCE, not the claims made
+         about a topic, so it stayed green across that reversal at every
+         one of the ten sites while all of them asserted something false.
+         That is a KNOWN, ACCEPTED limit, not a gap to close by adding
+         prose pins: a per-site claim assertion would pin hand-written
+         summaries at ten sites to one wording and break on every
+         legitimate rephrase. The obligation it leaves open is the
+         doc-sync pass (`content/references/doc-sync-obligation.md`),
+         which is where that reversal was actually propagated - recorded
+         here so the next reader does not mistake this spec's green for
+         coverage of it.
+
          The derived source of truth is the style file itself: its YAML
          frontmatter `description:` field states the rule set as a
          parenthesized, comma-separated list, and its body states those
@@ -463,13 +484,19 @@ def test_conductor_turn_format_names_full_rule_set(rule_set_topics):
     text = CTF_PATH.read_text(encoding="utf-8")
     # Marker was "DS-171: bans 2 and 5". DS-PILLAR1 collapsed the numbered
     # ban list into one governing warrant rule plus named instances, so a
-    # marker keyed to ban NUMBERS no longer resolves. This one is keyed to
-    # the note's subject instead, which is stable across renumbering - the
-    # defect the numbered marker kept re-encoding.
-    marker = "Mechanization status (DS-171)"
+    # marker keyed to ban NUMBERS no longer resolves. It was then rekeyed
+    # to the note's subject - but as "Mechanization status (DS-171)", which
+    # kept a TICKET ID in the marker and so re-encoded the very fragility
+    # the rekey was meant to remove: DS-ANSWERFIRST retitled the paragraph
+    # (that note's carrier claim was falsified - the output style is never
+    # selected, so the kernel paragraph in content/sections/02-delegation.md
+    # is the always-loaded carrier now) and this marker stopped resolving
+    # for the third time. Now keyed to the subject ALONE, with no ticket
+    # ID, which is what "stable across renumbering" actually requires.
+    marker = "Mechanization status"
     assert marker in text, (
-        f"{CTF_PATH} must contain the DS-171 note describing what moved to "
-        "the dinostack output style"
+        f"{CTF_PATH} must contain the Mechanization status note describing "
+        "which rules are carried by prose and which by a hook"
     )
     note_text = text[text.index(marker):]
     # Scope to this one paragraph (it already covers the self-narrating-

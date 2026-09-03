@@ -14,7 +14,12 @@ Purpose: Inspect global dinostack install health and (with --fix)
          stale_but_stable - see check_hooks_snapshot_staleness), (DS-171
          round 4) that the installed `dinostack` output style
          (~/.claude/output-styles/dinostack.md) is not stale relative to
-         repo_dir's built copy - see check_output_style_staleness, and
+         repo_dir's built copy - see check_output_style_staleness,
+         (DS-ANSWERFIRST) that an INSTALLED dinostack output style is
+         actually SELECTED in ~/.claude/settings.json - a different axis
+         from staleness, since a style the harness was never told to use
+         is injected nowhere however current its bytes are; see
+         check_output_style_selection, and
          (DS-198) that no enabled Claude Code plugin registers a
          PreToolUse hook on the Agent/Task spawn tools, which could
          silently mutate subagent spawn input - see
@@ -43,7 +48,20 @@ Purpose: Inspect global dinostack install health and (with --fix)
          copy by design, see check_output_style_staleness; this is the one
          real, non-symlink file --fix is allowed to overwrite, and only
          because it is itself install.sh's own generated copy target, not
-         operator content). Otherwise never invokes install.sh, never
+         operator content). For output-style SELECTION, --fix does NOT
+         repair: it prints the actionable operator instruction (run
+         /config in Claude Code, choose DinoStack) and leaves the WARN
+         standing, the same posture --fix takes on a half_applied hooks
+         snapshot. ~/.claude/settings.json's `outputStyle` key is NEVER
+         written by this tool in any mode - a session-wide operator
+         preference is not a DinoStack-owned artifact, and settings.json
+         additionally holds unrelated operator configuration; the
+         byte-identity assertion across --fix in
+         bin/tests/test_agentic_doctor.sh is the regression guard on that.
+         (Note this is a narrower rule than the settings.json HOOK-PATH
+         rewrite described above, which --fix does perform - those paths
+         ARE DinoStack-owned. The carve-out is per-key, not per-file.)
+         Otherwise never invokes install.sh, never
          touches any OTHER real file or a foreign symlink. NOTE: the reverse
          ~/.local/bin stale-link check (check_local_bin_stale) is
          checked-out-tree-relative, not just rename-relative - on an older
@@ -142,6 +160,21 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                WARN, not FAIL and never a silent OK (this check must never
                block the rest of doctor's findings, and must never report a
                check that did not run as confirmed current).
+               check_output_style_selection (DS-ANSWERFIRST): READ-ONLY on
+               ~/.claude/settings.json in every mode, --fix included. Both
+               absent-precondition paths are SKIP, never WARN: the style not
+               installed (nothing to select), and settings.json absent,
+               unreadable, unparseable, or not a JSON object (the selection
+               is undeterminable, and guessing would WARN a possibly
+               correctly-configured machine). Installed with
+               outputStyle != "dinostack" (including an absent key, which
+               reads as None) -> WARN, never FAIL: a non-blocking advisory
+               whose repair is the operator's to perform via /config, so it
+               must not fail doctor's exit. --fix prints the instruction and
+               LEAVES the finding, mirroring the half_applied hooks-snapshot
+               posture; it does not mark it unfixable, since nothing here is
+               a broken install. Writing the outputStyle key is prohibited
+               outright, not merely unimplemented.
                check_foreign_agent_hooks: MISSING is not governed by a
                single rule - it varies deliberately by site (a missing
                ~/.claude/plugins dir, a missing settings.json/enabledPlugins
@@ -1483,9 +1516,9 @@ def _omp_model_handles():
     space or extra slash is never silently dropped. Returns None when omp is
     unavailable / the command fails, so callers WARN rather than FAIL.
     """
+    import json as _json
     import shutil
     import subprocess
-    import json as _json
     if not shutil.which("omp"):
         return None
     try:
@@ -1522,9 +1555,9 @@ def _installed_harnesses():
     Uses the structured --json API (not the human-readable columns) so the
     result does not depend on display formatting. Returns None on failure.
     """
+    import json as _json
     import shutil
     import subprocess
-    import json as _json
     if not shutil.which("ds-team"):
         return None
     try:
@@ -1597,6 +1630,84 @@ def check_output_style_staleness(doc: Doctor) -> None:
     doc._emit("FIX", f"output_style: {dst} is stale relative to {src}")
     if doc.fix:
         doc.refresh_stale_copy("output_style", src, dst)
+
+
+def check_output_style_selection(doc: Doctor) -> None:
+    """WARN when the `dinostack` output style is INSTALLED but not
+    SELECTED (DS-ANSWERFIRST). Sibling of `check_output_style_staleness`
+    above, on a different axis: that check asks whether the installed copy
+    is CURRENT, this one asks whether it is in EFFECT. An output style
+    Claude Code has not been told to use is injected nowhere, so a stale-vs-
+    current comparison can report OK on a file that is doing nothing at all.
+
+    The specific failure this catches: `.claude/install.sh` copies the style
+    to `~/.claude/output-styles/dinostack.md` unconditionally, but never
+    writes `outputStyle` to `~/.claude/settings.json` - so on a machine that
+    has run the installer and never opened `/config`, the style has never
+    been active. DS-171 retired three turn-shape hook checks on the premise
+    that this style was a live always-injected substitute for them; it was
+    not, and those rules ran nowhere until DS-ANSWERFIRST restored one of
+    them to the hook. Nothing surfaced that gap for the whole interval.
+
+    Retirement condition (Pillar 8): this check retires if selection ever
+    becomes something the installer performs or the harness defaults, at
+    which point the unselected state stops being reachable.
+
+    **This function NEVER writes `~/.claude/settings.json`, in `--fix` or in
+    any other mode. That is non-negotiable, not an unimplemented feature.**
+    Selecting an output style is an operator preference over their whole
+    Claude Code session, not a DinoStack-owned artifact, and `settings.json`
+    holds unrelated operator configuration this tool has no mandate to
+    rewrite. `--fix` therefore prints the actionable instruction and LEAVES
+    the finding standing - the same posture `check_hooks_snapshot_staleness`
+    takes on `half_applied`, where the repair is real but is the operator's
+    to perform. `bin/tests/test_agentic_doctor.sh` asserts the file is
+    byte-identical (sha256) across a `--fix` run; that assertion is the
+    regression guard on this paragraph.
+
+    SKIP, not WARN, on both absent-precondition paths: the style not being
+    installed at all (there is nothing to select), and settings.json being
+    absent or unparseable (the selection cannot be determined, and guessing
+    would be a false WARN on a machine that may well be configured).
+    """
+    installed = _home() / ".claude" / "output-styles" / "dinostack.md"
+    settings = _settings_path()
+
+    if not installed.is_file():
+        doc.skip("output_style_selected", installed, "style not installed; nothing to select")
+        return
+    if not settings.is_file():
+        doc.skip("output_style_selected", settings, "settings.json not present")
+        return
+
+    try:
+        with open(settings, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        doc.skip("output_style_selected", settings, f"settings.json unreadable/unparseable: {exc}")
+        return
+    if not isinstance(data, dict):
+        doc.skip("output_style_selected", settings, "settings.json is not a JSON object")
+        return
+
+    selected = data.get("outputStyle")
+    if selected == "dinostack":
+        doc.ok("output_style_selected", f"{settings} selects the dinostack output style")
+        return
+
+    doc.warn(
+        "output_style_selected",
+        "{} is installed but {} has outputStyle={!r} - the style is injected "
+        "nowhere until it is selected. Fix it yourself in Claude Code: run "
+        "/config and choose DinoStack. ds-doctor will not write settings.json, "
+        "in --fix or otherwise (see check_output_style_selection's docstring). "
+        "Note the turn-shape rules do NOT depend on this: their always-loaded "
+        "carrier is the kernel paragraph in "
+        "content/sections/02-delegation.md, and the zero-warrant check is "
+        "enforced by hooks/enforce-turn-shape.py on its own.".format(
+            installed, settings, selected
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2190,8 +2301,8 @@ def check_cross_harness(doc: "Doctor") -> None:
 
 
     # (1b) role-models.yml (optional): if present, it must parse as YAML.
-    import os as _os
     import glob as _glob  # noqa: F401  (kept for parity; not used directly)
+    import os as _os
     rm_paths = [
         _os.path.expanduser("~/.agentic/role-models.yml"),
         _os.path.join(_os.getcwd(), ".agentic", "role-models.yml"),
@@ -2357,6 +2468,11 @@ def main() -> int:
 
     # (f3) installed dinostack output style currency (DS-171 round 4)
     check_output_style_staleness(doc)
+
+    # (f3b) installed dinostack output style is actually SELECTED
+    # (DS-ANSWERFIRST) - a different axis from (f3)'s currency check.
+    # Read-only; never writes settings.json, in --fix or otherwise.
+    check_output_style_selection(doc)
 
     # (f4) foreign PreToolUse hooks targeting the Agent/Task spawn tool (DS-198)
     check_foreign_agent_hooks(doc)

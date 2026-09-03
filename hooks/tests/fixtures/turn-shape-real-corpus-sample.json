@@ -36,6 +36,8 @@
     {
       "file": "turn_0001_dinostack.txt",
       "pre_fix_class": "QUIET",
+      "post_fix_class": "BLOCK",
+      "post_fix_note": "DS-ANSWERFIRST: this turn carries none of the four warrants - \"Waiting on it, then merging\" is prose, not a `Waiting:` line, and a CI-progress ping is the canonical Rule B violation. It was classified QUIET at the measurement commit only because `_status_only_flag` did not exist there (DS-171 had deleted it). The BLOCK is a TRUE positive of a restored check, not a reintroduced false positive - hand-inspected.",
       "pre_fix_reason": "",
       "text": "ad-hoc · feat/ds-154-capture-instruction-v3 · [phase: ci-wait]\n\n24/25 green, one macOS `check-codex-skill-sync` leg left. Waiting on it, then merging."
     },
