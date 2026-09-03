@@ -106,13 +106,27 @@ hook installed separately:
   (a non-Answer turn's structural shape) is BLOCKING and can block the stop,
   injecting a directive to reshape the turn; `_decision_item_sprawl_flag`
   (operator-decisions per-item shape) remains advisory-only and only logs a
-  finding. As of DS-171, three prior checks are retired from this hook and
-  live instead in the `dinostack` Claude Code output style
-  (`content/output-styles/dinostack.md`, select via `/config`): the
+  finding. As of DS-ANSWERFIRST the zero-warrant
+  status-only check (`_status_only_flag`) is RESTORED to this hook and
+  BLOCKING, firing only when all three of: zero warrants, the turn
+  is not the first assistant turn following a genuine operator message
+  (so it follows a tool result, a background task-notification, or the
+  conductor's own prior turn - a transcript-POSITION predicate, not a
+  test of the operator's grammar or message length), and the message is
+  not answer-shaped prose. The same ticket added `SLOT_LINE_MAX_COUNT` (3), a
+  blocking count and duplicate-label bound on the general branch's status
+  slot lines; the sole-stoppage branch's `Waiting:` count stays unbounded.
+  Two prior checks remain retired from this hook: the
   answer relevance check (`_answer_relevance_flag`,
-  opening-preamble/closing-recap), the zero-warrant status-only check
-  (`_status_only_flag`), and the whole-message turn-volume check
-  (`_turn_charge`/`_volume_flag`) - the output style additionally carries two
+  opening-preamble/closing-recap) and the whole-message turn-volume check
+  (`_turn_charge`/`_volume_flag`). Their always-loaded carrier is the kernel
+  paragraph in `content/sections/02-delegation.md`, which reaches every
+  harness - NOT the `dinostack` Claude Code output style
+  (`content/output-styles/dinostack.md`), which `.claude/install.sh`
+  installs but never selects, so it was injected nowhere on any machine
+  whose operator had not chosen it via `/config`. `ds-doctor` now WARNs on
+  that state and will never write `outputStyle` for you. That style stays a
+  real secondary carrier once selected, and additionally carries two
   rules with no prior hook-mechanized form: self-narrating candor, and
   editorial addenda (the ban on any conductor-selected item that carries none
   of the four turn warrants, in any position in the turn and whether or not it

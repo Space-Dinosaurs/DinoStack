@@ -78,6 +78,7 @@ This file's path is resolved per-repo, not hardcoded: prefer a tracked `.agentic
 - Signal(s): Signal 5 (orphaned legacy text) + Signal 6 (complexity)
 - Confidence: MEDIUM
 - Rationale: DS-171 deleted these checks from hooks/enforce-turn-shape.py; the reference doc retains history-of-deleted-code prose that git history already archives. Operator decision 2026-08-25: deferred (not in the approved first wave); carries over to the next run.
+- Amendment 2026-09-03 (DS-ANSWERFIRST): this entry's premise is now PARTLY FALSE and its scope must shrink before it is actioned. `_status_only_flag` is NOT a retired mechanism - it was restored as a BLOCKING check, so its passages in conductor-turn-format.md are live contract text rather than history-of-deleted-code, and pruning them would delete the specification of a running check. `WAITING_LINE_MAX_CHARS` is likewise now referenced by the live `SLOT_LINE_MAX_COUNT` prose as its contrasting bound. The entry remains valid for `_answer_relevance_flag` and the turn-charge volume check, both still genuinely retired. Re-scope to those two before actioning; do not action as written.
 - Disposition:
 
 ## PL-20260825-6

@@ -148,6 +148,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+
 def _load_repo_root():
     """Best-effort dynamic import of hooks/lib/repo_root.py (mirrors the
     enforce-*.py / bin/ds-status lazy-loader pattern). Returns None on any
@@ -992,6 +993,13 @@ def _read_pending_record_at(parent_fd: int, name: str) -> dict | None:
     if not isinstance(record, dict):
         return None
     session_uuid = record.get("session_uuid")
+    # `_valid_metadata_string` already guarantees `isinstance(value, str)`
+    # before the `or` can reach the `in` below, but mypy cannot narrow
+    # through a call, so it reads `session_uuid` as Optional[Any] at the
+    # `in`. Narrow explicitly - behaviour-identical, since a non-str value
+    # fails `_valid_metadata_string` and short-circuits on the same branch.
+    if not isinstance(session_uuid, str):
+        session_uuid = ""
     if (
         not _valid_metadata_string(
             session_uuid,
@@ -1471,6 +1479,16 @@ def _write_jsonl_safely(
                 if parent_fd is not None:
                     os.close(parent_fd)
             time.sleep(0.01)
+        # Unreachable at runtime: the final attempt either returns or
+        # re-raises (see the `attempt == max_attempts - 1` guards above).
+        # Stated explicitly anyway because falling off the end of the loop
+        # would return an implicit None, violating this function's
+        # tuple[bool, bool] contract - which is what mypy reports here, and
+        # it cannot prove the guards are exhaustive. Raising rather than
+        # returning routes an exhausted loop through the SAME refusal
+        # handler every other failure uses, so the behaviour is identical
+        # to the failure path already in place.
+        raise OSError("session log write exhausted every attempt")
     except (OSError, RuntimeError) as exc:
         if os.environ.get("AE_IDENTITY_DEBUG") == "1":
             print(f"ds-identity: append refused: {path}: {exc}", file=sys.stderr)
@@ -1518,6 +1536,13 @@ def _upsert_session_jsonl_safely(
 def _write_pending_record_safely(record: dict, *, _attempt: int = 0) -> bool:
     """Atomically create/update one pending record through a pinned directory."""
     session_uuid = record.get("session_uuid")
+    # `_valid_metadata_string` already guarantees `isinstance(value, str)`
+    # before the `or` can reach the `in` below, but mypy cannot narrow
+    # through a call, so it reads `session_uuid` as Optional[Any] at the
+    # `in`. Narrow explicitly - behaviour-identical, since a non-str value
+    # fails `_valid_metadata_string` and short-circuits on the same branch.
+    if not isinstance(session_uuid, str):
+        session_uuid = ""
     if (
         not _valid_metadata_string(
             session_uuid,
@@ -2478,6 +2503,13 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
         return 1
 
     session_uuid = request.get("session_uuid")
+    # `_valid_metadata_string` already guarantees `isinstance(value, str)`
+    # before the `or` can reach the `in` below, but mypy cannot narrow
+    # through a call, so it reads `session_uuid` as Optional[Any] at the
+    # `in`. Narrow explicitly - behaviour-identical, since a non-str value
+    # fails `_valid_metadata_string` and short-circuits on the same branch.
+    if not isinstance(session_uuid, str):
+        session_uuid = ""
     if (
         not _valid_metadata_string(
             session_uuid,

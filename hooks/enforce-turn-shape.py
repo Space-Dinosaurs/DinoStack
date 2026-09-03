@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
-         that checks the SHAPE of the conductor's final assistant message
-         against the turn-shape contract in
+Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171;
+         DS-ANSWERFIRST) that checks the SHAPE of the conductor's final
+         assistant message against the turn-shape contract in
          content/references/conductor-turn-format.md §9 (the hook
-         contract) / content/sections/02-delegation.md ("Operator
-         decisions go last in the turn"). As of DS-171 this hook runs
-         exactly TWO checks, with DIFFERENT enforcement postures.
+         contract) / content/sections/02-delegation.md ("Guard operator
+         attention: warranted turns only", "Operator decisions go last in
+         the turn"). As of DS-ANSWERFIRST this hook runs exactly THREE
+         checks, with DIFFERENT enforcement postures.
 
+           - `_status_only_flag` (zero-warrant turns) is BLOCKING
+             (DS-ANSWERFIRST). It was ADVISORY-only before DS-171 and
+             deleted outright by DS-171; it is restored here with the
+             posture corrected, plus a three-condition gate. See its own
+             docstring for the gate, and the DS-171/DS-ANSWERFIRST
+             paragraph below for why the retirement's premises failed.
            - `_execution_prose_flag` (execution-turn structural shape,
              REPLACES the deleted `_forced_yield_flag`) is BLOCKING BY
              DEFAULT: on a finding it exits via {"decision": "block",
@@ -52,7 +59,42 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
          all - unchanged from the status quo, since the retired hook
          checks only ever ran under Claude Code.
 
-         Why `_execution_prose_flag` alone stays blocking:
+         DS-ANSWERFIRST (partial reversal of the paragraph above, with the
+         reason it was wrong): DS-171's measured objection was to the
+         ADVISORY POSTURE, and its remedy assumed a live always-injected
+         substitute. Both premises failed. The objection was correct and
+         is honoured - `_status_only_flag` is restored BLOCKING, never
+         advisory. The remedy was not: `.claude/install.sh` installs the
+         `dinostack` output style but never writes `outputStyle` to
+         `~/.claude/settings.json`, and an unselected output style is
+         injected nowhere, so between DS-171 and this restoration the
+         status-only rule ran on NO harness at all - not reactively here,
+         and not proactively there. The always-loaded carrier is now the
+         kernel paragraph in content/sections/02-delegation.md, which
+         reaches all six harnesses (Claude Code, Codex, Gemini, Cursor,
+         Kimi, OpenCode) rather than one, so non-Claude-Code harnesses
+         DO now see the proactive statement. The output style is kept and
+         updated in step, not deleted: Pillar 8's deletion clause
+         requires a MEASURED zero yield, and "never selected on one
+         machine" is not that measurement.
+
+         Also DS-ANSWERFIRST: SLOT_LINE_MAX_COUNT, a count/duplicate-label
+         bound on the general branch's recognized status slot lines. This
+         is NOT a revival of `_turn_charge`/`_volume_flag` - see that
+         constant's own comment. Answer relevance, self-narrating candor,
+         editorial addenda, and announced follow-on work stay
+         DELIBERATELY UNMECHANIZED: every candidate mechanization reduces
+         to a curated preamble/label phrase blocklist, which
+         docs/overview/vision.md Pillar 8 names as a smell ("an
+         enumeration of banned shapes that grows by one entry per
+         incident"), or to a semantic judgment about what a sentence is
+         DOING, which Pillar 7 forbids left-shifting. They remain prose
+         in content/references/conductor-turn-format.md §5, enforced by
+         review.
+
+         Why `_execution_prose_flag` blocks (DS-ANSWERFIRST: "alone" no
+         longer holds - `_status_only_flag` blocks too, on the same
+         reasoning applied to its own structural predicate):
          it is a structural predicate with no phrase matching or
          inference involved - a false positive requires the conductor to
          have actually violated the shape, and advisory enforcement of
@@ -93,13 +135,13 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
          canonical shape stays documented in
          content/references/conductor-turn-format.md alone.
 
-         Checks, run in this fixed order (DS-171: only the warrant
-         classification, the DS-156 three-way routing, and the two
-         checks below remain in this hook - see the Purpose section
-         above for what retired):
+         Checks, run in this fixed order (the warrant classification, the
+         DS-156 three-way routing, and the three checks below - see the
+         Purpose section above for what retired and what DS-ANSWERFIRST
+         restored):
 
          1. Warrant classification (RUNS FIRST, and is AUTHORITATIVE over
-            checks 2a/2b/3 below): classifies which of
+            checks 2a/2b/2c/3 below): classifies which of
             four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
                              (DS-156 checked this for the same narrow-
@@ -248,10 +290,16 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
             "Classification order" bullet). Answer always wins the shape
             question, regardless of what else co-fires:
 
-            (a) Answer turn (`answer` warrant PRESENT): DS-171 - no hook
-                check runs here any more (`_answer_relevance_flag` is
-                retired, see the Purpose section); the relevance rule is
-                now carried by the `dinostack` output style.
+            (a) Answer turn (`answer` warrant PRESENT): no hook check
+                runs here (`_answer_relevance_flag` is retired, see the
+                Purpose section). The answer relevance rule, and the
+                answer-first ordering rule DS-ANSWERFIRST added beside
+                it, are both carried by prose - the always-loaded kernel
+                paragraph in content/sections/02-delegation.md plus
+                content/references/conductor-turn-format.md §5 - and
+                stay deliberately unmechanized. This is the ONLY branch
+                of the three-way split with no live hook check as of
+                DS-ANSWERFIRST.
 
             (b) Execution turn (`answer` ABSENT, at least one of
                 decision/stoppage/completion PRESENT): routes to
@@ -290,14 +338,26 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171)
                   additionally checked for LENGTH ONLY (never shape)
                   against STATUS_LINE_MAX_CHARS - always BLOCKING,
                   unaffected by the DS-158 carve-out.
+                  (DS-ANSWERFIRST) The general branch additionally
+                  bounds the COUNT of recognized slot lines against
+                  SLOT_LINE_MAX_COUNT (3) and rejects two slot lines
+                  sharing a label - always BLOCKING, with no downgrade
+                  path (both are pure counts over an already-recognized
+                  fixed label set, with no prose content to be
+                  answer-shaped). The sole-stoppage branch's `Waiting:`
+                  count stays UNBOUNDED, per §7.
 
             (c) Zero-warrant turn (neither Answer nor any of
-                decision/stoppage/completion present): DS-171 - no hook
-                check runs here any more (`_status_only_flag`,
-                `_has_body_completion_declaration`, and
-                `_status_only_prose_is_explanatory` are all retired, see
-                the Purpose section); the status-only rule is now carried
-                by the `dinostack` output style.
+                decision/stoppage/completion present): routes to
+                `_status_only_flag` (BLOCKING, DS-ANSWERFIRST). Its two
+                suppressors are STRUCTURAL, not the DS-157/DS-161
+                phrase-and-shape helpers that used to sit here
+                (`_has_body_completion_declaration` and
+                `_status_only_prose_is_explanatory` stay deleted): a
+                genuine operator question in the transcript, and a
+                whole-body answer-shaped-prose recall. See that
+                function's own docstring for the three-condition gate
+                and the fail-open contract.
 
             Known implementation seam (DS-151 amendment A7, historical -
             the two ADVISORY-only leaves (a) and (c) it referred to are
@@ -425,6 +485,10 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             turn (no findings), emits nothing on stdout. On a BLOCKING
             finding, emits exactly one JSON object:
               {"decision": "block", "reason": "TURN-SHAPE: <finding>"}
+            DS-ANSWERFIRST: `_status_only_flag`'s finding is uniformly
+            BLOCKING with no downgrade path - its two structural
+            suppressors resolve to a SILENT ALLOW rather than to an
+            advisory, so it emits either the block payload or nothing.
             DS-158: `_execution_prose_flag` findings are NOT uniformly
             BLOCKING any more - its general branch can downgrade an
             unrecognized-line finding to ADVISORY when the content is
@@ -503,12 +567,27 @@ Failure modes:
       cwd is present but the module cannot load, exit 0 silently (same
       rationale as a failed counter write - never emit an advisory without
       a loop bound).
-    - DS-156: this hook CAN now return a blocking decision - exactly one
-      code path, `_execution_prose_flag`'s finding branch, emits
-      {"decision": "block", ...}. Every OTHER path (advisory findings,
-      clean turns, every fail-open/fail-closed guard above) still exits 0
-      with either no stdout or an advisory `additionalContext` object; the
-      process exit CODE is 0 in every case (see "Public API" above).
+    - DS-156: this hook CAN return a blocking decision. DS-ANSWERFIRST:
+      TWO code paths now emit {"decision": "block", ...} rather than one -
+      `_execution_prose_flag`'s finding branch and `_status_only_flag`'s
+      finding branch. Every OTHER path (advisory findings, clean turns,
+      every fail-open/fail-closed guard above) still exits 0 with either
+      no stdout or an advisory `additionalContext` object; the process
+      exit CODE is 0 in every case (see "Public API" above).
+    - DS-ANSWERFIRST, `_status_only_flag` fail-open: any exception inside
+      that function, or an unavailable `_LOOP_GUARD` (so
+      `last_genuine_user_text` cannot be read), returns None - a silent
+      allow, never a block. A signal the check cannot compute must never
+      manufacture a finding. Note this is the SAME `_LOOP_GUARD`
+      unavailability `main()` already treats as a hard exit-0 when cwd is
+      present; the in-function guard covers the cwd-absent (synthetic
+      payload) path, where `main()` falls through instead.
+    - DS-ANSWERFIRST, SLOT_LINE_MAX_COUNT: no separate config toggle or
+      kill switch. Both new checks are governed by the existing
+      `turn_shape_guard_enabled` config key and the existing
+      `AE_TURN_SHAPE_GUARD_DISABLE=1` kill switch, per this hook's
+      no-per-check-toggle contract stated above, and are bounded by the
+      existing shared CONSECUTIVE_BLOCK_CAP loop guard.
 
 Performance: < 5 ms per call on typical transcripts - one optional config
              file read and, only when last_assistant_message is absent, a
@@ -572,6 +651,39 @@ ITEM_FREE_LINES = 3  # per Operator-decisions item
 # the hook's only forced-yield path from a silent pass into a block, a
 # behavior change nobody has authorized.
 STATUS_LINE_MAX_CHARS = 200
+
+# DS-ANSWERFIRST. Sibling to STATUS_LINE_MAX_CHARS: that constant bounds how
+# LONG one status slot line may be, this one bounds how MANY there may be.
+# Checked on _execution_prose_flag's GENERAL branch only - the sole-stoppage
+# branch's `Waiting:` count stays deliberately unbounded, per
+# content/references/conductor-turn-format.md §7 (a forced-yield turn carries
+# one Waiting: line per agent, however many that is). Two distinct violations
+# share this bound: more than SLOT_LINE_MAX_COUNT recognized slot lines in the
+# status region, and two slot lines sharing a label. Three is the number of
+# NAMED slots the format defines (State/Running/Blocked), one line each - so
+# a fourth line, or a repeated label, is structurally not the format rather
+# than merely a long one.
+#
+# This is NOT a revival of the retired _turn_charge/_volume_flag model: there
+# is no whole-message charge, no free pools, and no BASE_BODY_BUDGET. It
+# counts recognized slot lines only, and only on one branch.
+#
+# Named catch (docs/overview/vision.md Pillar 8, first half): between
+# DS-171's retirement of the turn-charge volume model and DS-ANSWERFIRST,
+# NOTHING bounded the slot-line count - a turn could carry twenty
+# well-formed, individually-compliant `State:` lines and pass every check,
+# against a prose rule that says "1-3 status lines per turn".
+#
+# Retirement condition (Pillar 8, second half): this bound retires
+# TOGETHER WITH STATUS_LINE_MAX_CHARS, when the State:/Running:/Blocked:
+# slot vocabulary is replaced by a structured field the harness renders
+# (a JSON/YAML status block rather than labelled prose lines). At that
+# point both the count and the length axis become properties of a schema
+# rather than shape checks over free text, and enforcing them here would
+# be duplicate machinery. It is NOT a permanent floor: it is a shape
+# check over a specific textual convention, and it retires with that
+# convention.
+SLOT_LINE_MAX_COUNT = 3
 
 # Kept as its own name (rather than inlining ITEM_FREE_LINES everywhere) so
 # external references to the per-item cap keep a stable, descriptive name.
@@ -657,7 +769,12 @@ _TABLE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 # flagged), matching the Known-uncovered-shapes table's explicit "an
 # INVENTED label ... FAILS CLOSED" disclosure - this is a fixed-set shape
 # test, never a content-legitimacy test.
-_STATUS_SLOT_LINE_RE = re.compile(r"^\s*(?:state|running|blocked)\s*:\s*\S", re.IGNORECASE)
+#
+# DS-ANSWERFIRST: group 1 captures the matched label so the general branch
+# can enforce SLOT_LINE_MAX_COUNT's duplicate-label half. The group was
+# non-capturing before; every other call site tests truthiness only, so
+# capturing it is behaviour-neutral for them.
+_STATUS_SLOT_LINE_RE = re.compile(r"^\s*(state|running|blocked)\s*:\s*\S", re.IGNORECASE)
 
 # Terminal-completion signal, ANYWHERE in the domain (identity line + body).
 # "[phase: complete]" or an unambiguous terminal-completion phrase.
@@ -1033,6 +1150,58 @@ def _segment(text: str) -> tuple:
         i += 2
 
     return identity_line, [(ln, idx2 in matched) for idx2, ln in enumerate(body_lines)]
+
+
+def _all_unfenced_lines(text: str) -> list:
+    """Every UNFENCED line of the whole message, line 1 INCLUDED.
+
+    Differs from `_body_after_identity_line` in exactly one way, and it is
+    the point: that helper drops the first non-blank line because on an
+    EXECUTION turn line 1 is the identity line. An ANSWER turn has no
+    identity line (see content/references/conductor-turn-format.md
+    §Answer turns: "no identity line, no status slots, no line cap"), so
+    dropping line 1 there deletes real answer content.
+
+    Sole consumer: `_status_only_flag`'s prose-recall suppressor, which
+    runs on the zero-warrant leaf where the turn could be either shape and
+    nothing may assume which. Deliberately NOT used by
+    `_execution_prose_flag` - that function only ever runs on turns with an
+    execution warrant, where line 1 IS the identity line and is separately
+    length-checked; feeding it line 1 twice would double-count it.
+
+    Fence handling reuses `_segment` rather than re-deriving it, keeping
+    the single-parser discipline this module holds elsewhere (two
+    independent fence parsers drifting apart is what produced the DS-151
+    CF-2 convergence failure). `_segment` returns the identity line
+    separately and never marks it fenced, which is correct: a ``` on line 1
+    opens a fence, it is not itself inside one.
+    """
+    identity_line, body = _segment(text)
+    return [identity_line] + [ln for ln, is_fenced in body if not is_fenced]
+
+
+def _transcript_readable(transcript_path: str) -> bool:
+    """True iff `transcript_path` names a file this process can open.
+
+    Exists to separate two outcomes `_has_intervening_assistant_turn`
+    deliberately collapses into its single `True` return: "the transcript
+    says this turn follows a tool result or an earlier completed turn"
+    (a real signal) and "the transcript could not be read at all" (no
+    signal). `_status_only_flag` must fail OPEN on the second and only act
+    on the first, so it tests readability separately first.
+
+    Reads one byte rather than calling `os.path.exists`: existence is not
+    readability (a permissions failure, a dangling symlink, or a directory
+    at that path all pass an exists() check and then raise at open time).
+    """
+    if not transcript_path:
+        return False
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            f.read(1)
+        return True
+    except Exception:
+        return False
 
 
 def _regions(body: list) -> tuple:
@@ -1522,6 +1691,7 @@ def _execution_prose_flag(text: str, warrants: dict):
     status_lines, _decisions_lines, _heading_present = _regions(body)
     blocks = []
     current_block = []
+    slot_labels = []
     for line, is_fenced in status_lines:
         if is_fenced:
             if current_block:
@@ -1548,12 +1718,14 @@ def _execution_prose_flag(text: str, warrants: dict):
                 current_block = []
             continue
         stripped = line.strip()
-        if _STATUS_SLOT_LINE_RE.match(line):
+        slot_match = _STATUS_SLOT_LINE_RE.match(line)
+        if slot_match:
             if len(stripped) > STATUS_LINE_MAX_CHARS:
                 return (
                     "execution turn: status slot line is {} characters, "
                     "over the {}-character limit"
                 ).format(len(stripped), STATUS_LINE_MAX_CHARS), True
+            slot_labels.append(slot_match.group(1).lower())
             if current_block:
                 blocks.append(current_block)
                 current_block = []
@@ -1584,6 +1756,28 @@ def _execution_prose_flag(text: str, warrants: dict):
     if current_block:
         blocks.append(current_block)
 
+    # DS-ANSWERFIRST: SLOT_LINE_MAX_COUNT, the general branch's count axis.
+    # Runs BEFORE the `if not blocks` early return, because a turn made
+    # entirely of recognized slot lines produces no blocks at all - that is
+    # exactly the shape this bound exists to catch, and returning None first
+    # would make it unreachable. BLOCKING with no downgrade path: both
+    # violations are pure counts over an already-recognized fixed label set,
+    # with no prose content to be answer-shaped.
+    if len(slot_labels) > SLOT_LINE_MAX_COUNT:
+        return (
+            "execution turn: {} status slot lines in the status region, "
+            "over the {}-line limit"
+        ).format(len(slot_labels), SLOT_LINE_MAX_COUNT), True
+    duplicate_labels = sorted(
+        {label for label in slot_labels if slot_labels.count(label) > 1}
+    )
+    if duplicate_labels:
+        return (
+            "execution turn: status slot label(s) {} appear on more than "
+            "one line - each of State:/Running:/Blocked: is one line, "
+            "omitted when empty"
+        ).format(", ".join(duplicate_labels)), True
+
     if not blocks:
         return None
 
@@ -1600,6 +1794,210 @@ def _execution_prose_flag(text: str, warrants: dict):
                 "reads as answer-shaped prose, not narrative creep"
             ), False
     return finding, True
+
+
+def _status_only_flag(text: str, transcript_path: str):
+    """Return (finding string, is_blocking bool), or None (silent allow).
+
+    Restored and BLOCKING (DS-ANSWERFIRST). DS-171 deleted this check on
+    two premises: that its ADVISORY posture was the defect, and that the
+    always-injected `dinostack` Claude Code output style was a live
+    substitute for it. The first premise held; the second did not -
+    `.claude/install.sh` installs that output style but never writes
+    `outputStyle` to `~/.claude/settings.json`, so an unselected style
+    carries nothing on any harness. The rule ran NOWHERE between DS-171
+    and this restoration. The always-loaded carrier is now the kernel
+    paragraph in `content/sections/02-delegation.md` (all six harnesses);
+    this check is the structural residual of it, mechanized here.
+
+    Implements content/references/conductor-turn-format.md's Rule B (§2)
+    for the zero-warrant leaf: a turn carrying none of the four warrants
+    should not have been written at all - the canonical shape is §Worked
+    non-example - the silent continue.
+
+    Returns None unless ALL THREE hold. Both suppressors are STRUCTURAL,
+    not phrase lists - nothing here matches a curated preamble
+    vocabulary, which is the Pillar 8 smell that keeps answer relevance,
+    self-narrating candor, editorial addenda, and announced follow-on
+    work deliberately unmechanized:
+
+      1. Zero warrants. `main()`'s branch 2c is by construction the
+         zero-warrant leaf, so the call site already guarantees this; it
+         is re-derived here anyway so the function is honest when called
+         standalone. The re-derivation passes NO answer bonus, which
+         makes it strictly WEAKER than the call site's classification,
+         not stronger: `answer_bonus` can only ever turn the `answer`
+         warrant ON, so omitting it can only REMOVE that warrant, never
+         add one. (An earlier version of this paragraph claimed the
+         reverse - "can only ADD warrants, never remove one" - which is
+         backwards.) The direction that matters is what a DISAGREEMENT
+         does, and it is safe either way: on branch 2c every warrant is
+         already False, so a weaker re-derivation cannot turn any of them
+         True; and if this function is ever called from somewhere else on
+         a turn that DID hold only the bonus-granted answer warrant, the
+         re-derivation drops that warrant and the turn proceeds to
+         suppressor 2 - which is a reply to an operator message, so
+         suppressor 2 allows it. The guard is therefore not load-bearing
+         for correctness on the live path; it is a standalone-honesty
+         assertion.
+      2. This turn is NOT the first assistant turn following a
+         genuine operator message - i.e.
+         `_has_intervening_assistant_turn(transcript_path, text)` is
+         True, meaning a genuinely separate, earlier COMPLETED assistant
+         turn sits between the operator's most recent real message and
+         now. The turn therefore follows a tool result, a background
+         task-notification, or the conductor's own prior turn: it is
+         UNPROMPTED, which is what this rule is actually about.
+
+         This replaced a `_looks_like_question` test, which asked the
+         wrong question and produced two measured false positives:
+           - An operator request is routinely IMPERATIVE, not
+             interrogative - "summarize what you found.", "give me your
+             read." A terse prose reply to either carries no `?`
+             anywhere, so the predicate scored it unprompted and blocked
+             a real answer.
+           - `_looks_like_question` only credits a mid-text `?` in
+             messages under `_SHORT_QUESTION_TEXT_MAX_CHARS` (300). The
+             identical answer allowed at a 299-character operator message
+             blocked at 301. Long operator messages carrying an embedded
+             question are ordinary.
+         Both were fixed by changing the PREDICATE rather than widening
+         the heuristic. Grammatical mood and message length are
+         properties of how the operator happened to phrase things;
+         neither bears on whether the conductor was replying. Position in
+         the conversation does, and it is structural: a zero-warrant turn
+         that directly follows a genuine operator message is a reply to
+         that operator whatever its mood, length, or vocabulary. Widening
+         the question heuristic instead would have grown a phrase list one
+         entry per reported shape - the exact Pillar 8 smell this check
+         is otherwise careful to avoid.
+
+         `_has_intervening_assistant_turn` is reused, not reimplemented:
+         it is the same corpus-measured scanner
+         `_transcript_answer_bonus` already uses (message.id-scoped
+         tool_use attribution, five rounds of measured fixes), and
+         `loop_guard.is_genuine_user_turn` is what makes the operator
+         boundary trustworthy - it excludes `tool_result` lines (which
+         Claude Code records as `type:"user"`), `isMeta` lines, and
+         harness-injected background task-notifications, each of which
+         would otherwise fake an operator message.
+
+         Readability is tested SEPARATELY and FIRST, via
+         `_transcript_readable`, because `_has_intervening_assistant_turn`
+         collapses "no operator boundary found" and "could not read the
+         file" into the same `True`. Only the former is a signal; the
+         latter is fail-open.
+      3. The message is not itself answer-shaped prose - the same
+         `_is_answer_shaped_prose` average-words-per-unit discriminator
+         plus `_ANSWER_PROSE_MIN_SENTENCES` unit floor that
+         `_execution_prose_flag` applies at every one of its own call
+         sites, here applied to the WHOLE unfenced message as a single
+         block - the identity line INCLUDED, since an Answer turn has no
+         identity line and `_segment` would otherwise eat its first
+         sentence (see the call site's own comment for the measured
+         false positive that forced this). The unit floor is
+         load-bearing, not decorative: the §Worked non-example
+         silent-continue turn's `State:` line is 8 words, which clears
+         the average axis on its own. Requiring two units, and counting
+         the terse identity line as the second, is what keeps that
+         canonical shape blocking at ~6.5 words/unit.
+
+    Fail-open, matching every other transcript-derived signal in this
+    file: any exception, or an unavailable `_LOOP_GUARD`, returns None.
+    A signal this check cannot compute must never manufacture a block.
+
+    The finding is always BLOCKING. Advisory enforcement of exactly this
+    rule shipped and was measured not to change conductor behavior
+    (DS-171's own measurement: 985 advisory fires, no behavior change) -
+    the correct reading of that measurement is that the posture was
+    wrong, not that the check was.
+
+    Named catch (docs/overview/vision.md Pillar 8, first half): the
+    canonical status ping in
+    content/references/conductor-turn-format.md's "Worked non-example -
+    the silent continue" - "State: engineer returned unit 2, spawning
+    skeptic now" - which passed every check in this hook between DS-171
+    and DS-ANSWERFIRST. `turn_0001_dinostack.txt` in
+    hooks/tests/fixtures/turn-shape-real-corpus-sample.json is the same
+    shape caught in a real transcript.
+
+    Retirement condition (Pillar 8, second half): this check retires when
+    `.agentic/.enforcement-fires.jsonl` records ZERO blocks attributed to
+    `_status_only_flag` across 60 consecutive days of active conductor
+    sessions - i.e. the conductor has stopped emitting unprompted
+    status-only turns and the mechanism has nothing left to catch. That is
+    a measured condition, not an assumed one, and it is the same standard
+    Pillar 8 requires before deleting any non-floor mechanism; a zero-fire
+    reading over a period with no active sessions does not satisfy it. If
+    the count is nonzero the check stays, however small the count is.
+    """
+    try:
+        if any(_classify_warrants(text).values()):
+            return None
+        if _LOOP_GUARD is None:
+            return None
+        if not _transcript_readable(transcript_path):
+            # Fail-open: the turn's position in the conversation is the
+            # whole basis of suppressor 1, and an unreadable or absent
+            # transcript makes it unknowable. Unknown is never "unprompted".
+            # The live Stop payload always carries a readable
+            # transcript_path, so in production this is a real read
+            # failure, not a normal turn.
+            return None
+        if not _has_intervening_assistant_turn(transcript_path, text):
+            # SUPPRESSOR 1 - the reply-to-operator predicate. False here
+            # means no genuinely separate, earlier COMPLETED assistant turn
+            # sits between the most recent genuine operator message and
+            # now: this turn IS the first assistant turn after that
+            # message, so it is structurally a reply to the operator.
+            # Allow unconditionally.
+            return None
+        # Recall domain: the WHOLE message (line 1 included) minus every
+        # line that is recognized STATUS VOCABULARY - a State:/Running:/
+        # Blocked: slot line, a Waiting: line, a markdown heading, or a
+        # table row. Two independent defects forced this shape, and each
+        # rules out one of the two simpler alternatives:
+        #   - Body-only (`_body_after_identity_line`) silently deletes line
+        #     1. That is correct on an execution turn, where line 1 is the
+        #     identity line, and WRONG on an Answer turn, which has no
+        #     identity line - it deletes real answer content and shrinks a
+        #     terse reply below the unit floor.
+        #   - Whole-message-including-slot-lines lets a status ping launder
+        #     through: one 13-word `State:` line beside a short identity
+        #     line averages over the threshold and clears the floor at two
+        #     units, so the canonical thing this check exists to catch
+        #     would pass.
+        # Excluding status vocabulary resolves both without asking whether
+        # line 1 "looks like" an identity line. That question is exactly
+        # the identity-line shape predicate DS-155 deleted after two
+        # successive versions were falsified, and it is not reintroduced
+        # here: this is a fixed-label whitelist over line CONTENT, the same
+        # `_STATUS_SLOT_LINE_RE`/`_WAITING_LINE_RE` vocabulary
+        # `_execution_prose_flag` already uses, never a test of a line's
+        # POSITION or of whether it is "the identity line".
+        recall_lines = [
+            ln
+            for ln in _all_unfenced_lines(text)
+            if ln.strip()
+            and not _STATUS_SLOT_LINE_RE.match(ln)
+            and not _WAITING_LINE_RE.match(ln)
+            and not _MARKDOWN_HEADING_RE.match(ln)
+            and not _TABLE_ROW_RE.match(ln)
+        ]
+        if (
+            _is_answer_shaped_prose(recall_lines)
+            and len(_answer_prose_units(recall_lines)) >= _ANSWER_PROSE_MIN_SENTENCES
+        ):
+            return None
+        return (
+            "zero-warrant turn: none of the four warrants (decision, "
+            "stoppage, completion, answer) is present - per Rule B this "
+            "turn should not have been written at all; say nothing and "
+            "keep working until a warrant fires",
+            True,
+        )
+    except Exception:
+        return None
 
 
 def _decision_item_sprawl_flag(text: str):
@@ -2268,11 +2666,21 @@ def main() -> None:
                 else:
                     advisory_findings.append(finding_text)
         else:
-            # 2c. Zero-warrant turn: status-only flag RETIRED (DS-171) -
-            # no hook check runs here any more; the status-only rule is
-            # now carried by the `dinostack` output style. See the module
-            # docstring's Purpose section.
-            pass
+            # 2c. Zero-warrant turn: status-only check, RESTORED and
+            # BLOCKING (DS-ANSWERFIRST). DS-171 retired it on a premise
+            # that failed - see _status_only_flag's own docstring. Same
+            # (finding, is_blocking) return shape as branch 2b so the
+            # emission plumbing below is shared, and the documented
+            # three-way split (§9's classification-order bullet) is now
+            # two live branches plus one deliberate no-op rather than
+            # one live branch plus two.
+            status_only_finding = _status_only_flag(msg_text, transcript_path)
+            if status_only_finding is not None:
+                finding_text, finding_is_blocking = status_only_finding
+                if finding_is_blocking:
+                    block_finding = finding_text
+                else:
+                    advisory_findings.append(finding_text)
 
         # 3. Operator-decisions per-item sprawl check (DS-151, ADVISORY).
         # The turn-charge volume check that used to run alongside this

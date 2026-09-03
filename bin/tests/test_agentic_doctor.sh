@@ -2782,6 +2782,145 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 23: check_output_style_selection (DS-ANSWERFIRST). Mirrors T20's
+# structure (own isolated HOME/FAKE_REPO, own invoke helper) but tests the
+# OTHER axis: T20 asks whether the installed style is CURRENT, this asks
+# whether it is SELECTED. Numbered 23 rather than the 21 the plan named,
+# because 21 (foreign PreToolUse hooks, DS-198) and 22
+# (MANAGED_HOOK_BASENAMES) are both already taken.
+#
+# 23d is the load-bearing one: ds-doctor must NEVER write settings.json,
+# in --fix or any other mode. It is asserted by sha256 byte-identity across
+# a --fix run, not by re-reading the outputStyle key, so a --fix that
+# reformatted the file or touched an unrelated operator key would fail here
+# too.
+# ---------------------------------------------------------------------------
+T23_HOME="$(mktemp -d)"
+T23_REPO="$T23_HOME/fake-DinoStack"
+mkdir -p "$T23_REPO/.git" "$T23_REPO/.claude/skills/dinostack/output-styles"
+echo "built style v1" > "$T23_REPO/.claude/skills/dinostack/output-styles/dinostack.md"
+
+mkdir -p "$T23_HOME/.agentic"
+cat > "$T23_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$T23_REPO"
+}
+EOF
+
+t23_invoke() {
+  # unset CLAUDE_CONFIG_DIR: same leak invoke_doctor()/t20_invoke() guard
+  # against (DS-198 round 3, Skeptic Major 2).
+  (
+    HOME="$T23_HOME"
+    export HOME
+    unset CLAUDE_CONFIG_DIR
+    python3 "$DOCTOR" "$@"
+  ) > "$T23_HOME/.out" 2>&1
+  echo $? > "$T23_HOME/.exit"
+}
+
+t23_sha() {
+  shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# 23a: style NOT installed -> SKIP, never WARN (nothing to select).
+t23_invoke
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style_selected:.*nothing to select"; then
+  _pass "T23a output_style_selected: style not installed -> SKIP"
+else
+  _fail "T23a output_style_selected: not-installed should be SKIP\n$OUT"
+fi
+
+# 23b: style installed, settings.json present but outputStyle ABSENT -> WARN.
+mkdir -p "$T23_HOME/.claude/output-styles"
+echo "built style v1" > "$T23_HOME/.claude/output-styles/dinostack.md"
+cat > "$T23_HOME/.claude/settings.json" <<'EOF'
+{
+  "env": {"SOME_UNRELATED_OPERATOR_KEY": "keep-me"}
+}
+EOF
+t23_invoke
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^WARN output_style_selected:.*installed but"; then
+  _pass "T23b output_style_selected: installed + outputStyle absent -> WARN"
+else
+  _fail "T23b output_style_selected: absent outputStyle should be WARN\n$OUT"
+fi
+
+# 23c: the WARN must name the operator action, not just the state - a
+# finding the operator cannot act on is the thing this whole ticket is
+# about. Also asserts it does NOT claim ds-doctor will fix it.
+if echo "$OUT" | grep -q "/config" && echo "$OUT" | grep -q "will not write settings.json"; then
+  _pass "T23c output_style_selected: WARN names the /config action and disclaims writing settings.json"
+else
+  _fail "T23c output_style_selected: WARN must name /config and disclaim the write\n$OUT"
+fi
+
+# 23d: NON-NEGOTIABLE - --fix must leave settings.json byte-identical.
+# sha256 before/after, not a key re-read: a --fix that rewrote the file in
+# any way at all must fail here.
+T23_SHA_BEFORE="$(t23_sha "$T23_HOME/.claude/settings.json")"
+t23_invoke --fix
+T23_SHA_AFTER="$(t23_sha "$T23_HOME/.claude/settings.json")"
+if [[ -n "$T23_SHA_BEFORE" && "$T23_SHA_BEFORE" == "$T23_SHA_AFTER" ]]; then
+  _pass "T23d output_style_selected: --fix left ~/.claude/settings.json byte-identical (sha256)"
+else
+  _fail "T23d output_style_selected: --fix MUTATED settings.json - this is the non-negotiable constraint\nbefore=$T23_SHA_BEFORE after=$T23_SHA_AFTER"
+fi
+
+# 23d2: --fix must also leave the finding standing, not silently resolve it.
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^WARN output_style_selected:"; then
+  _pass "T23d2 output_style_selected: --fix leaves the WARN standing (no silent resolve)"
+else
+  _fail "T23d2 output_style_selected: --fix must not resolve this finding\n$OUT"
+fi
+
+# 23e: outputStyle correctly selected -> OK.
+cat > "$T23_HOME/.claude/settings.json" <<'EOF'
+{
+  "outputStyle": "dinostack"
+}
+EOF
+t23_invoke
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^OK output_style_selected:.*selects the dinostack output style"; then
+  _pass "T23e output_style_selected: outputStyle=dinostack -> OK"
+else
+  _fail "T23e output_style_selected: selected style should be OK\n$OUT"
+fi
+
+# 23f: a DIFFERENT style selected is not the same state as an absent key,
+# and must still WARN rather than pass. Without this, 23b would pass
+# against a mutation that only checked for key presence.
+cat > "$T23_HOME/.claude/settings.json" <<'EOF'
+{
+  "outputStyle": "Explanatory"
+}
+EOF
+t23_invoke
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^WARN output_style_selected:.*'Explanatory'"; then
+  _pass "T23f output_style_selected: a different style selected -> WARN naming it"
+else
+  _fail "T23f output_style_selected: non-dinostack style should WARN and name the actual value\n$OUT"
+fi
+
+# 23g: unparseable settings.json -> SKIP, never WARN (undeterminable, and a
+# WARN here would fire on a machine that may well be configured correctly).
+echo '{ this is not json' > "$T23_HOME/.claude/settings.json"
+t23_invoke
+OUT=$(cat "$T23_HOME/.out")
+if echo "$OUT" | grep -q "^SKIP output_style_selected:.*unreadable/unparseable"; then
+  _pass "T23g output_style_selected: unparseable settings.json -> SKIP"
+else
+  _fail "T23g output_style_selected: unparseable settings.json should be SKIP\n$OUT"
+fi
+
+rm -rf "$T23_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
