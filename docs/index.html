@@ -1513,7 +1513,7 @@
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
-      The brief must be passed verbatim - never softened. Sign-off requires 7 elements: Reviewed, Findings, Active search attestation, Manifest check, Test-CI-wiring check, Neutrality check, and explicit sign-off statement.
+      The brief must be passed verbatim - never softened. Sign-off requires the same 7 elements, emitted verdict-first: the explicit sign-off statement, Findings, Reviewed, Active search attestation, Manifest check, Test-CI-wiring check, Neutrality check.
     </div>
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>Regression Test Obligation:</strong> Every Critical or Major finding that gets fixed without a regression test is a latent regression. The Worker adds a test that would have caught the failure; the Skeptic verifies it exists before sign-off. The test lives in the project's normal test suite, alongside existing tests for the affected module, so the same bug cannot silently reappear in a future change.

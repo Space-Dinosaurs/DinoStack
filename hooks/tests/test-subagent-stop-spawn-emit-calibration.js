@@ -221,36 +221,36 @@ function hookSpawnStart(sessionId, spawnId, agent, toolUseId, tsOverride) {
 }
 
 const GRANTED_SIGNOFF = [
-  'Reviewed: hooks/subagent-stop-spawn-emit.js',
+  'No unresolved Critical or Major findings. Sign-off granted.',
   'Findings: Critical: 0, Major: 0, Minor: 1',
   '- Minor - a style nit (file.js:10)',
+  'Reviewed: hooks/subagent-stop-spawn-emit.js',
   'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
   'Manifest check: pass',
   'Test-CI-wiring check: n/a - no new test files in diff',
   'Neutrality check: pass',
-  'No unresolved Critical or Major findings. Sign-off granted.',
 ].join('\n');
 
 const WITHHELD_SIGNOFF = [
-  'Reviewed: hooks/subagent-stop-spawn-emit.js',
+  'Sign-off withheld. The following must be resolved:',
+  '- Critical: a real bug (file.js:20)',
   'Findings: Critical: 1, Major: 0, Minor: 0',
   '- Critical - a real bug (file.js:20)',
+  'Reviewed: hooks/subagent-stop-spawn-emit.js',
   'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
   'Manifest check: pass',
   'Test-CI-wiring check: n/a - no new test files in diff',
   'Neutrality check: pass',
-  'Sign-off withheld. The following must be resolved:',
-  '- Critical: a real bug (file.js:20)',
 ].join('\n');
 
 const NO_FINDINGS_SIGNOFF = [
-  'Reviewed: hooks/subagent-stop-spawn-emit.js',
+  'No unresolved Critical or Major findings. Sign-off granted.',
   'Findings: No findings.',
+  'Reviewed: hooks/subagent-stop-spawn-emit.js',
   'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
   'Manifest check: pass',
   'Test-CI-wiring check: n/a - no new test files in diff',
   'Neutrality check: pass',
-  'No unresolved Critical or Major findings. Sign-off granted.',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -389,8 +389,8 @@ console.log('\nTest 7: no-verdict-yields-calibration-note');
     agentType: 'skeptic', toolUseId: 'toolu_cal_007', description: 'x', spawnDepth: 1,
   });
   const noVerdictText = [
-    'Reviewed: hooks/foo.js',
     'Findings: Critical: 0, Major: 0, Minor: 0',
+    'Reviewed: hooks/foo.js',
     'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
     // No "Sign-off granted." / "Sign-off withheld." literal anywhere.
   ].join('\n');
@@ -423,14 +423,14 @@ console.log('\nTest 8: multi-findings-tie-break');
     'Findings: Critical: N, Major: N, Minor: N',
     '(fill in the actual counts below)',
     '',
-    'Reviewed: hooks/foo.js',
+    'No unresolved Critical or Major findings. Sign-off granted.',
     'Findings: Critical: 0, Major: 1, Minor: 2',
     '- Major - a real finding (file.js:5)',
+    'Reviewed: hooks/foo.js',
     'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
     'Manifest check: pass',
     'Test-CI-wiring check: n/a - no new test files in diff',
     'Neutrality check: pass',
-    'No unresolved Critical or Major findings. Sign-off granted.',
   ].join('\n');
   writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(multiFindingsText)]);
   const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
@@ -967,13 +967,14 @@ console.log('\nTest 22: m1-no-agent-note-when-attribution-agrees');
   cleanup(cwd); cleanup(configDir);
 }
 
-console.log('\nTest 23: m5-signoff-tie-break-uses-last-literal-not-withheld-always-wins');
+console.log('\nTest 23: signoff-tie-break-ignores-non-line-anchored-decoy-literals');
 {
   // Both verdict literals appear in the last assistant message (e.g. the
   // Skeptic quoted skeptic.md's own sign-off-format section, which
-  // contains both templates), with "Sign-off granted." appearing AFTER
-  // "Sign-off withheld." - the real verdict is the LAST one, not
-  // "withheld always wins whenever both are present."
+  // contains both templates). Neither decoy is line-anchored at its own
+  // line start - one is introduced by narrative prose, the other is
+  // wrapped in quotes - so both are ignored and the verdict is the
+  // line-anchored "granted" line that opens the real sign-off block.
   const cwd = makeTmpDir('ae-calib-test-');
   const configDir = makeTmpDir('ae-calib-config-');
   const sessionId = 'sess-cal-023';
@@ -985,13 +986,13 @@ console.log('\nTest 23: m5-signoff-tie-break-uses-last-literal-not-withheld-alwa
     'Recall the sign-off format: "Sign-off withheld. The following must be resolved:" or',
     '"No unresolved Critical or Major findings. Sign-off granted."',
     '',
-    'Reviewed: hooks/foo.js',
+    'No unresolved Critical or Major findings. Sign-off granted.',
     'Findings: Critical: 0, Major: 0, Minor: 0',
+    'Reviewed: hooks/foo.js',
     'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
     'Manifest check: pass',
     'Test-CI-wiring check: n/a - no new test files in diff',
     'Neutrality check: pass',
-    'No unresolved Critical or Major findings. Sign-off granted.',
   ].join('\n');
   writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(bothLiteralsText)]);
   const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
@@ -1000,7 +1001,453 @@ console.log('\nTest 23: m5-signoff-tie-break-uses-last-literal-not-withheld-alwa
   assert(!!complete, 'spawn_complete emitted');
   if (complete) {
     assert((complete.data || {}).signed_off === true,
-      `signed_off === true - the LAST literal in the message is "granted" (got: ${(complete.data || {}).signed_off})`);
+      `signed_off === true - the only line-anchored literal is "granted" (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23b: verdict-first-granted-not-inverted-by-later-quoted-withheld');
+{
+  // Verdict-first regression guard. Under the verdict-first sign-off
+  // template the granted verdict opens the block, and a findings
+  // description further down may legitimately quote the withheld literal
+  // (exactly what a Skeptic reviewing skeptic.md itself would write).
+  // The superseded "last literal wins" rule scored this signed_off:false
+  // - it saw the quoted "Sign-off withheld." as the later, and therefore
+  // authoritative, verdict - inverting a real sign-off into a withhold.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023b';
+  const agentId = 'agentcal023b';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023b', description: 'x', spawnDepth: 1,
+  });
+  const verdictFirstText = [
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the doc still spells the withhold verdict "Sign-off withheld." here (skeptic.md:150)',
+    'Reviewed: content/agents/skeptic.md',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(verdictFirstText)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - the line-anchored granted verdict opens the block; the later "Sign-off withheld." is quoted mid-line inside a finding (got: ${(complete.data || {}).signed_off})`);
+    const fc = (complete.data || {}).findings_count || {};
+    assert(fc.critical === 0 && fc.major === 0 && fc.minor === 1,
+      `findings_count parsed from the verdict-first block (got: ${JSON.stringify(fc)})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23c: withheld-not-inverted-by-fenced-granted-template-above');
+{
+  // MAJOR-1 mirror of 23b. A Skeptic reviewing skeptic.md fences the
+  // granted template ABOVE its own withheld verdict. A first-line-anchored
+  // -literal-wins rule scored this signed_off:true - a BLOCKING review
+  // recorded as a pass. Two guards fire here: the fenced excerpt is
+  // skipped entirely, and withheld would win the ambiguous case anyway.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023c';
+  const agentId = 'agentcal023c';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023c', description: 'x', spawnDepth: 1,
+  });
+  const fencedGrantedAboveWithheld = [
+    'The template under review reads:',
+    '```',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: N, Major: N, Minor: N',
+    '```',
+    'That is wrong for the reason below.',
+    '',
+    'Sign-off withheld. The following must be resolved:',
+    '- Major: the ordering claim is false (skeptic.md:130)',
+    'Findings: Critical: 0, Major: 1, Minor: 0',
+    '- Major - the ordering claim is false (skeptic.md:130)',
+    'Reviewed: content/agents/skeptic.md',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(fencedGrantedAboveWithheld)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === false,
+      `signed_off === false - a blocking review must never record as a pass because a fenced granted template sits above it (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23d: verdict-last-rollout-shape-withheld-scored-correctly');
+{
+  // MAJOR-1, second reachable shape: a VERDICT-LAST block (the superseded
+  // template, still emitted by any agent whose adapter/skill copy has not
+  // been re-installed) that quotes the granted line UNFENCED above its own
+  // withheld verdict. This is the original m5 case; a first-wins rule
+  // inverted it to signed_off:true. Order-free + withheld-wins scores it
+  // correctly without knowing which template shape produced it.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023d';
+  const agentId = 'agentcal023d';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023d', description: 'x', spawnDepth: 1,
+  });
+  const verdictLastText = [
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    '',
+    'is the line I would have written, but:',
+    '',
+    'Reviewed: hooks/foo.js',
+    'Findings: Critical: 1, Major: 0, Minor: 0',
+    '- Critical - a real bug (foo.js:20)',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    'Sign-off withheld. The following must be resolved:',
+    '- Critical: a real bug (foo.js:20)',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(verdictLastText)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === false,
+      `signed_off === false - verdict-LAST output must still score correctly during the rollout window (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23e: bare-granted-verdict-line-matches-short-literal');
+{
+  // MAJOR-2: the granted regex once required the full two-sentence form
+  // ("No unresolved Critical or Major findings. Sign-off granted."), so a
+  // bare `Sign-off granted.` verdict line got NO line-anchored match and
+  // fell through to the substring fallback - where a line-anchored
+  // withheld literal below it scored the run withheld. Both sides now
+  // match the SHORT literal, symmetrically, as the module comment says.
+  // The blockquote prefix here also covers MINOR-4.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023e';
+  const agentId = 'agentcal023e';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023e', description: 'x', spawnDepth: 1,
+  });
+  const bareGrantedText = [
+    '> Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the withhold wording "Sign-off withheld." is quoted inline here (doc.md:9)',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(bareGrantedText)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - a bare, blockquoted "Sign-off granted." verdict line must match the short literal (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23f: fenced-real-granted-block-with-quoted-withheld-in-findings');
+{
+  // MAJOR (round 2). skeptic.md displays the sign-off template as a FENCED
+  // block, so agents routinely emit their own real block fenced. The
+  // round-2 parser treated "fenced" as "quoted" and skipped both verdict
+  // lines, returning null and falling through to the old lastIndexOf rule
+  // - which then scored this granted block withheld off the quoted
+  // literal in its findings. That is the round-1 bug, verbatim.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023f';
+  const agentId = 'agentcal023f';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023f', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    '```',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the stale doc still says "Sign-off withheld." there (a.md:12)',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    '```',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - a REAL sign-off block that happens to be fenced must resolve from tier 2, not fall through to the substring rule (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23g: fenced-real-withheld-block');
+{
+  // A fenced REAL withheld block must resolve withheld from tier 2.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023g';
+  const agentId = 'agentcal023g';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023g', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    '```',
+    'Sign-off withheld. The following must be resolved:',
+    '- Critical: a real bug (foo.js:20)',
+    'Findings: Critical: 1, Major: 0, Minor: 0',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    '```',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === false,
+      `signed_off === false - a fenced withheld block resolves from tier 2 (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23h: tilde-fence-tracked-same-as-backtick');
+{
+  // A ~~~ fence must toggle fence state exactly as ``` does.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023h';
+  const agentId = 'agentcal023h';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023h', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    '~~~',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the stale doc still says "Sign-off withheld." there (a.md:12)',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    '~~~',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - a ~~~-fenced real block resolves from tier 2 (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23i: language-tagged-fence-tracked');
+{
+  // A language tag after the fence marker must not defeat fence tracking.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023i';
+  const agentId = 'agentcal023i';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023i', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    '```text',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the stale doc still says "Sign-off withheld." there (a.md:12)',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    '```',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - a language-tagged fence still toggles fence state (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23j: unclosed-fence-at-eof-still-resolves');
+{
+  // An unclosed fence at EOF leaves every subsequent line bucketed as
+  // fenced. Tier 2 must still resolve it rather than returning null.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023j';
+  const agentId = 'agentcal023j';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023j', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    'Here is my sign-off:',
+    '```',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the stale doc still says "Sign-off withheld." there (a.md:12)',
+    'Reviewed: hooks/foo.js',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - an unclosed fence at EOF still resolves from tier 2 (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23k: fence-opener-inside-list-item-tracked');
+{
+  // The fence regex must admit the same list/number/heading prefixes the
+  // verdict regex does. The quoted excerpt here is WITHHELD and the
+  // agent's own verdict is GRANTED, which is what makes the fixture
+  // discriminating: if the bullet-prefixed fence opener is untracked, the
+  // quoted withheld literal lands in tier 1 alongside the real granted
+  // verdict, withheld-wins fires, and a clean review is recorded as
+  // blocking. Note the inverse arrangement (quoted granted + real
+  // withheld) canNOT discriminate - both literals land in the same tier
+  // either way and withheld-wins masks the difference.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023k';
+  const agentId = 'agentcal023k';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023k', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    'Notes:',
+    '- Example of the withheld form the doc still shows:',
+    '- ```',
+    '  Sign-off withheld. The following must be resolved:',
+    '- ```',
+    'That example is stale, but nothing blocks.',
+    '',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    'Findings: Critical: 0, Major: 0, Minor: 1',
+    '- Minor - the withheld example above is stale (a.md:3)',
+    'Reviewed: a.md',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === true,
+      `signed_off === true - a fence opened inside a list item is tracked, so the quoted withheld excerpt stays in tier 2 and the real granted verdict wins tier 1 (got: ${(complete.data || {}).signed_off})`);
+  }
+  cleanup(cwd); cleanup(configDir);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 23l: inline-code-span-does-not-toggle-fence-state');
+{
+  // MINOR 2. The marker prefix admits bullets/numbers/headings, so without
+  // an end-of-line anchor a span that OPENS AND CLOSES on one line
+  // ("- ```inline``` code") toggles fence state, and an odd number of such
+  // lines mis-buckets everything after. Here the mis-bucketing is directly
+  // observable: if that line toggles the fence ON, the agent's own
+  // withheld verdict is bucketed as fenced and the later real fence
+  // toggles OFF, leaving the QUOTED granted line unfenced - so tier 1
+  // resolves granted and a blocking review is recorded as a pass.
+  const cwd = makeTmpDir('ae-calib-test-');
+  const configDir = makeTmpDir('ae-calib-config-');
+  const sessionId = 'sess-cal-023l';
+  const agentId = 'agentcal023l';
+  writeSidecar(configDir, cwd, sessionId, agentId, {
+    agentType: 'skeptic', toolUseId: 'toolu_cal_023l', description: 'x', spawnDepth: 1,
+  });
+  const text = [
+    'Notes:',
+    '- ```inline``` code appears in the diff (a.md:4)',
+    '',
+    'Sign-off withheld. The following must be resolved:',
+    '- Major: the inline span is mishandled (a.md:4)',
+    'Findings: Critical: 0, Major: 1, Minor: 0',
+    'Reviewed: a.md',
+    'Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.',
+    'Manifest check: pass',
+    'Test-CI-wiring check: n/a - no new test files in diff',
+    'Neutrality check: pass',
+    '',
+    'For reference the granted form is:',
+    '```',
+    'No unresolved Critical or Major findings. Sign-off granted.',
+    '```',
+  ].join('\n');
+  writeTranscript(configDir, cwd, sessionId, agentId, [assistantRecord(text)]);
+  const { status } = runHook(stopPayload(cwd, sessionId, agentId), cwd, configDir);
+  assert(status === 0, 'hook exits 0');
+  const complete = readEvents(cwd).find((e) => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).signed_off === false,
+      `signed_off === false - an inline code span must not toggle fence state (got: ${(complete.data || {}).signed_off})`);
   }
   cleanup(cwd); cleanup(configDir);
 }

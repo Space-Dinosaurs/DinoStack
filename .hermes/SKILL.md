@@ -7220,18 +7220,20 @@ Changes made:
 
 The structured sign-off format is required for every Skeptic response, whether findings exist or not:
 
+The verdict line comes FIRST (see `content/agents/skeptic.md` §Sign-off format, the canonical statement of this ordering and its rationale): it is the primary piece of information the block carries, and it is never placed behind the process attestations. The findings justifying it follow; `Reviewed:` and the four attestations form the audit tail.
+
 ```
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
+Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
-No unresolved Critical or Major findings. Sign-off granted.
 [Optional, only when applicable: Round value: low - <reason>]
 [Optional, only when applicable: Blocking-minor: <finding id/description> - <reason>]
 ```
@@ -7286,7 +7288,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type:
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are seven mandatory elements, always required on every Skeptic response regardless of review type. The `(a)`-`(l)` labels below are stable identifiers for cross-referencing, not an emission order - the emission order is the template above, verdict first:
 
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
@@ -14376,17 +14378,19 @@ The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks
 
 The conductor validates this format exactly. Use it verbatim - do not paraphrase the structural lines.
 
+The verdict line comes FIRST - it is the one piece of information every reader of this block needs, and it must never be buried behind the process attestations. The findings that justify it follow, then the audit tail (`Reviewed:` and the four attestations). Every line below is mandatory; the ordering is what changed, not the content.
+
 ```
-Reviewed: [files/components examined]
-  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
+No unresolved Critical or Major findings. Sign-off granted.
 Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
+Reviewed: [files/components examined]
+  (For PR reviews: Reviewed: <base-sha>..<head-sha> - [files/components examined])
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
 Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
 Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 Neutrality check: [pass | N steer(s) found (listed above)]
-No unresolved Critical or Major findings. Sign-off granted.
 ```
 
 **Prose-scoped re-check mode.** When the spawn prompt invokes the narrowed lever (see `content/references/skeptic-protocol.md` §Prose-scoped re-check), the sign-off requires one additional mandatory line, inserted directly after `Active search:`:
@@ -14397,7 +14401,7 @@ Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)
 
 In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
 
-If Critical or Major findings remain unresolved, replace the last line with:
+If Critical or Major findings remain unresolved, replace the first line (the granted verdict) with the withheld verdict and its resolution list, keeping both at the top of the block ahead of the findings list:
 
 ```
 Sign-off withheld. The following must be resolved:
@@ -14407,7 +14411,7 @@ Sign-off withheld. The following must be resolved:
 
 Every entry in the resolution list retains its `[CLASSIFICATION]:` prefix (colon form), including a finding referenced by name from Step 12's fabrication check - the "do not re-emit" instruction there bans a second `Critical -`/`Major -`/`Minor -`-prefixed (hyphen form) finding bullet duplicating the same fabrication earlier in the findings list, not the classification prefix on this resolution-list entry itself.
 
-**Two optional lines (round-cost signaling).** Add either or both, only when applicable, directly after the sign-off line (granted or withheld):
+**Two optional lines (round-cost signaling).** Add either or both, only when applicable, at the END of the block - after `Neutrality check:` - not adjacent to the verdict line. They are cost signals for the conductor, not part of the verdict the operator reads first:
 
 ```
 Round value: low - [one-line reason another round would buy little, e.g. "remaining findings are Minor-only style notes"]
@@ -21108,7 +21112,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted.`
+   Require the standard sign-off format: `No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:` (verdict first - see `content/agents/skeptic.md` §Sign-off format)
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 
@@ -22699,7 +22703,7 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
+A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines, emitted verdict-first - the sign-off phrase, Findings:, Reviewed:, Active search:, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -25150,7 +25154,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines, emitted verdict-first: the sign-off phrase, Findings:, Reviewed:, Active search:, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -25405,7 +25409,7 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output, independently re-ran every cited positive-match grep and falsity-proof check for deleted or merged entries, and for every SUPERSEDED_MERGE independently re-read the superseding prose and re-verified the fact-by-fact mapping."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format (verdict first): "No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:"
 
 3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 

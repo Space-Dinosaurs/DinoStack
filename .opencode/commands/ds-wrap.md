@@ -438,7 +438,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the seven always-required lines, emitted verdict-first: the sign-off phrase, Findings:, Reviewed:, Active search:, Manifest check:, Test-CI-wiring check:, Neutrality check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -693,7 +693,7 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output, independently re-ran every cited positive-match grep and falsity-proof check for deleted or merged entries, and for every SUPERSEDED_MERGE independently re-read the superseding prose and re-verified the fact-by-fact mapping."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format (verdict first): "No unresolved Critical or Major findings. Sign-off granted. ... Findings: ... Reviewed: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... Neutrality check:"
 
 3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the seven always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
