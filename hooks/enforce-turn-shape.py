@@ -431,8 +431,9 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171;
          itself can.
 
          A two-layer loop guard bounds how often this hook can re-invoke the
-         model - via a BLOCK (`_execution_prose_flag`, DS-156) or an
-         ADVISORY (the decision-sprawl check, or a DS-158-downgraded
+         model - via a BLOCK (`_execution_prose_flag`, DS-156, or
+         `_status_only_flag`, DS-ANSWERFIRST) or an ADVISORY (the
+         decision-sprawl check, or a DS-158-downgraded
          `_execution_prose_flag` finding) - mirroring the sibling
          enforce-no-abdication.py. On the
          Claude Code harness, a Stop hook's block (or `additionalContext`
@@ -453,7 +454,10 @@ Purpose: Claude Code Stop hook (DS-122; DS-156; DS-158; DS-159; DS-171;
          and resets on a clean turn and on a genuine new user message, so a
          flagged conductor gets at most CONSECUTIVE_BLOCK_CAP block/advisory
          emissions before this hook goes silent. ONE shared counter/cap
-         governs BOTH checks (DS-156) - there is no per-check loop bound.
+         governs ALL THREE checks (DS-156; DS-ANSWERFIRST restored
+         `_status_only_flag`, making it three rather than two) - the cap is
+         tested once in main() before any check dispatches, and there is no
+         per-check loop bound.
          The counter + user-message-counting machinery lives in the shared
          module hooks/lib/loop_guard.py, loaded lazily via
          _load_loop_guard(); when cwd is absent (synthetic payloads only -
@@ -538,8 +542,8 @@ Failure modes:
       abdication_guard_enabled: this hook's guard is `config.get(
       "turn_shape_guard_enabled") is not False` - i.e. default ON when the
       key or the whole config file is absent. This is intentional, not an
-      oversight to "fix" into matching the sibling: it governs BOTH checks
-      together (there is no separate toggle per check), and the operator
+      oversight to "fix" into matching the sibling: it governs ALL THREE
+      checks together (there is no separate toggle per check), and the operator
       decision (DS-156) retains this default-on posture even though
       `_execution_prose_flag` can now block, rather than introducing a
       second opt-in gate for the same hook. A missing or unreadable
@@ -605,9 +609,10 @@ KILL_SWITCH_ENV = "AE_TURN_SHAPE_GUARD_DISABLE"
 
 # Max consecutive block/advisory emissions since the last new user message
 # before this hook goes silent. Keeps the loop guard reachable even when CC
-# bug #54360 prevents stop_hook_active from propagating. Shared by BOTH
-# _execution_prose_flag (blocking, DS-156) and every advisory check - one
-# counter/cap governs how many times either can re-invoke the model.
+# bug #54360 prevents stop_hook_active from propagating. Shared by ALL
+# THREE checks - _execution_prose_flag (blocking, DS-156), _status_only_flag
+# (blocking, DS-ANSWERFIRST) and the advisory decision-sprawl check - one
+# counter/cap governs how many times any of them can re-invoke the model.
 CONSECUTIVE_BLOCK_CAP = 2
 
 # Counter state file (under .agentic/ which is gitignored). Distinct from the
@@ -2708,8 +2713,12 @@ def main() -> None:
         # persistence fails (unwritable .agentic/, full disk, etc.), exit 0
         # silently - a finding whose count cannot be recorded loses its
         # loop bound and can cause an unbounded re-invocation loop when
-        # stop_hook_active also fails (CC bug #54360). Both checks share
-        # ONE counter/cap (DS-156) - a block and an advisory are both "this
+        # stop_hook_active also fails (CC bug #54360). All three checks
+        # share ONE counter/cap (DS-156; DS-ANSWERFIRST restored
+        # _status_only_flag) - this increment sits on the shared emission
+        # path downstream of every branch, so a _status_only_flag block
+        # charges it exactly as an _execution_prose_flag block does. A
+        # block and an advisory are both "this
         # hook re-invoked the model" events from the loop guard's
         # perspective.
         if loop_guard_engaged:
