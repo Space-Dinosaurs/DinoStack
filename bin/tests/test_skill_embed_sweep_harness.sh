@@ -45,16 +45,19 @@
 #                        auto-discovers bin/tests/test_*.sh).
 #
 # Failure modes: harness script or python helper missing -> immediate FAIL.
-#                Any scenario's observed output, exit code, or on-disk
-#                state does not match the expected shape -> FAIL naming the
-#                scenario and what was observed. DS-45's behavioral fixture
-#                scenario additionally FAILs if
-#                EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT cannot be read
-#                out of the gate script, or if the invoked gate's run
-#                against the 160,001 B fixture does not BOTH exit non-zero
-#                AND print "ABOVE CEILING" in its output - a non-zero exit
-#                alone is not sufficient, since a broken fixture build, a
-#                missing scripts/lib/budget-gate.sh copy, or the gate
+#                docs/skill-embed-injection-sweep.md or
+#                scripts/check-skill-embed-budget.sh missing -> immediate
+#                FAIL (Scenario 15's own guard). Any scenario's observed
+#                output, exit code, or on-disk state does not match the
+#                expected shape -> FAIL naming the scenario and what was
+#                observed. DS-45's behavioral fixture scenario additionally
+#                FAILs if EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT
+#                cannot be read out of the gate script, or if the invoked
+#                gate's run against the 160,001 B fixture does not BOTH
+#                exit non-zero AND print "ABOVE CEILING" in its output -
+#                a non-zero exit alone is not sufficient, since a broken
+#                fixture build, a missing scripts/lib/budget-gate.sh
+#                copy, or the gate
 #                legitimately gaining a new embedded set this fixture does
 #                not stub all also exit non-zero without ever having
 #                exercised the CEILING comparison; the output-content
@@ -765,7 +768,13 @@ else
   # (160,000 B) must be genuinely rejected by the live gate. See
   # docs/skill-embed-injection-sweep.md and AGENTS.md for the sweep
   # itself; the two checks below assert message content and gate
-  # behavior separately, since they are different properties.
+  # behavior separately, since they are different properties. Do not
+  # "harden" the behavioral check below back into a source-text or
+  # self-report pin: matching CEILING's assignment in source was proven
+  # defeatable by leading-zero octal parsing and by declare/typeset/let/
+  # printf -v/read/eval/mid-line/if-block assignment shapes, and reading
+  # the gate's own "ceiling: N B" self-report asserts the report rather
+  # than the behavior it claims to reflect.
   above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
   # Message-content check: a single distinctive phrase spanning the
   # attribution (date, ticket, "swept") - "DS-45" and "swept" alone each
