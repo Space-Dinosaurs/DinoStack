@@ -123,6 +123,15 @@ LIVE_GUARD_SITES = frozenset(
         (".github/workflows/bin-tests.yml", "bin-sh-tests"),
         (".github/workflows/hooks-tests.yml", "hooks-js-tests"),
         (".github/workflows/hooks-tests.yml", "hooks-sh-tests"),
+        # verify-merged-tree.yml re-runs the two hooks-tests.yml discovery
+        # loops above on the merged tree, carrying their zero-match guards
+        # verbatim. TWO entries, one per loop, because discovery keys on
+        # (file, job): an earlier revision put both loops in a single
+        # `merged-hook-tests` job, which collapsed them to one pin and left
+        # this spec green when the JS loop's guard was deleted. Keep them in
+        # separate jobs so each guard is individually pinned.
+        (".github/workflows/verify-merged-tree.yml", "merged-hooks-js-tests"),
+        (".github/workflows/verify-merged-tree.yml", "merged-hooks-sh-tests"),
         ("hooks/tests/test-hooks-pep604-guard.py", "hook_files"),
         ("hooks/tests/test-hooks-pep604-guard.py", "test_files"),
         (
