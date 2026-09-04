@@ -165,13 +165,21 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - name: pip install pyyaml
+      - name: pip install pytest pytest-timeout pyyaml
+        # pytest and pytest-timeout are here for test_check_local.sh, not for
+        # this job to run pytest itself: check-local.sh's toolchain preflight
+        # probes `import pytest, pytest_timeout, yaml` as one unit, and the
+        # suite hard-fails under ${CI} rather than skipping when it is
+        # unsatisfied. With pytest absent the suite aborts at its first guard;
+        # with pytest present but pytest_timeout missing the preflight exits 2
+        # and 16 scenarios fail expecting exit 1 - both measured. Mirrors
+        # python-bin-tests' pip line above; keep the two in step.
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
         # distribution with `bash scripts/ci-step-durations.sh` before
         # changing any value here.
         timeout-minutes: 2
-        run: pip install pyyaml
+        run: pip install pytest pytest-timeout pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
         # Bounded so a queue-starved or hung step fails as itself rather
         # than consuming the job backstop. Re-derive the current
