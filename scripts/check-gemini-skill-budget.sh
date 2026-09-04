@@ -19,11 +19,12 @@
 #              EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT constants (see
 #              their own comment below for why a pinned count, not a
 #              re-derived one, is required).
-#            - SKILL CEILING: an upper bound on the skill body, same
-#              caveat as scripts/check-skill-embed-budget.sh's own CEILING
-#              - a headroom boundary against known-good measurements, not
-#              a swept safety guarantee (no swept injection sweep has been
-#              run for the Gemini adapter specifically).
+#            - SKILL CEILING: an upper bound on the skill body - a
+#              headroom boundary against known-good measurements, not a
+#              swept safety guarantee, since no swept injection sweep has
+#              been run for the Gemini adapter specifically (the DS-45
+#              procedure at docs/skill-embed-injection-sweep.md, and its
+#              2026-09-03 result, target the Claude harness only).
 #            - STUB CEILING: .gemini/GEMINI.md must stay a small stub. A
 #              re-embed of the full body back into GEMINI.md (accidental
 #              revert of the DS-184 split) would otherwise pass every
@@ -119,8 +120,9 @@ SKILL_FLOOR=100000
 # other closely but are not byte-identical. No swept injection-safety
 # measurement has been run for the Gemini adapter specifically (the
 # procedure at docs/skill-embed-injection-sweep.md targets the Claude
-# harness) - treat this CEILING with the same caveat the Claude gate's own
-# CEILING comment documents: a headroom boundary against known-good
+# harness, and the 2026-09-03 sweep result documented in Claude's
+# check-skill-embed-budget.sh CEILING comment applies only to that
+# harness) - treat this CEILING as a headroom boundary against known-good
 # measurements at authoring time, not a verified-safe injection size.
 #
 # DS-204 (unit B): SKILL.md's embed flipped from the full corpus to the
