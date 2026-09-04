@@ -35,6 +35,13 @@ Failure modes: refuses symlinked/special generated roots, unmatched source
                (assert_literal_rules_reachable()).
 
 Performance: linear in canonical source and generated-tree size.
+             assembled_methodology() and current_inventory() are memoized
+             per process (see their PROCESS-SCOPED MEMO invariant comments).
+             Their inputs are content/**, .codex/build.sh and
+             scripts/build-methodology.sh only - never the generated tree,
+             which build() DOES mutate via sync_tree() before _check()
+             reuses the memo. bin/tests/test_codex_memo_invariant.py
+             statically enforces that no in-process caller reaches either.
 """
 
 from __future__ import annotations
@@ -876,7 +883,25 @@ def render_runtime_guidance(text: str, repo: Path) -> str:
     return rendered
 
 
+# PROCESS-SCOPED MEMO. assembled_methodology() spawns build-methodology.sh and is
+# called 12x per build from three sites (reachability_corpus,
+# literal_rules_reachability_corpus, documents); nothing in build/check/inventory
+# mutates content/sections/**, so all 12 results are identical.
+# Why a stale value cannot mask a mutation: every build/check/inventory runs in a
+# NEW process with an empty memo, so a mutated tree is always read fresh. The
+# mutation gates in scripts/test/test_codex_skills.py each spawn a subprocess per
+# assertion; the tests that import this module in-process never reach this function.
+# What would break it: any caller that mutates content/sections/** and re-invokes
+# IN-PROCESS. Such a caller must clear this dict first.
+# bin/tests/test_codex_memo_invariant.py fails CI if any in-process loader in
+# scripts/test/test_codex_skills.py ever reaches here.
+_ASSEMBLED_METHODOLOGY_MEMO: dict[Path, str] = {}
+
+
 def assembled_methodology(repo: Path) -> str:
+    memo_key = repo.resolve()
+    if memo_key in _ASSEMBLED_METHODOLOGY_MEMO:
+        return _ASSEMBLED_METHODOLOGY_MEMO[memo_key]
     result = subprocess.run(
         ["bash", str(repo / "scripts/build-methodology.sh")],
         cwd=repo,
@@ -887,6 +912,7 @@ def assembled_methodology(repo: Path) -> str:
     )
     if result.returncode:
         raise SkillError(f"methodology assembly failed: {result.stderr.strip()}")
+    _ASSEMBLED_METHODOLOGY_MEMO[memo_key] = result.stdout
     return result.stdout
 
 
@@ -1422,7 +1448,30 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     return sorted(found, key=lambda item: item.start)
 
 
+# PROCESS-SCOPED MEMO. current_inventory() runs 26+ regex passes over every source
+# document and is called 3x per build (render_tree, plus twice via
+# load_compatibility -> compatibility_payload) on identical, unmutated sources.
+# Why a stale value cannot mask a mutation: same invariant as
+# _ASSEMBLED_METHODOLOGY_MEMO above - build/check/inventory each run in a NEW
+# process with an empty memo, so a mutated tree is read fresh every time. Both
+# reachability assertions still run at least once per process, before the memo is
+# populated, so neither enforcement floor is weakened - only repeated.
+# Inputs are content/**, .codex/build.sh and scripts/build-methodology.sh only;
+# this function never reads the generated tree, so sync_tree()'s rewrite of it
+# between build() and _check() cannot invalidate a memoized value.
+# What would break it: mutating content/ (or the two files above) and
+# re-invoking IN-PROCESS. Such a caller must clear this dict first.
+# bin/tests/test_codex_memo_invariant.py fails CI if any in-process loader in
+# scripts/test/test_codex_skills.py ever reaches here.
+# Entries are treated as read-only by every caller; do not mutate the returned
+# records list or by_source mapping in place.
+_CURRENT_INVENTORY_MEMO: dict[Path, tuple[list[dict[str, str]], dict[str, list[Occurrence]]]] = {}
+
+
 def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[Occurrence]]]:
+    memo_key = repo.resolve()
+    if memo_key in _CURRENT_INVENTORY_MEMO:
+        return _CURRENT_INVENTORY_MEMO[memo_key]
     assert_paragraph_rules_reachable(repo)
     assert_literal_rules_reachable(repo)
     by_source: dict[str, list[Occurrence]] = {}
@@ -1430,6 +1479,7 @@ def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[
         by_source[doc.source] = inventory_document(doc, repo)
     records = [item.record() for items in by_source.values() for item in items]
     records.sort(key=lambda item: (item["source"], item["occurrence_hash"], item["source_token"]))
+    _CURRENT_INVENTORY_MEMO[memo_key] = (records, by_source)
     return records, by_source
 
 
