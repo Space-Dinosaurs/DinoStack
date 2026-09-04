@@ -47,16 +47,19 @@
 # Failure modes: harness script or python helper missing -> immediate FAIL.
 #                Any scenario's observed output, exit code, or on-disk
 #                state does not match the expected shape -> FAIL naming the
-#                scenario and what was observed. DS-45 round-9's behavioral
-#                fixture scenario additionally FAILs if
-#                scripts/check-skill-embed-budget.sh or
-#                scripts/lib/budget-gate.sh is missing, if
+#                scenario and what was observed. DS-45's behavioral fixture
+#                scenario additionally FAILs if
 #                EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT cannot be read
-#                out of the gate script, or if the invoked gate exits 0
-#                against the 160,001 B fixture (ANY reason the real gate
-#                accepts an artifact one byte past the swept upper bound
-#                fails this assertion, not only a ceiling-breach-specific
-#                code path).
+#                out of the gate script, or if the invoked gate's run
+#                against the 160,001 B fixture does not BOTH exit non-zero
+#                AND print "ABOVE CEILING" in its output - a non-zero exit
+#                alone is not sufficient, since a broken fixture build, a
+#                missing scripts/lib/budget-gate.sh copy, or the gate
+#                legitimately gaining a new embedded set this fixture does
+#                not stub all also exit non-zero without ever having
+#                exercised the CEILING comparison; the output-content
+#                conjunct is what distinguishes a genuine ceiling
+#                rejection from any of those unrelated failures.
 #
 # Test hygiene: never mutates any tracked file in the working tree,
 #               including the real .claude/skills/dinostack/SKILL.md -
@@ -757,57 +760,21 @@ else
   # a pin that never covered it. See the Major 1 fix in
   # scripts/check-skill-embed-budget.sh's CEILING comment.
 
-  # Round-4 Minor 2 (superseded 2026-09-03, DS-45 sweep RUN): the
-  # ABOVE-CEILING message must cite the 2026-09-03 sweep result (140,000 /
-  # 145,000 / 150,000 / 160,000 B intact), not the now-false pre-sweep
-  # "14,985 B unswept gap" framing. Rounds 2-4 hardened a prose substring
-  # match against this same message four times (whole-file grep -> single
-  # phrase -> awk-scoped block -> anchored awk block), ending with
-  # round-5's finding that even the anchored block-scoped match only
-  # pinned the connective English and none of the figures carrying the
-  # claim.
-  #
-  # Round-6 review: round-5's own derived-figure fix was the wrong
-  # invariant (it could only prove the message agrees with the constant,
-  # never that the constant is within what was swept). Round-7 found the
-  # round-6 fix's numeric check parsed a leading-zero value as octal and
-  # its duplicate-assignment guard missed several live-assignment shapes.
-  # Round-8 found MORE live-assignment shapes escaping a broadened
-  # version of that same source regex (declare/typeset/let/printf -v/
-  # read/eval-based assignments, a mid-line assignment, one inside an
-  # `if` block) and replaced source-text matching with a derived read of
-  # the gate's own OK-path "ceiling: N B" output line - but that still
-  # asserted something ABOUT the gate (its self-report) rather than
-  # exercising its BEHAVIOR, so a gate whose printed report is decoupled
-  # from what it actually compares against (round-9 Major 3) would still
-  # pass.
-  #
-  # Round-9 review closed both remaining gaps with a genuinely
-  # behavioral test: build a real, byte-exact SKILL.md fixture at
-  # 160,001 B (one byte past the swept upper bound) under a scratch
-  # REPO_DIR carrying the ACTUAL, unmodified gate script and its
-  # budget-gate.sh lib, run the gate against it for real, and assert it
-  # REJECTS (non-zero exit). This tests the property directly - "the
-  # gate refuses an artifact above the swept bound" - independent of how
-  # CEILING is assigned in source or what the gate happens to print,
-  # closing round 8's Major 1 (source-regex enumeration) and round 9's
-  # Major 3 (a decoupled self-report) by construction: a real 160,001 B
-  # file either measures above the gate's actual comparison operand or
-  # it does not, and the exit code is the only thing this test reads.
-  # Round-9 Major 1+2 also found the attribution-pin approach from round
-  # 8 used three separable tokens ("2026-09-03", "DS-45", "swept"), two
-  # of which recur later in the SAME block in unrelated sentences ("the
-  # full DS-45 provenance", "a new swept confirmation") and so could not
-  # discriminate a mutated attribution sentence alone - fixed by pinning
-  # ONE distinctive phrase instead, the same discipline this file
-  # already applies to the AGENTS.md assertion five lines below.
+  # DS-45: the ABOVE-CEILING message must cite the 2026-09-03 swept
+  # result, and a real fixture one byte past the swept upper bound
+  # (160,000 B) must be genuinely rejected by the live gate. See
+  # docs/skill-embed-injection-sweep.md and AGENTS.md for the sweep
+  # itself; the two checks below assert message content and gate
+  # behavior separately, since they are different properties.
   above_ceiling_block="$(awk '/^  echo "check-skill-embed-budget\.sh: ABOVE CEILING\./{p=1} p{print; if (/^  exit 1$/) exit}' "$CEILING_SCRIPT")"
-  # Mutations that would redden this message-content check: (a) delete
-  # or reword the attribution phrase (the date, the ticket, or "swept")
-  # even with the figure line left intact - a single distinctive phrase
-  # spanning all three tokens cannot be satisfied by a rewrite that
-  # drops any one of them; (b) change either pinned historical figure
-  # (145,000 B or 160,000 B) to a different value.
+  # Message-content check: a single distinctive phrase spanning the
+  # attribution (date, ticket, "swept") - "DS-45" and "swept" alone each
+  # recur later in the same block in unrelated sentences ("the full
+  # DS-45 provenance", "a new swept confirmation"), so pinning them
+  # separately cannot discriminate a mutated attribution sentence.
+  # Mutations that would redden this: (a) delete or reword the
+  # attribution phrase even with the figure line left intact;
+  # (b) change either pinned historical figure (145,000 B or 160,000 B).
   if [[ "$above_ceiling_block" == *"A 2026-09-03 swept measurement (DS-45) confirmed"* ]] \
      && [[ "$above_ceiling_block" == *"(145,000 B) as an intact injection point"* ]] \
      && [[ "$above_ceiling_block" == *"160,000 B"* ]]; then
@@ -816,7 +783,7 @@ else
     _fail "CEILING script's ABOVE-CEILING framing is missing the swept figures or the single-phrase attribution"
   fi
 
-  # Behavioral test: build a scratch REPO_DIR under TMP_ROOT carrying the
+  # Behavioral check: build a scratch REPO_DIR under TMP_ROOT carrying the
   # REAL, unmodified check-skill-embed-budget.sh and budget-gate.sh (never
   # a copy edited for the test), plus the minimum content/sections and
   # content/rules stub files the gate's own embed-completeness check
@@ -826,11 +793,20 @@ else
   # unrelated check. The fixture SKILL.md is built at EXACTLY 160,001 B
   # (the gate's own `wc -c`, not a length estimate) and the gate is
   # invoked for real against it - never against the tracked, real
-  # .claude/skills/dinostack/SKILL.md. Mutation that would redden this:
-  # raise CEILING (in ANY assignment shape at all - source-text spelling
-  # is irrelevant here, since nothing about this check reads the source)
-  # above 160,000, so a genuinely 160,001 B artifact is accepted instead
-  # of rejected.
+  # .claude/skills/dinostack/SKILL.md. Asserting on exit status alone was
+  # found vacuous against three unrelated failure routes that also exit
+  # non-zero (a broken fixture builder before SKILL.md is written; a
+  # missing budget-gate.sh dependency; the gate legitimately gaining a
+  # third embedded set this fixture does not stub) - each would report
+  # PASS despite never having exercised the CEILING comparison at all.
+  # Fixed the same way the corrupt-install scenario elsewhere in this
+  # file already conjoins rc with output content: require BOTH non-zero
+  # exit AND the "ABOVE CEILING" string in the gate's own output, so a
+  # failure for any OTHER reason correctly reddens this check instead of
+  # passing it. Mutation that would redden this: raise CEILING (in ANY
+  # assignment shape - source-text spelling is irrelevant, since nothing
+  # here reads the source) above 160,000, so a genuinely 160,001 B
+  # artifact is accepted instead of rejected.
   CEILING_FIXTURE="$TMP_ROOT/ceiling-behavior"
   mkdir -p "$CEILING_FIXTURE/scripts/lib" "$CEILING_FIXTURE/.claude/skills/dinostack" \
     "$CEILING_FIXTURE/content/sections" "$CEILING_FIXTURE/content/rules"
@@ -877,10 +853,10 @@ with open(skill_path, 'w') as f:
 " "$CEILING_FIXTURE" 160001 "$ceiling_fixture_section_count" "$ceiling_fixture_rules_count"
     ceiling_behavior_out="$(cd "$CEILING_FIXTURE" && bash scripts/check-skill-embed-budget.sh 2>&1)"
     ceiling_behavior_rc=$?
-    if [[ $ceiling_behavior_rc -ne 0 ]]; then
-      _pass "CEILING script rejects a real 160,001 B fixture (one byte past the swept upper bound)"
+    if [[ $ceiling_behavior_rc -ne 0 ]] && [[ "$ceiling_behavior_out" == *"ABOVE CEILING"* ]]; then
+      _pass "CEILING script rejects a real 160,001 B fixture (one byte past the swept upper bound) specifically for exceeding CEILING"
     else
-      _fail "CEILING script accepted a real 160,001 B fixture (expected rejection): $ceiling_behavior_out"
+      _fail "CEILING script did not reject a real 160,001 B fixture with an ABOVE CEILING failure (rc=$ceiling_behavior_rc): $ceiling_behavior_out"
     fi
   fi
   # Single distinctive phrase, not two separable bare-token greps (a
