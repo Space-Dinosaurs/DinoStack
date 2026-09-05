@@ -68,7 +68,7 @@ it manually.
 | `debugger_on_failure` | `false` | bool | When `true` and path is Elevated, interposes a Debugger before each Phase-7 fix pass on a quality-gate failure |
 | `qa_default_skip` | reserved/inert | reserved | Schema placeholder only; does not alter QA-gate behavior |
 | `model_profile` | `"default"` | `"default"`, `"budget"` | `budget` routes eligible spawns to Tier 1 to reduce cost; **never applies to `security-auditor` or any mandated Tier-3 spawn** |
-| `auto_merge_on_ci_green` | `false` | bool | When `true`, Phase 12 squash-merges after CI green + ready + no change-requests |
+| `auto_merge_on_ci_green` | `false` | bool | When `true`: Phase 12 squash-merges after CI green + ready + no change-requests; Phase 10's timeout handling queues `--auto` merge instead of only surfacing for human review; a session-start sweep rebases and queues auto-merge for other BEHIND sibling PRs |
 | `capability_preflight_mode` | `"blocking"` | `"advisory"`, `"blocking"` | `advisory` warns and proceeds on a missing dep; `blocking` refuses the spawn. Default is `blocking` (all agent manifests are populated as of P2). |
 | `perceptual_diff_enabled` | `false` | bool | qa-engineer runs pixelmatch against committed baselines |
 | `theme_aware` | `false` | bool | qa-engineer runs scenarios in both light and dark themes |

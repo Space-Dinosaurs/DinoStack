@@ -148,8 +148,13 @@ jobs:
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json`
 enables unsupervised merge when an action-triggered flow completes CI-green.
 When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI
-checks pass, the PR is marked ready, and no reviewer has requested changes.
-Documented in `content/sections/04-risk-classification.md` §Project config.
+checks pass, the PR is marked ready, and no reviewer has requested changes;
+Phase 10's timeout handling additionally queues GitHub's own `--auto` merge
+before surfacing the PR for human review, and a session-start sweep rebases
+and queues auto-merge for other open sibling PRs reporting
+`mergeStateStatus: BEHIND`. Documented in
+`content/references/risk-config-and-tiers.md` §Config Toggle Catalog
+(behavioral).
 
 ## Related references
 
