@@ -148,36 +148,40 @@ Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-str
 
 Runs at session start, after the knowledge-strand sweep. Skip entirely - zero `gh` calls - unless `auto_merge_on_ci_green` is `true` in `.agentic/config.json` (same toggle Phase 10's timeout handling and Phase 12's conditional auto-merge already gate on; see `content/commands/ds-implement-ticket.md` Phase 10 "Phase 10 timeout handling" and Phase 12 "Conditional auto-merge"). When the toggle is `false` (default), this sweep fires no behavior and states no merge intention.
 
-When enabled, list every other open PR the agent owns (`gh pr list --author "@me"`) against `$BASE_BRANCH` whose `mergeStateStatus` is `BEHIND` - never a PR authored by someone else - and for each non-draft match (ascending PR-number order, FIFO), rebase it onto the current base then queue GitHub's own auto-merge:
+**This sweep never newly queues a PR.** It only unsticks a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
+
+List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, rebase it (ascending PR-number order, FIFO) to unstick the existing queue - never re-invoking `gh pr merge --auto`, since the queue already exists and re-triggering it is unnecessary. A PR whose `mergeStateStatus` is `UNKNOWN` (GitHub computes mergeability lazily and has not finished) is logged and skipped rather than silently dropped - it is picked up on a later sweep once GitHub finishes computing it. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument.
 
 ```bash
 # @harness:sibling-pr-sweep
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
-  SIBLING_PRS=$(gh pr list --repo "$GH_REPO" --base "$BASE_BRANCH" --author "@me" --json number,mergeStateStatus,isDraft 2>/dev/null)
+  SIBLING_PRS=$(gh pr list --repo "$GH_REPO" --base "$BASE_BRANCH" --author "@me" --limit 100 --json number,mergeStateStatus,isDraft,autoMergeRequest 2>/dev/null)
   if [ -n "$SIBLING_PRS" ]; then
-    BEHIND_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "BEHIND" and .isDraft == false) | .number] | sort | .[]')
-    for N in $BEHIND_NUMBERS; do
+    UNKNOWN_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "UNKNOWN") | .number] | .[]')
+    while IFS= read -r U; do
+      [ -n "$U" ] || continue
+      echo "[phase: sibling-pr-sweep | pr=$U | result: skipped-unknown-mergeability]"
+    done <<< "$UNKNOWN_NUMBERS"
+    STUCK_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "BEHIND" and .isDraft == false and .autoMergeRequest != null) | .number] | sort | .[]')
+    while IFS= read -r N; do
+      [ -n "$N" ] || continue
       if gh pr update-branch "$N" --repo "$GH_REPO" --rebase 2>/dev/null; then
-        if gh pr merge "$N" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
-          echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-and-queued]"
-        else
-          echo "[phase: sibling-pr-sweep | pr=$N | result: queue-failed]"
-        fi
+        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-unstuck-queue]"
       else
         echo "[phase: sibling-pr-sweep | pr=$N | result: rebase-failed]"
       fi
-    done
+    done <<< "$STUCK_NUMBERS"
   fi
 fi
 ```
 
-Soft-fail per PR - a single PR's rebase or queue failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. As with every other `--auto` call in this methodology, exit 0 means QUEUED, not MERGED - no tracker writeback fires from this sweep; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once a queued merge actually lands.
+Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once the already-queued merge actually lands.
 
 ## Auto-merge follow-through
 
 Parent rule: `content/rules/conventions.md` §Git Workflow ("Auto-merge follow-through") carries the trigger and the honest-report obligation in resident form. This section is the full mechanism; the two are one rule split by load tier, never two rules.
 
-**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, it queues `gh pr merge <N> --repo <repo> --squash --delete-branch --auto` before ending the turn - this applies identically to ad-hoc conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out, and a command-driven run; none of them is a precondition for the rule to fire, and none of them is required for it to be inert when the toggle is `false`. `/ds-implement-ticket` Phase 10's timeout handling (see `content/commands/ds-implement-ticket.md` "Phase 10 timeout handling") is one CALL SITE of this rule, not its definition - it applies the same `--auto` queue at the specific moment the CI poll loop times out, so a PR that goes green after the poll gives up does not require a resumed session to merge. The "Sibling-PR auto-merge sweep" above is a second call site, extending the same rule to PRs the agent may have opened in an earlier session or unit.
+**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, it un-drafts the PR if needed (`gh pr ready` - the same call and soft-fail semantics as `/ds-implement-ticket` Phase 10b's "Mark ready-for-review" step; `--auto` is refused at GitHub's GraphQL mutation layer against a draft PR, and un-drafting is safe by construction since `--auto` only queues behind required checks) and queues `gh pr merge <N> --repo <repo> --squash --delete-branch --auto` before ending the turn - this applies identically to ad-hoc conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out, and a command-driven run; none of them is a precondition for the rule to fire, and none of them is required for it to be inert when the toggle is `false`. Exactly **two call sites newly queue a merge this way**: `/ds-implement-ticket` Phase 12's conditional auto-merge, and Phase 10's timeout handling (see `content/commands/ds-implement-ticket.md` "Phase 10 timeout handling") - the latter applies the same `--auto` queue at the specific moment the CI poll loop times out, so a PR that goes green after the poll gives up does not require a resumed session to merge. The "Sibling-PR auto-merge sweep" above is NOT a third queuing site - it never newly queues anything; it only rebases a PR whose queue one of the two sites above (or the operator, manually) already placed, so a parked, superseded, or abandoned PR the agent owns but never queued is provably untouched regardless of how far behind the base it falls.
 
 **Honest-report obligation.** When `auto_merge_on_ci_green` is `false` (default), nothing queues, and a turn must state the PR's real state - never a future merge intention it has no mechanism to carry out. "Next I merge those two once CI is green" describes an event nothing in the session will actually perform once the turn ends. When a queue was placed, `--auto` exiting 0 means QUEUED, not MERGED, and the report must say so, not claim the merge happened.
 

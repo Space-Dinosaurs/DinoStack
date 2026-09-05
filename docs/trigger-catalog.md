@@ -149,12 +149,12 @@ jobs:
 enables unsupervised merge when an action-triggered flow completes CI-green.
 When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI
 checks pass, the PR is marked ready, and no reviewer has requested changes;
-Phase 10's timeout handling additionally queues GitHub's own `--auto` merge
-before surfacing the PR for human review, and a session-start sweep rebases
-and queues auto-merge for other open sibling PRs reporting
-`mergeStateStatus: BEHIND`. Documented in
-`content/references/risk-config-and-tiers.md` §Config Toggle Catalog
-(behavioral).
+Phase 10's timeout handling newly queues `--auto` the same way (un-drafting
+first via `gh pr ready` if needed) before surfacing the PR for human review.
+A session-start sweep never newly queues - it only rebases an open sibling
+PR whose auto-merge is already enabled but stuck `BEHIND` a moved base.
+Documented in `content/references/risk-config-and-tiers.md` §Config Toggle
+Catalog (behavioral).
 
 ## Related references
 

@@ -1113,7 +1113,7 @@
   <!-- .agentic/config.json toggles -->
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Auto-merge on green CI</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the conductor squash-merges a PR automatically once CI passes and it is approved - also queues auto-merge if CI is still pending when the wait times out, and rebases/queues other open sibling PRs at session start.</p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the conductor squash-merges a PR automatically once CI passes and it is approved - also queues auto-merge (un-drafting first if needed) if CI is still pending when the wait times out; a session-start sweep separately rebases any sibling PR whose auto-merge is already queued but stuck behind a moved base, never queuing a new one.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>auto_merge_on_ci_green</code> in <code>.agentic/config.json</code></p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn on auto-merge when CI is green&rdquo;</span></p>

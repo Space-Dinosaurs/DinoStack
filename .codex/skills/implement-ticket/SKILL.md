@@ -3093,6 +3093,14 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 ```bash
 # @harness:phase10-timeout-auto-merge-queue
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  # The PR is still a draft on this path (Phase 10b's un-draft never ran -
+  # it is conditional on Phase 10 result: passed). GitHub refuses --auto on a
+  # draft at the GraphQL mutation layer, so un-draft FIRST using the exact
+  # same call and soft-fail semantics as Phase 10b's "Mark ready-for-review"
+  # step below - this is a second call site of that step, not a divergent
+  # copy of it. Un-drafting is safe by construction: --auto only QUEUES the
+  # merge behind required checks, so nothing merges early because of it.
+  gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null
   if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
     echo "[phase: ci-wait | result: timeout | auto-merge-queued: true | pr=$PR_NUMBER]"
     AUTO_MERGE_QUEUED=true
@@ -3103,15 +3111,14 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
 else
   AUTO_MERGE_QUEUED=false
 fi
+if [ "$AUTO_MERGE_QUEUED" = "true" ]; then
+  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Queued for auto-merge once required checks pass: https://github.com/$GH_REPO/pull/$PR_NUMBER"
+else
+  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Open for human review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
+fi
 ```
 
-Write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: $AUTO_MERGE_QUEUED` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (`auto_merge_queued` is a new top-level field on this schema, default `false` - see the P2 schema's Field notes below). Then, on every path (queued or not), print the unconditional human-review line and STOP (do NOT auto-fix, do NOT proceed):
-
-```
-PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Open for human review: https://github.com/$GH_REPO/pull/$PR_NUMBER
-```
-
-Human decides whether to extend the wait or escalate. **`--auto` exiting 0 means QUEUED, not MERGED** - Phase 12's "Conditional auto-merge" section below documents the same distinction and the `Allow auto-merge` repository precondition; that explanation is not duplicated here. No tracker writeback (W7) fires from this path - if the queued merge later completes, the session-start pending-merge sweep picks up the dev-complete transition, the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
+Write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: $AUTO_MERGE_QUEUED` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (`auto_merge_queued` is a new top-level field on this schema, default `false` - see the P2 schema's Field notes below), then STOP (do NOT auto-fix, do NOT proceed). The human-review/queued-status line above is now printed FROM WITHIN this marked block, on every path (queued or not) - it is no longer a separate unconditional plain-text block, and it now says which of the two happened rather than always saying "Open for human review" regardless. Human decides whether to extend the wait or escalate. **`--auto` exiting 0 means QUEUED, not MERGED** - Phase 12's "Conditional auto-merge" section below documents the same distinction and the `Allow auto-merge` repository precondition; that explanation is not duplicated here. No tracker writeback (W7) fires from this path - if the queued merge later completes, the session-start pending-merge sweep picks up the dev-complete transition, the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
 
 ---
 
