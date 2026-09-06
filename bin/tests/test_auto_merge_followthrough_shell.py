@@ -100,6 +100,10 @@ case "$1 $2" in
       *"--json state"*)
         printf '%s\n' "${AE_GH_PR_STATE:-OPEN}"
         exit 0 ;;
+      *"--json isDraft"*)
+        [ "$AE_GH_FAIL_VIEW_DRAFT" = "1" ] && exit 1
+        printf '%s\n' "${AE_GH_PR_IS_DRAFT:-true}"
+        exit 0 ;;
     esac
     exit 1 ;;
   "pr list")
@@ -173,6 +177,18 @@ def _require_jq() -> None:
         pytest.skip("jq not found on this machine - required to exercise the real filter")
 
 
+def test_require_jq_hard_fails_under_ci_when_jq_is_absent(monkeypatch):
+    """Round-4 Major 3: regression test for the round-3 _require_jq() fix
+    itself - nothing previously kept that fix real. Mutation this catches:
+    reverting the `if os.environ.get("CI")` branch back to an unconditional
+    `pytest.skip(...)`, which would make this test pass vacuously (a skip
+    is not a failure) instead of failing loudly."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(pytest.fail.Exception):
+        _require_jq()
+
+
 # ---------------------------------------------------------------------------
 # (a) timeout + false: zero gh calls, AUTO_MERGE_QUEUED stays false.
 # ---------------------------------------------------------------------------
@@ -188,9 +204,11 @@ def test_timeout_toggle_false_makes_no_gh_call_and_leaves_queued_false(tmp_path,
     BLOCK only (the `AUTO_MERGE_QUEUED` computation and its own two `echo`
     phase lines, which now include the differentiated human-review/queued
     line per round-1 Minor 5) - it does not claim the surrounding prose in
-    ds-implement-ticket.md is unchanged, since the concrete human-review
-    wording was newly made explicit by this ticket where it was previously
-    undescribed prose ("Surface to human and STOP")."""
+    content/references/conventions-detail.md (round 3 moved this block here
+    from content/commands/ds-implement-ticket.md) is unchanged, since the
+    concrete human-review wording was newly made explicit by this ticket
+    where it was previously undescribed prose ("Surface to human and
+    STOP")."""
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path)
     script = mse.with_shell_assignments(
@@ -301,6 +319,41 @@ def test_timeout_toggle_true_and_merge_fails_falls_through_cleanly(tmp_path, she
     assert "auto-merge-queue-failed" in result.stdout, result.stdout
     assert "Open for human review" in result.stdout, result.stdout
     assert "Queued for auto-merge" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_merge_fails_does_not_redraft_a_pr_it_did_not_undraft(tmp_path, shell):
+    """Round-4 Critical/Major 1: `--auto` fails on EVERY timeout when the
+    repository does not have "Allow auto-merge" enabled (GitHub's own
+    default) - if the block re-drafted unconditionally on that failure, it
+    would reverse an operator's own prior `gh pr ready` on every such repo,
+    on every timeout, silently. Here the PR was already non-draft when the
+    block ran (AE_GH_PR_IS_DRAFT=false), so the block must not call `gh pr
+    ready` at all - neither to un-draft (nothing to do) nor `--undo` on the
+    subsequent merge failure (it never un-drafted, so it has nothing to
+    compensate). Mutation this catches: reverting to the round-3 shape that
+    calls `gh pr ready` and `gh pr ready --undo` unconditionally regardless
+    of the PR's prior draft state."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(
+        tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_PR_IS_DRAFT="false"
+    )
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    readies = [c for c in argv if c[:2] == ["pr", "ready"]]
+    assert readies == [], (
+        f"a PR that was already ready-for-review must never be touched by "
+        f"gh pr ready, in either direction, when this block never un-drafted "
+        f"it: {argv}"
+    )
+    assert "re-drafted-on-queue-failure" not in result.stdout, result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -490,10 +543,13 @@ def test_sibling_sweep_excludes_clean_and_draft_even_when_queued(tmp_path, shell
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_sibling_sweep_logs_unknown_mergeability_instead_of_silent_drop(tmp_path, shell):
-    """Round-1 Minor: a PR whose mergeStateStatus is UNKNOWN (GitHub computes
-    mergeability lazily) must be logged, not silently skipped with no trace.
-    Mutation this catches: removing the UNKNOWN_NUMBERS branch entirely."""
+def test_sibling_sweep_excludes_unknown_mergeability_same_as_any_non_behind(tmp_path, shell):
+    """Round-4 Minor 2 (subtraction, not narrowing): an UNKNOWN-mergeability
+    PR is simply not a BEHIND match - it needs no special-cased log line or
+    branch, the same as CLEAN or any other non-BEHIND value. Mutation this
+    catches: re-adding `mergeStateStatus == "UNKNOWN"` as a match condition
+    to the STUCK_NUMBERS filter, which would attempt to rebase a PR whose
+    mergeability GitHub has not finished computing."""
     shell = _shell_or_skip(shell)
     _require_jq()
     pr_list_json = '[{"number":21,"mergeStateStatus":"UNKNOWN","isDraft":false,"autoMergeRequest":null}]'
@@ -508,9 +564,7 @@ def test_sibling_sweep_logs_unknown_mergeability_instead_of_silent_drop(tmp_path
     argv = _gh_argv(log_path)
     mutations = [c for c in argv if c[:2] in (["pr", "update-branch"], ["pr", "merge"])]
     assert mutations == [], f"an UNKNOWN-only PR must trigger no gh mutation calls: {argv}"
-    assert "pr=21" in result.stdout and "skipped-unknown-mergeability" in result.stdout, (
-        result.stdout
-    )
+    assert "pr=21" not in result.stdout, result.stdout
 
 
 @pytest.mark.parametrize("shell", SHELLS)
