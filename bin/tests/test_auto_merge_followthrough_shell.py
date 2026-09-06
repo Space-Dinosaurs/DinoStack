@@ -111,7 +111,10 @@ case "$1 $2" in
     esac
     exit 1 ;;
   "pr list")
-    [ "$AE_GH_FAIL_LIST" = "1" ] && exit 1
+    if [ "$AE_GH_FAIL_LIST" = "1" ]; then
+      echo "gh: pr list failed (simulated network error)" >&2
+      exit 1
+    fi
     printf '%s\n' "${AE_GH_PR_LIST_JSON:-[]}"
     exit 0 ;;
   "pr update-branch")
@@ -266,13 +269,16 @@ def test_timeout_toggle_false_makes_no_gh_call_and_leaves_queued_false(tmp_path,
 @pytest.mark.parametrize("shell", SHELLS)
 def test_timeout_toggle_true_and_merge_succeeds_undrafts_then_queues(tmp_path, shell):
     """Mutation this catches (round-1 Critical): dropping the `gh pr ready`
-    call before `gh pr merge --auto`. The PR is still a draft on the timeout
-    path (Phase 10b's un-draft is conditional on Phase 10 result: passed,
-    which never fires here) and GitHub refuses `--auto` on a draft at the
-    GraphQL mutation layer - this repo already measured that refusal
-    (.agentic/memory/gh-pr-merge-draft-refusal.md). Also catches: calling
-    `gh pr merge` a second time, omitting `--auto`, or reporting the
-    human-review line without naming the queue."""
+    call before `gh pr merge --auto`. The PR is EXPECTED still a draft on a
+    fresh timeout (Phase 10b's un-draft is conditional on Phase 10 result:
+    passed, which never fires here) - but that is not a hard invariant; see
+    test_timeout_merge_fails_does_not_redraft_a_pr_it_did_not_undraft below
+    for the already-non-draft case, which this fixture defaults away from
+    via AE_GH_PR_IS_DRAFT (default "true" in _GH_STUB). GitHub refuses
+    `--auto` on a draft at the GraphQL mutation layer - this repo already
+    measured that refusal (.agentic/memory/gh-pr-merge-draft-refusal.md).
+    Also catches: calling `gh pr merge` a second time, omitting `--auto`, or
+    reporting the human-review line without naming the queue."""
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="0", AE_GH_READY_EXIT="0")
     script = mse.with_shell_assignments(
@@ -388,6 +394,38 @@ def test_timeout_merge_fails_does_not_redraft_a_pr_it_did_not_undraft(tmp_path, 
     assert "re-drafted-on-queue-failure" not in result.stdout, result.stdout
 
 
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_view_isdraft_failure_skips_undraft_fails_safe(tmp_path, shell):
+    """Round-6 Minor (dead fixture knob): `AE_GH_FAIL_VIEW_DRAFT` previously
+    had no test setting it. When `gh pr view --json isDraft` itself fails,
+    `$WAS_DRAFT` resolves to the empty string, which fails the `= "true"`
+    check the same way `"false"` would - the block never calls `gh pr ready`
+    at all (neither to un-draft nor `--undo`) and proceeds straight to the
+    `--auto` attempt. This is fail-safe (never a wrong or unbalanced `gh pr
+    ready` call), not fail-open. Mutation this catches: treating a failed
+    `$WAS_DRAFT` read as `true` (e.g. `[ "$WAS_DRAFT" != "false" ]`), which
+    would call `gh pr ready` on a lookup failure the code cannot justify."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(
+        tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_FAIL_VIEW_DRAFT="1"
+    )
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "ready"]] == [], (
+        f"a failed isDraft lookup must never trigger gh pr ready, in either "
+        f"direction: {argv}"
+    )
+    merges = [c for c in argv if c[:2] == ["pr", "merge"]]
+    assert len(merges) == 1, merges
+
+
 # ---------------------------------------------------------------------------
 # (d) resume with auto_merge_queued=true and PR already MERGED skips to
 #     Phase 10b with no second merge call.
@@ -477,6 +515,39 @@ def test_sibling_sweep_toggle_false_makes_zero_gh_calls(tmp_path, shell):
     _assert_completed(result)
 
     assert _gh_argv(log_path) == [], "toggle=false must make zero gh calls"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_list_failure_is_a_clean_noop(tmp_path, shell):
+    """Round-6 Minor (dead fixture knob): `AE_GH_FAIL_LIST` previously had no
+    test setting it. When `gh pr list` itself fails, `$SIBLING_PRS` resolves
+    to the empty string (its stderr is redirected to `/dev/null`, not into
+    the capture), the `[ -n "$SIBLING_PRS" ]` guard is false, and the sweep
+    exits with no rebase/merge calls, no crash, and no stderr noise.
+    Mutation this catches: changing `gh pr list`'s `2>/dev/null` to `2>&1`
+    (a plausible copy-paste error-handling mistake) - the stub's simulated
+    failure text then becomes part of `$SIBLING_PRS` itself, gets piped into
+    `jq` as invalid JSON, and `jq`'s own parse error leaks into stderr.
+    Verified: applying that exact mutation reddens the stderr assertion
+    below with `jq: parse error: Invalid numeric literal at line 1, column
+    3` on both shells; argv stays empty either way because `jq`'s error
+    path still produces no stdout, so only the stderr assertion catches it."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_FAIL_LIST="1")
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "update-branch"]] == [], argv
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], argv
+    assert result.stderr == "", (
+        f"a gh pr list failure must never leak into jq as invalid input: "
+        f"{result.stderr!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
