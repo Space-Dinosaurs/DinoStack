@@ -687,6 +687,8 @@ file, so there is no vicious-loop risk to defend against.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - invoked by the conductor's session-start preflight (backgrounded, per §Session-start prune script, so it never blocks), a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
+**A directory git has forgotten is outside every backstop above.** Each of those paths starts from `git worktree list`, so a directory under `.claude/worktrees/`/`.agentic/worktrees/` that git no longer has a registration for - the residue of a `git worktree remove` that unregistered it without deleting it, or of an administrative prune - is never classified, never gated, and never reclaimed by any of them. `bin/ds-cleanup-worktrees` now REPORTS these (a `NOTE:` with the count on every run, the paths under `--explain`) so they at least stop being invisible. It does not remove them and prints no removal command, deliberately: disposition is a human decision per path, and a report that cannot destroy anything is the right shape for a predicate whose descent logic is newer than the gates around it. Detection is depth-agnostic - this repo's own `.agentic/worktrees/<branch-name>` convention nests one level deeper for `feature/`, `fix/`, and `chore/` prefixes, so a shallow scan would name the PARENT of a live worktree.
+
 Implicit Trivial batching (§Implicit Trivial batching: open the PR at
 first push above) needs no special case here: each continuation spawn is
 an ordinary Trivial engineer running in its own harness isolation
@@ -843,8 +845,8 @@ Parent clause: `content/sections/02-delegation.md` §Standing authorizations.
 
 Run at session start alongside the session-start prune script, via
 `bin/ds-branch-prune` (DS-153) - never inline shell. The script proves, for
-each local branch, that its tip's content is subsumed by `origin/main` via a
-four-layer, first-match-wins predicate (ancestry, squash-patch equivalence,
+each local branch, that its tip's content is subsumed by the RESOLVED base
+branch via a four-layer, first-match-wins predicate (ancestry, squash-patch equivalence,
 tip-subsumption, content-on-main); absence of proof is always a skip, never
 a force-delete. See the script's own module docstring (`bin/ds-branch-prune`)
 and `.agentic/ds-153-plan.md` (DS-153) for the full normative predicate.
@@ -876,21 +878,38 @@ more, and the run always names the condition rather than staying silent).
 **Safe boundary:** a branch the predicate cannot prove subsumed resolves to
 `SKIP_UNPROVEN` - reported, never force-deleted. This includes a branch
 whose only evidence is "a PR merged": that proves the PR merged, not that
-THIS local tip's content is on `origin/main` - precisely the predicate this
-script was built to eliminate (see the plan's Core decision).
+THIS local tip's content is on the resolved base - precisely the predicate
+this script was built to eliminate (see the plan's Core decision). An
+UNRESOLVABLE base is the same safe boundary one level up: the run prints
+`base=unresolved mode=skipped branches=0 deletions=0`, deletes nothing,
+writes no ledger entry, and exits 0.
 
-**Residual: G0's base-branch guard is name-based, and the session-start
-call site above passes no `--base`.** A project declaring a non-develop
-`BASE_BRANCH` in `AGENTS.md` (e.g. `integration`, `staging`, `release`) has
-that branch deleted via L1 like any other stale branch once it is fully
-merged into `origin/main` - after which base-branch resolution can no
-longer find it locally. Not data loss (the ref survives on origin, and the
-deletion ledger records the tip SHA), but disclosed here because the
-develop/development guard is unconditional while a custom `BASE_BRANCH` is
-not. Passing the resolved `BASE_BRANCH` explicitly via `--base` at the call
-site would close this; deliberately not done here, since `BASE_BRANCH` is
-resolved lazily and this script runs unconditionally at session start (see
-the `content/rules/conventions.md` Base branch resolution note above).
+**Base resolution: this script resolves its own base.** The session-start
+call site above still passes no `--base`, but that no longer means
+`origin/main` is assumed. `bin/ds-branch-prune` calls the same shared
+`resolve_base_branch` (`bin/_lib.py`) that `bin/ds-cleanup-worktrees` uses -
+an `AGENTS.md` `BASE_BRANCH:` declaration (authoritative), then
+`refs/remotes/origin/HEAD`, then a local `develop`, then a local
+`development`, then `main` falling back to `master` - and prints the
+resolved value in its summary line on every run. Until that landed it
+hardcoded `origin/main`, so on a repo whose integration branch is not
+`main` every branch was evaluated against the wrong base and the run proved
+nothing. G0's guard set is now built from the ACTUALLY-resolved base, which
+retires the old residual recorded here (a custom `BASE_BRANCH` such as
+`integration`/`staging`/`release` being deleted via L1 because a name-based
+guard could not see it).
+
+**Residual hazard, disclosed not hidden: a stray local `develop` can switch
+the base.** With `refs/remotes/origin/HEAD` unset locally and no `AGENTS.md`
+declaration, the tier order reaches the local-`develop` tier, so a
+`main`-based repo that happens to carry an unrelated local `develop` branch
+silently resolves to `origin/develop`. This risk already existed for
+`bin/ds-cleanup-worktrees`; sharing the resolver extends it to branch
+DELETION, which is more consequential. It is bounded, not closed:
+`develop`/`development` remain in G0's guard set UNCONDITIONALLY (so
+neither is ever the branch deleted), the resolved base is printed every
+run, and an explicit `--base` overrides. Run `git remote set-head origin -a`
+or declare `BASE_BRANCH:` in `AGENTS.md` to make resolution deterministic.
 
 **Recovery (Amendment B3):** `git branch -D` deletes the branch's own reflog
 (`.git/logs/refs/heads/<branch>`) outright, so the default 90-day

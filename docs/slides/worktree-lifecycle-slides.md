@@ -316,12 +316,12 @@ git worktree prune
 command -v ds-branch-prune >/dev/null 2>&1 && ds-branch-prune
 ```
 
-The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work:
+The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work. It resolves its own base branch (shared `resolve_base_branch`, `bin/_lib.py`) rather than assuming `origin/main`, and deletes nothing when that resolution fails:
 
-1. Ancestry - every commit is literally on `origin/main`
+1. Ancestry - every commit is literally on the resolved base
 2. Squash-patch equivalence - the branch's cumulative delta matches a merged PR's squash commit
 3. Tip-subsumption - the tip carries no commit beyond the head that was squashed
-4. Content-on-main - every file the branch touched is byte-identical to `origin/main`
+4. Content-on-main - every file the branch touched is byte-identical to the resolved base
 
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
 - Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own

@@ -18,33 +18,52 @@ Public API (CLI):
 
   --repo <path>            Repository to operate on. Default: cwd.
   --base <ref>             Base ref to prove subsumption against. Default:
-                            "origin/main". A local guard set of
-                            {"main", "master", "develop", "development",
-                            <local name of --base>} is never eligible for
-                            deletion (guard G0) - develop/development are
-                            included unconditionally so a develop-based
-                            workflow's integration branch is protected even
-                            when the session-start call site does not pass
-                            --base (see content/rules/conventions.md Base
-                            branch resolution).
-                            n3 disclosure: G0 is NAME-based, and the
-                            session-start call site passes no --base at
-                            all (by design - see the M3 comment in main()
-                            below). A project declaring a non-develop
-                            BASE_BRANCH in AGENTS.md (e.g. "integration",
-                            "staging", "release") has that branch deleted
-                            via L1 once it is fully merged into
-                            origin/main, same as any other stale branch -
-                            after which base-branch resolution can no
-                            longer find it locally. This is not data loss
-                            (the ref still exists on origin, and the
-                            deletion ledger records the tip SHA), but it is
-                            a residual worth knowing about. Passing
-                            --base <the resolved BASE_BRANCH> explicitly at
-                            the call site would close this, but that is a
-                            deliberate design decision this script does not
-                            make on its own - see the plan's Amendment
-                            discussion in `.agentic/ds-153-plan.md` (DS-153).
+                            NONE - resolved automatically via
+                            `resolve_base_branch` (bin/_lib.py), the same
+                            shared resolver bin/ds-cleanup-worktrees uses:
+                            an AGENTS.md `BASE_BRANCH:` declaration
+                            (AUTHORITATIVE - declared-but-unresolvable
+                            fails outright, never falls through), then
+                            `git symbolic-ref refs/remotes/origin/HEAD`,
+                            then a local `develop`, then a local
+                            `development`, then `main` falling back to
+                            `master`. An explicit --base is still used
+                            VERBATIM with no validation. A local guard set
+                            of {"main", "master", "develop", "development",
+                            <local name of the RESOLVED base>} is never
+                            eligible for deletion (guard G0) -
+                            develop/development are included
+                            unconditionally, independent of what resolution
+                            picked, so a develop-based workflow's
+                            integration branch is protected on every run.
+                            This default was "origin/main" until the
+                            worktree-reap calibration work. That hardcoding
+                            meant that on any repo whose integration branch
+                            is not `main` - the exact case the resolver
+                            exists for - every branch was evaluated against
+                            the wrong base and the run proved nothing. The
+                            n3 disclosure that used to sit here (a
+                            non-develop declared BASE_BRANCH being deleted
+                            via L1 because G0 could not see it) is
+                            CLOSED by that resolution: `base_local` in
+                            main() is now the actually-resolved base.
+                            Residual hazard, disclosed not hidden: with
+                            `refs/remotes/origin/HEAD` unset locally, the
+                            tier order falls through to the local-`develop`
+                            tier, so a `main`-based repo that happens to
+                            carry an unrelated local `develop` branch
+                            silently resolves to `origin/develop`. This
+                            risk already existed for
+                            bin/ds-cleanup-worktrees; extending the
+                            resolver here extends it to branch DELETION,
+                            which is more consequential. It is bounded, not
+                            closed: `develop` is unconditionally guarded by
+                            G0, the resolved base is printed in the summary
+                            line on every run, and an explicit --base
+                            overrides. Set origin/HEAD
+                            (`git remote set-head origin -a`) or declare
+                            BASE_BRANCH in AGENTS.md to make resolution
+                            deterministic.
   --explain                Print one line per branch with its outcome
                             (default: aggregate counts only).
   --dry-run                Compute and report; delete nothing, write no
@@ -109,6 +128,11 @@ Upstream deps: Python 3 stdlib only (argparse, json, subprocess, shutil,
                bin/tests/worktree_model.py (DispositionFacts, Disposition,
                DEFAULT_BASE_BRANCHES, disposition_for_orphan_branch,
                parse_porcelain - imported by path, not installed).
+               bin/_lib.py (resolve_base_branch - likewise imported by
+               resolved path, via a `sys.path` insert of this file's own
+               bin/ directory). `_lib` also exports a `_run`; this file
+               keeps its own same-named, different-signature `_run` and
+               does not import or unify with that one.
 
 Downstream consumers: content/references/worktree-lifecycle.md (§Session-
                       start prune script and §Branch prune, DS-153 unit 2 -
@@ -119,6 +143,10 @@ Downstream consumers: content/references/worktree-lifecycle.md (§Session-
                       (the built-deck copy of the session-start prune block).
                       CI: bin/tests/test_branch_prune.py (pytest, auto-
                       collected by `python3 -m pytest bin/tests/`).
+                      Shares bin/_lib.py's resolve_base_branch with
+                      bin/ds-cleanup-worktrees, so a change to the tier
+                      order affects BOTH tools - see that module's own
+                      manifest.
                       `bin/agentic-branch-prune` is a plain symlink to this
                       file for naming consistency with the established
                       `bin/ds-base-sync` primary-name-plus-symlink pattern
@@ -127,12 +155,20 @@ Downstream consumers: content/references/worktree-lifecycle.md (§Session-
 
 Failure modes: exit 0 on success INCLUDING partial degradation (gh
                unavailable/erroring/--no-gh, individual `git branch -D`
-               failures) - this is designed to run at session start and
-               must never look like a failure merely because branches were
-               skipped or one delete was refused elsewhere. Exit 1 ONLY on
-               an internal/usage error: --repo is not a directory or not a
-               git repository, --pr-data is missing or not valid JSON, or
-               an unhandled exception during evidence computation. A
+               failures) and INCLUDING an unresolvable base branch - this
+               is designed to run at session start and must never look
+               like a failure merely because branches were skipped or one
+               delete was refused elsewhere. An unresolvable base fails
+               SAFE on the destructive side: every candidate tried is
+               named on stderr, the summary line reads
+               `base=unresolved mode=skipped branches=0 deletions=0`,
+               NOTHING is deleted, NO ledger entry is written, and the
+               exit code is 0. Exit 1 ONLY on an internal/usage error:
+               --repo is not a directory or not a git repository,
+               --pr-data is missing or not valid JSON (validated BEFORE
+               base resolution, deliberately, so a usage error is never
+               downgraded to the exit-0 skip above), or an unhandled
+               exception during evidence computation. A
                `gh pr list` result whose row count equals the internal
                500-row limit prints a one-line truncation NOTE (Amendment
                B13 - this fires on effectively every run against this
@@ -169,6 +205,10 @@ from typing import Dict, List, Optional, Set, Tuple
 # --------------------------------------------------------------------------
 _BIN_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_BIN_DIR / "tests"))
+# bin/ itself, for `_lib`, which owns the ONE base-branch resolver this
+# script and bin/ds-cleanup-worktrees share. Same resolved-path rationale
+# as the line above: a bare PATH-symlink invocation must still find it.
+sys.path.insert(0, str(_BIN_DIR))
 
 from worktree_model import (  # noqa: E402
     DEFAULT_BASE_BRANCHES,
@@ -177,6 +217,16 @@ from worktree_model import (  # noqa: E402
     disposition_for_orphan_branch,
     parse_porcelain,
 )
+
+# Only `resolve_base_branch` is imported. `_lib` also exports a `_run`, but
+# this file keeps its OWN same-named, different-signature `_run` below
+# (`input_text`, no timeout support) that every call site here depends on -
+# the two are deliberately NOT unified, and the shared one is deliberately
+# NOT imported here even under an alias, because nothing in this file would
+# call it (`resolve_base_branch` uses `_lib`'s copy internally, from inside
+# `_lib`, needing no import on this side). An unused alias would be dead
+# code that reads like a live dependency.
+from _lib import resolve_base_branch  # noqa: E402
 
 PR_LIST_LIMIT = 500
 LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"
@@ -620,7 +670,13 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         description="Squash-aware local branch prune via a four-layer subsumption predicate (DS-153).",
     )
     p.add_argument("--repo", default=".")
-    p.add_argument("--base", default="origin/main")
+    # Default None, NOT "origin/main": a hardcoded base evaluates every
+    # branch against the wrong ref on any repo whose integration branch is
+    # not `main`, proving nothing. On None, main() resolves it through the
+    # shared `resolve_base_branch` (bin/_lib.py) - the same resolver
+    # bin/ds-cleanup-worktrees uses. An explicit --base is still taken
+    # verbatim with no validation.
+    p.add_argument("--base", default=None)
     p.add_argument("--explain", action="store_true")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--pr-data")
@@ -638,26 +694,70 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"ds-branch-prune: {exc}", file=sys.stderr)
         return 1
 
-    base_local = args.base.split("/", 1)[1] if args.base.startswith("origin/") else args.base
-    # M3 fix (Skeptic round 2): G0 in the plan's normative predicate protects
-    # "B == resolved BASE_BRANCH", but the shipped session-start call site
-    # (content/references/worktree-lifecycle.md) invokes this script with no
-    # --base at all, by design - BASE_BRANCH is deliberately not resolved at
-    # that point (see the adjacent comment there). Without this, a repo using
-    # a develop-based workflow (content/rules/conventions.md Base branch
-    # resolution step 2/3) would have its `develop`/`development` branch
-    # deleted as soon as it is fully merged into origin/main, after which
-    # base-branch resolution can no longer find it and silently falls
-    # through to prompting for `main`.
+    # `--pr-data` validation runs BEFORE base resolution, deliberately. An
+    # unusable --pr-data file is a USAGE error (exit 1) and must stay one
+    # even on a repo whose base cannot be resolved - the base fail-safe
+    # below exits 0, so resolving first would silently downgrade a usage
+    # error to a clean skip. This is the only exit-1 path inside
+    # `_load_merged_prs`, and (with --pr-data set) it touches no network.
+    try:
+        merged_prs, degraded, truncated = _load_merged_prs(repo, args.pr_data, args.no_gh)
+    except ValueError as exc:
+        print(f"ds-branch-prune: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - internal error, report and exit 1
+        print(f"ds-branch-prune: internal error: {exc}", file=sys.stderr)
+        return 1
+
+    # Base-branch resolution. An explicit --base is returned verbatim and
+    # unvalidated (tier "explicit"); otherwise the shared resolver in
+    # bin/_lib.py runs its documented tier order - AGENTS.md `BASE_BRANCH:`
+    # (authoritative), origin/HEAD, local develop, local development, then
+    # main falling back to master.
+    resolved_base, base_source, base_diagnostics = resolve_base_branch(
+        repo, args.base, prog="ds-branch-prune"
+    )
+    for line in base_diagnostics:
+        print(line, file=sys.stderr)
+    if resolved_base is None:
+        # FAIL SAFE, and specifically fail safe on the DESTRUCTIVE side:
+        # this tool deletes branches, so an unresolvable base must delete
+        # nothing rather than fall back to a guessed ref. Every candidate
+        # tried is already named in base_diagnostics above. Exit 0, not 1 -
+        # exit 1 stays reserved for a genuine internal/usage error, and
+        # this runs unconditionally at session start where a nonzero exit
+        # would read as a broken preflight (same contract as
+        # bin/ds-cleanup-worktrees' own unresolvable-base path).
+        print(
+            "ds-branch-prune: base could not be resolved - branch prune skipped this run "
+            "(no branches deleted, no ledger entry written).",
+            file=sys.stderr,
+        )
+        print("ds-branch-prune: base=unresolved mode=skipped branches=0 deletions=0")
+        return 0
+    if base_source != "explicit":
+        print(f"ds-branch-prune: base auto-resolved to '{resolved_base}' via {base_source}")
+
+    base_local = (
+        resolved_base.split("/", 1)[1] if resolved_base.startswith("origin/") else resolved_base
+    )
+    # M3 fix (Skeptic round 2), as amended by the worktree-reap calibration
+    # work: G0 in the plan's normative predicate protects "B == resolved
+    # BASE_BRANCH". The session-start call site still passes no --base, but
+    # BASE_BRANCH is no longer unresolved at that point - this script now
+    # resolves it itself, above, so `base_local` is the ACTUAL resolved base
+    # rather than a hardcoded `main`. `develop`/`development` stay in the
+    # guard set UNCONDITIONALLY regardless (not merely when one of them is
+    # the resolved base): a develop-based workflow's integration branch must
+    # survive even a run whose resolution landed elsewhere.
     base_branches = set(DEFAULT_BASE_BRANCHES) | {"develop", "development", base_local}
 
     try:
-        merged_prs, degraded, truncated = _load_merged_prs(repo, args.pr_data, args.no_gh)
         checked_out = _checked_out_branches(repo)
         branches = _list_local_branches(repo)
 
         results = [
-            evaluate_branch(repo, b, args.base, base_branches, checked_out, merged_prs, degraded)
+            evaluate_branch(repo, b, resolved_base, base_branches, checked_out, merged_prs, degraded)
             for b in sorted(branches)
         ]
     except ValueError as exc:
@@ -682,7 +782,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         mode_parts.append("dry-run")
     mode = ", ".join(mode_parts) if mode_parts else "live"
     print(
-        f"ds-branch-prune: base={args.base} mode={mode} branches={len(results)} "
+        f"ds-branch-prune: base={resolved_base} mode={mode} branches={len(results)} "
         f"deletions={len(delete_results)} skips={len(results) - len(delete_results)}"
     )
     for outcome in ("SKIP_BASE_BRANCH", "SKIP_CHECKED_OUT", "SKIP_NO_MERGE_BASE", "SKIP_UNPROVEN"):

@@ -382,6 +382,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "29ebbbffe3673611081904234fde9c985aea91b1fc03053961d1fe162a01c19e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -580,16 +590,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/simplify"
-    },
-    {
-      "expected_target": "bin/ds-branch-prune",
-      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
-      "kind": "operational",
-      "occurrence_hash": "4452e46ac937f9d9916166b69403addbf787c4fd91d248d1a0d5acc71be76e36",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1042,16 +1042,6 @@
       "source_token": ".claude/install.sh"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "72cf2511431d58176a7a0ff6b51e1e0f3399062d8910c7e9f24da09c972f58b6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -1310,16 +1300,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Bash"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "900d2f82bacb5c0938d6d4d0b79596f9b39bb0579bac251f55fe2cfa1001d51c",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -2062,6 +2042,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "bin/ds-branch-prune",
+      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
+      "kind": "operational",
+      "occurrence_hash": "da31edd9d35998351e68be4faa5572701b5adac3a4099b28e651624240580861",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-branch-prune"
+    },
+    {
       "expected_target": "~/.codex/projects/[hash]/context.md",
       "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, the warn-only conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
       "kind": "operational",
@@ -2180,6 +2170,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/task-state-file.md"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "e3da47455213c88137da98a1a366647b0e3edfa7183ceab07538973471d24e5e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "spawn_agent",
