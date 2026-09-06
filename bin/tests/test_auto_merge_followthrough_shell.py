@@ -1,13 +1,15 @@
 """
 Purpose: Executes the shell blocks the auto-merge follow-through feature added
-         to content/commands/ds-implement-ticket.md
-         (`@harness:phase10-timeout-auto-merge-queue`,
-         `@harness:phase10-resume-auto-merge-check`) and to
-         content/references/conventions-detail.md
-         (`@harness:sibling-pr-sweep`) against a stubbed `gh` and the REAL
-         system `jq`, instead of only ever reading them as prose or against a
-         jq stub that reimplements the filter in Python (round-1 Skeptic Major
-         2 - a stub filter tests the stub, not the doc). Every test is written
+         to content/references/conventions-detail.md's "Auto-merge
+         follow-through" section (`@harness:phase10-timeout-auto-merge-queue`,
+         `@harness:phase10-resume-auto-merge-check`, `@harness:sibling-pr-sweep`
+         - all three moved here from content/commands/ds-implement-ticket.md
+         in round 3 to relieve that file's command-file-budget gate; the call
+         site there is now a one-line pointer) against a stubbed `gh` and the
+         REAL system `jq`, instead of only ever reading them as prose or
+         against a jq stub that reimplements the filter in Python (round-1
+         Skeptic Major 2 - a stub filter tests the stub, not the doc). Every
+         test is written
          from the shape of a DEFECT the block must not have: queuing a merge
          when the toggle is off, attempting `--auto` against a still-draft PR
          (round-1 Critical), claiming "merged" when `--auto` only queued,
@@ -25,9 +27,8 @@ Public API: none (pytest test module).
 Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
                shell assignment injection + completion marker), the real `jq`
                binary on PATH (NOT stubbed - see the Major-2 note above),
-               content/commands/ds-implement-ticket.md and
-               content/references/conventions-detail.md (the blocks under
-               test).
+               content/references/conventions-detail.md (the sole source of
+               all three blocks under test as of round 3).
 
 Downstream consumers: .github/workflows/bin-tests.yml (auto-discovered by the
                generic `pytest bin/tests/ -q` step; no per-file floor is
@@ -58,7 +59,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import lib.md_shell_extract as mse  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-CMD_MD = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
 CONV_MD = REPO_ROOT / "content" / "references" / "conventions-detail.md"
 
 MARKER_TIMEOUT_QUEUE = "phase10-timeout-auto-merge-queue"
@@ -162,7 +162,14 @@ def _assert_completed(result: subprocess.CompletedProcess) -> None:
 
 
 def _require_jq() -> None:
+    """Same discipline as _shell_or_skip(): a command -v-shaped guard must
+    hard-fail under CI or the job goes green asserting nothing (round-3
+    Skeptic Major 2 - this function previously always skipped, silently
+    disabling 9 tests including the blast-radius regression, in any CI image
+    lacking jq)."""
     if shutil.which("jq") is None:
+        if os.environ.get("CI"):
+            pytest.fail("jq not found in CI - the python-bin-tests job must install it")
         pytest.skip("jq not found on this machine - required to exercise the real filter")
 
 
@@ -187,7 +194,7 @@ def test_timeout_toggle_false_makes_no_gh_call_and_leaves_queued_false(tmp_path,
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path)
     script = mse.with_shell_assignments(
-        _block(MARKER_TIMEOUT_QUEUE, CMD_MD),
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
         {"AUTO_MERGE_ON_CI_GREEN": "false", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
          "TIMEOUT_POLLS": "60"},
     )
@@ -219,7 +226,7 @@ def test_timeout_toggle_true_and_merge_succeeds_undrafts_then_queues(tmp_path, s
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="0", AE_GH_READY_EXIT="0")
     script = mse.with_shell_assignments(
-        _block(MARKER_TIMEOUT_QUEUE, CMD_MD),
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
         {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
          "TIMEOUT_POLLS": "60"},
     )
@@ -260,11 +267,16 @@ def test_timeout_toggle_true_and_merge_fails_falls_through_cleanly(tmp_path, she
     """Mutation this catches: reporting `auto-merge-queued: true` (or leaving
     AUTO_MERGE_QUEUED set to true) on the failure branch, which would falsely
     persuade the resume-check (tests below) to skip re-polling a PR that was
-    never actually queued, and would wrongly print the QUEUED-worded line."""
+    never actually queued, and would wrongly print the QUEUED-worded line.
+    Also catches (round-3 Minor 2): dropping the `gh pr ready --undo`
+    compensation on this branch, which would leave the PR permanently
+    ready-for-review (requesting CODEOWNERS review prematurely) even though
+    the auto-merge queue was never actually placed - the un-draft call two
+    lines above is not itself reversible without this second call."""
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_READY_EXIT="0")
     script = mse.with_shell_assignments(
-        _block(MARKER_TIMEOUT_QUEUE, CMD_MD),
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
         {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
          "TIMEOUT_POLLS": "60"},
     )
@@ -273,7 +285,15 @@ def test_timeout_toggle_true_and_merge_fails_falls_through_cleanly(tmp_path, she
     _assert_completed(result)
 
     argv = _gh_argv(log_path)
-    assert len([c for c in argv if c[:2] == ["pr", "ready"]]) == 1, argv
+    readies = [c for c in argv if c[:2] == ["pr", "ready"]]
+    assert len(readies) == 2, (
+        f"expected un-draft then re-draft-undo (2 gh pr ready calls) on the "
+        f"merge-failure branch: {argv}"
+    )
+    assert "--undo" in readies[1], (
+        f"the second gh pr ready call must be the --undo compensation, not "
+        f"a duplicate un-draft: {readies}"
+    )
     merges = [c for c in argv if c[:2] == ["pr", "merge"]]
     assert len(merges) == 1, merges
     assert "RESULT_AUTO_MERGE_QUEUED=false" in result.stdout, result.stdout
@@ -298,7 +318,7 @@ def test_resume_when_already_merged_skips_without_a_second_merge_call(tmp_path, 
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_STATE="MERGED")
     script = mse.with_shell_assignments(
-        _block(MARKER_RESUME_CHECK, CMD_MD),
+        _block(MARKER_RESUME_CHECK, CONV_MD),
         {"AUTO_MERGE_QUEUED": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
     )
     result = _run(tmp_path, shell, script, env)
@@ -321,7 +341,7 @@ def test_resume_when_still_open_reenters_poll_without_requeuing(tmp_path, shell)
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_STATE="OPEN")
     script = mse.with_shell_assignments(
-        _block(MARKER_RESUME_CHECK, CMD_MD),
+        _block(MARKER_RESUME_CHECK, CONV_MD),
         {"AUTO_MERGE_QUEUED": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
     )
     result = _run(tmp_path, shell, script, env)
@@ -341,7 +361,7 @@ def test_resume_when_not_queued_takes_the_absent_branch(tmp_path, shell):
     shell = _shell_or_skip(shell)
     env, log_path = _gh_stub_env(tmp_path)
     script = mse.with_shell_assignments(
-        _block(MARKER_RESUME_CHECK, CMD_MD),
+        _block(MARKER_RESUME_CHECK, CONV_MD),
         {"AUTO_MERGE_QUEUED": "false", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
     )
     result = _run(tmp_path, shell, script, env)
@@ -606,7 +626,7 @@ def test_timeout_queue_block_has_no_dependency_on_loop_state_or_loop_key(tmp_pat
     env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="0", AE_GH_READY_EXIT="0")
     env.pop("LOOP_KEY", None)
     script = mse.with_shell_assignments(
-        _block(MARKER_TIMEOUT_QUEUE, CMD_MD),
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
         {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "99", "GH_REPO": "acme/widget",
          "TIMEOUT_POLLS": "60"},
     )

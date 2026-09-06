@@ -403,23 +403,7 @@ else:
 | ci_loop | ci_poll_pending | Re-enter Phase 10 poll loop from current iteration. |
 | ci_loop | cap_exceeded | Do NOT auto-resume. Surface the prior escalation summary and require human direction. |
 
-**`ci_wait | timeout` resume check (mechanized form of the table row above):**
-
-```bash
-# @harness:phase10-resume-auto-merge-check
-if [ "$AUTO_MERGE_QUEUED" = "true" ]; then
-  PR_STATE_NOW=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)
-  if [ "$PR_STATE_NOW" = "MERGED" ]; then
-    echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: already-merged | action: skip-to-phase-10b]"
-  else
-    echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: still-open | action: re-enter-poll-no-requeue]"
-  fi
-else
-  echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: not-queued | action: re-enter-poll]"
-fi
-```
-
-`$AUTO_MERGE_QUEUED` here is read from `loop_state.auto_merge_queued` on the resumed `.agentic/loop-state-$LOOP_KEY.json`, not recomputed - it is the value Phase 10's timeout handling wrote at interruption. This check never calls `gh pr merge` again on either branch; it only decides whether to skip to Phase 10b or re-enter the poll.
+Mechanized form of the row above: `content/references/conventions-detail.md` §Auto-merge follow-through -> "`ci_wait | timeout` resume check". Never calls `gh pr merge` again; only decides skip-to-Phase-10b vs re-enter-poll.
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -3027,39 +3011,7 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 - `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
 - `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
 - `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
-- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. See "Phase 10 timeout handling" immediately below for the full write and STOP.
-
-**Phase 10 timeout handling.** This is one call site of the "Auto-merge follow-through" rule (`content/rules/conventions.md` §Git Workflow and `content/references/conventions-detail.md` §Auto-merge follow-through carry the general trigger and the honest-report obligation; this site does not restate them). When `auto_merge_on_ci_green` is `true`, attempt to queue GitHub's own server-side auto-merge before writing loop state, so a PR that later goes green does not require a resumed session to actually merge:
-
-```bash
-# @harness:phase10-timeout-auto-merge-queue
-if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
-  # The PR is still a draft on this path (Phase 10b's un-draft never ran -
-  # it is conditional on Phase 10 result: passed). GitHub refuses --auto on a
-  # draft at the GraphQL mutation layer, so un-draft FIRST using the exact
-  # same call and soft-fail semantics as Phase 10b's "Mark ready-for-review"
-  # step below - this is a second call site of that step, not a divergent
-  # copy of it. Un-drafting is safe by construction: --auto only QUEUES the
-  # merge behind required checks, so nothing merges early because of it.
-  gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null
-  if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
-    echo "[phase: ci-wait | result: timeout | auto-merge-queued: true | pr=$PR_NUMBER]"
-    AUTO_MERGE_QUEUED=true
-  else
-    echo "[phase: ci-wait | result: timeout | auto-merge-queue-failed | pr=$PR_NUMBER]"
-    AUTO_MERGE_QUEUED=false
-  fi
-else
-  AUTO_MERGE_QUEUED=false
-fi
-if [ "$AUTO_MERGE_QUEUED" = "true" ]; then
-  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Queued for auto-merge once required checks pass: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-else
-  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Open for human review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-fi
-```
-
-Write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: $AUTO_MERGE_QUEUED` to `.agentic/loop-state-$LOOP_KEY.json` (`auto_merge_queued` is a new top-level field on this schema, default `false` - see the P2 schema's Field notes below), then STOP (do NOT auto-fix, do NOT proceed). The human-review/queued-status line above is now printed FROM WITHIN this marked block, on every path (queued or not) - it is no longer a separate unconditional plain-text block, and it now says which of the two happened rather than always saying "Open for human review" regardless. Human decides whether to extend the wait or escalate. **`--auto` exiting 0 means QUEUED, not MERGED** - Phase 12's "Conditional auto-merge" section below documents the same distinction and the `Allow auto-merge` repository precondition; that explanation is not duplicated here. No tracker writeback (W7) fires from this path - if the queued merge later completes, the session-start pending-merge sweep picks up the dev-complete transition, the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`, write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
 
 ---
 
