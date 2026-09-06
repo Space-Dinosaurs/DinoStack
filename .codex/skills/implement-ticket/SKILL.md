@@ -456,11 +456,13 @@ else:
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
 | quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
-| ci_wait | timeout | Re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
+| ci_wait | timeout | If `loop_state.auto_merge_queued` is `true`: run `gh pr view $PR_NUMBER --json state -q .state`. If `MERGED`, skip to Phase 10b (do NOT re-queue). If still open, re-enter the Phase 10 poll loop without re-queuing. If `auto_merge_queued` is `false` or absent: unchanged - re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
 | ci_loop | fix_engineer_spawned | Re-spawn the fix engineer from the latest commit on the branch (assumes prior spawn was interrupted). Resume from cycle N. |
 | ci_loop | fix_engineer_returned | Re-enter Phase 10 poll loop to check CI status. |
 | ci_loop | ci_poll_pending | Re-enter Phase 10 poll loop from current iteration. |
 | ci_loop | cap_exceeded | Do NOT auto-resume. Surface the prior escalation summary and require human direction. |
+
+Mechanized form of the row above: `$AE_REPO_DIR/content/references/conventions-detail.md` §Auto-merge follow-through -> "`ci_wait | timeout` resume check". Never calls `gh pr merge` again; only decides skip-to-Phase-10b vs re-enter-poll.
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -1940,6 +1942,7 @@ Before the loop starts, initialize loop state and write it to `$AE_PROJECT_DIR/.
   "interrupt_reason": null,
   "last_phase": "skeptic",
   "last_phase_action": "spawned",
+  "auto_merge_queued": false,
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
@@ -1964,6 +1967,7 @@ Before the loop starts, initialize loop state and write it to `$AE_PROJECT_DIR/.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (SessionEnd hook or crash - see Contract D; the Stop hook only refreshes `last_updated` liveness on `--cadence=turn` and never sets this value), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
+- `auto_merge_queued` is a boolean, default `false`. Written `true` only by Phase 10's timeout handling, only when `auto_merge_on_ci_green` is `true` and `gh pr merge --auto` exits 0 - i.e. GitHub's own server-side auto-merge queue accepted the PR. No other phase writes this field. The Resume entry point table's `ci_wait | timeout` row consults it to avoid re-queuing a PR that is already queued (or already merged).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
 - At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
@@ -3066,7 +3070,7 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 - `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
 - `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
 - `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
-- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`, write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `$AE_REPO_DIR/content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
 
 ---
 

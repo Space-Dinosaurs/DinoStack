@@ -788,6 +788,8 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same five-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`, honoring `knowledge_commit_exclude` so an operator-excluded file is never surfaced; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
 
+**Sibling-PR auto-merge sweep.** Runs at session start after the knowledge-strand sweep. Entirely inert (zero `gh` calls) unless `auto_merge_on_ci_green` is `true`; when enabled, rebases every other open, non-draft PR the agent owns (`gh pr list --author "@me"`) whose auto-merge is ALREADY enabled (`autoMergeRequest` non-null) but stuck `BEHIND` a moved `$BASE_BRANCH` - it never newly queues a PR's auto-merge, only unsticks one this mechanism (or the operator) already queued. See `content/references/conventions-detail.md` §Session-Start Sweeps -> "Sibling-PR auto-merge sweep" for the procedure and soft-fail contract.
+
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
@@ -882,6 +884,8 @@ git branch -d <branch-name>
 **Merging:** After Skeptic sign-off, subagent branches merge back into the conductor's current branch. The conductor's branch (not the individual subagent branch) then opens a PR into `main`. PRs are required regardless of whether other sessions are active - they make in-flight work visible and force explicit conflict resolution.
 
 **Merge-time tracker writeback.** An agent's own `gh pr merge` exiting 0 outside `/ds-implement-ticket` Phase 12 auto-merge fires `/ds-ticket-status-sync <TICKET_ID> --pr <PR_NUMBER> --no-confirm`. `--auto` exiting 0 means QUEUED, not merged, and does not fire it. Full: `content/references/conventions-detail.md` §Merge-Time Tracker Writeback.
+
+**Auto-merge follow-through.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true` in `.agentic/config.json`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue then fails - never touching a PR the operator had already marked ready, since "Allow auto-merge" may be off. This is the ad-hoc instruction, never gated on a particular command; Phase 10, Phase 12, and the sweep instantiate it unevenly - full breakdown: `content/references/conventions-detail.md` §Auto-merge follow-through. `--auto` exiting 0 means QUEUED, not merged. When the toggle is `false` (default), nothing fires and **a turn must state the PR's real state, never a future merge intention it has no mechanism to carry out**.
 
 **Cleanup:** Remove worktrees after the subagent branch is merged or the task is explicitly closed. Do not leave stale worktrees. Between tasks there should be no active subagent worktrees.
 
@@ -2761,13 +2765,22 @@ Purpose: Detailed conventions reference blocks extracted from
          content/rules/conventions.md. Contains: the full Intent Layer
          section (artifact list, intent debt, Project Overview Layer,
          Project Config toggle prose, and Ubiquitous Language); the
-         Session-Start Sweeps detail (knowledge-strand sweep mechanics);
+         Session-Start Sweeps detail (knowledge-strand sweep mechanics AND
+         the sibling-PR auto-merge sweep, `@harness:sibling-pr-sweep`);
          the full Merge-Time Tracker Writeback rule (its short resident
          rule-statement, with the trigger, the exact invocation and the
          --auto carve-out, lives in content/rules/conventions.md
          § Git Workflow; the operand preconditions, soft-fail behavior,
          TRACKER == none no-op and target-state clause live here - the two
          are one rule split by load tier, not two rules);
+         the full Auto-merge follow-through rule (three-mechanism detail -
+         Phase 12's immediate-merge/draft-refusal/knowledge-commit-sub-branch
+         shape, Phase 10's timeout un-draft-then-queue procedure
+         `@harness:phase10-timeout-auto-merge-queue` and its resume check
+         `@harness:phase10-resume-auto-merge-check`, and the sibling-PR
+         sweep's never-newly-queues invariant; the short resident
+         rule-statement lives in content/rules/conventions.md § Git
+         Workflow);
          the Context Economy rules; and the External Comment Discipline
          rules.
 
@@ -2789,7 +2802,12 @@ Downstream consumers: conductor (Intent Layer for understanding artifact
                       ticket descriptions, commit messages, assembled PR
                       bodies, tracker comments, and review comments; Context
                       Economy for output discipline); content/sections/
-                      12-protocol-details.md (conventions reference).
+                      12-protocol-details.md (conventions reference);
+                      bin/tests/test_auto_merge_followthrough_shell.py
+                      (extracts and executes the three `@harness:`-marked
+                      Auto-merge follow-through blocks named above against
+                      real bash and zsh, under a stubbed `gh` and the real
+                      system `jq`).
 
 Failure modes: Prose reference; does not auto-execute. The Project Config
                toggle list here is a conventions-angle mirror of the
@@ -2841,7 +2859,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
 - `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
-- `auto_merge_on_ci_green` - boolean, default `false`; when `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR once CI is green, the PR is marked ready, and no reviewer has requested changes. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
+- `auto_merge_on_ci_green` - boolean, default `false`; governs the "Auto-merge follow-through" rule (see below) - not scoped to `/ds-implement-ticket` alone. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default flipped to `blocking` at P2 now that all agent manifests are populated. See `content/references/capability-preflight.md` for the full preflight protocol.
 - `perceptual_diff_enabled` - boolean, default `false`. When `true`, qa-engineer runs Playwright `toHaveScreenshot` against committed baselines in `tests/visual-baselines/` and raises auto-Major on drift exceeding per-scenario `tolerance`. Opt-in; baseline maintenance overhead justifies the default of `false`.
 - `theme_aware` - boolean, default `false`. Opt-in for the `theme` field on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer toggles light/dark themes and runs per-(scenario x viewport x theme) tuples. Default toggle covers CSS class (`document.documentElement.classList.toggle('dark')`) and data-attribute (`setAttribute('data-theme', 'dark')`) patterns; other patterns require a `theme` knowledge tag in `qa.md`.
@@ -2901,6 +2919,101 @@ KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /d
 ```
 
 Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`); file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
+
+### Sibling-PR auto-merge sweep
+
+Runs at session start, after the knowledge-strand sweep. Skip entirely - zero `gh` calls - unless `auto_merge_on_ci_green` is `true` in `.agentic/config.json` (same toggle "Phase 10 timeout call site" below and `content/commands/ds-implement-ticket.md` Phase 12's "Conditional auto-merge" already gate on). When the toggle is `false` (default), this sweep fires no behavior and states no merge intention.
+
+**This sweep never newly queues a PR.** It only unsticks a PR whose auto-merge is already enabled (`autoMergeRequest` is non-null - GitHub sets this the moment `gh pr merge --auto` or the repo's own merge-queue UI enables it) but has gone `BEHIND` because the base branch moved since it was queued: `--auto` alone does not rebase a stale branch, so a queued PR can sit stuck indefinitely without this sweep. A PR the agent never queued (`autoMergeRequest` null) is never touched, regardless of its `mergeStateStatus` - this is what keeps the blast radius bounded to PRs this same mechanism (or the operator, manually) already opted in, never every open PR the agent happens to own.
+
+List every other open, non-draft PR the agent owns (`gh pr list --author "@me"`, capped at `--limit 100`; beyond that this sweep does not paginate) against `$BASE_BRANCH`, and for each PR whose `mergeStateStatus` is `BEHIND` and whose `autoMergeRequest` is already set, rebase it (ascending PR-number order, FIFO) to unstick the existing queue - never re-invoking `gh pr merge --auto`, since the queue already exists and re-triggering it is unnecessary. A `mergeStateStatus` of `UNKNOWN` (GitHub computes mergeability lazily) fails the `BEHIND` match and is silently skipped this pass, same as `CLEAN` or any other non-`BEHIND` value - not a distinct case. Word-splitting note: the loop below reads one PR number per line via `IFS= read -r`, not unquoted `for N in $VAR` - the latter is safe under bash but silently fails to split on newlines under zsh, collapsing a multi-line result into one malformed argument. Preconditions this block does not itself establish or guard: `$AUTO_MERGE_ON_CI_GREEN`, `$GH_REPO`, and `$BASE_BRANCH` are assumed already resolved per Setup (as at every other call site in this methodology), and a `jq` binary is assumed present on PATH (same assumption every other `jq`-consuming block here makes).
+
+```bash
+# @harness:sibling-pr-sweep
+if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  SIBLING_PRS=$(gh pr list --repo "$GH_REPO" --base "$BASE_BRANCH" --author "@me" --limit 100 --json number,mergeStateStatus,isDraft,autoMergeRequest 2>/dev/null)
+  if [ -n "$SIBLING_PRS" ]; then
+    STUCK_NUMBERS=$(echo "$SIBLING_PRS" | jq -r '[.[] | select(.mergeStateStatus == "BEHIND" and .isDraft == false and .autoMergeRequest != null) | .number] | sort | .[]')
+    while IFS= read -r N; do
+      [ -n "$N" ] || continue
+      if gh pr update-branch "$N" --repo "$GH_REPO" --rebase 2>/dev/null; then
+        echo "[phase: sibling-pr-sweep | pr=$N | result: rebased-unstuck-queue]"
+      else
+        echo "[phase: sibling-pr-sweep | pr=$N | result: rebase-failed]"
+      fi
+    done <<< "$STUCK_NUMBERS"
+  fi
+fi
+```
+
+Soft-fail per PR - a single PR's rebase failure is reported and the sweep continues to the next PR; a single PR's failure never blocks the sweep or the rest of the session-start sequence. Rebasing does not itself merge anything or fire a tracker writeback; the session-start pending-merge sweep remains the sole mechanism that pushes the dev-complete transition once the already-queued merge actually lands.
+
+## Auto-merge follow-through
+
+Parent rule: `content/rules/conventions.md` §Git Workflow ("Auto-merge follow-through") carries the trigger, the toggle-`false` honest-report duty, and the QUEUED-not-merged fact in resident form; the toggle-`true` reporting duty (name the queue as QUEUED, not the merge as done) is detail-only, stated in full just below. This section is the full mechanism; the two are one rule split by load tier, never two rules.
+
+**The trigger is the event, not a command.** Whenever an agent has opened a PR it owns against `$BASE_BRANCH` and `auto_merge_on_ci_green` is `true`, IT un-drafts the PR if needed and queues `gh pr merge <N> --squash --delete-branch --auto`, re-drafting (`gh pr ready --undo`) ONLY IF IT performed that un-draft itself and the queue attempt then fails - never touching a PR the operator had already marked ready - so a repo without "Allow auto-merge" enabled is never left stranded ready-for-review by IT's own action - this is the actionable instruction, and an ad-hoc session (conductor-orchestrated work, a bare `gh pr create`, multi-unit fan-out) follows it directly with no command precondition. It is not one mechanism, it is three, and they differ - the three sites, verified against the code (a shorter version of the same three-way distinction is also resident in `content/rules/conventions.md` § Git Workflow; several other project docs also describe this toggle's behavior and point back here - this section is the full detail, not the only description):
+
+1. **`/ds-implement-ticket` Phase 12's conditional auto-merge - immediate merge, drafts refused, `--auto` only on one narrow sub-branch.** Phase 12 requires `isDraft: false` before attempting anything (`auto-merge-skipped` otherwise) - it never un-drafts, because a draft never reaches this code. Its dominant branch is `gh pr merge <N> --squash --delete-branch` with **no** `--auto`: an immediate merge that fires tracker writeback (W7) on success. `--auto` appears only on the narrow sub-branch where Phase 11e just pushed a `chore(knowledge):` commit and CI is re-running for that reason alone - see Phase 12's own "Conditional auto-merge" section for that sub-branch's full detail; not restated here.
+2. **Phase 10's timeout handling - checks, un-drafts if needed, then queues `--auto`.** Unlike Phase 12, the PR here is EXPECTED to still be a draft on a fresh timeout (Phase 10b's un-draft never ran - it is conditional on Phase 10 result: `passed`) - but that is not a hard invariant: a resumed poll cycle, or an operator manually marking the PR ready between polls, can mean it is already non-draft by the time this block runs. The block checks `isDraft` at runtime rather than assuming, un-drafts only if that check says `true`, then queues `gh pr merge <N> --squash --delete-branch --auto`. Full procedure: "Phase 10 timeout call site (full procedure)" below.
+3. **The session-start sibling-PR sweep - never queues, only unsticks.** It rebases an open PR whose auto-merge is already enabled (by site 1 or 2, or by the operator manually) but stuck `BEHIND` a moved base; it never calls `gh pr merge` itself. See "Sibling-PR auto-merge sweep" above.
+
+**Honest-report obligation.** When `auto_merge_on_ci_green` is `false` (default), nothing queues, and a turn must state the PR's real state - never a future merge intention it has no mechanism to carry out. "Next I merge those two once CI is green" describes an event nothing in the session will actually perform once the turn ends. When a queue was placed, `--auto` exiting 0 means QUEUED, not MERGED, and the report must say so, not claim the merge happened.
+
+### Phase 10 timeout call site (full procedure)
+
+Called from `content/commands/ds-implement-ticket.md` Phase 10's Outcome routing, on the `Loop hit TIMEOUT_POLLS` outcome. When `auto_merge_on_ci_green` is `true`, check whether the PR is still a draft (the EXPECTED state on a fresh timeout, since Phase 10b's own un-draft is conditional on Phase 10 result: `passed`, which never fires on this path - but a resumed poll cycle or a manual `gh pr ready` between polls can make it non-draft by now, so the block checks rather than assumes), un-draft only if the check says `true`, then queue `--auto`:
+
+```bash
+# @harness:phase10-timeout-auto-merge-queue
+if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
+  WAS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft -q .isDraft 2>/dev/null)
+  UNDRAFTED_HERE=false
+  if [ "$WAS_DRAFT" = "true" ]; then
+    gh pr ready "$PR_NUMBER" --repo "$GH_REPO" 2>/dev/null && UNDRAFTED_HERE=true
+  fi
+  if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+    echo "[phase: ci-wait | result: timeout | auto-merge-queued: true | pr=$PR_NUMBER]"
+    AUTO_MERGE_QUEUED=true
+  else
+    if [ "$UNDRAFTED_HERE" = "true" ]; then
+      gh pr ready "$PR_NUMBER" --repo "$GH_REPO" --undo 2>/dev/null
+      echo "[phase: ci-wait | result: timeout | re-drafted-on-queue-failure: true | pr=$PR_NUMBER]"
+    fi
+    echo "[phase: ci-wait | result: timeout | auto-merge-queue-failed | pr=$PR_NUMBER]"
+    AUTO_MERGE_QUEUED=false
+  fi
+else
+  AUTO_MERGE_QUEUED=false
+fi
+if [ "$AUTO_MERGE_QUEUED" = "true" ]; then
+  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Queued for auto-merge once required checks pass: https://github.com/$GH_REPO/pull/$PR_NUMBER"
+else
+  echo "PR #$PR_NUMBER: CI still pending after $TIMEOUT_POLLS polls. Open for human review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
+fi
+```
+
+**Un-draft failure-branch compensation.** The block only re-drafts the PR (`gh pr ready --undo`) when IT was the one that un-drafted it (`$WAS_DRAFT` was `true` at entry, tracked via `$UNDRAFTED_HERE`) AND the subsequent `--auto` call then fails. This distinction is load-bearing: `--auto` fails on every timeout when the repository does not have "Allow auto-merge" enabled (GitHub's own default, and a named limitation of this whole mechanism) - if the block re-drafted unconditionally on that failure, it would silently reverse an operator's own prior `gh pr ready` on every such repo, on every timeout, with no echo. The `re-drafted-on-queue-failure` line fires only on the actual re-draft, never on a bare queue failure. `--undo` is itself best-effort: some GitHub plans do not support converting a PR back to draft (`gh pr ready --help` notes this itself), in which case the PR is left ready-for-review with CI still pending - a disclosed soft-fail, not a blocking condition.
+
+After the block runs, write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: $AUTO_MERGE_QUEUED` to `.agentic/loop-state-$LOOP_KEY.json` (`auto_merge_queued` is a top-level field on that schema, default `false` - see its P2 schema Field notes), then STOP (do NOT auto-fix, do NOT proceed). The human-review/queued-status echo above is printed from inside the marked block on every path (queued or not); it is not a separate plain-text line, and it names which of the two outcomes happened. Human decides whether to extend the wait or escalate. `--auto` exiting 0 means QUEUED, not MERGED - Phase 12's "Conditional auto-merge" section documents the same distinction and the `Allow auto-merge` repository precondition; not duplicated here. No tracker writeback (W7) fires from this path - if the queued merge later completes, the session-start pending-merge sweep picks up the dev-complete transition, the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
+
+**`ci_wait | timeout` resume check** (mechanized form of the Resume entry point table's `ci_wait | timeout` row in `content/commands/ds-implement-ticket.md`):
+
+```bash
+# @harness:phase10-resume-auto-merge-check
+if [ "$AUTO_MERGE_QUEUED" = "true" ]; then
+  PR_STATE_NOW=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)
+  if [ "$PR_STATE_NOW" = "MERGED" ]; then
+    echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: already-merged | action: skip-to-phase-10b]"
+  else
+    echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: still-open | action: re-enter-poll-no-requeue]"
+  fi
+else
+  echo "[phase: ci-wait-resume | pr=$PR_NUMBER | result: not-queued | action: re-enter-poll]"
+fi
+```
+
+`$AUTO_MERGE_QUEUED` here is read from `loop_state.auto_merge_queued` on the resumed `.agentic/loop-state-$LOOP_KEY.json`, not recomputed - it is the value the timeout-handling block above wrote at interruption. This check never calls `gh pr merge` again on either branch; it only decides whether to skip to Phase 10b or re-enter the poll.
 
 ## Merge-Time Tracker Writeback
 
@@ -6298,7 +6411,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-five project-level 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
 - `model_profile` - enum (`default` | `budget`); **absent-key default: `"default"`**. Unrecognized values also fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges).
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges). Also governs the event-keyed "Auto-merge follow-through" rule (not scoped to `/ds-implement-ticket`) - full three-mechanism detail, verified against the code: `content/references/conventions-detail.md` §Auto-merge follow-through.
 - `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
 - `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
 - `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples; when `true`, qa-engineer runs `visual_conformance` and `accessibility` scenarios in both light and dark themes and reports per-(scenario x viewport x theme) results. The conductor reads this toggle when inspecting `qa_criteria` to determine whether theme enforcement auto-Major rules apply.
@@ -9097,7 +9210,7 @@ jobs:
 
 ## Related config
 
-`auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
+`auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes; Phase 10's timeout handling instead un-drafts the PR if needed and queues `--auto` before surfacing the PR for human review (`--auto` refuses a draft PR, which Phase 12's dominant path never hits). A third mechanism, a session-start sweep, never newly queues - it only rebases an open sibling PR whose auto-merge is already enabled but stuck `BEHIND` a moved base. Full detail: `content/references/conventions-detail.md` §Auto-merge follow-through. Documented in `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral).
 
 `content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: per-ticket `loop-state-<LOOP_KEY>.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not a `loop-state-<LOOP_KEY>.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/ds-implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.
 
@@ -17178,11 +17291,13 @@ else:
 | quality_gate | rerun_pending | On the Elevated path: wait for the fix-engineer return and verify its `quality_gate_results` - do not invoke `$QUALITY_CMD` directly. On the Trivial path: re-run `$QUALITY_CMD`. |
 | quality_gate | debugger_spawned | Re-spawn Debugger from scratch with the captured gate failure output (Debugger is read-only and idempotent - same pattern as "Full Skeptic re-run on interruption"). |
 | quality_gate | debugger_returned | Debugger output was captured before interruption. Proceed to spawn the next engineer fix pass with the Debugger's Fix brief. No Debugger re-run needed. |
-| ci_wait | timeout | Re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
+| ci_wait | timeout | If `loop_state.auto_merge_queued` is `true`: run `gh pr view $PR_NUMBER --json state -q .state`. If `MERGED`, skip to Phase 10b (do NOT re-queue). If still open, re-enter the Phase 10 poll loop without re-queuing. If `auto_merge_queued` is `false` or absent: unchanged - re-enter Phase 10 poll loop once (operator may have manually fixed; if still timing out, re-escalate). |
 | ci_loop | fix_engineer_spawned | Re-spawn the fix engineer from the latest commit on the branch (assumes prior spawn was interrupted). Resume from cycle N. |
 | ci_loop | fix_engineer_returned | Re-enter Phase 10 poll loop to check CI status. |
 | ci_loop | ci_poll_pending | Re-enter Phase 10 poll loop from current iteration. |
 | ci_loop | cap_exceeded | Do NOT auto-resume. Surface the prior escalation summary and require human direction. |
+
+Mechanized form of the row above: `content/references/conventions-detail.md` §Auto-merge follow-through -> "`ci_wait | timeout` resume check". Never calls `gh pr merge` again; only decides skip-to-Phase-10b vs re-enter-poll.
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
@@ -18662,6 +18777,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "interrupt_reason": null,
   "last_phase": "skeptic",
   "last_phase_action": "spawned",
+  "auto_merge_queued": false,
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
@@ -18686,6 +18802,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (SessionEnd hook or crash - see Contract D; the Stop hook only refreshes `last_updated` liveness on `--cadence=turn` and never sets this value), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
+- `auto_merge_queued` is a boolean, default `false`. Written `true` only by Phase 10's timeout handling, only when `auto_merge_on_ci_green` is `true` and `gh pr merge --auto` exits 0 - i.e. GitHub's own server-side auto-merge queue accepted the PR. No other phase writes this field. The Resume entry point table's `ci_wait | timeout` row consults it to avoid re-queuing a PR that is already queued (or already merged).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
 - At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
@@ -19788,7 +19905,7 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 - `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
 - `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
 - `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
-- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `.agentic/loop-state-$LOOP_KEY.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`, write `last_phase: ci_wait, last_phase_action: timeout, auto_merge_queued: <bool>` to `.agentic/loop-state-$LOOP_KEY.json`, and STOP (do NOT auto-fix, do NOT proceed). When `auto_merge_on_ci_green` is `true` this is a call site of the "Auto-merge follow-through" rule - procedure, exact `gh` invocations, and message wording: `content/references/conventions-detail.md` §Auto-merge follow-through -> "Phase 10 timeout call site (full procedure)".
 
 ---
 
@@ -21688,7 +21805,7 @@ Seed with these documented defaults exactly:
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
 - `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
-- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR once CI is green, the PR is marked ready, and no reviewer has requested changes. See `content/rules/conventions.md` §Project Config for semantics.
+- `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR once CI is green, the PR is marked ready, and no reviewer has requested changes. See `content/references/conventions-detail.md` §Auto-merge follow-through for the full event-keyed rule (not scoped to `/ds-implement-ticket` alone).
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"blocking"`. See `content/rules/conventions.md` §Project Config for semantics.
 - `perceptual_diff_enabled` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.
 - `theme_aware` - boolean, default `false`. Opt-in for per-theme QA tuples on `visual_conformance` and `accessibility` scenarios. See `content/rules/conventions.md` §Project Config for semantics.

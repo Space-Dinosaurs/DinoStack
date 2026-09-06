@@ -148,8 +148,15 @@ jobs:
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json`
 enables unsupervised merge when an action-triggered flow completes CI-green.
 When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI
-checks pass, the PR is marked ready, and no reviewer has requested changes.
-Documented in `content/sections/04-risk-classification.md` §Project config.
+checks pass, the PR is marked ready, and no reviewer has requested changes;
+Phase 10's timeout handling instead un-drafts the PR if needed and queues
+`--auto` before surfacing the PR for human review (`--auto` refuses a draft
+PR, which Phase 12's dominant path never hits). A session-start sweep never
+newly queues - it only rebases an open sibling PR whose auto-merge is
+already enabled but stuck `BEHIND` a moved base. Full detail:
+`content/references/conventions-detail.md` §Auto-merge follow-through.
+Documented in `content/references/risk-config-and-tiers.md` §Config Toggle
+Catalog (behavioral).
 
 ## Related references
 

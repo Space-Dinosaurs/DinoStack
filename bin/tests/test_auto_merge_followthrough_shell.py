@@ -1,0 +1,825 @@
+"""
+Purpose: Executes the shell blocks the auto-merge follow-through feature added
+         to content/references/conventions-detail.md's "Auto-merge
+         follow-through" section (`@harness:phase10-timeout-auto-merge-queue`,
+         `@harness:phase10-resume-auto-merge-check`, `@harness:sibling-pr-sweep`
+         - all three moved here from content/commands/ds-implement-ticket.md
+         in round 3 to relieve that file's command-file-budget gate; the call
+         site there is now a one-line pointer) against a stubbed `gh` and the
+         REAL system `jq`, instead of only ever reading them as prose or
+         against a jq stub that reimplements the filter in Python (round-1
+         Skeptic Major 2 - a stub filter tests the stub, not the doc). Every
+         test is written
+         from the shape of a DEFECT the block must not have: queuing a merge
+         when the toggle is off, attempting `--auto` against a still-draft PR
+         (round-1 Critical), claiming "merged" when `--auto` only queued,
+         re-queuing an already-queued or already-merged PR on resume, the
+         sibling-PR sweep making any `gh` call at all when the toggle is off,
+         newly queuing a PR nobody opted in (round-1 Major 3 - blast radius),
+         re-drafting a PR the block itself never un-drafted (round-4 Critical/
+         Major 1), and zsh word-splitting collapsing a multi-line PR list
+         into one malformed argument (round-1 Major 1) - every block below is
+         parametrized over both bash and zsh, matching the x2-shells floor
+         sibling extracted-block suites already carry in bin-tests.yml. An
+         UNKNOWN-mergeability PR is deliberately NOT a distinct defect shape
+         as of round 4 - it simply fails the BEHIND match, same as any other
+         non-BEHIND status, and is silently excluded with no special log
+         line; see test_sibling_sweep_excludes_unknown_mergeability_same_as_any_non_behind.
+
+Public API: none (pytest test module).
+
+Upstream deps: bin/tests/lib/md_shell_extract.py (extraction + non-exported
+               shell assignment injection + completion marker), the real `jq`
+               binary on PATH (NOT stubbed - see the Major-2 note above),
+               content/references/conventions-detail.md (the sole source of
+               all three blocks under test as of round 3).
+
+Downstream consumers: .github/workflows/bin-tests.yml (auto-discovered by the
+               generic `pytest bin/tests/ -q` step; no per-file floor is
+               registered for this module).
+
+Failure modes: n/a (test module). Every `gh` invocation is logged to a file
+               via a stub script placed first on PATH; assertions read that
+               log rather than trusting the block's own stdout claims. `jq`
+               is never stubbed - a mutation to the block's actual filter
+               text is what reddens the sibling-sweep filter tests, not a
+               change to test fixture code.
+
+Performance: standard; each test forks one or two subprocesses against a tiny
+             stub `gh` plus the real `jq`, no real git repo involved.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib.md_shell_extract as mse  # noqa: E402
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+CONV_MD = REPO_ROOT / "content" / "references" / "conventions-detail.md"
+
+MARKER_TIMEOUT_QUEUE = "phase10-timeout-auto-merge-queue"
+MARKER_RESUME_CHECK = "phase10-resume-auto-merge-check"
+MARKER_SIBLING_SWEEP = "sibling-pr-sweep"
+
+SHELLS = ["bash", "zsh"]
+BLOCK_TIMEOUT_SECONDS = 30
+
+
+def _shell_or_skip(shell: str) -> str:
+    """Skip locally when a shell is missing; hard-fail in CI so the zsh half
+    of the matrix can never be silently dropped (same guard as
+    test_phase11e_knowledge_commit_shell.py / test_knowledge_harness_smoke.py)."""
+    if shutil.which(shell) is None:
+        if os.environ.get("CI"):
+            pytest.fail(f"{shell} not found in CI - the python-bin-tests job must install it")
+        pytest.skip(f"{shell} not found on this machine")
+    return shell
+
+
+# Same stub shape as test_phase11e_knowledge_commit_shell.py's _GH_STUB: every
+# argv is logged (unit-separator joined) so assertions can inspect exact call
+# shape, and behavior is env-var-controlled per test. Deliberately covers only
+# `gh` - `jq` is NEVER stubbed in this module (round-1 Skeptic Major 2).
+_GH_STUB = r"""#!/bin/sh
+AE_GH_LOG='__LOG__'
+line=""
+for a in "$@"; do line="$line$a$(printf '\037')"; done
+printf '%s\n' "$line" >> "$AE_GH_LOG"
+
+case "$1 $2" in
+  "pr ready")
+    exit "${AE_GH_READY_EXIT:-0}" ;;
+  "pr merge")
+    exit "${AE_GH_MERGE_EXIT:-0}" ;;
+  "pr view")
+    case "$*" in
+      *"--json state"*)
+        printf '%s\n' "${AE_GH_PR_STATE:-OPEN}"
+        exit 0 ;;
+      *"--json isDraft"*)
+        [ "$AE_GH_FAIL_VIEW_DRAFT" = "1" ] && exit 1
+        printf '%s\n' "${AE_GH_PR_IS_DRAFT:-true}"
+        exit 0 ;;
+    esac
+    exit 1 ;;
+  "pr list")
+    if [ "$AE_GH_FAIL_LIST" = "1" ]; then
+      echo "gh: pr list failed (simulated network error)" >&2
+      exit 1
+    fi
+    printf '%s\n' "${AE_GH_PR_LIST_JSON:-[]}"
+    exit 0 ;;
+  "pr update-branch")
+    exit "${AE_GH_REBASE_EXIT:-0}" ;;
+esac
+exit 1
+"""
+
+
+def _block(marker: str, md_path: Path) -> str:
+    return mse.extract_marked_block(str(md_path), marker)
+
+
+def _gh_stub_env(tmp_path: Path, **overrides: str) -> tuple[dict, Path]:
+    """Prepend a bin dir containing ONLY a stubbed `gh` - real `jq` on PATH
+    is left to resolve normally, so any `jq -r '<filter>'` inside the block
+    under test executes for real against real JSON."""
+    bin_dir = tmp_path / "gh-stub-bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    log_path = bin_dir / "gh-argv.log"
+    log_path.write_text("", encoding="utf-8")
+    stub = bin_dir / "gh"
+    stub.write_text(_GH_STUB.replace("__LOG__", str(log_path)), encoding="utf-8")
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+    env.update(overrides)
+    return env, log_path
+
+
+def _gh_argv(log_path: Path) -> list[list[str]]:
+    raw = log_path.read_text(encoding="utf-8")
+    return [
+        [f for f in line.split("\x1f") if f != ""] for line in raw.splitlines() if line.strip()
+    ]
+
+
+def _run(tmp_path: Path, shell: str, script: str, env: dict) -> subprocess.CompletedProcess:
+    full = mse.with_completion_marker(script)
+    return subprocess.run(
+        [shell, "-c", full],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=BLOCK_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
+    )
+
+
+def _assert_completed(result: subprocess.CompletedProcess) -> None:
+    assert mse.COMPLETION_MARKER in result.stdout, (
+        f"block did not run to completion.\nSTDOUT:\n{result.stdout}\n"
+        f"STDERR:\n{result.stderr}"
+    )
+
+
+def _require_jq() -> None:
+    """Same discipline as _shell_or_skip(): a command -v-shaped guard must
+    hard-fail under CI or the job goes green asserting nothing (round-3
+    Skeptic Major 2 - this function previously always skipped, silently
+    disabling 9 tests including the blast-radius regression, in any CI image
+    lacking jq)."""
+    if shutil.which("jq") is None:
+        if os.environ.get("CI"):
+            pytest.fail("jq not found in CI - the python-bin-tests job must install it")
+        pytest.skip("jq not found on this machine - required to exercise the real filter")
+
+
+def test_require_jq_hard_fails_under_ci_when_jq_is_absent(monkeypatch):
+    """Round-4 Major 3, corrected round-5 Major 1: regression test for the
+    round-3 _require_jq() fix itself - nothing previously kept that fix real.
+    The original version of this test used `pytest.raises(pytest.fail.Exception)`
+    around a call that (on the reverted/mutant code) raises `pytest.skip`'s
+    `Skipped` instead - pytest treats ANY `Skipped` raised anywhere in a test
+    body as a SKIP outcome, not a failure, even when it escapes an unrelated
+    `pytest.raises()` block. The Skeptic proved this by reverting
+    `_require_jq()` to the old unconditional-skip shape and re-running: "1
+    skipped, 34 deselected", exit 0 - the test passed vacuously on the exact
+    reversion it exists to catch. Fixed by never letting the real
+    `pytest.skip`/`pytest.fail` control-flow exceptions execute at all:
+    both are monkeypatched to plain recorder functions, so the assertion is
+    on WHICH ONE was called, not on catching pytest's own special exception
+    types. Confirmed manually: reverting `_require_jq()` to unconditional
+    `pytest.skip(...)` now fails this test with `expected pytest.fail to be
+    called, got: [('skip', ...)]` rather than passing or skipping."""
+    calls = []
+
+    def _fake_fail(*args, **kwargs):
+        calls.append(("fail", args, kwargs))
+        raise RuntimeError("stop-after-fake-fail")
+
+    def _fake_skip(*args, **kwargs):
+        calls.append(("skip", args, kwargs))
+        raise RuntimeError("stop-after-fake-skip")
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(pytest, "fail", _fake_fail)
+    monkeypatch.setattr(pytest, "skip", _fake_skip)
+
+    with pytest.raises(RuntimeError):
+        _require_jq()
+
+    assert calls and calls[0][0] == "fail", (
+        f"expected pytest.fail to be called under CI with jq absent, got: {calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (a) timeout + false: zero gh calls, AUTO_MERGE_QUEUED stays false.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_toggle_false_makes_no_gh_call_and_leaves_queued_false(tmp_path, shell):
+    """Mutation this catches: dropping the `if [ "$AUTO_MERGE_ON_CI_GREEN" =
+    "true" ]` guard (or inverting it) would call `gh pr ready`/`gh pr merge`
+    even with the toggle off - this is the single most dangerous possible
+    defect for a feature whose entire safety story is "false means fully
+    inert". Scope note: this asserts byte-for-byte output of the MARKED BASH
+    BLOCK only (the `AUTO_MERGE_QUEUED` computation and its own two `echo`
+    phase lines, which now include the differentiated human-review/queued
+    line per round-1 Minor 5) - it does not claim the surrounding prose in
+    content/references/conventions-detail.md (round 3 moved this block here
+    from content/commands/ds-implement-ticket.md) is unchanged, since the
+    concrete human-review wording was newly made explicit by this ticket
+    where it was previously undescribed prose ("Surface to human and
+    STOP")."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path)
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "false", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    script += '\necho "RESULT_AUTO_MERGE_QUEUED=$AUTO_MERGE_QUEUED"\n'
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert _gh_argv(log_path) == [], "toggle=false must make zero gh calls"
+    assert "RESULT_AUTO_MERGE_QUEUED=false" in result.stdout, result.stdout
+    assert "Open for human review" in result.stdout, result.stdout
+
+
+# ---------------------------------------------------------------------------
+# (b) timeout + true + gh succeeds: un-draft THEN --auto, exactly once each,
+#     queued=true, message names the queue.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_toggle_true_and_merge_succeeds_undrafts_then_queues(tmp_path, shell):
+    """Mutation this catches (round-1 Critical): dropping the `gh pr ready`
+    call before `gh pr merge --auto`. The PR is EXPECTED still a draft on a
+    fresh timeout (Phase 10b's un-draft is conditional on Phase 10 result:
+    passed, which never fires here) - but that is not a hard invariant; see
+    test_timeout_merge_fails_does_not_redraft_a_pr_it_did_not_undraft below
+    for the already-non-draft case, which this fixture defaults away from
+    via AE_GH_PR_IS_DRAFT (default "true" in _GH_STUB). GitHub refuses
+    `--auto` on a draft at the GraphQL mutation layer - this repo already
+    measured that refusal (.agentic/memory/gh-pr-merge-draft-refusal.md).
+    Also catches: calling `gh pr merge` a second time, omitting `--auto`, or
+    reporting the human-review line without naming the queue."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="0", AE_GH_READY_EXIT="0")
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    script += '\necho "RESULT_AUTO_MERGE_QUEUED=$AUTO_MERGE_QUEUED"\n'
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    readies = [c for c in argv if c[:2] == ["pr", "ready"]]
+    merges = [c for c in argv if c[:2] == ["pr", "merge"]]
+    assert len(readies) == 1, argv
+    assert len(merges) == 1, merges
+    assert "--auto" in merges[0], merges
+    ready_idx = argv.index(readies[0])
+    merge_idx = argv.index(merges[0])
+    assert ready_idx < merge_idx, (
+        f"gh pr ready must run BEFORE gh pr merge --auto, not after: {argv}"
+    )
+    assert "RESULT_AUTO_MERGE_QUEUED=true" in result.stdout, result.stdout
+    assert "auto-merge-queued: true" in result.stdout, result.stdout
+    assert "auto-merged" not in result.stdout, (
+        f"--auto exiting 0 means QUEUED, never MERGED - the block must not "
+        f"claim 'auto-merged': {result.stdout}"
+    )
+    assert "Queued for auto-merge" in result.stdout, (
+        f"the human-facing line must name the queue when queued: {result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# (c) timeout + true + gh FAILS: still attempts un-draft, falls through to
+#     unchanged human-review message, no queued state.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_toggle_true_and_merge_fails_falls_through_cleanly(tmp_path, shell):
+    """Mutation this catches: reporting `auto-merge-queued: true` (or leaving
+    AUTO_MERGE_QUEUED set to true) on the failure branch, which would falsely
+    persuade the resume-check (tests below) to skip re-polling a PR that was
+    never actually queued, and would wrongly print the QUEUED-worded line.
+    Also catches (round-3 Minor 2): dropping the `gh pr ready --undo`
+    compensation on this branch, which would leave the PR permanently
+    ready-for-review (requesting CODEOWNERS review prematurely) even though
+    the auto-merge queue was never actually placed - the un-draft call two
+    lines above is not itself reversible without this second call."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_READY_EXIT="0")
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    script += '\necho "RESULT_AUTO_MERGE_QUEUED=$AUTO_MERGE_QUEUED"\n'
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    readies = [c for c in argv if c[:2] == ["pr", "ready"]]
+    assert len(readies) == 2, (
+        f"expected un-draft then re-draft-undo (2 gh pr ready calls) on the "
+        f"merge-failure branch: {argv}"
+    )
+    assert "--undo" in readies[1], (
+        f"the second gh pr ready call must be the --undo compensation, not "
+        f"a duplicate un-draft: {readies}"
+    )
+    merges = [c for c in argv if c[:2] == ["pr", "merge"]]
+    assert len(merges) == 1, merges
+    assert "RESULT_AUTO_MERGE_QUEUED=false" in result.stdout, result.stdout
+    assert "auto-merge-queued: true" not in result.stdout, result.stdout
+    assert "auto-merge-queue-failed" in result.stdout, result.stdout
+    assert "Open for human review" in result.stdout, result.stdout
+    assert "Queued for auto-merge" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_merge_fails_does_not_redraft_a_pr_it_did_not_undraft(tmp_path, shell):
+    """Round-4 Critical/Major 1: `--auto` fails on EVERY timeout when the
+    repository does not have "Allow auto-merge" enabled (GitHub's own
+    default) - if the block re-drafted unconditionally on that failure, it
+    would reverse an operator's own prior `gh pr ready` on every such repo,
+    on every timeout, silently. Here the PR was already non-draft when the
+    block ran (AE_GH_PR_IS_DRAFT=false), so the block must not call `gh pr
+    ready` at all - neither to un-draft (nothing to do) nor `--undo` on the
+    subsequent merge failure (it never un-drafted, so it has nothing to
+    compensate). Mutation this catches: reverting to the round-3 shape that
+    calls `gh pr ready` and `gh pr ready --undo` unconditionally regardless
+    of the PR's prior draft state."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(
+        tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_PR_IS_DRAFT="false"
+    )
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    readies = [c for c in argv if c[:2] == ["pr", "ready"]]
+    assert readies == [], (
+        f"a PR that was already ready-for-review must never be touched by "
+        f"gh pr ready, in either direction, when this block never un-drafted "
+        f"it: {argv}"
+    )
+    assert "re-drafted-on-queue-failure" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_view_isdraft_failure_skips_undraft_fails_safe(tmp_path, shell):
+    """Round-6 Minor (dead fixture knob): `AE_GH_FAIL_VIEW_DRAFT` previously
+    had no test setting it. When `gh pr view --json isDraft` itself fails,
+    `$WAS_DRAFT` resolves to the empty string, which fails the `= "true"`
+    check the same way `"false"` would - the block never calls `gh pr ready`
+    at all (neither to un-draft nor `--undo`) and proceeds straight to the
+    `--auto` attempt. This is fail-safe (never a wrong or unbalanced `gh pr
+    ready` call), not fail-open. Mutation this catches: treating a failed
+    `$WAS_DRAFT` read as `true` (e.g. `[ "$WAS_DRAFT" != "false" ]`), which
+    would call `gh pr ready` on a lookup failure the code cannot justify."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(
+        tmp_path, AE_GH_MERGE_EXIT="1", AE_GH_FAIL_VIEW_DRAFT="1"
+    )
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "ready"]] == [], (
+        f"a failed isDraft lookup must never trigger gh pr ready, in either "
+        f"direction: {argv}"
+    )
+    merges = [c for c in argv if c[:2] == ["pr", "merge"]]
+    assert len(merges) == 1, merges
+
+
+# ---------------------------------------------------------------------------
+# (d) resume with auto_merge_queued=true and PR already MERGED skips to
+#     Phase 10b with no second merge call.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_resume_when_already_merged_skips_without_a_second_merge_call(tmp_path, shell):
+    """Mutation this catches: calling `gh pr merge` again on resume instead of
+    only `gh pr view` - a second merge attempt against an already-merged PR is
+    at best a wasted call and at worst a confusing error surfaced to the
+    human for no reason."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_STATE="MERGED")
+    script = mse.with_shell_assignments(
+        _block(MARKER_RESUME_CHECK, CONV_MD),
+        {"AUTO_MERGE_QUEUED": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], (
+        f"no gh pr merge call is permitted on the resume-check path: {argv}"
+    )
+    views = [c for c in argv if c[:2] == ["pr", "view"]]
+    assert len(views) == 1, argv
+    assert "action: skip-to-phase-10b" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_resume_when_still_open_reenters_poll_without_requeuing(tmp_path, shell):
+    """Companion negative control for (d): confirms the MERGED-state assertion
+    above is a genuine branch, not a vacuous pass - the still-OPEN case must
+    reach the opposite action string and still make no merge call."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_STATE="OPEN")
+    script = mse.with_shell_assignments(
+        _block(MARKER_RESUME_CHECK, CONV_MD),
+        {"AUTO_MERGE_QUEUED": "true", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], argv
+    assert "action: re-enter-poll-no-requeue" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_resume_when_not_queued_takes_the_absent_branch(tmp_path, shell):
+    """Mutation this catches: collapsing the three-way branch (queued+merged,
+    queued+open, not-queued) into two, which would silently misroute a resume
+    on a loop-state file written before auto_merge_queued existed (absent
+    field, back-compat case)."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path)
+    script = mse.with_shell_assignments(
+        _block(MARKER_RESUME_CHECK, CONV_MD),
+        {"AUTO_MERGE_QUEUED": "false", "PR_NUMBER": "42", "GH_REPO": "acme/widget"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert _gh_argv(log_path) == [], "not-queued path must not call gh at all"
+    assert "action: re-enter-poll]" in result.stdout, result.stdout
+
+
+# ---------------------------------------------------------------------------
+# (e) sibling-PR sweep makes zero gh calls when the toggle is false.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_toggle_false_makes_zero_gh_calls(tmp_path, shell):
+    """Mutation this catches: any restructuring that hoists the `gh pr list`
+    call above (or outside) the `auto_merge_on_ci_green` guard - the sweep's
+    entire safety story for an ad-hoc, non-/ds-implement-ticket session is
+    that the toggle being false makes it a complete no-op."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "false", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert _gh_argv(log_path) == [], "toggle=false must make zero gh calls"
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_list_failure_is_a_clean_noop(tmp_path, shell):
+    """Round-6 Minor (dead fixture knob): `AE_GH_FAIL_LIST` previously had no
+    test setting it. When `gh pr list` itself fails, `$SIBLING_PRS` resolves
+    to the empty string (its stderr is redirected to `/dev/null`, not into
+    the capture), the `[ -n "$SIBLING_PRS" ]` guard is false, and the sweep
+    exits with no rebase/merge calls, no crash, and no stderr noise.
+    Mutation this catches: changing `gh pr list`'s `2>/dev/null` to `2>&1`
+    (a plausible copy-paste error-handling mistake) - the stub's simulated
+    failure text then becomes part of `$SIBLING_PRS` itself, gets piped into
+    `jq` as invalid JSON, and `jq`'s own parse error leaks into stderr.
+    Verified: applying that exact mutation reddens the stderr assertion
+    below with `jq: parse error: Invalid numeric literal at line 1, column
+    3` on both shells; argv stays empty either way because `jq`'s error
+    path still produces no stdout, so only the stderr assertion catches it."""
+    shell = _shell_or_skip(shell)
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_FAIL_LIST="1")
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "update-branch"]] == [], argv
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], argv
+    assert result.stderr == "", (
+        f"a gh pr list failure must never leak into jq as invalid input: "
+        f"{result.stderr!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Round-1 Major 3: blast radius. A PR that is BEHIND but was never queued
+# (autoMergeRequest null) must be untouched, regardless of ownership/BEHIND
+# status. This is the exact live scenario the Skeptic reproduced against
+# PR #838 on Space-Dinosaurs/DinoStack.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_never_newly_queues_an_unqueued_behind_pr(tmp_path, shell):
+    """Mutation this catches: dropping `.autoMergeRequest != null` from the
+    STUCK_NUMBERS filter (the exact round-1 defect) - re-widens the sweep to
+    rebase (and, before this fix, re-queue) ANY BEHIND PR the agent owns,
+    unrelated parked work included. Uses the REAL system jq against real
+    fixture JSON, not a Python reimplementation (round-1 Major 2) - inverting
+    the filter in the doc to drop the autoMergeRequest clause was manually
+    confirmed to redden this exact assertion."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = (
+        '[{"number":838,"mergeStateStatus":"BEHIND","isDraft":false,"autoMergeRequest":null}]'
+    )
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    assert [c for c in argv if c[:2] == ["pr", "update-branch"]] == [], (
+        f"a BEHIND PR with no existing auto-merge queue must never be "
+        f"rebased or touched: {argv}"
+    )
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], argv
+    assert "pr=838" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_unsticks_only_an_already_queued_behind_pr(tmp_path, shell):
+    """Positive control for the assertion above, and confirms the sweep
+    NEVER re-invokes `gh pr merge` (it only rebases to unstick an existing
+    queue). Mutation this catches: re-adding a `gh pr merge --auto` call
+    after the rebase, which would be a redundant re-queue at best."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = (
+        '[{"number":7,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"enabledAt":"2026-01-01T00:00:00Z"}}]'
+    )
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    rebases = [c for c in argv if c[:2] == ["pr", "update-branch"]]
+    assert [c[2] for c in rebases] == ["7"], argv
+    assert [c for c in argv if c[:2] == ["pr", "merge"]] == [], (
+        f"the sweep must never call gh pr merge - it only unsticks an "
+        f"existing queue: {argv}"
+    )
+    assert "pr=7" in result.stdout and "rebased-unstuck-queue" in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_excludes_clean_and_draft_even_when_queued(tmp_path, shell):
+    """Real-jq filter correctness (round-1 Major 2): a CLEAN PR with
+    autoMergeRequest set needs no unsticking (nothing is stuck), and a draft
+    PR is excluded defensively even though GitHub's own draft-vs-auto-merge
+    invariant makes that combination not occur in practice."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = (
+        '[{"number":9,"mergeStateStatus":"CLEAN","isDraft":false,'
+        '"autoMergeRequest":{"x":1}},'
+        '{"number":3,"mergeStateStatus":"BEHIND","isDraft":true,'
+        '"autoMergeRequest":{"x":1}}]'
+    )
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert [c for c in _gh_argv(log_path) if c[:2] == ["pr", "update-branch"]] == []
+    assert "pr=9" not in result.stdout and "pr=3" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_excludes_unknown_mergeability_same_as_any_non_behind(tmp_path, shell):
+    """Round-4 Minor 2 (subtraction, not narrowing): an UNKNOWN-mergeability
+    PR is simply not a BEHIND match - it needs no special-cased log line or
+    branch, the same as CLEAN or any other non-BEHIND value. Mutation this
+    catches: re-adding `mergeStateStatus == "UNKNOWN"` as a match condition
+    to the STUCK_NUMBERS filter, which would attempt to rebase a PR whose
+    mergeability GitHub has not finished computing."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = '[{"number":21,"mergeStateStatus":"UNKNOWN","isDraft":false,"autoMergeRequest":null}]'
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    argv = _gh_argv(log_path)
+    mutations = [c for c in argv if c[:2] in (["pr", "update-branch"], ["pr", "merge"])]
+    assert mutations == [], f"an UNKNOWN-only PR must trigger no gh mutation calls: {argv}"
+    assert "pr=21" not in result.stdout, result.stdout
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_uses_limit_100_and_scopes_to_own_prs(tmp_path, shell):
+    """Round-1 Minor: `--limit` must be present (default gh page size silently
+    truncates at 30). Mutation this catches: removing `--limit 100` or
+    `--author "@me"` from the `gh pr list` call."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON="[]")
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    lists = [c for c in _gh_argv(log_path) if c[:2] == ["pr", "list"]]
+    assert len(lists) == 1, lists
+    assert "@me" in lists[0], lists[0]
+    assert "100" in lists[0], lists[0]
+
+
+# ---------------------------------------------------------------------------
+# Round-1 Major 1: zsh word-splitting. A multi-line PR-number result must
+# process EVERY number under zsh, not just the first (zsh does not
+# word-split an unquoted `for N in $VAR` the way bash does).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_processes_every_pr_in_a_multiline_result_under_both_shells(tmp_path, shell):
+    """Mutation this catches: reverting `while IFS= read -r N; do ... done
+    <<< "$VAR"` back to `for N in $VAR`. Under bash that mutant still passes
+    (bash word-splits unquoted expansion on IFS, including newlines); under
+    zsh it silently collapses the whole multi-line result into a single
+    malformed argument and rebases at most one (malformed) "PR number" -
+    confirmed by manually reverting to the `for` form and re-running this
+    exact test under zsh, which reddened with only a garbled single gh call
+    instead of three clean ones."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = (
+        '[{"number":1,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}},'
+        '{"number":2,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}},'
+        '{"number":3,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}}]'
+    )
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    rebases = [c for c in _gh_argv(log_path) if c[:2] == ["pr", "update-branch"]]
+    assert [c[2] for c in rebases] == ["1", "2", "3"], (
+        f"all three BEHIND-and-queued PRs must be rebased individually and "
+        f"in ascending order under {shell}: {rebases}"
+    )
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_soft_fails_per_pr_without_blocking_the_rest(tmp_path, shell):
+    """Soft-fail contract: one PR's rebase failing must not stop the sweep
+    from processing the next PR. Mutation this catches: an `&&`-chained loop
+    body (or a bare `set -e`-sensitive construct) that aborts the whole loop
+    on the first non-zero exit."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    pr_list_json = (
+        '[{"number":1,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}},'
+        '{"number":2,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}}]'
+    )
+    env, log_path = _gh_stub_env(
+        tmp_path, AE_GH_PR_LIST_JSON=pr_list_json, AE_GH_REBASE_EXIT="1"
+    )
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    rebases = [c for c in _gh_argv(log_path) if c[:2] == ["pr", "update-branch"]]
+    assert [c[2] for c in rebases] == ["1", "2"], (
+        f"both PRs must be attempted even though the first rebase fails: {rebases}"
+    )
+    assert result.stdout.count("rebase-failed") == 2, result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Ad-hoc reachability: none of these three blocks are conditioned on a
+# /ds-implement-ticket invocation, a loop-state file, or a LOOP_KEY existing.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_timeout_queue_block_has_no_dependency_on_loop_state_or_loop_key(tmp_path, shell):
+    """Mutation this catches: introducing a read of `.agentic/loop-state-
+    $LOOP_KEY.json` (or any file under `.agentic/`) into the queue decision
+    itself - the whole point of the scope correction is that this block must
+    fire correctly for an ad-hoc session that never created a loop-state file
+    at all. Run with no .agentic/ directory present and LOOP_KEY unset;
+    the block must still un-draft and queue on the toggle alone."""
+    shell = _shell_or_skip(shell)
+    assert not (tmp_path / ".agentic").exists()
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_MERGE_EXIT="0", AE_GH_READY_EXIT="0")
+    env.pop("LOOP_KEY", None)
+    script = mse.with_shell_assignments(
+        _block(MARKER_TIMEOUT_QUEUE, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "PR_NUMBER": "99", "GH_REPO": "acme/widget",
+         "TIMEOUT_POLLS": "60"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert not (tmp_path / ".agentic").exists(), (
+        "the queue decision must not have created or required .agentic/"
+    )
+    argv = _gh_argv(log_path)
+    assert len([c for c in argv if c[:2] == ["pr", "ready"]]) == 1, argv
+    merges = [c for c in argv if c[:2] == ["pr", "merge"]]
+    assert len(merges) == 1 and "--auto" in merges[0], merges
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_sibling_sweep_block_has_no_dependency_on_loop_state_or_loop_key(tmp_path, shell):
+    """Same reachability property as above, for the sibling-PR sweep: it must
+    run correctly at session start before any ticket loop has ever started in
+    this session, with no .agentic/ directory and no LOOP_KEY."""
+    shell = _shell_or_skip(shell)
+    _require_jq()
+    assert not (tmp_path / ".agentic").exists()
+    pr_list_json = (
+        '[{"number":5,"mergeStateStatus":"BEHIND","isDraft":false,'
+        '"autoMergeRequest":{"x":1}}]'
+    )
+    env, log_path = _gh_stub_env(tmp_path, AE_GH_PR_LIST_JSON=pr_list_json)
+    env.pop("LOOP_KEY", None)
+    script = mse.with_shell_assignments(
+        _block(MARKER_SIBLING_SWEEP, CONV_MD),
+        {"AUTO_MERGE_ON_CI_GREEN": "true", "GH_REPO": "acme/widget", "BASE_BRANCH": "main"},
+    )
+    result = _run(tmp_path, shell, script, env)
+    _assert_completed(result)
+
+    assert not (tmp_path / ".agentic").exists()
+    rebases = [c for c in _gh_argv(log_path) if c[:2] == ["pr", "update-branch"]]
+    assert [c[2] for c in rebases] == ["5"], rebases
