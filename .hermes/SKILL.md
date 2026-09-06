@@ -3071,7 +3071,7 @@ Per-line self-check: would a future reader need this line to know what to build,
 
 Subject line: `type(scope): <imperative description>`, written in the imperative mood. The cap is on the whole subject INCLUDING the `type(scope):` prefix - ≤ 50 characters total, leaving roughly 25-35 characters for the description on typical scopes. A description that cannot fit pushes the detail into the body. Conventional git subject-line guidance: git truncates long subjects in tooling output, and 50 is the traditional subject cap. This is guidance, not a repo-precedent claim - subjects in this repo routinely run 60-120+ characters.
 
-The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Co-Authored-By, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
+The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
 
 ### Assembled PR bodies
 
@@ -19253,7 +19253,8 @@ else
   NL=$'
 '
   # §Commit messages: imperative; whole subject incl. prefix ≤ 50 chars.
-  COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
+  # Do not append any Co-Authored-By, Generated-with, or other AI-attribution trailer to the commit message - harness defaults that add one are overridden here.
+  COMMIT_MSG="type(scope): short imperative description${NL}${NL}More detail on what changed and why if needed.${NL}Closes [TICKET_PREFIX]-NNN${NL}${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>"
   git -C "$COMMIT_CHECKOUT" commit -m "$COMMIT_MSG"
 fi
 

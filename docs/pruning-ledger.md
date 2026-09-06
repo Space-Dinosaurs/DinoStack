@@ -149,13 +149,13 @@ Round 2 (skeptic review): the round-1 operator-subcommand rewrite still fabricat
 Round 3 (skeptic review): the round-2 operator-example table had a single stray space before the `bob/my-project` sessions column (84 chars vs. the renderer's 83 on every other data row), a hand-edit made after capture that falsified the round-2 claim of having regenerated the block by running `cmd_operator` against a real fixture. Fixed by loading `bin/ds-cost` via `SourceFileLoader`, calling `_render_operator_table()` directly against an aggregate matching the doc's own numbers, and pasting the captured stdout verbatim into the fenced example; a char-for-char byte-diff of the fenced block against the captured render confirmed zero differences (all three data rows now 83 chars, matching the header and separator).
 
 ## PL-20260826-1
-- Status: RAISED
+- Status: ACTIONED
 - Source: ds-prune-harness run 2026-08-26 (docs/planning/harness-pruning-2026-08-26.md)
 - File(s): content/commands/ds-implement-ticket.md (line ~2353, Phase 8 COMMIT_MSG template)
 - Signal(s): Signal 1 (explicit model-version reference)
 - Confidence: HIGH
 - Rationale: The Phase 8 commit template hardcodes the trailer "Co-Authored-By: Claude Sonnet 4.6" - a live template, not an example, so every current-model session misattributes its commits. Operator decision 2026-08-26: approved; per the operator's standing directive there is to be NO Claude attribution in PRs or commits, so the trailer is deleted outright rather than parameterized.
-- Disposition:
+- Disposition: https://github.com/Space-Dinosaurs/DinoStack/pull/838
 
 ## PL-20260826-2
 - Status: ACTIONED
