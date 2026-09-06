@@ -57,7 +57,7 @@ CONVENTIONS_DETAIL_PATH = (
 # whole-artifact skill-embed gate; ratchets DOWNWARD like every other budget
 # in this repo. Re-derive with the test itself rather than trusting a cited
 # figure.
-RESIDENT_RULE_MAX_BYTES = 1700
+RESIDENT_RULE_MAX_BYTES = 900
 
 RESIDENT_LABEL = "**Auto-merge follow-through.**"
 DETAIL_HEADING = "## Auto-merge follow-through"
