@@ -16,11 +16,15 @@ Purpose: Executes the shell blocks the auto-merge follow-through feature added
          re-queuing an already-queued or already-merged PR on resume, the
          sibling-PR sweep making any `gh` call at all when the toggle is off,
          newly queuing a PR nobody opted in (round-1 Major 3 - blast radius),
-         silently dropping a PR whose mergeability GitHub has not finished
-         computing, and zsh word-splitting collapsing a multi-line PR list
+         re-drafting a PR the block itself never un-drafted (round-4 Critical/
+         Major 1), and zsh word-splitting collapsing a multi-line PR list
          into one malformed argument (round-1 Major 1) - every block below is
          parametrized over both bash and zsh, matching the x2-shells floor
-         sibling extracted-block suites already carry in bin-tests.yml.
+         sibling extracted-block suites already carry in bin-tests.yml. An
+         UNKNOWN-mergeability PR is deliberately NOT a distinct defect shape
+         as of round 4 - it simply fails the BEHIND match, same as any other
+         non-BEHIND status, and is silently excluded with no special log
+         line; see test_sibling_sweep_excludes_unknown_mergeability_same_as_any_non_behind.
 
 Public API: none (pytest test module).
 
@@ -178,15 +182,43 @@ def _require_jq() -> None:
 
 
 def test_require_jq_hard_fails_under_ci_when_jq_is_absent(monkeypatch):
-    """Round-4 Major 3: regression test for the round-3 _require_jq() fix
-    itself - nothing previously kept that fix real. Mutation this catches:
-    reverting the `if os.environ.get("CI")` branch back to an unconditional
-    `pytest.skip(...)`, which would make this test pass vacuously (a skip
-    is not a failure) instead of failing loudly."""
+    """Round-4 Major 3, corrected round-5 Major 1: regression test for the
+    round-3 _require_jq() fix itself - nothing previously kept that fix real.
+    The original version of this test used `pytest.raises(pytest.fail.Exception)`
+    around a call that (on the reverted/mutant code) raises `pytest.skip`'s
+    `Skipped` instead - pytest treats ANY `Skipped` raised anywhere in a test
+    body as a SKIP outcome, not a failure, even when it escapes an unrelated
+    `pytest.raises()` block. The Skeptic proved this by reverting
+    `_require_jq()` to the old unconditional-skip shape and re-running: "1
+    skipped, 34 deselected", exit 0 - the test passed vacuously on the exact
+    reversion it exists to catch. Fixed by never letting the real
+    `pytest.skip`/`pytest.fail` control-flow exceptions execute at all:
+    both are monkeypatched to plain recorder functions, so the assertion is
+    on WHICH ONE was called, not on catching pytest's own special exception
+    types. Confirmed manually: reverting `_require_jq()` to unconditional
+    `pytest.skip(...)` now fails this test with `expected pytest.fail to be
+    called, got: [('skip', ...)]` rather than passing or skipping."""
+    calls = []
+
+    def _fake_fail(*args, **kwargs):
+        calls.append(("fail", args, kwargs))
+        raise RuntimeError("stop-after-fake-fail")
+
+    def _fake_skip(*args, **kwargs):
+        calls.append(("skip", args, kwargs))
+        raise RuntimeError("stop-after-fake-skip")
+
     monkeypatch.setattr(shutil, "which", lambda name: None)
     monkeypatch.setenv("CI", "true")
-    with pytest.raises(pytest.fail.Exception):
+    monkeypatch.setattr(pytest, "fail", _fake_fail)
+    monkeypatch.setattr(pytest, "skip", _fake_skip)
+
+    with pytest.raises(RuntimeError):
         _require_jq()
+
+    assert calls and calls[0][0] == "fail", (
+        f"expected pytest.fail to be called under CI with jq absent, got: {calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
