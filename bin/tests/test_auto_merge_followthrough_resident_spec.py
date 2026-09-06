@@ -18,7 +18,10 @@ Purpose: Pin the shipped prose of the "Auto-merge follow-through" resident
 Public API: pytest test module - auto-discovered by `pytest bin/tests/`.
 
 Upstream deps: content/rules/conventions.md;
-               content/references/conventions-detail.md.
+               content/references/conventions-detail.md;
+               bin/tests/lib/resident_rule_extract.py (shared
+               resident-rule/detail-section extraction, round 7 - also used
+               by bin/tests/test_merge_time_writeback_spec.py).
 
 Downstream consumers: the `bin-tests` CI job.
 
@@ -29,7 +32,12 @@ Failure modes: Prose pins. A rewrite that preserves meaning but changes
 Performance: Two file reads, pure string work. Sub-millisecond.
 """
 
+import os
 import pathlib
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.resident_rule_extract import detail_section, resident_rule  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -38,11 +46,17 @@ CONVENTIONS_DETAIL_PATH = (
     REPO_ROOT / "content" / "references" / "conventions-detail.md"
 )
 
-# RESIDENT_RULE_MAX_BYTES is a ceiling on this one paragraph, independent of
-# the whole-artifact skill-embed gate. It ratchets DOWNWARD like every other
-# budget in this repo. Current measured size is 1542 B; this leaves ~10%
-# headroom for a genuinely necessary correction without silently blowing the
-# skill-embed ceiling one clause at a time.
+# RESIDENT_RULE_MAX_BYTES is a ceiling on the COMPARED quantity in
+# test_resident_rule_stays_within_its_byte_ceiling - the rule paragraph's own
+# UTF-8 byte length PLUS the +2 blank-line separator that test adds before
+# comparing - not the bare paragraph length alone (round-7 Skeptic Minor 2:
+# an earlier version of this comment cited the bare paragraph length, making
+# a reader's headroom computation off by 2; budget-provenance comments in
+# this repo have been found false three separate times, so this one names
+# the exact quantity compared rather than a derived one). Independent of the
+# whole-artifact skill-embed gate; ratchets DOWNWARD like every other budget
+# in this repo. Re-derive with the test itself rather than trusting a cited
+# figure.
 RESIDENT_RULE_MAX_BYTES = 1700
 
 RESIDENT_LABEL = "**Auto-merge follow-through.**"
@@ -50,16 +64,11 @@ DETAIL_HEADING = "## Auto-merge follow-through"
 
 
 def _resident_rule() -> str:
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    idx = text.index(RESIDENT_LABEL)
-    return text[idx : text.index("\n\n", idx)]
+    return resident_rule(CONVENTIONS_PATH, RESIDENT_LABEL)
 
 
 def _detail_section() -> str:
-    text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
-    start = text.index(DETAIL_HEADING)
-    end = text.index("\n## ", start + len(DETAIL_HEADING))
-    return text[start:end]
+    return detail_section(CONVENTIONS_DETAIL_PATH, DETAIL_HEADING)
 
 
 def test_resident_rule_carries_the_five_resident_tier_clauses():
@@ -78,8 +87,15 @@ def test_resident_rule_carries_the_five_resident_tier_clauses():
     assert "gated on a particular command" in rule
     # 2. Exact invocation.
     assert "`gh pr merge <N> --squash --delete-branch --auto`" in rule
-    # 3. Re-draft-on-failure compensation (round-6 Minor).
+    # 3. Re-draft-on-failure compensation (round-6 Minor), CONDITIONAL on
+    #    self-performed un-draft (round-7 Major 1 - commit 2841cf92's
+    #    unconditional-undo defect relocated into this prose; an unqualified
+    #    "re-draft on queue failure" instructs re-drafting a PR the operator
+    #    had already marked ready, since the ad-hoc path has no code and
+    #    this sentence is its entire specification).
     assert "`gh pr ready --undo`" in rule
+    assert "ONLY IF IT performed that un-draft itself" in rule
+    assert "never touching a PR the operator had already marked ready" in rule
     assert "Allow auto-merge" in rule
     # 4. QUEUED-not-merged distinction.
     assert "QUEUED, not merged" in rule
@@ -110,6 +126,7 @@ def test_detail_holds_the_full_rule_not_a_pointer():
     section = _detail_section()
     assert "IT un-drafts the PR if needed and queues" in section
     assert "`gh pr ready --undo`" in section
+    assert "ONLY IF IT performed that un-draft itself" in section
     assert "Phase 12" in section and "Phase 10" in section
     assert "### Phase 10 timeout call site" in section
     assert "@harness:phase10-timeout-auto-merge-queue" in section

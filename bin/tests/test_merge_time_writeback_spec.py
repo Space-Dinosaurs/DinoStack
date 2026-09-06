@@ -13,7 +13,11 @@ Public API: pytest test module - auto-discovered by `pytest bin/tests/`.
 Upstream deps: content/commands/ds-ticket-status-sync.md;
                content/rules/conventions.md;
                content/references/conventions-detail.md;
-               content/commands/ds-implement-ticket.md.
+               content/commands/ds-implement-ticket.md;
+               bin/tests/lib/resident_rule_extract.py (shared
+               resident-rule/detail-section extraction, round 7 - extracted
+               here from byte-identical inline logic once duplicated with
+               bin/tests/test_auto_merge_followthrough_resident_spec.py).
 
 Downstream consumers: the `bin-tests` CI job.
 
@@ -25,7 +29,12 @@ Failure modes: Prose pins. A rewrite that preserves meaning but changes wording 
 Performance: Four file reads, pure string work. Sub-millisecond.
 """
 
+import os
 import pathlib
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.resident_rule_extract import detail_section, resident_rule  # noqa: E402
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -287,16 +296,11 @@ DETAIL_HEADING = "## Merge-Time Tracker Writeback"
 
 
 def _resident_rule() -> str:
-    text = CONVENTIONS_PATH.read_text(encoding="utf-8")
-    idx = text.index(RESIDENT_LABEL)
-    return text[idx:text.index("\n\n", idx)]
+    return resident_rule(CONVENTIONS_PATH, RESIDENT_LABEL)
 
 
 def _detail_section() -> str:
-    text = CONVENTIONS_DETAIL_PATH.read_text(encoding="utf-8")
-    start = text.index(DETAIL_HEADING)
-    end = text.index("\n## ", start + len(DETAIL_HEADING))
-    return text[start:end]
+    return detail_section(CONVENTIONS_DETAIL_PATH, DETAIL_HEADING)
 
 
 def test_resident_rule_carries_the_four_resident_tier_clauses():
