@@ -72,9 +72,12 @@ Public API:
     support) that every call site there depends on, the two are
     deliberately NOT unified, and nothing on that side would call this one,
     so an alias import would be dead code reading as a live dependency.
-    That file's import block says the same, and
+    That file's import block says the same.
     `test_branch_prune_defines_its_own_run_and_does_not_import_the_shared_one`
-    pins it.
+    pins BOTH halves: runtime identity plus signature discrimination for
+    the same-name half, and an `ast` scan of that file's import statements
+    for the alias half, which no runtime assertion can reach (an aliased
+    import rebinds a different name and leaves `_run` itself untouched).
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, re, subprocess,
                time, pathlib, typing), plus the `git` CLI for

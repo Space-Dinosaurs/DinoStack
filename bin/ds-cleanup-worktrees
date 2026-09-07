@@ -530,20 +530,25 @@ Public API (CLI):
                           than a full run, never more.
   --explain               Print one line per worktree entry with its
                           outcome (default: aggregate counts only). For a
-                          `SKIP_DIRTY` entry ONLY, two additional
-                          report-only surfaces follow that line: a
-                          `composition: <bucket>=<n> ...` summary (or
-                          `composition: unavailable`, never a zeroed
-                          mapping - see `_dirty_composition`) and, beneath
-                          it, the raw `git status --porcelain` text one
-                          `    | ` line at a time, CAPPED at
+                          `SKIP_DIRTY` entry ONLY, report-only surfaces
+                          follow that line, and WHICH ones print depends on
+                          whether `_dirty_composition` could measure the
+                          tree. Measured: a `composition: <bucket>=<n> ...`
+                          summary and, beneath it, the raw
+                          `git status --porcelain` text one `    | ` line
+                          at a time, CAPPED at
                           `_EXPLAIN_RAW_DIRTY_LINE_CAP` lines per entry
                           with an explicit `... N more line(s) omitted`
-                          truncation line naming the omitted count. Neither
-                          surface gates anything. Also appended, when
-                          `--multi-repo` discovery found unregistered
-                          worktree directories, is a report-only listing of
-                          their paths (see `_unregistered_worktree_dirs`).
+                          truncation line naming the omitted count.
+                          Unmeasurable: the single line
+                          `composition: unavailable` and NO raw text at
+                          all, never a zeroed mapping, because "could not
+                          measure" and "measured nothing" are different
+                          facts. Neither surface gates anything. Also
+                          appended, when `--multi-repo` discovery found
+                          unregistered worktree directories, is a
+                          report-only listing of their paths (see
+                          `_unregistered_worktree_dirs`).
   --count-only            Print ONLY `entries=N` (round-2 Major 4) - zero
                           network calls AND zero per-entry `git` calls
                           beyond the single `git worktree list --porcelain`
@@ -1542,10 +1547,6 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
     return ("dirty" if has_dirty_line else "clean"), offenders
 
 
-#: The `XY` -> bucket map used by `_dirty_composition`, applied to the
-#: FIRST NON-SPACE character of the two-character status field. Deliberately
-#: not exhaustive: an unrecognized character lands in `other` rather than
-#: being dropped, so the bucket totals always account for every line.
 #: Per-entry cap on the raw `git status --porcelain` text `--explain`
 #: prints beneath a SKIP_DIRTY entry's one-line `composition:` summary.
 #: `--explain` is the documented triage invocation and a real abandoned
@@ -1558,6 +1559,10 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
 #: from the FULL text and still account for every line.
 _EXPLAIN_RAW_DIRTY_LINE_CAP = 20
 
+#: The `XY` -> bucket map used by `_dirty_composition`, applied to the
+#: FIRST NON-SPACE character of the two-character status field. Deliberately
+#: not exhaustive: an unrecognized character lands in `other` rather than
+#: being dropped, so the bucket totals always account for every line.
 _DIRTY_STATUS_BUCKETS = {
     "M": "modified",
     "A": "added",

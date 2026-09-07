@@ -294,10 +294,17 @@ def test_branch_prune_bad_pr_data_is_still_exit_one_on_unresolvable_base(tmp_pat
 
 def test_branch_prune_defines_its_own_run_and_does_not_import_the_shared_one():
     """R11 (deterministic). Exactly one `_run` name in ds-branch-prune, and
-    it is this file's own - NOT `_lib`'s.
+    it is this file's own - NOT `_lib`'s - and `_lib`'s is not imported
+    alongside it under some OTHER name either.
 
-    Reddening mutation: replace ds-branch-prune's own `_run` with
+    Reddening mutation 1: replace ds-branch-prune's own `_run` with
     `from _lib import _run`. The identity assertion fires.
+
+    Reddening mutation 2: ADD `from _lib import _run as _shared_run` to
+    ds-branch-prune, leaving its own `_run` in place. Every runtime
+    identity assertion below stays green (the alias binds a different
+    name), so the import scan is what fires. This is the shape the
+    bin/_lib.py manifest claims is excluded, and it needs its own pin.
     """
     prune_mod = _load(PRUNE, "ds_branch_prune_calibration")
     assert prune_mod._run is not _lib._run
@@ -308,6 +315,33 @@ def test_branch_prune_defines_its_own_run_and_does_not_import_the_shared_one():
     assert "input_text" not in inspect.signature(_lib._run).parameters
     # bin/ds-cleanup-worktrees, by contrast, re-exports _lib's verbatim
     assert ds_cleanup._run is _lib._run
+
+    # Source-text pin for the "under an alias or otherwise" half of the
+    # claim, which no runtime assertion above can reach. Parsed rather than
+    # grepped so that the prose in this file's own import-block comment -
+    # which names `_run` and `_lib` repeatedly, on purpose - cannot satisfy
+    # or defeat the check. Two routes are rejected: a direct `from _lib`
+    # import of `_run` under ANY binding, and importing the `_lib` module
+    # itself, which would make `_lib._run` reachable by attribute access.
+    # `from _lib import *` needs no arm: `_lib` defines no `__all__` and
+    # `_run` is underscore-prefixed, so a star import provably cannot bind
+    # it.
+    import ast
+
+    tree = ast.parse(PRUNE.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "_lib":
+            bindings = [a.asname or a.name for a in node.names]
+            assert "_run" not in {a.name for a in node.names}, (
+                f"ds-branch-prune:{node.lineno} imports _lib's `_run` "
+                f"(bound as {bindings}); it must keep ONLY its own "
+                "different-signature `_run`"
+            )
+        if isinstance(node, ast.Import):
+            assert all(a.name != "_lib" for a in node.names), (
+                f"ds-branch-prune:{node.lineno} imports the `_lib` module "
+                "itself, which reaches `_lib._run` by attribute access"
+            )
 
 
 def test_unresolved_base_summary_composes_mode_and_keeps_the_skips_field(tmp_path):
