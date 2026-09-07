@@ -20,6 +20,17 @@ Purpose: Provide the shared helpers reused by multiple CLIs:
      whose integration branch is not `main` it evaluated every branch
      against the wrong base and proved nothing. Unlike helpers 1-3, this
      one is NOT pure in-process work: it shells out.
+  5. MAX_TRANSCRIPT_BYTES, transcript_is_oversize_or_unreadable,
+     iter_jsonl_dict_records, rate_or_none - the read-only Claude Code
+     transcript-scanning skeleton shared by bin/ds-skill-load-rate and
+     bin/ds-learnings-retrieval-rate (DS-227 round 2): both tools stream
+     one JSONL transcript file at a time, skip malformed/non-dict lines,
+     treat a stat failure or an oversize file as unreadable, and compute a
+     rate as numerator/denominator with denominator<=0 rendering as "no
+     data" rather than a fabricated zero. Extracted here (rather than left
+     duplicated per-file) because bin/_lib.py is this repo's established
+     home for exactly this drift risk - resolve_base_branch (helper 4) was
+     extracted for the identical reason.
 
 Public API:
   acquire_exclusive_lock(lock_path, timeout=30.0)
@@ -79,8 +90,43 @@ Public API:
     for the alias half, which no runtime assertion can reach (an aliased
     import rebinds a different name and leaves `_run` itself untouched).
 
-Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, re, subprocess,
-               time, pathlib, typing), plus the `git` CLI for
+  MAX_TRANSCRIPT_BYTES
+    Module-level int constant, 20 * 1024 * 1024. Consumers import it as a
+    plain name (`from _lib import MAX_TRANSCRIPT_BYTES`), which binds it
+    into the importing module's own namespace - a consumer that needs a
+    per-test-mutable ceiling (bin/ds-skill-load-rate's
+    test_oversize_file_is_unreadable) reassigns its OWN module-level copy
+    of the name, exactly as it did before the constant lived here; this
+    module's own value is never touched by that reassignment. Mirrors
+    hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES, which cannot
+    share this definition (different language, different process).
+
+  transcript_is_oversize_or_unreadable(path, max_bytes)
+    True iff path.stat() raises OSError, or the stat'd size is >= max_bytes.
+    Pure filesystem check - never opens or reads the file's contents.
+
+  iter_jsonl_dict_records(path)
+    Generator. Opens path text-mode (utf-8, errors="replace") and yields
+    (line_no, record) for every line that parses via json.loads into a
+    dict. A blank line, a JSON parse failure, and a non-dict JSON value
+    (e.g. a bare list or string) are each skipped silently - never yielded,
+    never raised. Propagates OSError from open()/read() to the caller
+    unchanged; the caller is responsible for catching it (both consumers
+    wrap their own call site in try/except OSError and report the
+    transcript unreadable on catch, since a mid-read OSError is
+    indistinguishable from a pre-read one for their purposes).
+
+  rate_or_none(numerator, denominator)
+    Returns numerator / denominator, or None when denominator <= 0. The
+    shared "no data renders as ABSENT/n/a, never a fabricated zero" rule
+    both consumers' own rate functions implement identically; this is the
+    one-line arithmetic core they both wrap, not a replacement for either
+    consumer's own denominator-construction logic (which differs: one
+    excludes unreadable sessions from a session count, the other excludes
+    unreadable runs from a run count).
+
+Upstream deps: Python 3 stdlib only (contextlib, fcntl, json, os, re,
+               subprocess, time, pathlib, typing), plus the `git` CLI for
                resolve_base_branch and its helpers ONLY - every other
                function here is pure in-process work with no external
                process dependency.
@@ -102,6 +148,22 @@ Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
                       use this module - it ships its own
                       _atomic_write_identity, its own lock contextmanager,
                       and its own (containment-checked) _profile_config_dir.
+                      bin/ds-skill-load-rate and bin/ds-learnings-retrieval-rate
+                      both import MAX_TRANSCRIPT_BYTES, iter_jsonl_dict_records,
+                      and rate_or_none (DS-227 round 2).
+                      transcript_is_oversize_or_unreadable is imported by
+                      bin/ds-skill-load-rate ONLY -
+                      bin/ds-learnings-retrieval-rate keeps its own local
+                      stat()+size-compare because its classify_transcript
+                      returns a (status, was_oversize) tuple the shared
+                      boolean-only helper cannot express: it needs to know
+                      WHICH of "stat failed" vs "file is oversize" occurred,
+                      to feed its own `skipped_oversize` subset-of-unreadable
+                      count, a distinction bin/ds-skill-load-rate does not
+                      make (its own report has no oversize-specific field).
+                      Each file also keeps classifier/rate logic of its own
+                      the other does not share (see each file's own Upstream
+                      deps entry for what stays local and why).
 
 Failure modes:
   acquire_exclusive_lock: raises RuntimeError("lock timeout") after timeout seconds
@@ -141,6 +203,17 @@ Failure modes:
     into a nonzero-rc CompletedProcess rather than propagating an
     exception, so a failed call always reads as "could not determine",
     never as proof of anything.
+  transcript_is_oversize_or_unreadable: never raises - an OSError on stat()
+    is caught and reported as True (unreadable), same as an oversize file.
+  iter_jsonl_dict_records: raises OSError to the caller on an open()/read()
+    failure (no internal try/except) - deliberately not swallowed here,
+    since both consumers need to distinguish "the file could not be opened
+    at all" from "the file opened but every line was malformed" (the
+    latter is a zero-yield generator, not an exception) in their own
+    unreadable-vs-zero-parsed bookkeeping.
+  rate_or_none: never raises. denominator <= 0 (including negative, which
+    should not occur but is not asserted against) returns None rather than
+    raising ZeroDivisionError or returning a fabricated 0.0.
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).
@@ -149,11 +222,15 @@ Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retrie
   no-subprocess profile: it performs up to ~6 short, local, NON-network
   subprocess calls plus one AGENTS.md read - milliseconds in practice, but
   not free. Called once per repo per run, never in an inner loop.
+  transcript_is_oversize_or_unreadable is a single stat() call.
+  iter_jsonl_dict_records is O(file bytes), one streaming pass; each
+  consumer calls it once per transcript file. rate_or_none is O(1).
 """
 
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import re
 import subprocess
@@ -619,3 +696,50 @@ def resolve_base_branch(
             f"Tried: {tried}. {advice}"
         )
     return None, "unresolved", diagnostics
+
+
+# ---------------------------------------------------------------------------
+# Shared transcript-scanning skeleton (DS-227 round 2). See the module
+# docstring's Public API entry 5 for the full rationale.
+# ---------------------------------------------------------------------------
+
+MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024
+
+
+def transcript_is_oversize_or_unreadable(path: Path, max_bytes: int) -> bool:
+    """True iff path.stat() raises OSError, or the stat'd size is >=
+    max_bytes. Pure filesystem check - never opens or reads the file's
+    contents."""
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return True
+    return size >= max_bytes
+
+
+def iter_jsonl_dict_records(path: Path) -> Generator[Tuple[int, dict], None, None]:
+    """Stream path line-by-line, yielding (line_no, record) for every line
+    that parses via json.loads into a dict. A blank line, a JSON parse
+    failure, or a non-dict JSON value is skipped silently - never yielded,
+    never raised. An OSError from open()/read() propagates to the caller
+    unchanged; the caller is responsible for catching it."""
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_no, raw in enumerate(handle):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(record, dict):
+                continue
+            yield line_no, record
+
+
+def rate_or_none(numerator: int, denominator: int) -> Optional[float]:
+    """numerator / denominator, or None when denominator <= 0 - the shared
+    'no data renders as absent, never a fabricated zero' rule."""
+    if denominator <= 0:
+        return None
+    return numerator / denominator

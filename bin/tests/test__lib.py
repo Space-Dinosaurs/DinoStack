@@ -45,6 +45,9 @@ _loader.exec_module(_lib)
 atomic_write = _lib.atomic_write
 acquire_exclusive_lock = _lib.acquire_exclusive_lock
 resolve_claude_config_dir = _lib.resolve_claude_config_dir
+transcript_is_oversize_or_unreadable = _lib.transcript_is_oversize_or_unreadable
+iter_jsonl_dict_records = _lib.iter_jsonl_dict_records
+rate_or_none = _lib.rate_or_none
 CONFIG_DIR_ENV = _lib.CONFIG_DIR_ENV
 
 
@@ -265,6 +268,70 @@ class TestResolveClaudeConfigDir(unittest.TestCase):
         os.environ["CLAUDE_CONFIG_DIR"] = abs_dir
         result = resolve_claude_config_dir()
         self.assertEqual(result, Path(abs_dir))
+
+
+# ---------------------------------------------------------------------------
+# Shared transcript-scanning skeleton (DS-227 round 2)
+# ---------------------------------------------------------------------------
+
+
+class TestTranscriptIsOversizeOrUnreadable(unittest.TestCase):
+    def test_missing_path_is_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.jsonl"
+            self.assertTrue(transcript_is_oversize_or_unreadable(missing, 1024))
+
+    def test_under_limit_is_false(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.jsonl"
+            path.write_text("x" * 10, encoding="utf-8")
+            self.assertFalse(transcript_is_oversize_or_unreadable(path, 1024))
+
+    def test_at_or_over_limit_is_true(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.jsonl"
+            path.write_text("x" * 10, encoding="utf-8")
+            self.assertTrue(transcript_is_oversize_or_unreadable(path, 10))
+            self.assertTrue(transcript_is_oversize_or_unreadable(path, 5))
+
+
+class TestIterJsonlDictRecords(unittest.TestCase):
+    def test_yields_line_no_and_dict_for_each_valid_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.jsonl"
+            path.write_text('{"a": 1}\n{"b": 2}\n', encoding="utf-8")
+            results = list(iter_jsonl_dict_records(path))
+            self.assertEqual(results, [(0, {"a": 1}), (1, {"b": 2})])
+
+    def test_skips_blank_malformed_and_non_dict_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "s.jsonl"
+            path.write_text(
+                '{"a": 1}\n\nnot json\n[1, 2]\n"a string"\n{"b": 2}\n',
+                encoding="utf-8",
+            )
+            results = list(iter_jsonl_dict_records(path))
+            self.assertEqual([r for _, r in results], [{"a": 1}, {"b": 2}])
+
+    def test_propagates_oserror_on_missing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.jsonl"
+            with self.assertRaises(OSError):
+                list(iter_jsonl_dict_records(missing))
+
+
+class TestRateOrNone(unittest.TestCase):
+    def test_positive_denominator_divides(self):
+        self.assertEqual(rate_or_none(1, 2), 0.5)
+
+    def test_zero_denominator_is_none(self):
+        self.assertIsNone(rate_or_none(0, 0))
+
+    def test_negative_denominator_is_none(self):
+        self.assertIsNone(rate_or_none(5, -1))
+
+    def test_zero_numerator_positive_denominator_is_a_real_zero(self):
+        self.assertEqual(rate_or_none(0, 4), 0.0)
 
 
 # ---------------------------------------------------------------------------
