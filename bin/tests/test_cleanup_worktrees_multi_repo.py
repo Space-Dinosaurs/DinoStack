@@ -70,6 +70,14 @@ import pytest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "ds-cleanup-worktrees"
 
+# Mirrors test_cleanup_worktrees.py's own two inserts. Before this, THIS
+# module inserted nothing at all and resolved its imports only via sys.path
+# leakage from that sibling module - so whether it worked depended on
+# collection order. Make it self-sufficient: `bin/tests/` for
+# worktree_model, `bin/` for _lib (which now owns resolve_base_branch).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 
 # --------------------------------------------------------------------------
 # helpers

@@ -613,7 +613,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
 
-**Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) deletes a branch only when a subsumption predicate proves its tip on `origin/main`; absence of proof is a skip.
+**Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) resolves its own base branch rather than assuming `origin/main`, and deletes a branch only when a subsumption predicate proves its tip on that base; absence of proof, or an unresolvable base, is a skip.
 
 Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -9907,6 +9907,8 @@ file, so there is no vicious-loop risk to defend against.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-cleanup-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge, or - as of DS-196 - invoked by the conductor's session-start preflight (backgrounded, per §Session-start prune script, so it never blocks), a fourth trigger path - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
 
+**A directory git has forgotten is outside every backstop above.** Each of those paths starts from `git worktree list`, so a directory under `.claude/worktrees/`/`.agentic/worktrees/` that git no longer has a registration for - the residue of a `git worktree remove` that unregistered it without deleting it, or of an administrative prune - is never classified, never gated, and never reclaimed by any of them. `bin/ds-cleanup-worktrees` now REPORTS these (a `NOTE:` with the count on every run, the paths under `--explain`) so they at least stop being invisible. It does not remove them and prints no removal command, deliberately: disposition is a human decision per path, and a report that cannot destroy anything is the right shape for a predicate whose descent logic is newer than the gates around it. Detection is depth-agnostic - this repo's own `.agentic/worktrees/<branch-name>` convention nests one level deeper for `feature/`, `fix/`, and `chore/` prefixes, so a shallow scan would name the PARENT of a live worktree.
+
 Implicit Trivial batching (§Implicit Trivial batching: open the PR at
 first push above) needs no special case here: each continuation spawn is
 an ordinary Trivial engineer running in its own harness isolation
@@ -10063,8 +10065,8 @@ Parent clause: `content/sections/02-delegation.md` §Standing authorizations.
 
 Run at session start alongside the session-start prune script, via
 `bin/ds-branch-prune` (DS-153) - never inline shell. The script proves, for
-each local branch, that its tip's content is subsumed by `origin/main` via a
-four-layer, first-match-wins predicate (ancestry, squash-patch equivalence,
+each local branch, that its tip's content is subsumed by the RESOLVED base
+branch via a four-layer, first-match-wins predicate (ancestry, squash-patch equivalence,
 tip-subsumption, content-on-main); absence of proof is always a skip, never
 a force-delete. See the script's own module docstring (`bin/ds-branch-prune`)
 and `.agentic/ds-153-plan.md` (DS-153) for the full normative predicate.
@@ -10096,21 +10098,40 @@ more, and the run always names the condition rather than staying silent).
 **Safe boundary:** a branch the predicate cannot prove subsumed resolves to
 `SKIP_UNPROVEN` - reported, never force-deleted. This includes a branch
 whose only evidence is "a PR merged": that proves the PR merged, not that
-THIS local tip's content is on `origin/main` - precisely the predicate this
-script was built to eliminate (see the plan's Core decision).
+THIS local tip's content is on the resolved base - precisely the predicate
+this script was built to eliminate (see the plan's Core decision). An
+UNRESOLVABLE base is the same safe boundary one level up: the run prints
+`base=unresolved mode=skipped ... branches=0 deletions=0 skips=0` (the
+`mode=` field composes every axis that held, so a `--dry-run` or degraded
+run stays distinguishable there), deletes nothing,
+writes no ledger entry, and exits 0.
 
-**Residual: G0's base-branch guard is name-based, and the session-start
-call site above passes no `--base`.** A project declaring a non-develop
-`BASE_BRANCH` in `AGENTS.md` (e.g. `integration`, `staging`, `release`) has
-that branch deleted via L1 like any other stale branch once it is fully
-merged into `origin/main` - after which base-branch resolution can no
-longer find it locally. Not data loss (the ref survives on origin, and the
-deletion ledger records the tip SHA), but disclosed here because the
-develop/development guard is unconditional while a custom `BASE_BRANCH` is
-not. Passing the resolved `BASE_BRANCH` explicitly via `--base` at the call
-site would close this; deliberately not done here, since `BASE_BRANCH` is
-resolved lazily and this script runs unconditionally at session start (see
-the `content/rules/conventions.md` Base branch resolution note above).
+**Base resolution: this script resolves its own base.** The session-start
+call site above still passes no `--base`, but that no longer means
+`origin/main` is assumed. `bin/ds-branch-prune` calls the same shared
+`resolve_base_branch` (`bin/_lib.py`) that `bin/ds-cleanup-worktrees` uses -
+an `AGENTS.md` `BASE_BRANCH:` declaration (authoritative), then
+`refs/remotes/origin/HEAD`, then a local `develop`, then a local
+`development`, then `main` falling back to `master` - and prints the
+resolved value in its summary line on every run. Until that landed it
+hardcoded `origin/main`, so on a repo whose integration branch is not
+`main` every branch was evaluated against the wrong base and the run proved
+nothing. G0's guard set is now built from the ACTUALLY-resolved base, which
+retires the old residual recorded here (a custom `BASE_BRANCH` such as
+`integration`/`staging`/`release` being deleted via L1 because a name-based
+guard could not see it).
+
+**Residual hazard, disclosed not hidden: a stray local `develop` can switch
+the base.** With `refs/remotes/origin/HEAD` unset locally and no `AGENTS.md`
+declaration, the tier order reaches the local-`develop` tier, so a
+`main`-based repo that happens to carry an unrelated local `develop` branch
+silently resolves to `origin/develop`. This risk already existed for
+`bin/ds-cleanup-worktrees`; sharing the resolver extends it to branch
+DELETION, which is more consequential. It is bounded, not closed:
+`develop`/`development` remain in G0's guard set UNCONDITIONALLY (so
+neither is ever the branch deleted), the resolved base is printed every
+run, and an explicit `--base` overrides. Run `git remote set-head origin -a`
+or declare `BASE_BRANCH:` in `AGENTS.md` to make resolution deterministic.
 
 **Recovery (Amendment B3):** `git branch -D` deletes the branch's own reflog
 (`.git/logs/refs/heads/<branch>`) outright, so the default 90-day
@@ -15373,7 +15394,7 @@ echo "BEFORE_BRANCHES=$BEFORE_BRANCHES"
 
 Resolve `bin/ds-cleanup-worktrees`: check `$REPO_DIR/bin/ds-cleanup-worktrees` first (the `REPO_DIR` env var, when the operator's shell happens to have it set), else fall back to PATH. This is NOT the same mechanism `hooks/session-start-wrap.sh` uses (it resolves `AE_REPO_DIR` via `resolve_ae_repo_dir_with_fallback`, sourced relative to that script's own on-disk location - a trick this inline Bash block, run ad hoc with no stable file location of its own, cannot reproduce) or `bin/ds-base-sync` (which resolves its colocated `$SCRIPT_DIR/ds-cleanup-worktrees` directly, with no PATH fallback at all). `REPO_DIR` is rarely set in an interactive or conductor shell, so this almost always lands on the PATH fallback - which is exactly why every adapter's install script wires `bin/` onto PATH. This single call replaces the entire manual classify (`classify_entry`) -> lock/dirty -> merge-evidence -> disposition (`disposition_for`) walk a hand-authored version of this step used to spell out here: same normative predicate, no second copy to drift.
 
-**Base-branch resolution is no longer this command file's job (round-4 rework).** A prior version of this step hand-derived `--base` here via a grep/awk/sed text-extraction pipeline over `AGENTS.md`; that pipeline produced a fresh defect in three consecutive review rounds (a prose sentence that merely mentioned `BASE_BRANCH:` matching, mishandled quotes, a doubled `origin/` prefix, trailing whitespace surviving normalization, a fence-stripper that missed indented and `~~~` fences) - each fix was an input-variant patch on the last. `bin/ds-cleanup-worktrees` now resolves its own base automatically when `--base` is omitted: an `AGENTS.md` `BASE_BRANCH:` declaration (AUTHORITATIVE - if declared but its ref does not validate, resolution fails outright rather than falling through to a lower tier), then `git symbolic-ref refs/remotes/origin/HEAD`, then a local `develop` branch, then a local `development` branch, then `main` falling back to `master` - each of these lower tiers validated against origin before use, with a diagnostic and fallthrough to the next candidate on a resolved-but-nonexistent value. See `resolve_base_branch`'s docstring in `bin/ds-cleanup-worktrees` for the full tier order and its documented, deliberate deviations from `content/rules/conventions.md` §Base branch resolution. Simply omit `--base` below; do not re-derive it here. When resolution fails - either the AGENTS.md declaration was unresolvable, or every lower-tier automatic candidate failed validation - the binary names every candidate tried on stderr and exits 0 having removed nothing (fail-safe, not fatal - the same asymmetry the old inline pipeline had: a WARNING and a skipped reap for the session, never a hard nonzero exit that would abort Steps 3/4 below).
+**Base-branch resolution is no longer this command file's job (round-4 rework).** A prior version of this step hand-derived `--base` here via a grep/awk/sed text-extraction pipeline over `AGENTS.md`; that pipeline produced a fresh defect in three consecutive review rounds (a prose sentence that merely mentioned `BASE_BRANCH:` matching, mishandled quotes, a doubled `origin/` prefix, trailing whitespace surviving normalization, a fence-stripper that missed indented and `~~~` fences) - each fix was an input-variant patch on the last. `bin/ds-cleanup-worktrees` now resolves its own base automatically when `--base` is omitted: an `AGENTS.md` `BASE_BRANCH:` declaration (AUTHORITATIVE - if declared but its ref does not validate, resolution fails outright rather than falling through to a lower tier), then `git symbolic-ref refs/remotes/origin/HEAD`, then a local `develop` branch, then a local `development` branch, then `main` falling back to `master` - each of these lower tiers validated against origin before use, with a diagnostic and fallthrough to the next candidate on a resolved-but-nonexistent value. See `resolve_base_branch`'s docstring in `bin/_lib.py` (it lives there, shared with `bin/ds-branch-prune`, not in `bin/ds-cleanup-worktrees` itself) for the full tier order and its documented, deliberate deviations from `content/rules/conventions.md` §Base branch resolution. Simply omit `--base` below; do not re-derive it here. When resolution fails - either the AGENTS.md declaration was unresolvable, or every lower-tier automatic candidate failed validation - the binary names every candidate tried on stderr and exits 0 having removed nothing (fail-safe, not fatal - the same asymmetry the old inline pipeline had: a WARNING and a skipped reap for the session, never a hard nonzero exit that would abort Steps 3/4 below).
 
 ```bash
 DS_CLEANUP_BIN=""
@@ -15416,7 +15437,7 @@ This removes worktrees only - isolation (`.claude/worktrees/*`), feature/conduct
 
 ## Step 3: Prune stale local branches
 
-Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)` - `bin/ds-branch-prune` (DS-153). It deletes a local branch only when a four-layer, first-match-wins subsumption predicate (ancestry, squash-patch equivalence, tip-subsumption, content-on-main) proves that branch's tip content is on `origin/main`; absence of proof is always `SKIP_UNPROVEN`, reported for manual review, never force-deleted. When `gh` is unavailable or errors, the predicate degrades to ancestry and content-on-main evidence only (L1/L4) - a strict subset, never a superset, of what a full run would delete - and the run names the degradation rather than staying silent.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)` - `bin/ds-branch-prune` (DS-153). It deletes a local branch only when a four-layer, first-match-wins subsumption predicate (ancestry, squash-patch equivalence, tip-subsumption, content-on-main) proves that branch's tip content is on the RESOLVED base branch; absence of proof is always `SKIP_UNPROVEN`, reported for manual review, never force-deleted. It resolves that base itself, through the same shared `resolve_base_branch` Step 2 uses, so omit `--base` here too; when resolution fails it deletes nothing, writes no ledger entry, and exits 0. When `gh` is unavailable or errors, the predicate degrades to ancestry and content-on-main evidence only (L1/L4) - a strict subset, never a superset, of what a full run would delete - and the run names the degradation rather than staying silent.
 
 ---
 
@@ -15442,7 +15463,9 @@ Report a summary:
 - **Local branches before -> after, with the delta:** `BEFORE_BRANCHES` (Step 1) -> `AFTER_BRANCHES` (above). Step 3 deletes local branches, so a worktree-only report leaves half of what this run did unreported.
 - **The bytes Step 2's `--measure-size` produced, under the binary's OWN label:** `reclaimed_kb` on a live run, `would_reclaim_kb` under `--dry-run`. Carry that label through verbatim - never relabel one as the other, and never collapse the two into a single word like "reclaimed": a projection and bytes actually freed are different claims, and conflating them is how "we recovered X" becomes a lie. If Step 2's invocation dropped `--measure-size`, or the binary was not found and the reap was skipped, report the byte figures as NOT MEASURED and say why - an absent measurement is never reported as zero.
 - **`dirty_unreclaimable_kb` alongside it, labelled refused-by-design and explicitly NOT part of what was reclaimed.** Dirty worktrees are refused removal terminally and are typically where the real byte mass on a checkout lives, so the figure is worth surfacing - but folding it into either reclaim total would report refused bytes as freed.
+- **`--explain` now itemizes what each dirty tree actually holds** (`composition: modified=N untracked=N ...`, plus the raw `git status --porcelain` text), so a `SKIP_DIRTY` entry can be triaged as abandoned build output versus real uncommitted work without opening it. This is a REPORT ONLY: no gate reads it, it changes no outcome, and the tool still refuses to remove a dirty worktree - there is no flag that overrides that refusal. An unmeasurable tree reports `composition: unavailable`, never zeroes.
 - **When Step 2 reported a nonzero `size_unknown_count`, state that every byte total that run is a FLOOR, not an exact figure** - entries a `du -sk` call could not measure are excluded from every total, never defaulted to 0.
+- **Any `NOTE: N directory/directories ... are NOT registered with git` line, verbatim.** These are directories under `.claude/worktrees/`/`.agentic/worktrees/` that `git worktree list` does not know about, so no gate in Step 2 ever evaluates them and no run can reclaim them - they are invisible to every before/after count above. `--explain` lists the paths. REPORT ONLY: nothing is touched and no removal command is printed, deliberately; disposition is a human decision per path.
 - **The standing caveat on every byte figure:** it measures the working-tree checkout only, never the shared git object store every worktree of a repo shares. Removing a worktree does not shrink that store, and deleting a branch in Step 3 reclaims nothing until `git gc` runs - so the branch delta above is a tidiness result, not a disk-space one.
 
 ---
@@ -15450,7 +15473,7 @@ Report a summary:
 ## Notes
 
 - **Safety first:** never remove a worktree with uncommitted changes without explicit user confirmation. `disposition_for`'s dirty check in Step 2 is not optional.
-- Never remove a feature worktree whose PR is still OPEN. For a live worktree's own removal (Step 2, `disposition_for`), a MERGED PR alone remains sufficient evidence - `git worktree remove` does not destroy commits, so the worst case is already covered by `SKIP_DIRTY`/`SKIP_LOCKED` (DS-153 Amendment B1). This does NOT extend to local branch DELETION: `bin/ds-branch-prune` (Step 3, `disposition_for_orphan_branch`) treats a bare MERGED PR as terminally insufficient (`SKIP_PR_MERGED_UNPROVEN`) and requires the subsumption predicate to prove the tip's content is on `origin/main` before deleting.
+- Never remove a feature worktree whose PR is still OPEN. For a live worktree's own removal (Step 2, `disposition_for`), a MERGED PR alone remains sufficient evidence - `git worktree remove` does not destroy commits, so the worst case is already covered by `SKIP_DIRTY`/`SKIP_LOCKED` (DS-153 Amendment B1). This does NOT extend to local branch DELETION: `bin/ds-branch-prune` (Step 3, `disposition_for_orphan_branch`) treats a bare MERGED PR as terminally insufficient (`SKIP_PR_MERGED_UNPROVEN`) and requires the subsumption predicate to prove the tip's content is on the resolved base branch before deleting.
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.

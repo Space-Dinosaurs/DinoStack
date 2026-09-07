@@ -1147,12 +1147,12 @@ git worktree prune
 <span class="hljs-comment"># worktree-agent-* branches and every other stale local branch:</span>
 <span class="hljs-built_in">command</span> -v ds-branch-prune &gt;/dev/null 2&gt;&amp;1 &amp;&amp; ds-branch-prune
 </code></pre>
-<p>The <strong>branch prune</strong> (<code>bin/ds-branch-prune</code>) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work:</p>
+<p>The <strong>branch prune</strong> (<code>bin/ds-branch-prune</code>) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work. It resolves its own base branch (shared <code>resolve_base_branch</code>, <code>bin/_lib.py</code>) rather than assuming <code>origin/main</code>, and deletes nothing when that resolution fails:</p>
 <ol>
-<li>Ancestry - every commit is literally on <code>origin/main</code></li>
+<li>Ancestry - every commit is literally on the resolved base</li>
 <li>Squash-patch equivalence - the branch's cumulative delta matches a merged PR's squash commit</li>
 <li>Tip-subsumption - the tip carries no commit beyond the head that was squashed</li>
-<li>Content-on-main - every file the branch touched is byte-identical to <code>origin/main</code></li>
+<li>Content-on-main - every file the branch touched is byte-identical to the resolved base</li>
 </ol>
 <ul>
 <li>Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time</li>
