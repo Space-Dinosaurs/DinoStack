@@ -98,6 +98,62 @@ def plain_record(ts="2026-09-01T00:00:00.000Z"):
     return {"type": "user", "message": {"role": "user", "content": "hello"}, "timestamp": ts}
 
 
+def list_shaped_user_record_with_slash_text(ts="2026-09-01T00:00:00.000Z"):
+    """A type:"user" record whose message.content is LIST-shaped (a
+    tool_result payload) but happens to contain the slash-marker text
+    inside a nested string - mirrors a live shape found in this session's
+    own transcript (lines 227, 273, 320): a tool_result echoing a prior
+    <command-name>/dinostack</command-name> invocation back into context.
+    Must NOT be classified as an operator-typed load; only a bare-string
+    message.content is the real trigger shape."""
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Earlier in this session: <command-name>/dinostack</command-name>",
+                        }
+                    ],
+                }
+            ],
+        },
+        "timestamp": ts,
+    }
+
+
+def nudge_wrong_hook_name_record(ts="2026-09-01T00:00:00.000Z"):
+    """Same attachment.type and marker text as nudge_record, but a
+    DIFFERENT hookName - must not be classified as the auto-load nudge."""
+    return {
+        "type": "attachment",
+        "attachment": {
+            "type": "hook_success",
+            "hookName": "SomeOtherHook",
+            "content": "SKILL CHECK [dinostack]: skill_auto_load=true.\nBefore responding...",
+        },
+        "timestamp": ts,
+    }
+
+
+def nudge_wrong_attachment_type_record(ts="2026-09-01T00:00:00.000Z"):
+    """Same hookName and marker text as nudge_record, but a DIFFERENT
+    attachment.type - must not be classified as the auto-load nudge."""
+    return {
+        "type": "attachment",
+        "attachment": {
+            "type": "hook_failure",
+            "hookName": "UserPromptSubmit",
+            "content": "SKILL CHECK [dinostack]: skill_auto_load=true.\nBefore responding...",
+        },
+        "timestamp": ts,
+    }
+
+
 def write_transcript(store: Path, project_dir_name: str, session_id: str, records: list) -> Path:
     project_dir = store / "projects" / project_dir_name
     project_dir.mkdir(parents=True, exist_ok=True)
@@ -107,22 +163,28 @@ def write_transcript(store: Path, project_dir_name: str, session_id: str, record
     return path
 
 
-PROJECT = "fixture-Users-tyson-fixture-repo"
+# Every real Claude-Code-form project directory name begins with "-" (an
+# absolute path with each "/" replaced by "-"). Round-1's fixture had no
+# leading dash, so all 13 invocations using it exercised a shape that
+# cannot occur in production and could not have caught the Major 2
+# leading-dash argparse defect - this name deliberately reproduces the
+# real shape.
+PROJECT = "-Users-tyson-fixture-repo"
 
 
-def _run_cli(store: Path, extra_args=None, executable: Path = CLI_PATH):
+def _run_cli(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None):
     env = dict(os.environ)
     env["CLAUDE_CONFIG_DIR"] = str(store)
     env.pop("AGENTIC_CONFIG_DIR", None)
     argv = [sys.executable, str(executable), "--json"]
     if extra_args:
         argv.extend(extra_args)
-    result = subprocess.run(argv, capture_output=True, text=True, env=env)
+    result = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=str(cwd) if cwd else None)
     return result
 
 
-def _collect_json(store: Path, extra_args=None, executable: Path = CLI_PATH) -> dict:
-    result = _run_cli(store, extra_args, executable=executable)
+def _collect_json(store: Path, extra_args=None, executable: Path = CLI_PATH, cwd: Path = None) -> dict:
+    result = _run_cli(store, extra_args, executable=executable, cwd=cwd)
     assert result.returncode == 0, result.stderr
     assert not result.stderr, result.stderr
     return json.loads(result.stdout)
@@ -195,7 +257,7 @@ class TestClassifyTranscript(unittest.TestCase):
             self.assertEqual(result["mode"], slr.MODE_MODEL)
 
     def test_skill_load_for_a_different_skill_does_not_count(self):
-        # Mutation: delete the TARGET_SKILL equality check in
+        # Mutation: delete the TARGET_SKILL_NAMES membership check in
         # _is_skill_load_call and this reddens (mode would be MODE_MODEL).
         with tempfile.TemporaryDirectory() as tmp:
             path = write_transcript(Path(tmp), PROJECT, "s1", [other_skill_load_record()])
@@ -226,6 +288,44 @@ class TestClassifyTranscript(unittest.TestCase):
             self.assertFalse(r3["nudge_fired"])
             self.assertIsNone(r3["mode"])
 
+    def test_list_shaped_user_content_with_slash_text_is_not_a_slash_load(self):
+        """Major 5 (round 2): _slash_load_fired must require message.content
+        to be a bare STRING, not merely contain the marker substring
+        anywhere. Mutation: `isinstance(content, str) and SLASH_MARKER in
+        content` -> `SLASH_MARKER in str(content)` and this reddens - a
+        real transcript shape (a tool_result echoing a prior slash command
+        back into context) would then be misclassified as MODE_OPERATOR."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(
+                Path(tmp), PROJECT, "s1", [list_shaped_user_record_with_slash_text()]
+            )
+            result = slr.classify_transcript(path)
+            self.assertIsNone(result["mode"])
+
+    def test_nudge_requires_hook_success_attachment_type(self):
+        """Major 5 (round 2): deleting the `attachment.get("type") !=
+        "hook_success"` guard in _nudge_fired reddens this - a
+        hook_failure-typed attachment carrying the marker text would then
+        be misclassified as a fired nudge."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(
+                Path(tmp), PROJECT, "s1", [nudge_wrong_attachment_type_record()]
+            )
+            result = slr.classify_transcript(path)
+            self.assertFalse(result["nudge_fired"])
+
+    def test_nudge_requires_user_prompt_submit_hook_name(self):
+        """Major 5 (round 2): deleting the `attachment.get("hookName") !=
+        "UserPromptSubmit"` guard in _nudge_fired reddens this - an
+        attachment from a different hook carrying the marker text would
+        then be misclassified as a fired nudge."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(
+                Path(tmp), PROJECT, "s1", [nudge_wrong_hook_name_record()]
+            )
+            result = slr.classify_transcript(path)
+            self.assertFalse(result["nudge_fired"])
+
     def test_zero_parsed_records_is_unreadable(self):
         # Mutation: delete the `if parsed == 0: return {"status":
         # STATUS_UNREADABLE}` check and this reddens (mode key would be
@@ -248,9 +348,6 @@ class TestClassifyTranscript(unittest.TestCase):
 
     def test_malformed_line_is_skipped_not_fatal(self):
         with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "s1.jsonl"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            (Path(tmp)).mkdir(parents=True, exist_ok=True)
             project_dir = Path(tmp) / "projects" / PROJECT
             project_dir.mkdir(parents=True, exist_ok=True)
             real_path = project_dir / "s1.jsonl"
@@ -292,7 +389,11 @@ class TestScopeResolution(unittest.TestCase):
             "-Users-tyson-.claude-commands",
         )
 
-    def test_default_scope_is_cwd_derived(self):
+    def test_explicit_repo_path_scope_is_repo_path_mode(self):
+        """Named (round 2) to match what it actually exercises: an
+        EXPLICIT --repo-path flag, not the no-flag default. See
+        test_default_scope_with_no_flags_derives_from_cwd below for the
+        actual default-scope (no scope flag at all) coverage."""
         with tempfile.TemporaryDirectory() as tmp:
             store = Path(tmp) / "config"
             write_transcript(store, PROJECT, "s1", [model_load_record()])
@@ -307,6 +408,37 @@ class TestScopeResolution(unittest.TestCase):
 
             payload = _collect_json(store, extra_args=["--repo-path", str(repo_like)])
             self.assertEqual(payload["scope"]["mode"], "repo-path")
+            self.assertEqual(payload["sessions_scanned"], 1)
+            self.assertEqual(payload["sessions_model"], 1)
+
+    def test_default_scope_with_no_flags_derives_from_cwd(self):
+        """The tool's primary use case: no scope flag at all. Mutation
+        (Major 4, verified in round 2): replace
+        `args.repo_path or os.getcwd()` with `args.repo_path or
+        "/nonexistent-mutant"` AND `"cwd-default"` with `"MUTANT"` in
+        resolve_scope - both reddened this test (KeyError/wrong-mode
+        assertion failure), where the misnamed round-1 test
+        (test_explicit_repo_path_scope_is_repo_path_mode, which always
+        passes --repo-path explicitly) did not move at all."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp) / "config"
+            repo_like = Path(tmp) / "fixture-repo"
+            repo_like.mkdir()
+            # os.getcwd() inside the subprocess reports the OS's own view of
+            # the cwd, which can differ from our own un-resolved tmp path on
+            # a host where /tmp (or /var) is itself a symlink (e.g. macOS's
+            # /var -> /private/var) - derive the expected name from the
+            # subprocess's own getcwd(), not from repo_like's literal string.
+            actual_cwd = subprocess.run(
+                [sys.executable, "-c", "import os; print(os.getcwd())"],
+                capture_output=True, text=True, cwd=str(repo_like),
+            ).stdout.strip()
+            derived = slr.project_dir_name_for(actual_cwd)
+            write_transcript(store, derived, "s1", [model_load_record()])
+
+            payload = _collect_json(store, extra_args=[], cwd=repo_like)
+            self.assertEqual(payload["scope"]["mode"], "cwd-default")
+            self.assertEqual(payload["scope"]["derived_project_dir"], derived)
             self.assertEqual(payload["sessions_scanned"], 1)
             self.assertEqual(payload["sessions_model"], 1)
 
@@ -369,9 +501,6 @@ class TestHonestReporting(unittest.TestCase):
         # Mutation: render "0.0%" instead of ABSENT on the no-data path and
         # this reddens - the whole point of AC3 is distinguishing "no data"
         # from "measured zero".
-        with tempfile.TemporaryDirectory() as tmp:
-            result = _run_cli(Path(tmp), extra_args=["--project-dir", "nope", "--json"])
-        # rerun without --json for the human path
         with tempfile.TemporaryDirectory() as tmp:
             argv = [sys.executable, str(CLI_PATH), "--project-dir", "nope"]
             env = dict(os.environ)

@@ -17,16 +17,33 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             given; with none, the default is --repo-path <cwd>. Prints a
             human report (headline unprompted-load rate, per-session-mode
             counts, the nudge-fired-with-no-load count, and the exact scope
-            used) or, with --json, the same data as one JSON object.
-            Exit 0 on EVERY path, including no-data; errors are reported in
-            the envelope's `error` field and never raised.
+            used) or, with --json, the same data as one JSON object -
+            including the headline figure itself, as
+            `unprompted_load_rate` (float 0..1, or JSON null on no-data)
+            and `unprompted_load_rate_display` (the literal string
+            "ABSENT" on no-data, otherwise the same "NN.N%" string the
+            human render prints) - not just the raw counts a --json reader
+            would otherwise have to recompute by hand.
+            Exit 0 on every SCANNING path, including no-data; errors within
+            a completed scan are reported in the envelope's `error` field
+            and never raised. This does NOT cover argparse usage errors
+            (an invalid flag, or more than one of --project-dir/--repo-path/
+            --all-projects given): argparse's own contract applies there -
+            exit 2 to stderr, no envelope, before collect() ever runs. See
+            this file's own test_project_dir_and_repo_path_and_all_projects_are_mutually_exclusive
+            for the reddened case.
 
             --project-dir NAME     scan exactly
                                     <config_dir>/projects/NAME/*.jsonl,
                                     where NAME is already in Claude Code's
                                     project-directory naming form (an
                                     absolute path with every `/` replaced by
-                                    `-`). For fixture-driven tests.
+                                    `-` - every real NAME therefore begins
+                                    with `-`; both `--project-dir NAME` and
+                                    `--project-dir=NAME` accept a
+                                    leading-dash value, see
+                                    _normalize_argv). For fixture-driven
+                                    tests.
             --repo-path PATH       derive NAME from PATH via the same
                                     transform, then scan that one directory.
                                     Default PATH is the current working
@@ -43,12 +60,24 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     unrelated repos' sessions.
 
 Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
-               Resolves the harness config dir via
-               bin/_lib.py::resolve_claude_config_dir() - never a hardcoded
-               ~/.claude (bin/ds-parse-subagent-usage shipped exactly that
-               bug; see root MEMORY.md 2026-08-12). Reads
-               <config_dir>/projects/<project-dir>/*.jsonl - TOP-LEVEL
-               session transcripts only, deliberately not the
+               Imports four names from bin/_lib.py (DS-227 round 2):
+               resolve_claude_config_dir() - never a hardcoded ~/.claude
+               (bin/ds-parse-subagent-usage shipped exactly that bug, fixed
+               in PR #723); MAX_TRANSCRIPT_BYTES,
+               transcript_is_oversize_or_unreadable, and
+               iter_jsonl_dict_records - the streaming scan skeleton shared
+               with bin/ds-learnings-retrieval-rate (same size-guard,
+               parse/skip/isinstance-dict loop). What stays LOCAL to this
+               file and is NOT shared: the four-record-type classifier
+               (_is_skill_load_call / _slash_load_fired / _nudge_fired /
+               the operator-vs-model tie-break), because the sibling scans
+               a structurally different transcript shape
+               (*/subagents/agent-*.jsonl vs this file's top-level
+               */*.jsonl) for a structurally different signal (one boolean
+               "did role-appropriate retrieval fire" vs this file's
+               three-way first-occurrence race across two record types).
+               Reads <config_dir>/projects/<project-dir>/*.jsonl -
+               TOP-LEVEL session transcripts only, deliberately not the
                */subagents/agent-*.jsonl glob bin/ds-learnings-retrieval-rate
                reads, because a skill load is a top-level-session event, not
                a subagent-transcript event.
@@ -65,14 +94,28 @@ Downstream consumers: the operator, on demand. No hook, no SessionStart
                       importlib and drives its classifier against fixture
                       transcripts built in a scratch dir.
 
-Failure modes: never raises, never exits nonzero. A missing config dir, a
+QA criteria: qa_skip: pure-backend-library. Rationale: stdout/JSON CLI
+             diagnostic with no UI surface to render or click through -
+             the round-1 reasoning that CLI-diagnostic tools have no QA
+             gate applicability was sound, this is that reasoning made an
+             explicit, named field rather than an implicit absence.
+
+Failure modes: collect()/classify_transcript() never raise and main() never
+               exits nonzero ONCE argument parsing has succeeded - argparse
+               itself exits 2 on a usage error (e.g. more than one of the
+               mutually-exclusive scope flags) before any of this code
+               runs; that is argparse's own documented contract, not this
+               tool's. A missing config dir, a
                missing projects/ dir, an absent/nonexistent scoped project
                directory, or zero discovered transcripts within scope exits
                0 with error="no_transcripts" and the headline rate rendered
                as the literal string "ABSENT" (never "0" - a zero-initialized
-               accumulator reporting "nothing happened" as "the measurement
-               is zero" is the exact prior defect root MEMORY.md records for
-               2026-08-12). A transcript that parses to zero records, or is
+               accumulator silently reporting "nothing happened" as "the
+               measurement is zero" is a real prior defect in this repo:
+               PR #723 fixed exactly this in ds-parse-subagent-usage's
+               token-telemetry aggregator, which returned an all-zero
+               struct with no failure signal for a file that yielded
+               nothing readable). A transcript that parses to zero records, or is
                >= MAX_TRANSCRIPT_BYTES, counts as `unreadable`: a session the
                tool could not read. `unreadable` is excluded from every rate
                denominator and is never folded into any other bucket.
@@ -120,22 +163,31 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _lib import resolve_claude_config_dir  # noqa: E402
+from _lib import (  # noqa: E402
+    MAX_TRANSCRIPT_BYTES,
+    iter_jsonl_dict_records,
+    rate_or_none,
+    resolve_claude_config_dir,
+    transcript_is_oversize_or_unreadable,
+)
 
-# Mirrors hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES, and the
-# same constant in bin/ds-learnings-retrieval-rate.
-MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024
+# The literal input.skill values this tool counts as a dinostack load. A
+# Skill tool_use call for any other skill (e.g. "ds-implement-ticket") does
+# not count. "agentic-engineering" is the skill's PRE-RENAME name - commit
+# 1e777841 (2026-08-09) renamed .claude/skills/agentic-engineering to
+# .claude/skills/dinostack, the same skill under its former name, not a
+# different skill. Any window straddling that date (this tool's own
+# 2026-08-04..2026-09-03 corpus run does) must count both names or it
+# silently undercounts every pre-rename model-initiated load in scope -
+# three sessions in that corpus load "agentic-engineering" with no
+# "dinostack" load and would otherwise be misclassified as never-loaded.
+TARGET_SKILL_NAMES = frozenset({"dinostack", "agentic-engineering"})
 
-# The literal input.skill value this tool measures. A Skill tool_use call
-# for any other skill (e.g. "ds-implement-ticket", "agentic-engineering")
-# is not a dinostack load and must not count.
-TARGET_SKILL = "dinostack"
-
-# The exact substring emitted by content/templates/claude-managed-content.md
-# -> hooks/skill-auto-load-check.sh's stdout, verified against a live
-# attachment record (03940f2f-5154-40b7-8943-a8b809bf1d11.jsonl line 16,
-# 2026-08-10). Matched as a substring, not full-string equality, because the
-# hook's message may gain trailing detail without changing the marker.
+# The exact substring emitted by hooks/skill-auto-load-check.sh:123's
+# stdout, verified against a live attachment record
+# (03940f2f-5154-40b7-8943-a8b809bf1d11.jsonl line 16, 2026-08-10). Matched
+# as a substring, not full-string equality, because the hook's message may
+# gain trailing detail without changing the marker.
 NUDGE_MARKER = "SKILL CHECK [dinostack]: skill_auto_load=true"
 
 # The operator-typed slash-command marker, verified against a live
@@ -151,7 +203,8 @@ ABSENT = "ABSENT"
 
 def _is_skill_load_call(name, tool_input) -> bool:
     """True iff this tool_use call is a model-initiated dinostack skill
-    load. Matches on name=="Skill" plus input.skill=="dinostack" ONLY -
+    load. Matches on name=="Skill" plus input.skill in TARGET_SKILL_NAMES
+    (current name "dinostack" OR pre-rename name "agentic-engineering") -
     never on the presence of a `caller` field. 3 of 39 observed Skill
     tool_use records in the corpus this tool was built against omit
     `caller` entirely (a non-Anthropic-native backend, call_00_... tool_use
@@ -160,7 +213,7 @@ def _is_skill_load_call(name, tool_input) -> bool:
         return False
     if not isinstance(tool_input, dict):
         return False
-    return tool_input.get("skill") == TARGET_SKILL
+    return tool_input.get("skill") in TARGET_SKILL_NAMES
 
 
 def _slash_load_fired(content) -> bool:
@@ -205,11 +258,7 @@ def classify_transcript(path: Path) -> dict:
     times either path fires afterward. A tie is impossible: the two marker
     shapes cannot occupy the same JSONL line (different `type` values).
     """
-    try:
-        size = path.stat().st_size
-    except OSError:
-        return {"status": STATUS_UNREADABLE}
-    if size >= MAX_TRANSCRIPT_BYTES:
+    if transcript_is_oversize_or_unreadable(path, MAX_TRANSCRIPT_BYTES):
         return {"status": STATUS_UNREADABLE}
 
     parsed = 0
@@ -220,50 +269,40 @@ def classify_transcript(path: Path) -> dict:
     max_ts = None
 
     try:
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            for line_no, raw in enumerate(handle):
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    record = json.loads(raw)
-                except (ValueError, TypeError):
-                    continue
-                if not isinstance(record, dict):
-                    continue
-                parsed += 1
+        for line_no, record in iter_jsonl_dict_records(path):
+            parsed += 1
 
-                ts = record.get("timestamp")
-                if isinstance(ts, str) and ts:
-                    if min_ts is None or ts < min_ts:
-                        min_ts = ts
-                    if max_ts is None or ts > max_ts:
-                        max_ts = ts
+            ts = record.get("timestamp")
+            if isinstance(ts, str) and ts:
+                if min_ts is None or ts < min_ts:
+                    min_ts = ts
+                if max_ts is None or ts > max_ts:
+                    max_ts = ts
 
-                record_type = record.get("type")
+            record_type = record.get("type")
 
-                if record_type == "assistant" and first_model_line is None:
-                    message = record.get("message")
-                    content = message.get("content") if isinstance(message, dict) else None
-                    if isinstance(content, list):
-                        for element in content:
-                            if not isinstance(element, dict):
-                                continue
-                            if element.get("type") != "tool_use":
-                                continue
-                            if _is_skill_load_call(element.get("name"), element.get("input")):
-                                first_model_line = line_no
-                                break
+            if record_type == "assistant" and first_model_line is None:
+                message = record.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                if isinstance(content, list):
+                    for element in content:
+                        if not isinstance(element, dict):
+                            continue
+                        if element.get("type") != "tool_use":
+                            continue
+                        if _is_skill_load_call(element.get("name"), element.get("input")):
+                            first_model_line = line_no
+                            break
 
-                elif record_type == "user" and first_operator_line is None:
-                    message = record.get("message")
-                    content = message.get("content") if isinstance(message, dict) else None
-                    if _slash_load_fired(content):
-                        first_operator_line = line_no
+            elif record_type == "user" and first_operator_line is None:
+                message = record.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                if _slash_load_fired(content):
+                    first_operator_line = line_no
 
-                elif record_type == "attachment" and not nudge_fired:
-                    if _nudge_fired(record.get("attachment")):
-                        nudge_fired = True
+            elif record_type == "attachment" and not nudge_fired:
+                if _nudge_fired(record.get("attachment")):
+                    nudge_fired = True
     except OSError:
         return {"status": STATUS_UNREADABLE}
 
@@ -362,6 +401,7 @@ def collect(config_dir: Path, args) -> dict:
 
     if not transcripts:
         payload["error"] = "no_transcripts"
+        _finalize_rate_fields(payload)
         return payload
 
     for path in transcripts:
@@ -394,11 +434,25 @@ def collect(config_dir: Path, args) -> dict:
             elif key == "max_ts" and value > current:
                 payload["window"][key] = value
 
+    _finalize_rate_fields(payload)
     return payload
 
 
 def _readable_denominator(payload: dict) -> int:
     return payload["sessions_scanned"] - payload["sessions_unreadable"]
+
+
+def _finalize_rate_fields(payload: dict) -> None:
+    """Stamps the headline rate onto the payload itself, so --json carries
+    the same headline figure the human render prints - not just the raw
+    counts a reader would have to recompute by hand. `unprompted_load_rate`
+    is the numeric value (or JSON null / Python None on no-data);
+    `unprompted_load_rate_display` is the same value already run through
+    format_rate(), i.e. literally the string "ABSENT" on no-data, never a
+    fabricated 0.0."""
+    rate = unprompted_rate(payload)
+    payload["unprompted_load_rate"] = rate
+    payload["unprompted_load_rate_display"] = format_rate(rate)
 
 
 def _loaded_count(payload: dict) -> int:
@@ -411,9 +465,7 @@ def unprompted_rate(payload: dict):
     loaded the skill at all is exactly the failure mode this tool exists to
     measure, and excluding it from the denominator would hide it)."""
     denominator = _readable_denominator(payload)
-    if denominator <= 0:
-        return None
-    return payload["sessions_model"] / denominator
+    return rate_or_none(payload["sessions_model"], denominator)
 
 
 # ---------------------------------------------------------------------------
@@ -442,8 +494,11 @@ def render(payload: dict) -> str:
     lines: list[str] = []
     lines.append(f"config_dir: {payload['config_dir']}")
     lines.extend(format_scope(payload["scope"]))
+    target_names = ", ".join(sorted(f"\"{n}\"" for n in TARGET_SKILL_NAMES))
     lines.append(f"  filter: model-initiated load matched on tool_use name==\"Skill\" AND "
-                 f"input.skill==\"{TARGET_SKILL}\" (caller field ignored); operator-typed load "
+                 f"input.skill in {{{target_names}}} - counts the current name and the "
+                 f"pre-rename name (commit 1e777841, 2026-08-09) as the same load (caller "
+                 f"field ignored); operator-typed load "
                  f"matched on a user record whose message.content contains \"{SLASH_MARKER}\"; "
                  f"nudge matched on an attachment record with hookName==\"UserPromptSubmit\" "
                  f"whose content contains \"{NUDGE_MARKER}\".")
@@ -481,8 +536,9 @@ def render(payload: dict) -> str:
     lines.append(f"sessions where the skill never loaded: {payload['sessions_no_load']}")
     lines.append(f"  - of those, nudge fired but no load followed: {payload['sessions_nudge_fired_no_load']}")
     lines.append("")
+    denom_display = denom if denom > 0 else ABSENT
     lines.append(f"HEADLINE unprompted load rate: {format_rate(unprompted_rate(payload))} "
-                 f"({payload['sessions_model']}/{denom if denom > 0 else 0} readable sessions in scope)")
+                 f"({payload['sessions_model']}/{denom_display} readable sessions in scope)")
     lines.append("")
     lines.extend([
         "Notes:",
@@ -500,7 +556,39 @@ def render(payload: dict) -> str:
     return "\n".join(lines)
 
 
+# --project-dir and --repo-path both take a Claude-Code-form project
+# directory name/path, and EVERY real one begins with "-" (an absolute
+# path with each "/" replaced by "-"). argparse's default `--opt VALUE`
+# form refuses to consume a VALUE token that itself looks like an option
+# (starts with "-"), so `--project-dir -Users-tyson-repo` fails with
+# "expected one argument" even though the tool's own report prints exactly
+# that string as `derived_project_dir`. _normalize_argv rewrites the
+# space-separated form into the `--opt=value` form argparse always accepts,
+# so a leading-dash value works whether it arrives space-separated or with
+# `=`. Only argparse's own `expected one argument` case (the option is the
+# last token, no following value at all) is left alone.
+_DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
+
+
+def _normalize_argv(argv: list) -> list:
+    normalized = []
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token in _DASH_VALUE_OPTS and i + 1 < len(argv):
+            normalized.append(f"{token}={argv[i + 1]}")
+            i += 2
+            continue
+        normalized.append(token)
+        i += 1
+    return normalized
+
+
 def main(argv=None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    argv = _normalize_argv(list(argv))
+
     parser = argparse.ArgumentParser(
         description=(
             "Measure how often the dinostack skill loads per session, and the split "
