@@ -782,8 +782,13 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                sys, time, pathlib, collections, typing - `subprocess` is
                deliberately NOT among them since the shared `_run` move:
                every subprocess call in this file routes through the `_run`
-               imported from bin/_lib.py, and `subprocess.` appears zero
-               times here). `git`
+               imported from bin/_lib.py, and no attribute access on the
+               `subprocess` module survives anywhere in this file. This
+               sentence deliberately never writes that module name
+               immediately followed by a dot, so a grep for that two-token
+               sequence over this file returns zero and remains a valid
+               check of the claim instead of matching the claim itself).
+               `git`
                (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
                degrades gracefully when absent or unauthenticated). DS-217's
                multi-account retry additionally depends on `gh auth status
