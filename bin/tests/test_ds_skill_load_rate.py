@@ -509,12 +509,13 @@ class TestScopeResolution(unittest.TestCase):
         as a bogus value and exited 0 with a silent no-data report,
         indistinguishable from a real no-data result. The correct behavior
         is argparse's own "expected one argument" usage error, exit != 0.
-        Mutation: drop the `not argv[i + 1].startswith("--")` guard in
-        _normalize_argv and this reddens (rc becomes 0)."""
-        result = _run_cli(
-            Path(tempfile.mkdtemp()),
-            extra_args=["--project-dir", "--all-projects"],
-        )
+        Mutation: drop the `argv[i + 1] not in _KNOWN_OPTION_TOKENS` guard
+        in _normalize_argv and this reddens (rc becomes 0)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--project-dir", "--all-projects"],
+            )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected one argument", result.stderr)
 
@@ -522,10 +523,29 @@ class TestScopeResolution(unittest.TestCase):
         """Same defect, --repo-path form. Measured pre-fix: `--repo-path
         --all-projects` printed `repo_path: <cwd>/--all-projects` and
         exited 0."""
-        result = _run_cli(
-            Path(tempfile.mkdtemp()),
-            extra_args=["--repo-path", "--all-projects"],
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--repo-path", "--all-projects"],
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
+    def test_project_dir_followed_by_known_single_dash_option_stays_separate(self):
+        """DS-227 round 3 Minor 1: the following-token guard must reject on
+        a KNOWN option string, not merely on a `--` prefix - a real
+        single-dash option (here `-h`) is not caught by a `startswith("--")`
+        check and was still being swallowed as --project-dir's value.
+        Measured pre-fix: `--project-dir -h` printed
+        `requested project dir: -h`, `project directories scanned (0)`,
+        exit 0 - help suppressed, silent no-data report. Mutation: revert
+        the guard to `not argv[i + 1].startswith("--")` and this reddens
+        (rc becomes 0, no usage error)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--project-dir", "-h"],
+            )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected one argument", result.stderr)
 

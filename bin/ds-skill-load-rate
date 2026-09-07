@@ -41,7 +41,7 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     `-` - every real NAME therefore begins
                                     with `-`; both `--project-dir NAME` and
                                     `--project-dir=NAME` accept a
-                                    leading-dash value, see
+                                    single-leading-dash value, see
                                     _normalize_argv). For fixture-driven
                                     tests.
             --repo-path PATH       derive NAME from PATH via the same
@@ -564,10 +564,17 @@ def render(payload: dict) -> str:
 # "expected one argument" even though the tool's own report prints exactly
 # that string as `derived_project_dir`. _normalize_argv rewrites the
 # space-separated form into the `--opt=value` form argparse always accepts,
-# so a leading-dash value works whether it arrives space-separated or with
-# `=`. Only argparse's own `expected one argument` case (the option is the
-# last token, no following value at all) is left alone.
+# so a single-leading-dash value (the only real shape these two options
+# ever take) works whether it arrives space-separated or with `=`. The
+# following token is left un-merged, as two separate argv entries, in two
+# cases: argparse's own "expected one argument" case (the option is the
+# last token, no following value at all), and when the following token is
+# itself one of this parser's own registered option strings
+# (_KNOWN_OPTION_TOKENS) - e.g. `--project-dir -h` must still reach
+# argparse as two separate tokens so `-h` triggers help/usage-error
+# handling instead of being silently swallowed as --project-dir's value.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
+_KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
 
 
 def _normalize_argv(argv: list) -> list:
@@ -578,7 +585,7 @@ def _normalize_argv(argv: list) -> list:
         if (
             token in _DASH_VALUE_OPTS
             and i + 1 < len(argv)
-            and not argv[i + 1].startswith("--")
+            and argv[i + 1] not in _KNOWN_OPTION_TOKENS
         ):
             normalized.append(f"{token}={argv[i + 1]}")
             i += 2
