@@ -105,7 +105,12 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                itself exits 2 on a usage error (e.g. more than one of the
                mutually-exclusive scope flags) before any of this code
                runs; that is argparse's own documented contract, not this
-               tool's. A missing config dir, a
+               tool's. main() also calls _assert_known_option_tokens_in_sync
+               before parsing, which raises an uncaught AssertionError
+               (exit 1, traceback) if _KNOWN_OPTION_TOKENS ever drifts from
+               the parser's real option strings; this guards against a
+               source edit, not a runtime input, and is unreachable in the
+               shipped state. A missing config dir, a
                missing projects/ dir, an absent/nonexistent scoped project
                directory, or zero discovered transcripts within scope exits
                0 with error="no_transcripts" and the headline rate rendered
@@ -565,23 +570,19 @@ def render(payload: dict) -> str:
 # that string as `derived_project_dir`. _normalize_argv rewrites the
 # space-separated form into the `--opt=value` form argparse always accepts,
 # so a single-leading-dash value (the only real shape these two options
-# ever take) works whether it arrives space-separated or with `=`. The
-# following token is left un-merged, as two separate argv entries, in three
-# cases: argparse's own "expected one argument" case (the option is the
-# last token, no following value at all); when the following token starts
-# with "--" (a real value never does, so any "--"-prefixed token is an
-# option-shaped argument - registered, unregistered, or a typo - and must
-# reach argparse as its own token rather than be silently swallowed as a
-# value, whatever argparse then does with it); and when the following
-# token is exactly one of this parser's own registered single-dash option
-# strings (_KNOWN_OPTION_TOKENS) - e.g. `--project-dir -h` must still
-# reach argparse as two separate tokens so `-h` triggers help/usage-error
-# handling instead of being silently swallowed as --project-dir's value.
-# A following token with no leading dash at all is never a real value
-# either, but is left un-merged (not rewritten to `--opt=value`) rather
-# than excluded outright: argparse's default consuming behavior already
-# accepts a bare non-dash token as the value with no rewrite needed, so
-# omitting it from the merge changes nothing observable.
+# ever take) works whether it arrives space-separated or with `=`.
+#
+# The following token is left un-merged, as two separate argv entries,
+# whenever it is option-shaped rather than a real value: when it starts
+# with "--" (a real value never does), or when it is exactly one of
+# _KNOWN_OPTION_TOKENS (e.g. `--project-dir -h` must still reach argparse
+# as two separate tokens so `-h` triggers help/usage-error handling
+# instead of being silently swallowed as --project-dir's value); or when
+# argparse's own "expected one argument" case applies (the option is the
+# last token, no following value at all). A following token with no
+# leading dash at all is never a real value either, but argparse's default
+# consuming behavior already accepts a bare non-dash token as the value
+# with no rewrite needed, so it is left alone rather than merged.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
 _KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
 
@@ -631,10 +632,9 @@ def _build_parser() -> argparse.ArgumentParser:
 def _parser_option_strings(parser: argparse.ArgumentParser) -> frozenset:
     """All option strings the parser actually accepts (e.g. "--json", "-h"),
     derived from the live parser rather than hand-typed. Used to keep
-    _KNOWN_OPTION_TOKENS - the literal _normalize_argv consults BEFORE this
-    parser is ever constructed - in sync with what the parser really
-    registers, so a future option added here without updating that literal
-    cannot silently reproduce the swallow-as-value bug for it."""
+    _KNOWN_OPTION_TOKENS in sync with what the parser really registers, so
+    a future option added here without updating that literal cannot
+    silently reproduce the swallow-as-value bug for it."""
     strings = set()
     for action in parser._actions:
         strings.update(action.option_strings)

@@ -594,11 +594,11 @@ class TestScopeResolution(unittest.TestCase):
 
     def test_known_option_tokens_matches_parser_option_strings_bidirectionally(self):
         """DS-227 round 5 Minor: _KNOWN_OPTION_TOKENS is a hand-typed
-        literal consulted by _normalize_argv BEFORE the real parser is
-        ever constructed, and nothing enforced the correspondence. This
-        pins bidirectional set equality (not containment - this repo has
-        a recorded defect where a containment check passed while the
-        sets diverged) between the literal and the live parser's
+        literal consulted by _normalize_argv, and nothing enforced the
+        correspondence between it and the real parser. This pins
+        bidirectional set equality (not containment - this repo has a
+        recorded defect where a containment check passed while the sets
+        diverged) between the literal and the live parser's
         option_strings. Mutation: add a new option to _build_parser()
         without updating _KNOWN_OPTION_TOKENS (or vice versa) and this
         reddens with an AssertionError naming the asymmetric side."""
@@ -607,6 +607,28 @@ class TestScopeResolution(unittest.TestCase):
         self.assertEqual(live, frozenset(slr._KNOWN_OPTION_TOKENS))
         # _assert_known_option_tokens_in_sync must not raise on the real parser
         slr._assert_known_option_tokens_in_sync(parser)
+
+    def test_main_invokes_known_option_tokens_sync_guard(self):
+        """DS-227 round 6 Minor 3: the equality test above only proves
+        the guard itself does not raise - it does not prove main() ever
+        calls it. This pins that main() actually invokes
+        _assert_known_option_tokens_in_sync before parsing, by swapping
+        it for a sentinel that raises and confirming the raise
+        propagates out of main(). Mutation: delete the
+        _assert_known_option_tokens_in_sync(parser) call from main() and
+        this reddens (the sentinel is never invoked, so main() returns
+        normally instead of propagating RuntimeError)."""
+        original = slr._assert_known_option_tokens_in_sync
+
+        def _sentinel(parser):
+            raise RuntimeError("sentinel-guard-invoked")
+
+        slr._assert_known_option_tokens_in_sync = _sentinel
+        try:
+            with self.assertRaisesRegex(RuntimeError, "sentinel-guard-invoked"):
+                slr.main(["--json"])
+        finally:
+            slr._assert_known_option_tokens_in_sync = original
 
 
 # ---------------------------------------------------------------------------
