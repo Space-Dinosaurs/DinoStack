@@ -1108,20 +1108,25 @@ def _install_fake_gh(monkeypatch, pages, slug="Space-Dinosaurs/DinoStack", repo_
 
     Returns the mutable call log so a test can assert HOW MANY requests
     were made - the discriminator between a genuinely paginated fetch and a
-    single capped one - and which cursor each carried.
+    single capped one - which cursor each carried, and the `timeout=` each
+    was issued with (an unbounded `gh` call at session start is the failure
+    this bound exists to prevent, so it is recorded, not assumed).
     """
     real_run = ds_branch_prune._run
-    log = {"graphql": 0, "repo_view": 0, "cursors": []}
+    log = {"graphql": 0, "repo_view": 0, "cursors": [], "timeouts": [], "flags": []}
 
-    def fake_run(args, cwd=None, input_text=None):
+    def fake_run(args, cwd=None, input_text=None, timeout=None):
         if args[:3] == ["gh", "repo", "view"]:
             log["repo_view"] += 1
+            log["timeouts"].append(timeout)
             if repo_view_rc != 0:
                 return _FakeProc(repo_view_rc, "")
             return _FakeProc(0, json.dumps({"nameWithOwner": slug}))
         if args[:3] == ["gh", "api", "graphql"]:
             idx = log["graphql"]
             log["graphql"] += 1
+            log["timeouts"].append(timeout)
+            log["flags"].append(list(args))
             cursor = None
             for token in args:
                 if token.startswith("endCursor="):
@@ -1134,7 +1139,7 @@ def _install_fake_gh(monkeypatch, pages, slug="Space-Dinosaurs/DinoStack", repo_
             if isinstance(page, _FakeProc):
                 return page
             return _FakeProc(0, json.dumps(page))
-        return real_run(args, cwd=cwd, input_text=input_text)
+        return real_run(args, cwd=cwd, input_text=input_text, timeout=timeout)
 
     monkeypatch.setattr(ds_branch_prune.shutil, "which", lambda name: "/usr/bin/gh")
     monkeypatch.setattr(ds_branch_prune, "_run", fake_run)
@@ -1430,6 +1435,248 @@ def test_short_window_can_only_lose_deletions_never_gain_one(tmp_path, monkeypat
     assert outcomes(complete_out)["feat"] == "DELETE via L2", complete_out
     assert outcomes(short_out)["feat"] == "SKIP_UNPROVEN", short_out
     assert "could not be proven complete" in short_out, short_out
+
+
+def _capture_pr_state(monkeypatch):
+    """Record every `DispositionFacts.pr_state` `evaluate_branch` constructs.
+
+    `evaluate_branch` returns an outcome, not the facts it built, and the
+    difference between `"NONE"` and `"not_checked"` is currently INERT in
+    the shared model (`_check_pr_state_strict` collapses both to the same
+    inconclusive result and `MERGE_EVIDENCE_ORDER` omits the one field
+    whose gate would separate them). That inertness is exactly why the
+    field has to be asserted directly: an outcome-level assertion would
+    pass no matter which value is passed, so it would pin nothing.
+    """
+    seen = []
+    real = ds_branch_prune.disposition_for_orphan_branch
+
+    def spy(branch, facts, base_branches=()):
+        seen.append(facts.pr_state)
+        return real(branch, facts, base_branches=base_branches)
+
+    monkeypatch.setattr(ds_branch_prune, "disposition_for_orphan_branch", spy)
+    return seen
+
+
+def test_incomplete_window_yields_not_checked_never_an_affirmative_none(tmp_path, monkeypatch):
+    """A branch with no candidate PR may only be recorded as `pr_state`
+    `"NONE"` - an AFFIRMATIVE "no merged PR exists for this branch" - when
+    the merged-PR window was both obtained AND proven complete. On an
+    incomplete window the tool has just finished proving it cannot
+    enumerate that window, so the only honest value is `"not_checked"`,
+    which is the string `DispositionFacts`' own docstring
+    (bin/tests/worktree_model.py) requires from a caller that cannot
+    determine a fact.
+
+    Both directions are pinned in one test so a fix cannot satisfy it by
+    blanket-passing `"not_checked"` and losing the affirmative case.
+
+    Reddening mutation (executed): restore the pre-fix assignment
+    `pr_state = "not_checked" if degraded else "NONE"` in
+    `evaluate_branch`, i.e. drop the `or incomplete_reason` term.
+    """
+    repo, _, _, _ = build_clean_squash(tmp_path)
+
+    # Proven-complete window: the affirmative value is still used.
+    seen = _capture_pr_state(monkeypatch)
+    exact = [_graphql_page(_pr_nodes(1, 5), total_count=5, has_next=False)]
+    log = _install_fake_gh(monkeypatch, exact)
+    assert ds_branch_prune.main(["--repo", str(repo), "--base", "main", "--dry-run"]) == 0
+    complete_states = list(seen)
+    assert log["graphql"] == 1, log
+    assert "NONE" in complete_states, complete_states
+    monkeypatch.undo()
+
+    # Provably INCOMPLETE window (5 nodes retrieved, 9 reported): no
+    # affirmative claim may survive anywhere in the run.
+    seen = _capture_pr_state(monkeypatch)
+    short = [_graphql_page(_pr_nodes(1, 5), total_count=9, has_next=False)]
+    _install_fake_gh(monkeypatch, short)
+    assert ds_branch_prune.main(["--repo", str(repo), "--base", "main", "--dry-run"]) == 0
+    incomplete_states = list(seen)
+
+    assert incomplete_states, "no branch reached disposition_for_orphan_branch"
+    assert "NONE" not in incomplete_states, incomplete_states
+    assert set(incomplete_states) <= {"MERGED", "not_checked"}, incomplete_states
+
+
+def test_page_bound_exhaustion_names_the_page_bound_as_its_reason(tmp_path, monkeypatch):
+    """`PR_MAX_PAGES` is a safety bound, not a result cap: exhausting it
+    with `hasNextPage` still true must report an INCOMPLETE window naming
+    that bound, never a complete one. Covered only indirectly before this
+    test - the reason string itself was never asserted, so the branch could
+    have fallen through to the totalCount reconciliation and produced a
+    different (or, on a coincidentally-matching count, NO) reason.
+
+    Reddening mutation (executed): change `if not saw_last_page:` in
+    `_load_merged_prs` to `if False:`.
+    """
+    repo = init_repo(tmp_path)
+    monkeypatch.setattr(ds_branch_prune, "PR_MAX_PAGES", 2)
+
+    # Every page reports another after it, so the loop can only ever end by
+    # exhausting the bound. totalCount is set to the nodes actually
+    # retrieved, so a fall-through to the count check would find them EQUAL
+    # and wrongly report the window complete - that is what this pins.
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=200, has_next=True, end_cursor="c1"),
+        _graphql_page(_pr_nodes(101, 100), total_count=200, has_next=True, end_cursor="c2"),
+    ]
+    log = _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert log["graphql"] == 2, log
+    assert len(data) == 200
+    assert degraded is False
+    assert incomplete_reason is not None
+    assert "2-page safety bound" in incomplete_reason, incomplete_reason
+    assert "pending" in incomplete_reason, incomplete_reason
+
+
+def test_null_repository_is_an_unexpected_shape_not_an_empty_window(tmp_path, monkeypatch):
+    """GitHub answers a repository the token cannot see (renamed, deleted,
+    or not authorized) with HTTP 200, `data.repository: null`, and often no
+    nonzero exit. Read naively that is indistinguishable from "this
+    repository has no merged PRs", which would be an affirmative claim
+    licensing deletions off an empty window. It must be INCOMPLETE.
+
+    Reddening mutation (executed): make `_pull_requests_connection` return
+    `{"totalCount": 0, "pageInfo": {"hasNextPage": False}, "nodes": []}`
+    instead of `None` when `data.repository` is not a dict.
+    """
+    repo = init_repo(tmp_path)
+
+    _install_fake_gh(monkeypatch, [{"data": {"repository": None}}])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert data == []
+    # No nodes were obtained at all, so this is the same state an absent
+    # `gh` produces - degraded, and the operator is told why.
+    assert degraded is True
+    assert incomplete_reason is not None
+    assert "unexpected shape" in incomplete_reason, incomplete_reason
+
+    # And the helper itself, directly, on every null hop.
+    assert ds_branch_prune._pull_requests_connection({"data": {"repository": None}}) is None
+    assert ds_branch_prune._pull_requests_connection({"data": None}) is None
+    assert ds_branch_prune._pull_requests_connection({}) is None
+
+
+def test_every_gh_call_carries_a_bounded_timeout(tmp_path, monkeypatch):
+    """This tool runs synchronously at session start and pagination raised
+    the worst-case network invocation count from 1 to PR_MAX_PAGES + 1, so
+    an unbounded `gh` call is an unbounded session-start stall. Every `gh`
+    invocation must carry a positive, finite timeout - `None` is the
+    regression this pins.
+
+    Reddening mutation (executed): drop `timeout=GH_CALL_TIMEOUT_SECONDS`
+    from the `_run(cmd, cwd=repo, ...)` call in `_load_merged_prs`.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=150, has_next=True, end_cursor="c1"),
+        _graphql_page(_pr_nodes(101, 50), total_count=150, has_next=False),
+    ]
+    log = _install_fake_gh(monkeypatch, pages)
+    _, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert degraded is False and incomplete_reason is None
+    assert log["repo_view"] == 1 and log["graphql"] == 2, log
+    assert len(log["timeouts"]) == 3, log["timeouts"]
+    assert all(isinstance(t, (int, float)) and t > 0 for t in log["timeouts"]), log["timeouts"]
+
+
+def test_gh_call_timeout_is_incomplete_never_a_complete_window(tmp_path, monkeypatch):
+    """A HUNG `gh` call must be classified exactly like an erroring one -
+    partial rows retained, window reported incomplete. The dangerous
+    reading is the opposite one: treating the pages fetched before the hang
+    as the whole window and certifying it complete.
+
+    Reddening mutation (executed): delete the
+    `except subprocess.TimeoutExpired:` arm so the generic
+    `except Exception` handles it - the run stays incomplete but names the
+    wrong failure mode. Second mutation (executed) for the dangerous
+    direction: return `(nodes, False, None)` from that arm.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=500, has_next=True, end_cursor="c1"),
+        subprocess.TimeoutExpired(cmd=["gh", "api", "graphql"], timeout=30.0),
+    ]
+    _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert len(data) == 100
+    assert degraded is False
+    assert incomplete_reason is not None
+    assert "timeout" in incomplete_reason, incomplete_reason
+
+
+def test_whole_fetch_deadline_bounds_the_loop_and_reports_incomplete(tmp_path, monkeypatch):
+    """A per-call timeout alone still admits PR_MAX_PAGES multiples of
+    itself, so the pagination loop carries its own wall-clock deadline.
+    Crossing it must stop the loop and report INCOMPLETE, retaining what
+    was already fetched.
+
+    The clock is faked rather than slept: `time.monotonic` returns 0 while
+    the deadline is computed and for the first page's check, then jumps
+    past the deadline before the second.
+
+    Reddening mutation (executed): delete the
+    `if time.monotonic() >= deadline:` guard at the top of the pagination
+    loop.
+    """
+    repo = init_repo(tmp_path)
+    ticks = iter([0.0, 0.0, 10_000.0] + [10_000.0] * 50)
+    monkeypatch.setattr(ds_branch_prune.time, "monotonic", lambda: next(ticks))
+
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=150, has_next=True, end_cursor="c1"),
+        _graphql_page(_pr_nodes(101, 50), total_count=150, has_next=False),
+    ]
+    log = _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert log["graphql"] == 1, log
+    assert len(data) == 100
+    assert degraded is False
+    assert incomplete_reason is not None
+    assert "deadline" in incomplete_reason, incomplete_reason
+
+
+def test_string_graphql_variables_use_the_raw_field_flag(tmp_path, monkeypatch):
+    """`gh api graphql -F` INFERS a type from the literal, so a numeric
+    owner or repository name (`2048`, a legal GitHub name) would be sent as
+    an Int and rejected by the `$owner:String!` / `$name:String!`
+    declarations. `-f` sends a raw string. `pageSize` is genuinely `Int!`
+    and genuinely needs `-F`, so this pins BOTH directions - a fix that
+    flips every flag to `-f` breaks the query the other way.
+
+    Reddening mutation (executed): change the `owner=`/`name=` flags back
+    to `-F`.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=150, has_next=True, end_cursor="c1"),
+        _graphql_page(_pr_nodes(101, 50), total_count=150, has_next=False),
+    ]
+    log = _install_fake_gh(monkeypatch, pages)
+    _, _, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+    assert incomplete_reason is None
+
+    def flag_for(argv, prefix):
+        for i, token in enumerate(argv):
+            if token.startswith(prefix):
+                return argv[i - 1]
+        raise AssertionError(f"{prefix} not present in {argv}")
+
+    first, second = log["flags"]
+    assert flag_for(first, "owner=") == "-f", first
+    assert flag_for(first, "name=") == "-f", first
+    assert flag_for(first, "pageSize=") == "-F", first
+    # The cursor is `String` too, and only the second page carries one.
+    assert flag_for(second, "endCursor=") == "-f", second
 
 
 def test_superseded_row_cap_constant_is_gone_from_the_script():

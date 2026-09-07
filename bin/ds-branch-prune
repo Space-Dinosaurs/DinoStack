@@ -186,23 +186,49 @@ Failure modes: exit 0 on success INCLUDING partial degradation (gh
                (Amendment B13's contract, retained) and the same guarantee
                that absence of a match is never proof an unmatched branch
                is unmerged. An incomplete or entirely absent candidate set
-               can only cause MORE skips, never a false delete - no layer
-               treats a PR row as evidence by itself, so extra or wrong
-               rows are inert too (L2 re-derives patch-id and hunk content
-               from local objects; L3 requires the mergeCommit to be
-               reachable on the base ref). This NOTE previously fired on
-               EVERY run against this repository, because the superseded
-               500-row `gh pr list` ceiling sat below its merged-PR count;
-               it is now expected to be silent.
+               can only cause MORE skips, never a false delete. Extra or
+               wrong rows are inert too, but for a narrower reason than
+               "no row is ever trusted": every layer re-checks the row
+               against LOCAL objects before acting on it (L2 re-derives
+               patch-id and byte-level hunk content; L3 requires the
+               mergeCommit to be an ancestor of the base ref and the
+               branch tip to be an ancestor of the recorded head). L3 does
+               take one thing from the row on trust - the PAIRING of
+               `headRefOid` with `mergeCommit`, which it never verifies by
+               checking that the head is contained in the merge commit.
+               That is pre-existing and sound for genuine API rows, and it
+               is why this manifest claims a re-check, not an absence of
+               trust. This NOTE previously fired on EVERY run against this
+               repository, because the superseded 500-row `gh pr list`
+               ceiling sat below its merged-PR count; it is now expected to
+               be silent.
 
 Performance: one `gh repo view` slug lookup plus one `gh api graphql`
              call per 100 merged PRs (or a single file read via
              --pr-data, which makes zero network calls), plus a handful of
              `git` invocations per local branch
-             (merge-base, is-ancestor, diff, patch-id). Sub-second on this
-             repo's ~49-branch checkout; not designed for repositories with
-             very large branch counts (see the plan's Known limitations
-             for a deferred `.agentic/`-cached-PR-JSON follow-up).
+             (merge-base, is-ancestor, diff, patch-id). Every `gh` call is
+             bounded by GH_CALL_TIMEOUT_SECONDS and the pagination loop as
+             a whole by PR_FETCH_DEADLINE_SECONDS, so worst-case latency is
+             bounded rather than a multiple of the page count.
+
+             Wall-clock, MEASURED (not estimated) on this repository's own
+             checkout on 2026-09-07 - 175 local branches, 770 merged PRs,
+             `--repo . --dry-run`, median of three runs on a warm cache:
+             10.1s before the switch to paginated GraphQL and 14.0s after.
+             The increase is the additional network round trips: the
+             superseded fetch made ONE capped `gh pr list` call, this one
+             made nine (a slug lookup plus eight pages) on that same
+             measured run. State the branch count,
+             the merged-PR count and the date alongside any figure quoted
+             from here - all three inputs grow monotonically, so a bare
+             number goes stale silently. (A prior revision of this
+             paragraph claimed "sub-second on this repo's ~49-branch
+             checkout"; that was already false by roughly an order of
+             magnitude before the change that prompted this correction.)
+             Not designed for repositories with very large branch counts
+             (see the plan's Known limitations for a deferred
+             `.agentic/`-cached-PR-JSON follow-up).
 """
 
 from __future__ import annotations
@@ -212,6 +238,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -240,7 +267,8 @@ from worktree_model import (  # noqa: E402
 
 # Only `resolve_base_branch` is imported. `_lib` also exports a `_run`, but
 # this file keeps its OWN same-named, different-signature `_run` below
-# (`input_text`, no timeout support) that every call site here depends on -
+# (`input_text`, which `_lib`'s copy does not accept) that every call site
+# here depends on -
 # the two are deliberately NOT unified, and the shared one is deliberately
 # NOT imported here even under an alias, because nothing in this file would
 # call it (`resolve_base_branch` uses `_lib`'s copy internally, from inside
@@ -297,6 +325,25 @@ def _compose_mode(degraded: bool, dry_run: bool, skipped: bool = False) -> str:
 #                PR_PAGE_SIZE * PR_MAX_PAGES = 10,000 merged PRs.
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 100
+
+# Network bounds for the merged-PR fetch. This tool runs SYNCHRONOUSLY at
+# session start (see content/references/worktree-lifecycle.md), so a hung
+# `gh` blocks the operator, and pagination raised the worst-case number of
+# network invocations from 1 to PR_MAX_PAGES + 1. Two bounds, because a
+# per-call timeout alone would still admit a ~101x multiple of itself:
+#
+# GH_CALL_TIMEOUT_SECONDS - per `gh` invocation, passed to subprocess.
+# PR_FETCH_DEADLINE_SECONDS - wall-clock ceiling on the whole pagination
+#                             loop, checked before each request is issued.
+#
+# Worst case is therefore PR_FETCH_DEADLINE_SECONDS plus one in-flight
+# call, not PR_MAX_PAGES * GH_CALL_TIMEOUT_SECONDS. BOTH bounds resolve to
+# an INCOMPLETE window and never to a complete one, and both failure
+# directions are safe: a timeout that fires too eagerly loses rows, which
+# can only cost deletions, and a timeout that never fires leaves behavior
+# exactly as it is without them.
+GH_CALL_TIMEOUT_SECONDS = 30.0
+PR_FETCH_DEADLINE_SECONDS = 120.0
 LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"
 
 # Amendment B2: every diff invocation is pinned to a config-independent
@@ -311,8 +358,22 @@ _DIFF_CONFIG_PIN = ["-c", "diff.algorithm=myers", "-c", "diff.noprefix=false"]
 # --------------------------------------------------------------------------
 
 
-def _run(args: List[str], cwd: Optional[str] = None, input_text: Optional[str] = None) -> subprocess.CompletedProcess:
-    return subprocess.run(args, cwd=cwd, input=input_text, capture_output=True, text=True)
+def _run(
+    args: List[str],
+    cwd: Optional[str] = None,
+    input_text: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> subprocess.CompletedProcess:
+    """`timeout=None` (the default) is the pre-existing unbounded behavior
+    that every local-plumbing call site here relies on; those are fast and
+    offline, and bounding them would add a failure mode for no gain. A
+    non-None `timeout` lets `subprocess.TimeoutExpired` propagate to the
+    caller, which every `gh` call site below catches and converts into
+    degraded-or-incomplete evidence - never into a delete.
+    """
+    return subprocess.run(
+        args, cwd=cwd, input=input_text, capture_output=True, text=True, timeout=timeout
+    )
 
 
 def _resolve_repo(path: str) -> str:
@@ -546,8 +607,12 @@ def _gh_repo_slug(repo: str) -> Optional[Tuple[str, str]]:
     change - a resolution failure can only remove evidence, never add it.
     """
     try:
-        proc = _run(["gh", "repo", "view", "--json", "nameWithOwner"], cwd=repo)
-    except Exception:  # noqa: BLE001 - any gh failure degrades, never raises
+        proc = _run(
+            ["gh", "repo", "view", "--json", "nameWithOwner"],
+            cwd=repo,
+            timeout=GH_CALL_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - any gh failure, TIMEOUT INCLUDED, degrades
         return None
     if proc.returncode != 0:
         return None
@@ -591,12 +656,22 @@ def _load_merged_prs(
 
       Too MANY / WRONG rows (a duplicated page, a cursor replay, a
       fabricated node) - cannot manufacture a "this branch is merged"
-      verdict on its own, because no layer trusts a PR row as evidence:
-      L2 re-derives patch-id AND byte-level hunk content from local objects,
-      and L3 requires the PR's mergeCommit to be reachable on the base ref
-      and the branch tip to be a real ancestor of the recorded head. A PR
-      row only ever nominates a CANDIDATE for those local checks to accept
-      or reject. Safe.
+      verdict on its own, because every layer re-checks the row against
+      local objects before acting on it: L2 re-derives patch-id AND
+      byte-level hunk content, and L3 requires the PR's mergeCommit to be
+      reachable on the base ref and the branch tip to be a real ancestor of
+      the recorded head. A PR row only ever nominates a CANDIDATE for those
+      local checks to accept or reject.
+
+      The precise limit of that, stated rather than overclaimed: L3 does
+      trust the row's PAIRING of `headRefOid` with `mergeCommit`. It never
+      verifies that the head is contained in the merge commit, so a row
+      pairing a real head with an unrelated already-merged mergeCommit
+      would pass L3. That is pre-existing behavior, unchanged here, and
+      sound for rows that genuinely came from the API; it is recorded
+      because "no layer trusts a PR row" would be a stronger claim than
+      this code supports. Safe under the failure modes above, which
+      duplicate or drop API-sourced rows rather than synthesize pairings.
 
     So a pagination bug degrades evidence in the first direction and is
     inert in the second - which is precisely the property the pre-existing
@@ -629,17 +704,30 @@ def _load_merged_prs(
     total_count: Optional[int] = None
     cursor: Optional[str] = None
     saw_last_page = False
+    deadline = time.monotonic() + PR_FETCH_DEADLINE_SECONDS
 
     for _page in range(PR_MAX_PAGES):
+        if time.monotonic() >= deadline:
+            return _incomplete_window(
+                nodes,
+                f"the {PR_FETCH_DEADLINE_SECONDS:.0f}s merged-PR fetch deadline elapsed "
+                "with more pages pending",
+            )
         cmd = [
             "gh",
             "api",
             "graphql",
             "-f",
             f"query={_MERGED_PR_QUERY}",
-            "-F",
+            # `-f` (raw string) rather than `-F` (typed) for owner and name:
+            # `-F` infers a type from the literal, so an owner or repository
+            # named e.g. `2048` would be sent as an Int and rejected by the
+            # `$owner:String!` / `$name:String!` declarations. `pageSize`
+            # genuinely IS an Int (`$pageSize:Int!`) and so genuinely needs
+            # `-F`; `endCursor` below is `String` and takes `-f`.
+            "-f",
             f"owner={owner}",
-            "-F",
+            "-f",
             f"name={name}",
             "-F",
             f"pageSize={PR_PAGE_SIZE}",
@@ -648,10 +736,18 @@ def _load_merged_prs(
         # empty string: `after: ""` is not a valid cursor, whereas an
         # omitted nullable variable means exactly "start from the beginning".
         if cursor is not None:
-            cmd += ["-F", f"endCursor={cursor}"]
+            cmd += ["-f", f"endCursor={cursor}"]
 
         try:
-            proc = _run(cmd, cwd=repo)
+            proc = _run(cmd, cwd=repo, timeout=GH_CALL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            # Named separately from the generic failure below so the NOTE
+            # tells the operator it was a HANG rather than an error, and so
+            # a hung call can never be mistaken for a complete window.
+            return _incomplete_window(
+                nodes,
+                f"a gh api graphql call exceeded the {GH_CALL_TIMEOUT_SECONDS:.0f}s timeout",
+            )
         except Exception:  # noqa: BLE001 - any gh failure degrades, never raises
             return _incomplete_window(nodes, "gh api graphql could not be invoked")
         if proc.returncode != 0:
@@ -781,12 +877,22 @@ def evaluate_branch(
     checked_out: Set[str],
     merged_prs: List[Dict],
     degraded: bool,
+    incomplete_reason: Optional[str],
 ) -> Dict:
     """Resolves one local branch against the guards and layers, returning a
     dict with at least a `branch` and `outcome` key. `outcome` is one of
     SKIP_BASE_BRANCH, SKIP_CHECKED_OUT, SKIP_NO_MERGE_BASE, DELETE,
     SKIP_UNPROVEN. A DELETE result additionally carries `layer` (which of
     L1-L4 fired first) and `tip_sha`.
+
+    `degraded` and `incomplete_reason` are BOTH required (no defaults) and
+    both describe the same thing from the caller's side: whether the
+    merged-PR window this function is handed can be relied on to answer
+    "does a merged PR exist for this branch?" at all. `degraded` means no
+    window was obtained; a non-None `incomplete_reason` means one was, but
+    its completeness could not be proven. Either state makes an absent
+    candidate UNINFORMATIVE, so `pr_state` becomes `"not_checked"` rather
+    than the affirmative `"NONE"` - see the `pr_state` assignment below.
     """
     if branch in base_branches:
         return {"branch": branch, "outcome": "SKIP_BASE_BRANCH"}
@@ -812,7 +918,20 @@ def evaluate_branch(
     if candidates:
         pr_state = "MERGED"
     else:
-        pr_state = "not_checked" if degraded else "NONE"
+        # "NONE" is an AFFIRMATIVE claim - no merged PR exists for this
+        # branch - and may only be made from a window that was both
+        # obtained AND proven complete. `DispositionFacts`' own docstring
+        # (bin/tests/worktree_model.py) states the contract this honors: a
+        # caller that cannot determine a fact must pass "not_checked", which
+        # every gate treats as inconclusive-and-fails-closed. Asserting
+        # "NONE" off an incomplete window would be reporting a fact the tool
+        # has just finished proving it could not enumerate. It is NOT
+        # sufficient that the shared model happens to collapse the two
+        # values today: `_check_pr_state_strict` treats them alike and
+        # `MERGE_EVIDENCE_ORDER` omits `origin_reachable`, so this is inert
+        # at present - but that is a coincidence of the current gates, not a
+        # property this call site may rely on.
+        pr_state = "not_checked" if (degraded or incomplete_reason) else "NONE"
 
     if layer is None:
         for cand in candidates:
@@ -1003,7 +1122,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         branches = _list_local_branches(repo)
 
         results = [
-            evaluate_branch(repo, b, resolved_base, base_branches, checked_out, merged_prs, degraded)
+            evaluate_branch(
+                repo,
+                b,
+                resolved_base,
+                base_branches,
+                checked_out,
+                merged_prs,
+                degraded,
+                incomplete_reason,
+            )
             for b in sorted(branches)
         ]
     except ValueError as exc:
