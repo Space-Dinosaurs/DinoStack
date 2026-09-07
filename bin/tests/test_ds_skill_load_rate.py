@@ -57,8 +57,9 @@ def injected_body_record(ts="2026-09-01T00:00:01.000Z"):
     }
 
 
-def model_load_record(with_caller=True, tool_id="toolu_01AAA", ts="2026-09-01T00:00:00.000Z"):
-    tool_use = {"type": "tool_use", "id": tool_id, "name": "Skill", "input": {"skill": "dinostack"}}
+def model_load_record(with_caller=True, tool_id="toolu_01AAA", ts="2026-09-01T00:00:00.000Z",
+                       skill="dinostack"):
+    tool_use = {"type": "tool_use", "id": tool_id, "name": "Skill", "input": {"skill": skill}}
     if with_caller:
         tool_use["caller"] = {"type": "direct"}
     return {
@@ -263,6 +264,23 @@ class TestClassifyTranscript(unittest.TestCase):
             path = write_transcript(Path(tmp), PROJECT, "s1", [other_skill_load_record()])
             result = slr.classify_transcript(path)
             self.assertIsNone(result["mode"])
+
+    def test_pre_rename_agentic_engineering_skill_name_still_counts_as_model(self):
+        """DS-227 round 3 Major 1: TARGET_SKILL_NAMES must include the
+        pre-rename skill name "agentic-engineering" (commit 1e777841,
+        2026-08-09 renamed .claude/skills/agentic-engineering to
+        .claude/skills/dinostack - same skill, not a different one). A
+        window straddling that date must count both names or it silently
+        undercounts pre-rename model-initiated loads.
+        Mutation: rewrite TARGET_SKILL_NAMES to frozenset({"dinostack"})
+        and this reddens."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_transcript(
+                Path(tmp), PROJECT, "s1",
+                [model_load_record(skill="agentic-engineering")],
+            )
+            result = slr.classify_transcript(path)
+            self.assertEqual(result["mode"], slr.MODE_MODEL)
 
     def test_nudge_fired_no_load_is_distinguished_from_no_nudge(self):
         """Proves the nudge-fired-but-no-load case actually distinguishes:
@@ -484,6 +502,33 @@ class TestScopeResolution(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not allowed with argument", result.stderr)
 
+    def test_project_dir_space_separated_before_another_scope_flag_stays_mutex(self):
+        """DS-227 round 3 Major 2: _normalize_argv must NOT rewrite
+        `--project-dir --all-projects` into
+        `--project-dir=--all-projects` - that swallowed a real scope flag
+        as a bogus value and exited 0 with a silent no-data report,
+        indistinguishable from a real no-data result. The correct behavior
+        is argparse's own "expected one argument" usage error, exit != 0.
+        Mutation: drop the `not argv[i + 1].startswith("--")` guard in
+        _normalize_argv and this reddens (rc becomes 0)."""
+        result = _run_cli(
+            Path(tempfile.mkdtemp()),
+            extra_args=["--project-dir", "--all-projects"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
+    def test_repo_path_space_separated_before_another_scope_flag_stays_mutex(self):
+        """Same defect, --repo-path form. Measured pre-fix: `--repo-path
+        --all-projects` printed `repo_path: <cwd>/--all-projects` and
+        exited 0."""
+        result = _run_cli(
+            Path(tempfile.mkdtemp()),
+            extra_args=["--repo-path", "--all-projects"],
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
 
 # ---------------------------------------------------------------------------
 # Honest reporting: no fabricated zero, scope on every figure, ABSENT literal
@@ -496,6 +541,34 @@ class TestHonestReporting(unittest.TestCase):
             payload = _collect_json(Path(tmp), extra_args=["--project-dir", "nope"])
             self.assertEqual(payload["error"], "no_transcripts")
             self.assertEqual(payload["sessions_scanned"], 0)
+
+    def test_json_headline_fields_present_and_null_absent_pair_on_no_data(self):
+        """DS-227 round 3 Minor 1: the manifest promises `unprompted_load_rate`
+        (JSON null on no-data) and `unprompted_load_rate_display` (the
+        literal string "ABSENT" on no-data) in --json output. Mutation:
+        delete the `_finalize_rate_fields(payload)` call on the
+        no_transcripts early-return path and this reddens (KeyError)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = _collect_json(Path(tmp), extra_args=["--project-dir", "nope"])
+            self.assertIn("unprompted_load_rate", payload)
+            self.assertIn("unprompted_load_rate_display", payload)
+            self.assertIsNone(payload["unprompted_load_rate"])
+            self.assertEqual(payload["unprompted_load_rate_display"], "ABSENT")
+
+    def test_json_headline_fields_present_and_typed_on_real_data(self):
+        """Same two fields on a real (non-no-data) scan: the numeric field
+        is a float in [0, 1] and the display field is the "NN.N%" string
+        format_rate() produces for it - not just present, but internally
+        consistent with each other. Mutation: replace `_finalize_rate_fields`
+        body with `pass` and this reddens (KeyError on missing keys)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            write_transcript(store, PROJECT, "s1", [model_load_record()])
+            write_transcript(store, PROJECT, "s2", [slash_record()])
+            payload = _collect_json(store, extra_args=["--project-dir", PROJECT])
+            self.assertIsInstance(payload["unprompted_load_rate"], float)
+            self.assertEqual(payload["unprompted_load_rate"], 0.5)
+            self.assertEqual(payload["unprompted_load_rate_display"], "50.0%")
 
     def test_no_transcripts_human_render_says_absent_not_zero(self):
         # Mutation: render "0.0%" instead of ABSENT on the no-data path and
@@ -518,6 +591,31 @@ class TestHonestReporting(unittest.TestCase):
         must render as 0.0%, distinct from the no-data ABSENT case.
         Mutation: collapse format_rate(0.0) to ABSENT and this reddens."""
         self.assertEqual(slr.format_rate(0.0), "0.0%")
+
+    def test_all_unreadable_render_shows_absent_denominator_not_zero(self):
+        """DS-227 round 3 Minor 2: a scan whose transcripts all parse to
+        zero records (all unreadable, denominator 0) must render the
+        readable-transcript-count and headline denominator as the literal
+        string ABSENT, never the fabricated integer 0 - the same
+        never-zero-fill discipline PR #723 established. Mutation: change
+        `denom if denom > 0 else ABSENT` to bare `denom` at either of its
+        two call sites in render() and this reddens."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Path(tmp)
+            write_transcript(store, PROJECT, "s1", [])
+            write_transcript(store, PROJECT, "s2", [])
+            payload = _collect_json(store, extra_args=["--project-dir", PROJECT])
+            self.assertEqual(payload["sessions_scanned"], 2)
+            self.assertEqual(payload["sessions_unreadable"], 2)
+            self.assertIsNone(payload["unprompted_load_rate"])
+
+            argv = [sys.executable, str(CLI_PATH), "--project-dir", PROJECT]
+            env = dict(os.environ)
+            env["CLAUDE_CONFIG_DIR"] = str(store)
+            out = subprocess.run(argv, capture_output=True, text=True, env=env).stdout
+            self.assertIn("sessions with a readable transcript: ABSENT", out)
+            self.assertIn("(0/ABSENT readable sessions in scope)", out)
+            self.assertNotIn("readable transcript: 0", out)
 
     def test_unprompted_rate_denominator_excludes_unreadable(self):
         with tempfile.TemporaryDirectory() as tmp:

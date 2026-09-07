@@ -94,11 +94,11 @@ Downstream consumers: the operator, on demand. No hook, no SessionStart
                       importlib and drives its classifier against fixture
                       transcripts built in a scratch dir.
 
-QA criteria: qa_skip: pure-backend-library. Rationale: stdout/JSON CLI
-             diagnostic with no UI surface to render or click through -
-             the round-1 reasoning that CLI-diagnostic tools have no QA
-             gate applicability was sound, this is that reasoning made an
-             explicit, named field rather than an implicit absence.
+QA criteria:
+  qa_skip: pure-backend-library
+  qa_skip_rationale: >
+    stdout/JSON CLI diagnostic, no UI surface to render or click
+    through.
 
 Failure modes: collect()/classify_transcript() never raise and main() never
                exits nonzero ONCE argument parsing has succeeded - argparse
@@ -575,7 +575,11 @@ def _normalize_argv(argv: list) -> list:
     i = 0
     while i < len(argv):
         token = argv[i]
-        if token in _DASH_VALUE_OPTS and i + 1 < len(argv):
+        if (
+            token in _DASH_VALUE_OPTS
+            and i + 1 < len(argv)
+            and not argv[i + 1].startswith("--")
+        ):
             normalized.append(f"{token}={argv[i + 1]}")
             i += 2
             continue
