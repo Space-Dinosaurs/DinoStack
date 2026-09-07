@@ -31,7 +31,12 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
             --all-projects given): argparse's own contract applies there -
             exit 2 to stderr, no envelope, before collect() ever runs. See
             this file's own test_project_dir_and_repo_path_and_all_projects_are_mutually_exclusive
-            for the reddened case.
+            for the reddened case. A second pre-scan nonzero exit also
+            exists: _assert_known_option_tokens_in_sync raises an uncaught
+            AssertionError (exit 1, traceback, no envelope) before parsing
+            even begins if _KNOWN_OPTION_TOKENS ever drifts from the
+            parser's real option strings - unreachable in the shipped
+            state, see Failure modes below.
 
             --project-dir NAME     scan exactly
                                     <config_dir>/projects/NAME/*.jsonl,
@@ -60,14 +65,17 @@ Public API: ds-skill-load-rate [--json] [--project-dir NAME]
                                     unrelated repos' sessions.
 
 Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
-               Imports four names from bin/_lib.py (DS-227 round 2):
+               Imports five names from bin/_lib.py (DS-227 round 2):
                resolve_claude_config_dir() - never a hardcoded ~/.claude
                (bin/ds-parse-subagent-usage shipped exactly that bug, fixed
                in PR #723); MAX_TRANSCRIPT_BYTES,
-               transcript_is_oversize_or_unreadable, and
-               iter_jsonl_dict_records - the streaming scan skeleton shared
-               with bin/ds-learnings-retrieval-rate (same size-guard,
-               parse/skip/isinstance-dict loop). What stays LOCAL to this
+               transcript_is_oversize_or_unreadable, iter_jsonl_dict_records,
+               and rate_or_none - the streaming scan skeleton and the
+               "no data renders as absent" rate helper, both shared with
+               bin/ds-learnings-retrieval-rate (same size-guard,
+               parse/skip/isinstance-dict loop, and the same
+               denominator<=0-returns-None rule for the headline rate).
+               What stays LOCAL to this
                file and is NOT shared: the four-record-type classifier
                (_is_skill_load_call / _slash_load_fired / _nudge_fired /
                the operator-vs-model tie-break), because the sibling scans
@@ -117,11 +125,12 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                as the literal string "ABSENT" (never "0" - a zero-initialized
                accumulator silently reporting "nothing happened" as "the
                measurement is zero" is a real prior defect in this repo:
-               PR #723 fixed exactly this in ds-parse-subagent-usage's
-               token-telemetry aggregator, which returned an all-zero
-               struct with no failure signal for a file that yielded
-               nothing readable). A transcript that parses to zero records, or is
-               >= MAX_TRANSCRIPT_BYTES, counts as `unreadable`: a session the
+               PR #723 fixed exactly this in
+               hooks/subagent-stop-spawn-emit.js's readTranscriptTokens(),
+               which returned an all-zero struct with no failure signal for
+               a file that yielded nothing readable). A transcript that
+               parses to zero records, or is >= MAX_TRANSCRIPT_BYTES,
+               counts as `unreadable`: a session the
                tool could not read. `unreadable` is excluded from every rate
                denominator and is never folded into any other bucket.
                sessions_scanned == sessions_unreadable + sessions_operator +
@@ -572,17 +581,17 @@ def render(payload: dict) -> str:
 # so a single-leading-dash value (the only real shape these two options
 # ever take) works whether it arrives space-separated or with `=`.
 #
-# The following token is left un-merged, as two separate argv entries,
-# whenever it is option-shaped rather than a real value: when it starts
-# with "--" (a real value never does), or when it is exactly one of
-# _KNOWN_OPTION_TOKENS (e.g. `--project-dir -h` must still reach argparse
-# as two separate tokens so `-h` triggers help/usage-error handling
-# instead of being silently swallowed as --project-dir's value); or when
-# argparse's own "expected one argument" case applies (the option is the
-# last token, no following value at all). A following token with no
-# leading dash at all is never a real value either, but argparse's default
-# consuming behavior already accepts a bare non-dash token as the value
-# with no rewrite needed, so it is left alone rather than merged.
+# The following token is left un-merged, as two separate argv entries, in
+# three cases: when it starts with "--" (a real value never does); when it
+# is exactly one of _KNOWN_OPTION_TOKENS (e.g. `--project-dir -h` must
+# still reach argparse as two separate tokens so `-h` triggers help/usage-
+# error handling instead of being silently swallowed as --project-dir's
+# value); or when argparse's own "expected one argument" case applies (the
+# option is the last token, with no following token at all to merge). A
+# following token with no leading dash at all is never a real value
+# either, but argparse's default consuming behavior already accepts a bare
+# non-dash token as the value with no rewrite needed, so it is left alone
+# rather than merged.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
 _KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
 
