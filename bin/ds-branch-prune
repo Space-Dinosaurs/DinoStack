@@ -174,17 +174,31 @@ Failure modes: exit 0 on success INCLUDING partial degradation (gh
                --pr-data is missing or not valid JSON (validated BEFORE
                base resolution, deliberately, so a usage error is never
                downgraded to the exit-0 skip above), or an unhandled
-               exception during evidence computation. A
-               `gh pr list` result whose row count equals the internal
-               500-row limit prints a one-line truncation NOTE (Amendment
-               B13 - this fires on effectively every run against this
-               repo's PR history today; expected, not exceptional) and is
-               never treated as proof that an unmatched branch is
-               unmerged - a truncated or entirely absent candidate set can
-               only cause MORE skips, never a false delete.
+               exception during evidence computation. The merged-PR
+               window is fetched by cursor-paginated GraphQL and its
+               completeness is PROVEN, not assumed: the number of nodes
+               retrieved must equal the `pullRequests` connection's own
+               `totalCount`. Any other outcome - a count mismatch, an
+               absent totalCount, a mid-pagination API/parse failure, a
+               GraphQL `errors` array, or exhausting the PR_MAX_PAGES
+               safety bound with pages still pending - is reported as an
+               INCOMPLETE window: a one-line NOTE naming the reason
+               (Amendment B13's contract, retained) and the same guarantee
+               that absence of a match is never proof an unmatched branch
+               is unmerged. An incomplete or entirely absent candidate set
+               can only cause MORE skips, never a false delete - no layer
+               treats a PR row as evidence by itself, so extra or wrong
+               rows are inert too (L2 re-derives patch-id and hunk content
+               from local objects; L3 requires the mergeCommit to be
+               reachable on the base ref). This NOTE previously fired on
+               EVERY run against this repository, because the superseded
+               500-row `gh pr list` ceiling sat below its merged-PR count;
+               it is now expected to be silent.
 
-Performance: one bulk `gh pr list` call (or one file read via --pr-data)
-             plus a handful of `git` invocations per local branch
+Performance: one `gh repo view` slug lookup plus one `gh api graphql`
+             call per 100 merged PRs (or a single file read via
+             --pr-data, which makes zero network calls), plus a handful of
+             `git` invocations per local branch
              (merge-base, is-ancestor, diff, patch-id). Sub-second on this
              repo's ~49-branch checkout; not designed for repositories with
              very large branch counts (see the plan's Known limitations
@@ -261,7 +275,28 @@ def _compose_mode(degraded: bool, dry_run: bool, skipped: bool = False) -> str:
     return ", ".join(parts) if parts else "live"
 
 
-PR_LIST_LIMIT = 500
+# Merged-PR fetch bounds. A `PR_LIST_LIMIT = 500` constant (a
+# `gh pr list --limit` ceiling) used to live here and is deliberately gone
+# rather than merely raised: it capped the merged-PR window at 500 rows,
+# which this repository's own history had already outgrown (770 merged PRs
+# at the time of this change), so the truncation flag was set on literally
+# every run and L2/L3 evidence was degraded permanently. Because the cap
+# was bounded by merged-PR count, which only ever grows, no amount of
+# branch cleanup could relieve it. The fetch below is now a
+# cursor-paginated GraphQL query whose completeness is PROVEN against the
+# connection's own `totalCount` rather than assumed from a row count.
+#
+# PR_PAGE_SIZE - nodes requested per GraphQL page (100 is GitHub's maximum
+#                page size for this connection).
+# PR_MAX_PAGES - a genuine safety bound on the pagination loop, NOT a
+#                result cap in the old sense. Exhausting it while the
+#                connection still reports `hasNextPage` is treated as
+#                INCOMPLETE evidence (NOTE printed, absence of a match
+#                still never proof of unmerged), never as a complete
+#                window. It bounds worst-case work at
+#                PR_PAGE_SIZE * PR_MAX_PAGES = 10,000 merged PRs.
+PR_PAGE_SIZE = 100
+PR_MAX_PAGES = 100
 LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"
 
 # Amendment B2: every diff invocation is pinned to a config-independent
@@ -479,15 +514,93 @@ def _extract_merge_commit_oid(pr: Dict) -> Optional[str]:
     return None
 
 
+# GraphQL document for the merged-PR window. `totalCount` is selected on
+# EVERY page deliberately: it is the completeness proof (nodes retrieved
+# must equal it), and re-reading it per page also makes a window that moved
+# mid-run surface as a mismatch rather than as a silently short set.
+#
+# The node shape is byte-compatible with what
+# `gh pr list --json number,headRefName,headRefOid,mergeCommit` returned,
+# so `_candidates_for_branch` and `_extract_merge_commit_oid` consume it
+# unchanged and a `--pr-data` file captured from EITHER source stays valid.
+_MERGED_PR_QUERY = """\
+query($owner:String!,$name:String!,$pageSize:Int!,$endCursor:String){
+  repository(owner:$owner,name:$name){
+    pullRequests(states:MERGED,first:$pageSize,after:$endCursor){
+      totalCount
+      pageInfo{ hasNextPage endCursor }
+      nodes{ number headRefName headRefOid mergeCommit{ oid } }
+    }
+  }
+}
+"""
+
+
+def _gh_repo_slug(repo: str) -> Optional[Tuple[str, str]]:
+    """(owner, name) for --repo's checkout, or None when gh cannot say.
+
+    `gh pr list` inferred the repository from its cwd; `gh api graphql`
+    cannot, so the slug must be resolved explicitly. EVERY failure path
+    here returns None, which the caller converts into exactly the same
+    degraded outcome an absent or erroring `gh` produced before this
+    change - a resolution failure can only remove evidence, never add it.
+    """
+    try:
+        proc = _run(["gh", "repo", "view", "--json", "nameWithOwner"], cwd=repo)
+    except Exception:  # noqa: BLE001 - any gh failure degrades, never raises
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    slug = payload.get("nameWithOwner") if isinstance(payload, dict) else None
+    if not isinstance(slug, str) or "/" not in slug:
+        return None
+    owner, name = slug.split("/", 1)
+    if not owner or not name:
+        return None
+    return owner, name
+
+
 def _load_merged_prs(
     repo: str, pr_data_file: Optional[str], no_gh: bool
-) -> Tuple[List[Dict], bool, bool]:
-    """Returns (merged_prs, degraded, truncated).
+) -> Tuple[List[Dict], bool, Optional[str]]:
+    """Returns (merged_prs, degraded, incomplete_reason).
 
-    degraded  - True when no PR data was fetched at all (gh absent,
-                unauthenticated, erroring, or --no-gh). L2/L3 cannot fire.
-    truncated - True when the fetched row count equals PR_LIST_LIMIT -
-                the window may be truncated (Amendment B13).
+    degraded          - True when NO PR data was fetched at all (gh absent,
+                        unauthenticated, erroring, --no-gh, or the very
+                        first page failing). L2/L3 cannot fire.
+    incomplete_reason - None ONLY when the merged-PR window is PROVEN
+                        complete, i.e. the number of nodes retrieved equals
+                        the `pullRequests` connection's own `totalCount`.
+                        Otherwise a short operator-facing phrase naming why
+                        completeness could not be established. Any non-None
+                        value is treated exactly as the old `truncated=True`
+                        was: the window may be short, and absence of a
+                        match is NEVER proof that a branch is unmerged.
+
+    Fail-safe contract, both directions (unchanged by the switch to
+    pagination):
+
+      Too FEW rows (a dropped page, an early API error, a page-cap
+      exhaustion, an unreconciled count) - a genuinely merged branch simply
+      finds no candidate PR, so L2/L3 cannot fire and it falls through to
+      SKIP_UNPROVEN. Strictly fewer deletions. Safe.
+
+      Too MANY / WRONG rows (a duplicated page, a cursor replay, a
+      fabricated node) - cannot manufacture a "this branch is merged"
+      verdict on its own, because no layer trusts a PR row as evidence:
+      L2 re-derives patch-id AND byte-level hunk content from local objects,
+      and L3 requires the PR's mergeCommit to be reachable on the base ref
+      and the branch tip to be a real ancestor of the recorded head. A PR
+      row only ever nominates a CANDIDATE for those local checks to accept
+      or reject. Safe.
+
+    So a pagination bug degrades evidence in the first direction and is
+    inert in the second - which is precisely the property the pre-existing
+    500-row truncation NOTE asserted, preserved here in substance.
     """
     if pr_data_file:
         path = Path(pr_data_file)
@@ -499,42 +612,136 @@ def _load_merged_prs(
             raise ValueError(f"--pr-data file is not valid JSON: {pr_data_file}: {exc}") from exc
         if not isinstance(data, list):
             raise ValueError(f"--pr-data file must contain a JSON array: {pr_data_file}")
-        return data, False, False
+        # Injected data is taken at face value, exactly as before: the
+        # caller asserted this set, so there is no connection totalCount to
+        # reconcile it against and nothing to report as incomplete.
+        return data, False, None
 
     if no_gh or shutil.which("gh") is None:
-        return [], True, False
+        return [], True, None
 
-    try:
-        proc = _run(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--state",
-                "merged",
-                "--limit",
-                str(PR_LIST_LIMIT),
-                "--json",
-                "number,headRefName,headRefOid,mergeCommit",
-            ],
-            cwd=repo,
+    slug = _gh_repo_slug(repo)
+    if slug is None:
+        return [], True, None
+    owner, name = slug
+
+    nodes: List[Dict] = []
+    total_count: Optional[int] = None
+    cursor: Optional[str] = None
+    saw_last_page = False
+
+    for _page in range(PR_MAX_PAGES):
+        cmd = [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={_MERGED_PR_QUERY}",
+            "-F",
+            f"owner={owner}",
+            "-F",
+            f"name={name}",
+            "-F",
+            f"pageSize={PR_PAGE_SIZE}",
+        ]
+        # The first request omits $endCursor entirely rather than sending an
+        # empty string: `after: ""` is not a valid cursor, whereas an
+        # omitted nullable variable means exactly "start from the beginning".
+        if cursor is not None:
+            cmd += ["-F", f"endCursor={cursor}"]
+
+        try:
+            proc = _run(cmd, cwd=repo)
+        except Exception:  # noqa: BLE001 - any gh failure degrades, never raises
+            return _incomplete_window(nodes, "gh api graphql could not be invoked")
+        if proc.returncode != 0:
+            return _incomplete_window(nodes, "gh api graphql exited nonzero")
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return _incomplete_window(nodes, "gh api graphql returned unparseable JSON")
+
+        conn = _pull_requests_connection(payload)
+        if conn is None:
+            return _incomplete_window(nodes, "gh api graphql returned an unexpected shape")
+
+        page_total = conn.get("totalCount")
+        if isinstance(page_total, int) and not isinstance(page_total, bool):
+            total_count = page_total
+
+        page_nodes = conn.get("nodes")
+        if not isinstance(page_nodes, list):
+            return _incomplete_window(nodes, "gh api graphql returned no nodes array")
+        nodes.extend(n for n in page_nodes if isinstance(n, dict))
+
+        page_info = conn.get("pageInfo")
+        if not isinstance(page_info, dict):
+            return _incomplete_window(nodes, "gh api graphql returned no pageInfo")
+        if not page_info.get("hasNextPage"):
+            saw_last_page = True
+            break
+        next_cursor = page_info.get("endCursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            return _incomplete_window(nodes, "gh api graphql returned no endCursor")
+        cursor = next_cursor
+
+    if not saw_last_page:
+        return _incomplete_window(
+            nodes,
+            f"pagination hit the {PR_MAX_PAGES}-page safety bound with more pages pending",
         )
-    except Exception:
-        return [], True, False
 
-    if proc.returncode != 0:
-        return [], True, False
+    # THE completeness proof. Equality between what was retrieved and what
+    # the connection itself says exists is the only thing that licenses
+    # reporting this window as complete; every other outcome is reported as
+    # incomplete and degrades evidence exactly as truncation used to.
+    if not isinstance(total_count, int) or isinstance(total_count, bool):
+        return _incomplete_window(
+            nodes, "the connection reported no totalCount to reconcile against"
+        )
+    if len(nodes) != total_count:
+        return _incomplete_window(
+            nodes, f"retrieved {len(nodes)} of {total_count} merged PRs reported by the API"
+        )
 
-    try:
-        data = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        return [], True, False
+    return nodes, False, None
 
-    if not isinstance(data, list):
-        return [], True, False
 
-    truncated = len(data) == PR_LIST_LIMIT
-    return data, False, truncated
+def _incomplete_window(nodes: List[Dict], reason: str) -> Tuple[List[Dict], bool, str]:
+    """Package a merged-PR window that could NOT be proven complete.
+
+    An empty result is reported as `degraded` (no PR data at all was
+    obtained - the same state an absent `gh` produces), a partial result as
+    non-degraded but incomplete. Both carry the reason so the operator is
+    told either way, and NEITHER can widen the delete set: the reason is
+    only ever consumed to print a NOTE and never feeds any layer.
+    """
+    if not nodes:
+        return [], True, reason
+    return nodes, False, reason
+
+
+def _pull_requests_connection(payload: object) -> Optional[Dict]:
+    """data.repository.pullRequests from a gh api graphql response, or None.
+
+    Returns None on any missing or mistyped hop AND whenever the response
+    carries a GraphQL `errors` array, so a partial-data error response
+    (HTTP 200 with `data` present alongside `errors`, which `gh` does not
+    always surface as a nonzero exit) is classified as incomplete rather
+    than silently consumed as a short but valid page.
+    """
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("errors"):
+        return None
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    repository = data.get("repository")
+    if not isinstance(repository, dict):
+        return None
+    conn = repository.get("pullRequests")
+    return conn if isinstance(conn, dict) else None
 
 
 def _candidates_for_branch(
@@ -734,7 +941,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # error to a clean skip. This is the only exit-1 path inside
     # `_load_merged_prs`, and (with --pr-data set) it touches no network.
     try:
-        merged_prs, degraded, truncated = _load_merged_prs(repo, args.pr_data, args.no_gh)
+        merged_prs, degraded, incomplete_reason = _load_merged_prs(
+            repo, args.pr_data, args.no_gh
+        )
     except ValueError as exc:
         print(f"ds-branch-prune: {exc}", file=sys.stderr)
         return 1
@@ -823,10 +1032,14 @@ def main(argv: Optional[List[str]] = None) -> int:
         if skip_counts.get(outcome):
             print(f"  {outcome}: {skip_counts[outcome]}")
 
-    if truncated:
+    if incomplete_reason:
+        # Preserved from the old 500-row truncation NOTE: the operator is
+        # still told whenever the merged-PR window is not provably
+        # complete, and the guarantee that absence of a match is never
+        # read as proof of unmerged is restated verbatim.
         print(
-            f"NOTE: gh pr list returned {PR_LIST_LIMIT} rows (the --limit ceiling) - the "
-            "merged-PR window may be truncated; absence of a match is never treated as proof "
+            f"NOTE: the merged-PR window could not be proven complete ({incomplete_reason}) "
+            "- L2/L3 evidence may be short; absence of a match is never treated as proof "
             "a branch is unmerged."
         )
     if degraded:

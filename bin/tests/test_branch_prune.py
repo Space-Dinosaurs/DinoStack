@@ -10,10 +10,18 @@ Public API: none (test module; invoked via `python3 -m pytest`).
 
 Upstream deps: bin/ds-branch-prune (module under test, invoked both as a
                subprocess CLI and, for a couple of direct checks, imported
-               by path); real `git` CLI (subprocess); no `gh` invocation
-               anywhere in this file - every scenario injects merged-PR
-               data via `--pr-data <file>` or omits it via `--no-gh`, so
-               this suite never depends on network or `gh` auth state.
+               by path); real `git` CLI (subprocess); NO REAL `gh`
+               invocation anywhere in this file, and no network access.
+               Scenarios reach that state one of three ways: injecting
+               merged-PR data via `--pr-data <file>`, omitting it via
+               `--no-gh`, or - for the cursor-pagination and
+               totalCount-reconciliation coverage - stubbing the `gh`
+               boundary with `_install_fake_gh`, which monkeypatches the
+               module's own `_run` wrapper (serving canned `gh repo view`
+               and `gh api graphql` responses while delegating every other
+               argv to the real subprocess) plus `shutil.which`, so those
+               tests behave identically on a runner with no `gh` installed
+               and no auth configured.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
                       per `.github/workflows/bin-tests.yml`); this ticket's
@@ -23,7 +31,11 @@ Failure modes: a missing --pr-data fixture file must error (never silently
                skip) - test_missing_pr_data_file_is_usage_error pins this
                directly. All fixture repos are built under tmp_path and
                torn down by pytest; no real DinoStack checkout, worktree,
-               or branch state is ever touched by this file.
+               or branch state is ever touched by this file. Every
+               `gh`-stubbing test asserts on the returned
+               (data, degraded, incomplete_reason) triple rather than on
+               log text alone, so a silently-degraded run cannot pass as a
+               successful fetch.
 
 Performance: each scenario performs a handful of real `git` subprocess
              calls (init, commit, squash-merge, worktree add) plus one
@@ -1033,6 +1045,424 @@ def test_degraded_dry_run_summary_surfaces_both_facts(tmp_path):
     assert "dry-run" in proc.stdout.lower()
     assert "mode=live" not in proc.stdout
     assert "mode=degraded (gh unavailable), dry-run branches=" in proc.stdout
+
+
+# --------------------------------------------------------------------------
+# Merged-PR window: cursor pagination + totalCount reconciliation.
+#
+# These cover the fetch that replaced `gh pr list --limit 500`, whose row
+# cap sat BELOW this repository's own merged-PR count (500 rows returned
+# against 770 merged PRs, measured) and therefore raised the truncation
+# flag on every single run. The `gh` boundary is stubbed exactly the way
+# this file already stubs it for Amendment B11 - monkeypatching the
+# module's own `_run` wrapper and delegating every non-gh argv to the real
+# subprocess - so nothing here makes a network call or reads `gh` auth
+# state. `shutil.which` is pinned too, so a runner with no `gh` installed
+# still exercises the pagination path rather than silently falling through
+# to the degraded one.
+# --------------------------------------------------------------------------
+
+
+class _FakeProc:
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = ""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _graphql_page(nodes, total_count, has_next, end_cursor="cursor"):
+    """One `gh api graphql` response body for the merged-PR connection."""
+    return {
+        "data": {
+            "repository": {
+                "pullRequests": {
+                    "totalCount": total_count,
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
+                    "nodes": nodes,
+                }
+            }
+        }
+    }
+
+
+def _pr_nodes(start, count, prefix="branch"):
+    """`count` merged-PR nodes in the exact shape the GraphQL query selects."""
+    return [
+        {
+            "number": n,
+            "headRefName": f"{prefix}-{n}",
+            "headRefOid": f"{n:040x}",
+            "mergeCommit": {"oid": f"{n + 500000:040x}"},
+        }
+        for n in range(start, start + count)
+    ]
+
+
+def _install_fake_gh(monkeypatch, pages, slug="Space-Dinosaurs/DinoStack", repo_view_rc=0):
+    """Serve `pages` to successive `gh api graphql` calls; pass git through.
+
+    Each entry of `pages` is either a dict (encoded as the JSON body of a
+    successful call), a `_FakeProc` (returned verbatim, for error and
+    malformed-output cases), or an Exception instance (raised, for the "gh
+    could not be invoked at all" path).
+
+    Returns the mutable call log so a test can assert HOW MANY requests
+    were made - the discriminator between a genuinely paginated fetch and a
+    single capped one - and which cursor each carried.
+    """
+    real_run = ds_branch_prune._run
+    log = {"graphql": 0, "repo_view": 0, "cursors": []}
+
+    def fake_run(args, cwd=None, input_text=None):
+        if args[:3] == ["gh", "repo", "view"]:
+            log["repo_view"] += 1
+            if repo_view_rc != 0:
+                return _FakeProc(repo_view_rc, "")
+            return _FakeProc(0, json.dumps({"nameWithOwner": slug}))
+        if args[:3] == ["gh", "api", "graphql"]:
+            idx = log["graphql"]
+            log["graphql"] += 1
+            cursor = None
+            for token in args:
+                if token.startswith("endCursor="):
+                    cursor = token.split("=", 1)[1]
+            log["cursors"].append(cursor)
+            assert idx < len(pages), f"unexpected extra gh api graphql call #{idx + 1}"
+            page = pages[idx]
+            if isinstance(page, Exception):
+                raise page
+            if isinstance(page, _FakeProc):
+                return page
+            return _FakeProc(0, json.dumps(page))
+        return real_run(args, cwd=cwd, input_text=input_text)
+
+    monkeypatch.setattr(ds_branch_prune.shutil, "which", lambda name: "/usr/bin/gh")
+    monkeypatch.setattr(ds_branch_prune, "_run", fake_run)
+    return log
+
+
+def test_pagination_retrieves_more_than_the_old_five_hundred_row_cap(tmp_path, monkeypatch):
+    """The superseded fetch could never return more than 500 rows. Eight
+    pages of 100 reconciling to totalCount=800 must come back COMPLETE.
+
+    Reddening mutation (executed): set `PR_MAX_PAGES = 5` in
+    bin/ds-branch-prune. Only 500 nodes are then collected, `saw_last_page`
+    stays False, and the call returns the page-cap incomplete reason -
+    which is the old 500-row ceiling reappearing under a new name.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(
+            _pr_nodes(1 + page_index * 100, 100),
+            total_count=800,
+            has_next=page_index < 7,
+            end_cursor=f"cursor-{page_index}",
+        )
+        for page_index in range(8)
+    ]
+
+    log = _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert len(data) == 800, len(data)
+    assert len(data) > 500, "must exceed the superseded gh pr list --limit ceiling"
+    assert degraded is False
+    assert incomplete_reason is None, incomplete_reason
+    assert log["graphql"] == 8, log
+    # The first request must omit $endCursor entirely (`after: ""` is not a
+    # valid cursor); every later one carries the PRIOR page's endCursor.
+    assert log["cursors"][0] is None, log["cursors"]
+    assert log["cursors"][1:] == [f"cursor-{i}" for i in range(7)], log["cursors"]
+
+
+def test_count_mismatch_is_treated_as_incomplete_not_complete(tmp_path, monkeypatch):
+    """THE completeness proof. Retrieving fewer nodes than the connection's
+    own totalCount must degrade evidence exactly as truncation used to -
+    never be reported as a complete window.
+
+    Reddening mutation (executed): delete the
+    `if len(nodes) != total_count:` reconciliation block in
+    `_load_merged_prs`. The call then returns `incomplete_reason is None`
+    for a demonstrably short window.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=250, has_next=True, end_cursor="c0"),
+        _graphql_page(_pr_nodes(101, 100), total_count=250, has_next=False),
+    ]
+
+    _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert len(data) == 200
+    # Partial data is retained and is NOT degraded (some evidence exists),
+    # but the window is explicitly not proven complete.
+    assert degraded is False
+    assert incomplete_reason is not None
+    assert "200" in incomplete_reason and "250" in incomplete_reason, incomplete_reason
+
+
+def test_absent_total_count_is_treated_as_incomplete(tmp_path, monkeypatch):
+    """No totalCount means nothing to reconcile against, so completeness is
+    unproven - it must NOT default to complete.
+
+    Reddening mutation (executed): change the
+    `if not isinstance(total_count, int) ...` guard to `if False:`. The
+    call then returns `incomplete_reason is None` despite having no proof.
+    """
+    repo = init_repo(tmp_path)
+    page = _graphql_page(_pr_nodes(1, 10), total_count=0, has_next=False)
+    del page["data"]["repository"]["pullRequests"]["totalCount"]
+
+    _install_fake_gh(monkeypatch, [page])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert len(data) == 10
+    assert incomplete_reason is not None
+    assert "totalCount" in incomplete_reason, incomplete_reason
+
+
+def test_graphql_errors_array_is_incomplete_even_with_data_present(tmp_path, monkeypatch):
+    """A GraphQL partial-data error response (HTTP 200, `data` alongside
+    `errors`) must be classified incomplete, not consumed as a short page.
+
+    Reddening mutation (executed): delete the
+    `if payload.get("errors"): return None` line from
+    `_pull_requests_connection`. The response's 3 nodes are then accepted
+    and reconciled against its own totalCount of 3, returning
+    `incomplete_reason is None` for an errored response.
+    """
+    repo = init_repo(tmp_path)
+    page = _graphql_page(_pr_nodes(1, 3), total_count=3, has_next=False)
+    page["errors"] = [{"message": "Something went wrong"}]
+
+    _install_fake_gh(monkeypatch, [page])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert data == []
+    assert degraded is True
+    assert incomplete_reason is not None
+
+
+def test_midpagination_failure_keeps_partial_data_and_reports_incomplete(tmp_path, monkeypatch):
+    """A page that fails AFTER a good one must retain what was fetched and
+    report the window incomplete - fewer deletions, never a false one.
+
+    Reddening mutation (executed): make `_incomplete_window` return
+    `(nodes, False, None)`. The short window is then reported complete.
+    """
+    repo = init_repo(tmp_path)
+    pages = [
+        _graphql_page(_pr_nodes(1, 100), total_count=200, has_next=True, end_cursor="c0"),
+        _FakeProc(1, "", "gh: API rate limit exceeded"),
+    ]
+
+    _install_fake_gh(monkeypatch, pages)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert len(data) == 100
+    assert degraded is False
+    assert incomplete_reason is not None
+    assert "nonzero" in incomplete_reason, incomplete_reason
+
+
+def test_first_page_failure_degrades_exactly_like_an_absent_gh(tmp_path, monkeypatch):
+    """The pre-change contract for an erroring `gh` was `([], True, ...)`.
+    A first-page failure must produce the same state, so a checkout with no
+    `gh` auth behaves exactly as it always did.
+
+    Reddening mutation (executed): make `_incomplete_window` return
+    `(nodes, False, reason)` unconditionally. `degraded` then comes back
+    False on a total fetch failure and main() stops printing the
+    degraded-mode NOTE.
+    """
+    repo = init_repo(tmp_path)
+
+    _install_fake_gh(monkeypatch, [_FakeProc(1, "", "gh: not authenticated")])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert data == []
+    assert degraded is True
+    assert incomplete_reason is not None
+
+
+def test_unresolvable_repo_slug_degrades_and_never_queries(tmp_path, monkeypatch):
+    """`gh api graphql` cannot infer the repository the way `gh pr list`
+    did, so slug resolution is a NEW failure surface this change
+    introduced. It must degrade quietly, never raise and never query.
+
+    Reddening mutation (executed): replace `_load_merged_prs`'s
+    `slug = _gh_repo_slug(repo); if slug is None: return [], True, None`
+    with a fallback (`owner, name = slug or ("o", "n")`). The query then
+    runs against a fabricated repository slug instead of degrading, and
+    both `degraded is True` and `log["graphql"] == 0` fail.
+    """
+    repo = init_repo(tmp_path)
+
+    log = _install_fake_gh(monkeypatch, [], repo_view_rc=1)
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, False)
+
+    assert data == []
+    assert degraded is True
+    assert incomplete_reason is None
+    assert log["graphql"] == 0, "must not query without a resolved repository slug"
+
+
+def test_no_gh_path_makes_no_gh_calls_at_all(tmp_path, monkeypatch):
+    """--no-gh must remain a pure short-circuit: the degraded contract is
+    unchanged by pagination, and not even the new slug lookup may run.
+
+    Reddening mutation (executed): delete the
+    `if no_gh or shutil.which("gh") is None:` early return.
+    `log["repo_view"]` becomes 1 and `degraded` flips to False.
+    """
+    repo = init_repo(tmp_path)
+
+    log = _install_fake_gh(monkeypatch, [])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), None, True)
+
+    assert data == []
+    assert degraded is True
+    assert incomplete_reason is None
+    assert log["repo_view"] == 0, log
+    assert log["graphql"] == 0, log
+
+
+def test_pr_data_contract_is_unchanged_and_makes_no_gh_calls(tmp_path, monkeypatch):
+    """--pr-data stays an exact injection seam: data returned verbatim,
+    never degraded, never reported incomplete (there is no connection
+    totalCount to reconcile injected data against), and no `gh` invoked.
+
+    Reddening mutation (executed): change the --pr-data branch's
+    `return data, False, None` to `return data, False, "unreconciled"`. A
+    --pr-data run then prints the incomplete NOTE, which is exactly the
+    false alarm a manual full-set injection must not trigger.
+    """
+    repo = init_repo(tmp_path)
+    prs = [
+        {
+            "number": 7,
+            "headRefName": "feat",
+            "headRefOid": "a" * 40,
+            "mergeCommit": {"oid": "b" * 40},
+        }
+    ]
+    pr_path = pr_data_file(tmp_path, prs)
+
+    log = _install_fake_gh(monkeypatch, [])
+    data, degraded, incomplete_reason = ds_branch_prune._load_merged_prs(str(repo), pr_path, False)
+
+    assert data == prs
+    assert degraded is False
+    assert incomplete_reason is None
+    assert log["repo_view"] == 0 and log["graphql"] == 0, log
+
+
+def test_incomplete_window_note_fires_and_is_silent_when_complete(tmp_path, monkeypatch, capsys):
+    """Amendment B13's operator-facing contract, end to end through main():
+    the NOTE fires when completeness is unproven and is SILENT when proven.
+    Before this change the equivalent NOTE fired on every run against this
+    repository, so the silent case is the half worth pinning.
+
+    Reddening mutation (executed): change main()'s `if incomplete_reason:`
+    to `if False:`. The short-window run then prints no NOTE and the
+    operator is never told the evidence was short.
+    """
+    repo, _, _, _ = build_clean_squash(tmp_path)
+
+    short = [_graphql_page(_pr_nodes(1, 5), total_count=9, has_next=False)]
+    _install_fake_gh(monkeypatch, short)
+    assert ds_branch_prune.main(["--repo", str(repo), "--base", "main", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "could not be proven complete" in out, out
+    assert "never treated as proof" in out, out
+    monkeypatch.undo()
+
+    exact = [_graphql_page(_pr_nodes(1, 5), total_count=5, has_next=False)]
+    _install_fake_gh(monkeypatch, exact)
+    assert ds_branch_prune.main(["--repo", str(repo), "--base", "main", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "could not be proven complete" not in out, out
+
+
+def test_short_window_can_only_lose_deletions_never_gain_one(tmp_path, monkeypatch, capsys):
+    """The fail-safe direction that matters. The SAME repository is driven
+    twice: once with the branch's real merged-PR row present (complete
+    window) and once with it absent (short window). Losing the row may only
+    turn a DELETE into a SKIP - it can never create a deletion.
+
+    The fixture is deliberately `build_squash_then_main_diverges`, NOT
+    `build_clean_squash`: on the latter the branch is independently
+    deletable via L4, which is local-git-only evidence that no merged-PR
+    window can affect, so dropping the PR row leaves the verdict at
+    `DELETE via L4` and the test discriminates nothing. (Confirmed by
+    running it that way first - it reported `DELETE via L4`.) On this
+    fixture a later commit to the same file decays L4, leaving L2 - the
+    PR-derived layer - as the only route to a delete.
+
+    Reddening mutation (executed): make `evaluate_branch` return
+    `"DELETE via L2"` when its candidate list is empty. The short-window
+    run then reports DELETE and this test fails - which is precisely the
+    false delete the fail-safe contract forbids.
+    """
+    repo, pr_path, _, _ = build_squash_then_main_diverges(tmp_path)
+    real_prs = json.loads(Path(pr_path).read_text())
+
+    _install_fake_gh(monkeypatch, [_graphql_page(real_prs, len(real_prs), False)])
+    assert (
+        ds_branch_prune.main(
+            ["--repo", str(repo), "--base", "main", "--dry-run", "--explain"]
+        )
+        == 0
+    )
+    complete_out = capsys.readouterr().out
+    monkeypatch.undo()
+
+    _install_fake_gh(monkeypatch, [_graphql_page([], len(real_prs), False)])
+    assert (
+        ds_branch_prune.main(
+            ["--repo", str(repo), "--base", "main", "--dry-run", "--explain"]
+        )
+        == 0
+    )
+    short_out = capsys.readouterr().out
+
+    assert outcomes(complete_out)["feat"] == "DELETE via L2", complete_out
+    assert outcomes(short_out)["feat"] == "SKIP_UNPROVEN", short_out
+    assert "could not be proven complete" in short_out, short_out
+
+
+def test_superseded_row_cap_constant_is_gone_from_the_script():
+    """The 500-row cap must be REMOVED, not merely raised - a stale unused
+    ceiling is exactly the misleading artifact this change eliminates.
+
+    Count-claim provenance: this assertion is re-derived from
+    bin/ds-branch-prune's bytes at run time, and it lives in a DIFFERENT
+    file from the one it greps, so this test's own source text cannot
+    satisfy or contaminate it.
+
+    Reddening mutation (executed): re-add `PR_LIST_LIMIT = 500` to
+    bin/ds-branch-prune. The assignment assertion fails.
+    """
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "PR_PAGE_SIZE = 100" in source
+    assert "PR_MAX_PAGES = " in source
+
+    # Re-derived against the script's CURRENT bytes, comment lines excluded.
+    # The naive `"PR_LIST_LIMIT = " not in source` form was tried first and
+    # failed: the script's own comment explaining the removal quotes the
+    # dead constant verbatim, so the check matched the prose documenting
+    # the fix rather than any surviving code. What must be absent is an
+    # executable reference, not the word.
+    code_mentions = [
+        line
+        for line in source.splitlines()
+        if "PR_LIST_LIMIT" in line and not line.lstrip().startswith("#")
+    ]
+    assert code_mentions == [], code_mentions
+    assert not any(
+        line.startswith("PR_LIST_LIMIT") for line in source.splitlines()
+    ), "the superseded row cap was reintroduced as a module-level assignment"
 
 
 if __name__ == "__main__":
