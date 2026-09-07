@@ -1,0 +1,535 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read-only measurement tool (DS-227). Answers one question from the
+         harness's own top-level session transcripts: how often does the
+         `dinostack` skill actually load per session, and specifically how
+         often does it load UNPROMPTED (model-initiated, via a `Skill`
+         tool_use call) versus because the operator typed `/dinostack`?
+         DS-143 removed the `@`-import lines that used to load the
+         methodology body unconditionally, so activation now depends on one
+         of those two paths firing. No measurement of that rate existed
+         anywhere in the repo before this tool; it produces the number, it
+         does not enforce, nudge, or change anything about activation.
+
+Public API: ds-skill-load-rate [--json] [--project-dir NAME]
+                                [--repo-path PATH] [--all-projects]
+            Exactly one of --project-dir, --repo-path, --all-projects may be
+            given; with none, the default is --repo-path <cwd>. Prints a
+            human report (headline unprompted-load rate, per-session-mode
+            counts, the nudge-fired-with-no-load count, and the exact scope
+            used) or, with --json, the same data as one JSON object.
+            Exit 0 on EVERY path, including no-data; errors are reported in
+            the envelope's `error` field and never raised.
+
+            --project-dir NAME     scan exactly
+                                    <config_dir>/projects/NAME/*.jsonl,
+                                    where NAME is already in Claude Code's
+                                    project-directory naming form (an
+                                    absolute path with every `/` replaced by
+                                    `-`). For fixture-driven tests.
+            --repo-path PATH       derive NAME from PATH via the same
+                                    transform, then scan that one directory.
+                                    Default PATH is the current working
+                                    directory (Claude Code keys a session's
+                                    project directory off the cwd the
+                                    session started in, not its git
+                                    toplevel - matching that is the point of
+                                    this flag defaulting to os.getcwd()
+                                    rather than a git-derived path).
+            --all-projects          scan every project directory under
+                                    config_dir. Explicit widen only, per the
+                                    DS-227 scoping constraint that a
+                                    same-host default must not fold in
+                                    unrelated repos' sessions.
+
+Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
+               Resolves the harness config dir via
+               bin/_lib.py::resolve_claude_config_dir() - never a hardcoded
+               ~/.claude (bin/ds-parse-subagent-usage shipped exactly that
+               bug; see root MEMORY.md 2026-08-12). Reads
+               <config_dir>/projects/<project-dir>/*.jsonl - TOP-LEVEL
+               session transcripts only, deliberately not the
+               */subagents/agent-*.jsonl glob bin/ds-learnings-retrieval-rate
+               reads, because a skill load is a top-level-session event, not
+               a subagent-transcript event.
+
+Downstream consumers: the operator, on demand. No hook, no SessionStart
+                      nudge, no wiring into /ds-implement-ticket or
+                      /ds-wrap. This is a diagnostic, not an enforcement
+                      mechanism: it changes no methodology behavior, adds no
+                      hook, and does not alter what is resident vs
+                      trigger-loaded (the resident-corpus size question is
+                      separately closed by DS-145/DS-149/DS-222 and is out
+                      of scope here). Not imported by any other module;
+                      bin/tests/test_ds_skill_load_rate.py loads it via
+                      importlib and drives its classifier against fixture
+                      transcripts built in a scratch dir.
+
+Failure modes: never raises, never exits nonzero. A missing config dir, a
+               missing projects/ dir, an absent/nonexistent scoped project
+               directory, or zero discovered transcripts within scope exits
+               0 with error="no_transcripts" and the headline rate rendered
+               as the literal string "ABSENT" (never "0" - a zero-initialized
+               accumulator reporting "nothing happened" as "the measurement
+               is zero" is the exact prior defect root MEMORY.md records for
+               2026-08-12). A transcript that parses to zero records, or is
+               >= MAX_TRANSCRIPT_BYTES, counts as `unreadable`: a session the
+               tool could not read. `unreadable` is excluded from every rate
+               denominator and is never folded into any other bucket.
+               sessions_scanned == sessions_unreadable + sessions_operator +
+               sessions_model + sessions_no_load in every run. Malformed
+               JSONL lines inside an otherwise readable transcript are
+               skipped individually.
+
+Performance: O(total transcript bytes), one streaming pass per file with an
+             early-exit-per-signal (each of the three record shapes stops
+             being tracked for a file once its first occurrence is found;
+             the file is still read start-to-end once, since the nudge
+             signal and the window timestamps need the full pass).
+
+R2 (Pillar 8 simplicity test), stated verbatim as the outcome rubric
+requires it, so the retirement condition ships with the mechanism:
+
+  (a) Specific gap closed: DS-143 stopped the methodology body from loading
+  unconditionally, and every activation path since (skill_auto_load nudge,
+  the /dinostack slash command, harness-trigger-load ports to Codex/
+  Gemini/Kimi/Copilot per docs/planning/ds-183-186-harness-trigger-load.md)
+  is a request for compliance, not a guarantee of it. No number is quoted
+  here on purpose: any figure written into this header is a snapshot that
+  drifts with the next session, and the live rate is one
+  `ds-skill-load-rate` invocation away.
+
+  (b) Retirement condition. THIS IS A DIAGNOSTIC, NOT STANDING TELEMETRY -
+  it retires once the rate is measured and recorded, not once some target
+  rate is hit. Concretely: once an operator has run this tool against a
+  window judged long enough to be representative, recorded the resulting
+  unprompted-load rate (and its scope) in a decision entry, and made an
+  explicit call on whether that rate warrants a mechanism change - the tool
+  has done its job and may be deleted. It carries no ratchet, no CI gate,
+  and no schedule of its own; nothing about DinoStack's resident-corpus
+  policy is decided BY this tool, only informed by the number it prints.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _lib import resolve_claude_config_dir  # noqa: E402
+
+# Mirrors hooks/subagent-stop-spawn-emit.js's MAX_TRANSCRIPT_BYTES, and the
+# same constant in bin/ds-learnings-retrieval-rate.
+MAX_TRANSCRIPT_BYTES = 20 * 1024 * 1024
+
+# The literal input.skill value this tool measures. A Skill tool_use call
+# for any other skill (e.g. "ds-implement-ticket", "agentic-engineering")
+# is not a dinostack load and must not count.
+TARGET_SKILL = "dinostack"
+
+# The exact substring emitted by content/templates/claude-managed-content.md
+# -> hooks/skill-auto-load-check.sh's stdout, verified against a live
+# attachment record (03940f2f-5154-40b7-8943-a8b809bf1d11.jsonl line 16,
+# 2026-08-10). Matched as a substring, not full-string equality, because the
+# hook's message may gain trailing detail without changing the marker.
+NUDGE_MARKER = "SKILL CHECK [dinostack]: skill_auto_load=true"
+
+# The operator-typed slash-command marker, verified against a live
+# type:"user" record whose message.content is this exact string
+# (2d02dc6c-1cea-4ad0-9623-0a14fff4c717.jsonl line 9, 2026-09-03).
+SLASH_MARKER = "<command-name>/dinostack</command-name>"
+
+MODE_OPERATOR = "operator"
+MODE_MODEL = "model"
+
+ABSENT = "ABSENT"
+
+
+def _is_skill_load_call(name, tool_input) -> bool:
+    """True iff this tool_use call is a model-initiated dinostack skill
+    load. Matches on name=="Skill" plus input.skill=="dinostack" ONLY -
+    never on the presence of a `caller` field. 3 of 39 observed Skill
+    tool_use records in the corpus this tool was built against omit
+    `caller` entirely (a non-Anthropic-native backend, call_00_... tool_use
+    ids) and must still count."""
+    if name != "Skill":
+        return False
+    if not isinstance(tool_input, dict):
+        return False
+    return tool_input.get("skill") == TARGET_SKILL
+
+
+def _slash_load_fired(content) -> bool:
+    """True iff a type:"user" record's message.content is the operator-typed
+    /dinostack slash-command marker. Observed shape is a bare string, not a
+    list - a list-shaped content is the DIFFERENT injected-skill-body record
+    that immediately follows it, and must not itself count as the trigger."""
+    return isinstance(content, str) and SLASH_MARKER in content
+
+
+def _nudge_fired(attachment) -> bool:
+    """True iff this record is the auto-load nudge attachment: a
+    type:"attachment" record whose own attachment.type is "hook_success",
+    attachment.hookName is "UserPromptSubmit", and attachment.content carries
+    the NUDGE_MARKER text. Structurally distinct from both load shapes -
+    a session can carry this with zero Skill tool_use and zero
+    command-name records (03940f2f-5154-40b7-8943-a8b809bf1d11.jsonl)."""
+    if not isinstance(attachment, dict):
+        return False
+    if attachment.get("type") != "hook_success":
+        return False
+    if attachment.get("hookName") != "UserPromptSubmit":
+        return False
+    content = attachment.get("content")
+    return isinstance(content, str) and NUDGE_MARKER in content
+
+
+STATUS_UNREADABLE = "unreadable"
+
+
+def classify_transcript(path: Path) -> dict:
+    """Scan one top-level session transcript. Returns a dict with:
+      status: STATUS_UNREADABLE, or a mode/no-load classification below.
+      mode: MODE_OPERATOR, MODE_MODEL, or None (no load fired).
+      nudge_fired: bool.
+      min_ts / max_ts: str timestamps observed in this file, or None.
+
+    Ambiguity rule (a session carrying BOTH an operator-typed load and a
+    model-initiated load): first occurrence by line order wins. This is the
+    property with an unambiguous answer - "how did the skill first enter
+    this session's context" - and it is well-defined regardless of how many
+    times either path fires afterward. A tie is impossible: the two marker
+    shapes cannot occupy the same JSONL line (different `type` values).
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return {"status": STATUS_UNREADABLE}
+    if size >= MAX_TRANSCRIPT_BYTES:
+        return {"status": STATUS_UNREADABLE}
+
+    parsed = 0
+    first_operator_line = None
+    first_model_line = None
+    nudge_fired = False
+    min_ts = None
+    max_ts = None
+
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_no, raw in enumerate(handle):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    record = json.loads(raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                parsed += 1
+
+                ts = record.get("timestamp")
+                if isinstance(ts, str) and ts:
+                    if min_ts is None or ts < min_ts:
+                        min_ts = ts
+                    if max_ts is None or ts > max_ts:
+                        max_ts = ts
+
+                record_type = record.get("type")
+
+                if record_type == "assistant" and first_model_line is None:
+                    message = record.get("message")
+                    content = message.get("content") if isinstance(message, dict) else None
+                    if isinstance(content, list):
+                        for element in content:
+                            if not isinstance(element, dict):
+                                continue
+                            if element.get("type") != "tool_use":
+                                continue
+                            if _is_skill_load_call(element.get("name"), element.get("input")):
+                                first_model_line = line_no
+                                break
+
+                elif record_type == "user" and first_operator_line is None:
+                    message = record.get("message")
+                    content = message.get("content") if isinstance(message, dict) else None
+                    if _slash_load_fired(content):
+                        first_operator_line = line_no
+
+                elif record_type == "attachment" and not nudge_fired:
+                    if _nudge_fired(record.get("attachment")):
+                        nudge_fired = True
+    except OSError:
+        return {"status": STATUS_UNREADABLE}
+
+    if parsed == 0:
+        return {"status": STATUS_UNREADABLE}
+
+    if first_operator_line is None and first_model_line is None:
+        mode = None
+    elif first_operator_line is None:
+        mode = MODE_MODEL
+    elif first_model_line is None:
+        mode = MODE_OPERATOR
+    else:
+        mode = MODE_OPERATOR if first_operator_line < first_model_line else MODE_MODEL
+
+    return {
+        "status": "read",
+        "mode": mode,
+        "nudge_fired": nudge_fired,
+        "min_ts": min_ts,
+        "max_ts": max_ts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Scope resolution
+# ---------------------------------------------------------------------------
+
+
+def project_dir_name_for(repo_path: str) -> str:
+    """Claude Code's project-directory naming transform: an absolute path
+    with every `/` replaced by `-`. Verified against the live projects/
+    listing (dots are NOT converted - only `/`)."""
+    absolute = os.path.abspath(repo_path)
+    return absolute.replace(os.sep, "-")
+
+
+def resolve_scope(config_dir: Path, args) -> tuple[list[Path], dict]:
+    """Returns (project_dirs, scope_meta). scope_meta always carries enough
+    detail to reconstruct the filter without re-running the tool (AC2: a
+    rate without its scope is not a verified claim)."""
+    projects_root = config_dir / "projects"
+
+    if args.all_projects:
+        dirs = sorted(p for p in projects_root.glob("*") if p.is_dir())
+        return dirs, {
+            "mode": "all-projects",
+            "project_dirs": [d.name for d in dirs],
+        }
+
+    if args.project_dir:
+        target = projects_root / args.project_dir
+        dirs = [target] if target.is_dir() else []
+        return dirs, {
+            "mode": "explicit-project-dir",
+            "project_dirs": [d.name for d in dirs],
+            "requested": args.project_dir,
+        }
+
+    repo_path = args.repo_path or os.getcwd()
+    name = project_dir_name_for(repo_path)
+    target = projects_root / name
+    dirs = [target] if target.is_dir() else []
+    return dirs, {
+        "mode": "repo-path" if args.repo_path else "cwd-default",
+        "project_dirs": [d.name for d in dirs],
+        "repo_path": os.path.abspath(repo_path),
+        "derived_project_dir": name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Collection
+# ---------------------------------------------------------------------------
+
+
+def collect(config_dir: Path, args) -> dict:
+    project_dirs, scope_meta = resolve_scope(config_dir, args)
+
+    payload = {
+        "config_dir": str(config_dir),
+        "scope": scope_meta,
+        "sessions_scanned": 0,
+        "sessions_unreadable": 0,
+        "sessions_operator": 0,
+        "sessions_model": 0,
+        "sessions_no_load": 0,
+        "sessions_nudge_fired_no_load": 0,
+        "window": {"min_ts": None, "max_ts": None},
+        "error": None,
+    }
+
+    transcripts: list[Path] = []
+    for project_dir in project_dirs:
+        transcripts.extend(sorted(Path(p) for p in glob.glob(str(project_dir / "*.jsonl"))))
+
+    if not transcripts:
+        payload["error"] = "no_transcripts"
+        return payload
+
+    for path in transcripts:
+        result = classify_transcript(path)
+        payload["sessions_scanned"] += 1
+
+        if result["status"] == STATUS_UNREADABLE:
+            payload["sessions_unreadable"] += 1
+            continue
+
+        mode = result["mode"]
+        if mode == MODE_OPERATOR:
+            payload["sessions_operator"] += 1
+        elif mode == MODE_MODEL:
+            payload["sessions_model"] += 1
+        else:
+            payload["sessions_no_load"] += 1
+            if result["nudge_fired"]:
+                payload["sessions_nudge_fired_no_load"] += 1
+
+        for key in ("min_ts", "max_ts"):
+            value = result.get(key)
+            if value is None:
+                continue
+            current = payload["window"][key]
+            if current is None:
+                payload["window"][key] = value
+            elif key == "min_ts" and value < current:
+                payload["window"][key] = value
+            elif key == "max_ts" and value > current:
+                payload["window"][key] = value
+
+    return payload
+
+
+def _readable_denominator(payload: dict) -> int:
+    return payload["sessions_scanned"] - payload["sessions_unreadable"]
+
+
+def _loaded_count(payload: dict) -> int:
+    return payload["sessions_operator"] + payload["sessions_model"]
+
+
+def unprompted_rate(payload: dict):
+    """The headline figure: model-initiated loads over all READABLE
+    sessions in scope (not over loaded-only sessions - a session that never
+    loaded the skill at all is exactly the failure mode this tool exists to
+    measure, and excluding it from the denominator would hide it)."""
+    denominator = _readable_denominator(payload)
+    if denominator <= 0:
+        return None
+    return payload["sessions_model"] / denominator
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+
+def format_rate(value) -> str:
+    return ABSENT if value is None else f"{value * 100:.1f}%"
+
+
+def format_scope(scope: dict) -> list[str]:
+    lines = [f"  scope mode: {scope['mode']}"]
+    if scope["mode"] == "cwd-default" or scope["mode"] == "repo-path":
+        lines.append(f"  repo_path: {scope['repo_path']}")
+        lines.append(f"  derived project dir: {scope['derived_project_dir']}")
+    elif scope["mode"] == "explicit-project-dir":
+        lines.append(f"  requested project dir: {scope['requested']}")
+    project_dirs = scope["project_dirs"]
+    lines.append(f"  project directories scanned ({len(project_dirs)}): "
+                 + (", ".join(project_dirs) if project_dirs else "(none found)"))
+    return lines
+
+
+def render(payload: dict) -> str:
+    lines: list[str] = []
+    lines.append(f"config_dir: {payload['config_dir']}")
+    lines.extend(format_scope(payload["scope"]))
+    lines.append(f"  filter: model-initiated load matched on tool_use name==\"Skill\" AND "
+                 f"input.skill==\"{TARGET_SKILL}\" (caller field ignored); operator-typed load "
+                 f"matched on a user record whose message.content contains \"{SLASH_MARKER}\"; "
+                 f"nudge matched on an attachment record with hookName==\"UserPromptSubmit\" "
+                 f"whose content contains \"{NUDGE_MARKER}\".")
+    lines.append("")
+
+    if payload["error"] == "no_transcripts":
+        lines.append(
+            "No top-level session transcripts found in scope. This measurement reads "
+            "Claude Code's own per-session transcripts under"
+        )
+        lines.append(
+            "  <config_dir>/projects/<project-dir>/*.jsonl - absent when the scoped "
+            "project directory does not exist, or on a fresh machine."
+        )
+        lines.append(f"unprompted_load_rate: {ABSENT}")
+        lines.append("error: no_transcripts")
+        return "\n".join(lines)
+
+    window = payload["window"]
+    window_str = (
+        f"{window['min_ts']} .. {window['max_ts']}"
+        if window["min_ts"] and window["max_ts"]
+        else ABSENT
+    )
+    lines.append(f"window (date range): {window_str}")
+    lines.append("")
+
+    denom = _readable_denominator(payload)
+    lines.append(f"sessions scanned: {payload['sessions_scanned']}")
+    lines.append(f"sessions unreadable: {payload['sessions_unreadable']}")
+    lines.append(f"sessions with a readable transcript: {denom if denom > 0 else ABSENT}")
+    lines.append(f"sessions where the skill loaded at all: {_loaded_count(payload)}")
+    lines.append(f"  - operator-typed /dinostack (first occurrence): {payload['sessions_operator']}")
+    lines.append(f"  - model-initiated, unprompted (first occurrence): {payload['sessions_model']}")
+    lines.append(f"sessions where the skill never loaded: {payload['sessions_no_load']}")
+    lines.append(f"  - of those, nudge fired but no load followed: {payload['sessions_nudge_fired_no_load']}")
+    lines.append("")
+    lines.append(f"HEADLINE unprompted load rate: {format_rate(unprompted_rate(payload))} "
+                 f"({payload['sessions_model']}/{denom if denom > 0 else 0} readable sessions in scope)")
+    lines.append("")
+    lines.extend([
+        "Notes:",
+        "  - Ambiguity rule: a session carrying both an operator-typed load and a",
+        "    model-initiated load is classified by whichever occurred FIRST in the",
+        "    transcript - the two are not summed, and the loaded-at-all count above is",
+        "    never double-counted.",
+        "  - `unreadable` (zero parsed records, or >= 20 MiB) is excluded from every",
+        "    denominator above and is never folded into `sessions_no_load`.",
+        "  - This is a diagnostic, not standing telemetry - see the R2 retirement",
+        "    condition in this tool's own module docstring.",
+        "  - Claude-Code-only and machine-local. It reads this operator's own",
+        "    transcripts on this machine; it is not shared and is not CI-visible.",
+    ])
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Measure how often the dinostack skill loads per session, and the split "
+            "between operator-typed /dinostack and model-initiated (unprompted) load. "
+            "Read-only."
+        )
+    )
+    parser.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    scope_group = parser.add_mutually_exclusive_group()
+    scope_group.add_argument(
+        "--project-dir", help="scan exactly this Claude-Code-form project directory name"
+    )
+    scope_group.add_argument(
+        "--repo-path", help="derive the project directory from this path (default: cwd)"
+    )
+    scope_group.add_argument(
+        "--all-projects", action="store_true", help="scan every project directory (explicit widen)"
+    )
+    args = parser.parse_args(argv)
+
+    config_dir = resolve_claude_config_dir()
+    payload = collect(config_dir, args)
+
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

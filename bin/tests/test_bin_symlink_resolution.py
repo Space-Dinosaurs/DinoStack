@@ -67,6 +67,7 @@ CASES = [
     ("agentic-parse-subagent-usage", ["--help"], 0),
     ("agentic-ticket-grant", ["--help"], 0),
     ("agentic-learnings-retrieval-rate", ["--help"], 0),
+    ("agentic-skill-load-rate", ["--help"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the
