@@ -48,12 +48,13 @@ Public API: ds-learnings-retrieval-rate [--json]
             hand composition dressed as a measurement (DS-223 J3).
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, shlex, sys,
-               glob, pathlib). Imports three names from bin/_lib.py
+               glob, pathlib). Imports four names from bin/_lib.py
                (DS-227 round 2): resolve_claude_config_dir() - never a
                hardcoded ~/.claude (bin/ds-parse-subagent-usage shipped
                exactly that bug); MAX_TRANSCRIPT_BYTES and
                iter_jsonl_dict_records - the streaming scan skeleton shared
-               with bin/ds-skill-load-rate. Deliberately does NOT import
+               with bin/ds-skill-load-rate; and rate_or_none, used by this
+               file's own rate_of() helper. Deliberately does NOT import
                _lib's transcript_is_oversize_or_unreadable: this file's own
                classify_transcript returns (status, was_oversize), and the
                was_oversize bool distinguishes "stat() failed" from "file

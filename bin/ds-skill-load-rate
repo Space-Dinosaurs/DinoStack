@@ -68,13 +68,18 @@ Upstream deps: Python 3 stdlib only (argparse, glob, json, os, sys, pathlib).
                Imports five names from bin/_lib.py (DS-227 round 2):
                resolve_claude_config_dir() - never a hardcoded ~/.claude
                (bin/ds-parse-subagent-usage shipped exactly that bug, fixed
-               in PR #723); MAX_TRANSCRIPT_BYTES,
-               transcript_is_oversize_or_unreadable, iter_jsonl_dict_records,
+               in PR #723); MAX_TRANSCRIPT_BYTES, iter_jsonl_dict_records,
                and rate_or_none - the streaming scan skeleton and the
-               "no data renders as absent" rate helper, both shared with
-               bin/ds-learnings-retrieval-rate (same size-guard,
+               "no data renders as absent" rate helper, both actually
+               shared with bin/ds-learnings-retrieval-rate (same size-guard,
                parse/skip/isinstance-dict loop, and the same
-               denominator<=0-returns-None rule for the headline rate).
+               denominator<=0-returns-None rule for the headline rate); and
+               transcript_is_oversize_or_unreadable, which this file imports
+               but the sibling deliberately does NOT - the sibling's own
+               classify_transcript keeps a local (status, was_oversize)
+               tri-state the shared boolean-only helper collapses, so that
+               size check stays local there while this file uses the
+               shared one.
                What stays LOCAL to this
                file and is NOT shared: the four-record-type classifier
                (_is_skill_load_call / _slash_load_fired / _nudge_fired /
@@ -125,10 +130,11 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                as the literal string "ABSENT" (never "0" - a zero-initialized
                accumulator silently reporting "nothing happened" as "the
                measurement is zero" is a real prior defect in this repo:
-               PR #723 fixed exactly this in
-               hooks/subagent-stop-spawn-emit.js's readTranscriptTokens(),
+               PR #723 fixed exactly this in hooks/subagent-stop-spawn-emit.js,
                which returned an all-zero struct with no failure signal for
-               a file that yielded nothing readable). A transcript that
+               a file that yielded nothing readable - the mechanism now
+               lives in that file's scanTranscript(), via its parsedCount
+               tracking. A transcript that
                parses to zero records, or is >= MAX_TRANSCRIPT_BYTES,
                counts as `unreadable`: a session the
                tool could not read. `unreadable` is excluded from every rate
@@ -570,28 +576,31 @@ def render(payload: dict) -> str:
     return "\n".join(lines)
 
 
-# --project-dir and --repo-path both take a Claude-Code-form project
-# directory name/path, and EVERY real one begins with "-" (an absolute
-# path with each "/" replaced by "-"). argparse's default `--opt VALUE`
-# form refuses to consume a VALUE token that itself looks like an option
-# (starts with "-"), so `--project-dir -Users-tyson-repo` fails with
-# "expected one argument" even though the tool's own report prints exactly
-# that string as `derived_project_dir`. _normalize_argv rewrites the
-# space-separated form into the `--opt=value` form argparse always accepts,
-# so a single-leading-dash value (the only real shape these two options
-# ever take) works whether it arrives space-separated or with `=`.
+# --project-dir takes a Claude-Code-form project directory NAME, and
+# EVERY real one begins with "-" (an absolute path with each "/" replaced
+# by "-"). --repo-path takes an ordinary filesystem path instead, which
+# need not begin with "-" at all - the leading-dash rewrite below is a
+# no-op for a typical --repo-path value and only matters for the rarer
+# case of a repo path that itself starts with "-". argparse's default
+# `--opt VALUE` form refuses to consume a VALUE token that itself looks
+# like an option (starts with "-"), so `--project-dir -Users-tyson-repo`
+# fails with "expected one argument" even though the tool's own report
+# prints exactly that string as `derived_project_dir`. _normalize_argv
+# rewrites the space-separated form into the `--opt=value` form argparse
+# always accepts, so a single-leading-dash value works whether it arrives
+# space-separated or with `=`, for either option.
 #
 # The following token is left un-merged, as two separate argv entries, in
-# three cases: when it starts with "--" (a real value never does); when it
-# is exactly one of _KNOWN_OPTION_TOKENS (e.g. `--project-dir -h` must
-# still reach argparse as two separate tokens so `-h` triggers help/usage-
-# error handling instead of being silently swallowed as --project-dir's
-# value); or when argparse's own "expected one argument" case applies (the
-# option is the last token, with no following token at all to merge). A
-# following token with no leading dash at all is never a real value
-# either, but argparse's default consuming behavior already accepts a bare
-# non-dash token as the value with no rewrite needed, so it is left alone
-# rather than merged.
+# three cases: when it starts with "--" (a real --project-dir value never
+# does); when it is exactly one of _KNOWN_OPTION_TOKENS (e.g.
+# `--project-dir -h` must still reach argparse as two separate tokens so
+# `-h` triggers help/usage-error handling instead of being silently
+# swallowed as --project-dir's value); or when argparse's own "expected
+# one argument" case applies (the option is the last token, with no
+# following token at all to merge). A following token with no leading dash
+# at all (the normal shape of a --repo-path value) is left alone too,
+# since argparse's default consuming behavior already accepts a bare
+# non-dash token as the value with no rewrite needed.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
 _KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
 
