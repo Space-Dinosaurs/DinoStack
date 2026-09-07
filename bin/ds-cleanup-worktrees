@@ -306,7 +306,8 @@ Public API (CLI):
                           usage error (exit 2). `--base` combined with
                           `--multi-repo` is a usage error (exit 2) - each
                           repo ALWAYS resolves its own base independently via
-                          `resolve_base_branch(repo, None)`, per that repo's
+                          bin/_lib.py's `resolve_base_branch(repo, None)`,
+                          per that repo's
                           own AGENTS.md declaration or automatic tier order;
                           a single global `--base` value would silently leak
                           one repo's base into every other repo, which is
@@ -397,7 +398,8 @@ Public API (CLI):
                               fast-tier result knows what it does and does
                               not tell them. A SECOND, separate caveat
                               (round-N Minor 2): this tier never calls
-                              `resolve_base_branch` at all, so a repo whose
+                              bin/_lib.py's `resolve_base_branch` at all,
+                              so a repo whose
                               base cannot be resolved (e.g. no git remotes -
                               see `_has_any_remote`) still exits 0 here and
                               ranks as ordinary, actionable output, even
@@ -492,8 +494,9 @@ Public API (CLI):
                           operator-invoked report.
   --base <ref>           Base ref to prove ancestor-of-base evidence
                           against. Default: None - when omitted, resolved
-                          automatically via `resolve_base_branch` (see that
-                          function's docstring for the full tier order:
+                          automatically via `resolve_base_branch` (which
+                          lives in bin/_lib.py, not in this file - see its
+                          docstring THERE for the full tier order:
                           AGENTS.md's `BASE_BRANCH:` declaration - which is
                           AUTHORITATIVE, failing resolution outright rather
                           than falling through if declared but unresolvable
@@ -526,7 +529,21 @@ Public API (CLI):
                           inconclusive - can only remove FEWER worktrees
                           than a full run, never more.
   --explain               Print one line per worktree entry with its
-                          outcome (default: aggregate counts only).
+                          outcome (default: aggregate counts only). For a
+                          `SKIP_DIRTY` entry ONLY, two additional
+                          report-only surfaces follow that line: a
+                          `composition: <bucket>=<n> ...` summary (or
+                          `composition: unavailable`, never a zeroed
+                          mapping - see `_dirty_composition`) and, beneath
+                          it, the raw `git status --porcelain` text one
+                          `    | ` line at a time, CAPPED at
+                          `_EXPLAIN_RAW_DIRTY_LINE_CAP` lines per entry
+                          with an explicit `... N more line(s) omitted`
+                          truncation line naming the omitted count. Neither
+                          surface gates anything. Also appended, when
+                          `--multi-repo` discovery found unregistered
+                          worktree directories, is a report-only listing of
+                          their paths (see `_unregistered_worktree_dirs`).
   --count-only            Print ONLY `entries=N` (round-2 Major 4) - zero
                           network calls AND zero per-entry `git` calls
                           beyond the single `git worktree list --porcelain`
@@ -762,7 +779,11 @@ BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
 independent, additive protections.
 
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
-               subprocess, sys, time, pathlib, collections, typing). `git`
+               sys, time, pathlib, collections, typing - `subprocess` is
+               deliberately NOT among them since the shared `_run` move:
+               every subprocess call in this file routes through the `_run`
+               imported from bin/_lib.py, and `subprocess.` appears zero
+               times here). `git`
                (CLI) and, unless --no-gh, `gh` (CLI, for the PR-state leg -
                degrades gracefully when absent or unauthenticated). DS-217's
                multi-account retry additionally depends on `gh auth status
@@ -779,6 +800,23 @@ Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                its absence/failure never affects any other code path - see
                `_measure_size_kb`'s own docstring for the never-fabricate-0
                contract on a `du` failure or the 300s timeout).
+               bin/_lib.py (11 symbols, imported by path exactly like
+               bin/tests/worktree_model.py below: `resolve_base_branch`,
+               `_run`, and the nine private resolver helpers
+               `_ALLOWED_DECL_TRAILER_RE`, `_BASE_BRANCH_DECL_RE`,
+               `_has_any_remote`, `_local_branch_exists`,
+               `_origin_head_branch`, `_parse_base_branch_declaration`,
+               `_read_agents_md`, `_ref_exists`,
+               `_strip_fenced_and_indented_lines` - all re-exported at this
+               module's own level so the existing suites' `mod.<name>`
+               attribute access keeps working). `resolve_base_branch` and
+               its helpers NO LONGER LIVE IN THIS FILE: every reference to
+               them in this manifest means bin/_lib.py's copy, and their
+               normative docstrings are there. `_run` is the more
+               load-bearing of the two public imports - EVERY subprocess
+               call in this file goes through it, so its `env=` REPLACEMENT
+               semantics and synthetic rc=124 timeout result (see its
+               docstring in bin/_lib.py) are this file's behavior too.
                bin/tests/worktree_model.py (WorktreeClass, classify_entry,
                parse_porcelain, Disposition, DispositionFacts,
                disposition_for - imported by path exactly like
@@ -873,7 +911,7 @@ Failure modes: SINGLE-REPO MODE (`--multi-repo` absent) - exits 0 on
                against the local remote-tracking ref (not the remote
                itself - a stale or unfetched ref reads as missing even when
                the branch exists on origin; `git fetch origin` may resolve
-               it). Either way `resolve_base_branch` names every
+               it). Either way bin/_lib.py's `resolve_base_branch` names every
                candidate tried (printed to stderr) and the run exits 0
                having done nothing - a resolved-but-invalid base fails
                SAFE, matching the shell pipeline this replaces (a WARNING,
@@ -978,7 +1016,6 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 from collections import Counter
@@ -1504,6 +1541,18 @@ def _git_status_and_ignored(worktree_path: str, strict_ignored: bool) -> Tuple[s
 #: FIRST NON-SPACE character of the two-character status field. Deliberately
 #: not exhaustive: an unrecognized character lands in `other` rather than
 #: being dropped, so the bucket totals always account for every line.
+#: Per-entry cap on the raw `git status --porcelain` text `--explain`
+#: prints beneath a SKIP_DIRTY entry's one-line `composition:` summary.
+#: `--explain` is the documented triage invocation and a real abandoned
+#: worktree can hold thousands of untracked files (a 3000-file fixture
+#: produced 3007 stdout lines before this cap), which buries every OTHER
+#: entry's line in a scroll-back an operator - or an agent whose context
+#: window is paying for it - cannot use. The truncation line below always
+#: names the exact number of omitted lines, so the count is capped, never
+#: lost, and the `composition:` buckets are unaffected: they are computed
+#: from the FULL text and still account for every line.
+_EXPLAIN_RAW_DIRTY_LINE_CAP = 20
+
 _DIRTY_STATUS_BUCKETS = {
     "M": "modified",
     "A": "added",
@@ -1626,6 +1675,19 @@ def _unregistered_worktree_dirs(repo: str, registered: Set[str]) -> List[str]:
     worktree). Paths are compared after `os.path.realpath` on both sides
     so a symlinked checkout root cannot make a live worktree look
     unregistered.
+
+    KNOWN, DELIBERATE UNDER-REPORT: the descent skips any child that is
+    itself a SYMLINK to a directory (`os.path.islink(child)` -> continue),
+    so a symlinked orphan under either prefix is never named in this
+    report at all - confirmed by QA against a symlink pointing outside the
+    repo, which produced no entry and left its target untouched. The guard
+    stays, and this direction of error is the correct one: following a
+    symlink would let the walk leave the repo entirely and report - and
+    invite an operator to delete - a path this tool has no business
+    naming. Under-reporting costs a missing diagnostic line; over-reporting
+    could cost data outside the checkout. An operator triaging worktree
+    residue should therefore treat this list as a LOWER BOUND, not an
+    exhaustive inventory.
 
     Returns repo-relative paths, sorted, for stable output. Any OSError
     while walking is swallowed for that subtree only - this is a
@@ -4187,13 +4249,20 @@ def _run_repo(
     # whole safety argument. Disposition is a separate human decision.
     unregistered_dirs = _unregistered_worktree_dirs(repo, {e.path for e in entries})
     if unregistered_dirs:
+        # The hint is conditional: under --explain the paths are already
+        # printed a few lines below, and telling an operator to re-run with
+        # a flag they just passed reads as though the tool did not notice.
+        hint = (
+            "The paths are listed below."
+            if args.explain
+            else "Re-run with --explain to see the paths."
+        )
         print(
             f"NOTE: {len(unregistered_dirs)} directory/directories under this repo's worktree "
             "prefixes (.claude/worktrees/, .agentic/worktrees/) are NOT registered with git - "
             "`git worktree list` does not know about them, so no gate in this tool ever "
             "evaluates them and no run can ever reclaim them. This is a report only: nothing "
-            "was touched and no removal is proposed. Re-run with --explain to see the paths, "
-            "then decide case by case."
+            f"was touched and no removal is proposed. {hint} Then decide case by case."
         )
 
     if args.dry_run and salvage_would:
@@ -4237,9 +4306,20 @@ def _run_repo(
                     print(f"  composition: {summary or 'none'}")
                     # The raw text alongside the buckets, so a line that
                     # landed in `other` is still readable rather than an
-                    # unattributable count.
-                    for raw_line in (raw[0].splitlines() if raw else []):
+                    # unattributable count - but BOUNDED, per
+                    # `_EXPLAIN_RAW_DIRTY_LINE_CAP`. The overflow line
+                    # states the omitted count explicitly; a silent
+                    # truncation would be worse than no raw text at all.
+                    raw_lines = raw[0].splitlines() if raw else []
+                    for raw_line in raw_lines[:_EXPLAIN_RAW_DIRTY_LINE_CAP]:
                         print(f"    | {raw_line}")
+                    omitted = len(raw_lines) - _EXPLAIN_RAW_DIRTY_LINE_CAP
+                    if omitted > 0:
+                        print(
+                            f"    | ... {omitted} more line(s) omitted "
+                            f"(raw dump capped at {_EXPLAIN_RAW_DIRTY_LINE_CAP} lines per entry; "
+                            f"the composition counts above cover all {len(raw_lines)})"
+                        )
 
         if unregistered_dirs:
             print("-- unregistered worktree directories (report only, nothing removed) --")

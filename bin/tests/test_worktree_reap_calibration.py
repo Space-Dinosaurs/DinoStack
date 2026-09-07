@@ -15,6 +15,14 @@ Purpose: Regression suite for the worktree-reap calibration change - the
                does not know about, with a depth-agnostic descent that must
                never name an ancestor of a registered worktree and must
                never print a removal command.
+         Round-2 review additions, all on the same three surfaces:
+           - the `--explain` raw-porcelain dump is BOUNDED per entry and
+             states its omitted count (Major 1), with a negative control
+             proving the truncation line is not printed unconditionally;
+           - `ds-branch-prune`'s unresolvable-base summary line composes
+             `mode=` from every axis that held and carries `skips=`, so a
+             --dry-run run is distinguishable from a live one (Minor 5);
+           - the orphan NOTE's `--explain` hint is conditional (Minor 6).
 
 Public API: pytest test functions only; no importable helpers are intended
             for reuse outside this file.
@@ -161,7 +169,10 @@ def test_branch_prune_unresolvable_base_deletes_nothing_and_exits_zero(tmp_path)
 
     proc = _prune(repo)
     assert proc.returncode == 0, (proc.returncode, proc.stderr)
-    assert "base=unresolved mode=skipped branches=0 deletions=0" in proc.stdout, proc.stdout
+    assert (
+        "base=unresolved mode=skipped, degraded (gh unavailable) "
+        "branches=0 deletions=0 skips=0" in proc.stdout
+    ), proc.stdout
     # nothing destroyed, nothing recorded
     branches = _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/").stdout.split()
     assert "stale/work" in branches, branches
@@ -299,6 +310,81 @@ def test_branch_prune_defines_its_own_run_and_does_not_import_the_shared_one():
     assert ds_cleanup._run is _lib._run
 
 
+def test_unresolved_base_summary_composes_mode_and_keeps_the_skips_field(tmp_path):
+    """Round-2 Minor 5 (deterministic). The unresolvable-base summary line
+    hardcoded `mode=skipped` and omitted the `skips=` field the normal
+    summary carries, so a --dry-run invocation was indistinguishable from a
+    live one on exactly the path where that distinction matters most - this
+    tool deletes branches, and this repo already shipped that defect shape
+    once (`mode = "degraded" if degraded else "live"`, never consulting
+    args.dry_run).
+
+    Every assertion anchors on the composed `mode=` field TOGETHER with an
+    adjacent field on the same line, never a bare substring, so a match
+    cannot be satisfied by an unrelated NOTE line elsewhere in the output.
+
+    Reddening mutation (EXECUTED): revert the call to a hardcoded
+    `mode=skipped` string. Both stanzas' assertions fail (the live one
+    loses its `degraded (gh unavailable)` axis, the dry-run one loses that
+    axis AND `dry-run`), and the two runs' summary lines become
+    byte-identical, failing the final inequality.
+    """
+    repo = _repo_with_origin(tmp_path)
+    (repo / "AGENTS.md").write_text("BASE_BRANCH: no-such-branch\n")
+    _git(repo, "add", "AGENTS.md")
+    _git(repo, "commit", "-q", "-m", "declare bad base")
+
+    def _summary(proc):
+        lines = [ln for ln in proc.stdout.splitlines() if "base=unresolved" in ln]
+        assert len(lines) == 1, proc.stdout
+        return lines[0]
+
+    # `_prune` always passes --no-gh, so the degraded axis holds on both
+    # runs and only `dry-run` distinguishes them - which is exactly the
+    # composition property under test: a third axis must not displace it.
+    live = _prune(repo)
+    assert live.returncode == 0, live.stderr
+    live_line = _summary(live)
+    assert (
+        "base=unresolved mode=skipped, degraded (gh unavailable) "
+        "branches=0 deletions=0 skips=0" in live_line
+    ), live_line
+
+    dry = _prune(repo, "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    dry_line = _summary(dry)
+    assert (
+        "base=unresolved mode=skipped, degraded (gh unavailable), dry-run "
+        "branches=0 deletions=0 skips=0" in dry_line
+    ), dry_line
+
+    # the whole point: the two runs are distinguishable on this line
+    assert live_line != dry_line, (live_line, dry_line)
+
+    # fail-safe semantics unchanged by the reporting fix
+    assert not (repo / ".agentic" / "branch-prune-ledger.txt").exists()
+
+
+def test_compose_mode_treats_every_axis_as_independent():
+    """Round-2 Minor 5, unit arm (deterministic). `_compose_mode` is the
+    SINGLE composer for both summary lines, and each axis contributes
+    independently - "live" is emitted only when no axis is set.
+
+    Reddening mutation (EXECUTED): rewrite the body as an either/or chain
+    (`return "skipped" if skipped else ("dry-run" if dry_run else "live")`).
+    The three multi-axis assertions fail.
+    """
+    prune_mod = _load(PRUNE, "ds_branch_prune_compose_mode")
+    c = prune_mod._compose_mode
+    assert c(False, False) == "live"
+    assert c(False, True) == "dry-run"
+    assert c(True, False) == "degraded (gh unavailable)"
+    assert c(True, True) == "degraded (gh unavailable), dry-run"
+    assert c(False, False, skipped=True) == "skipped"
+    assert c(False, True, skipped=True) == "skipped, dry-run"
+    assert c(True, True, skipped=True) == "skipped, degraded (gh unavailable), dry-run"
+
+
 # --------------------------------------------------------------------------
 # U3 - dirty composition (report only)
 # --------------------------------------------------------------------------
@@ -318,11 +404,21 @@ def _dirty_repo(tmp_path: Path) -> Path:
 
 def test_dirty_composition_buckets_per_line_not_per_letter(tmp_path):
     """R13 (deterministic). Porcelain v1 emits ONE line per entry with a
-    TWO-character status field, so a staged-and-then-modified file is `MM
-    f1` - one line, two letters. It must count as modified=1.
+    TWO-character status field. This fixture adds a NEW file to the index
+    and then modifies it in the working tree, which porcelain reports as
+    the single line `AM f1` - one line, two letters (measured; it is NOT
+    `MM f1`, which would require the file to have been tracked in HEAD
+    first). Bucketing is per LINE, so it must total 1, landing in `added`
+    via the FIRST NON-SPACE character `A`.
+
+    The assertions below are deliberately on the TOTAL rather than on the
+    bucket name: the property under test is "one line yields one bucket
+    increment", which holds whichever bucket wins, and a total-based
+    assertion cannot be satisfied by a per-letter implementation.
 
     Reddening mutation: bucket by iterating the characters of `XY`
-    (`for ch in xy: ...`). `MM f1` then yields modified=2 and this fails.
+    (`for ch in xy: ...`). `AM f1` then yields added=1 AND modified=1, so
+    the total is 2 and both total assertions fail.
     """
     repo = _dirty_repo(tmp_path)
     (repo / "f1").write_text("a\n")
@@ -436,6 +532,142 @@ def test_no_flag_removes_a_dirty_worktree(tmp_path):
     assert proc.returncode == 0, proc.stderr
     for banned in ("--force-dirty", "--ignore-dirty", "--allow-dirty", "--force-remove"):
         assert banned not in proc.stdout, (banned, proc.stdout)
+
+
+def _dirty_registered_worktree(tmp_path: Path, file_count: int) -> Path:
+    """A repo with ONE registered worktree under `.agentic/worktrees/`
+    holding `file_count` untracked files, so the entry resolves SKIP_DIRTY
+    and `--explain` prints its composition plus raw dump.
+    """
+    repo = _repo_with_origin(tmp_path)
+    wt = repo / ".agentic" / "worktrees" / "feature" / "dirty"
+    _git(repo, "worktree", "add", "-q", "-b", "feature/dirty", str(wt))
+    for i in range(file_count):
+        (wt / f"f{i:04d}.txt").write_text("x\n")
+    return repo
+
+
+def _explain(repo: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            sys.executable,
+            str(CLEANUP),
+            "--repo",
+            str(repo),
+            "--dry-run",
+            "--explain",
+            "--no-gh",
+            "--min-age-hours",
+            "0",
+            "--activity-window-hours",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_explain_raw_dirty_dump_is_capped_and_names_the_omitted_count(tmp_path):
+    """Round-2 Major 1 (deterministic). `--explain` is the documented
+    triage invocation, and a real abandoned worktree can hold thousands of
+    untracked files - the reviewer measured 3007 stdout lines from a
+    3000-file fixture before the cap. The raw dump must be BOUNDED per
+    entry, and the omitted count must be stated rather than silently lost.
+
+    The bound asserted here is on the OUTPUT SIZE, not on any one string:
+    the number of `    | ` raw lines is pinned to exactly the cap even
+    though the worktree holds far more, and total stdout is asserted to be
+    a small multiple of the cap rather than a function of the file count.
+
+    Reddening mutation (EXECUTED): delete the `[:_EXPLAIN_RAW_DIRTY_LINE_CAP]`
+    slice in _run_repo's --explain block (restoring the uncapped
+    `for raw_line in raw_lines:`). All 120 raw lines then print, the
+    raw-line-count assertion fails at 120 != 20, and the stdout-size bound
+    fails alongside it.
+    """
+    cap = ds_cleanup._EXPLAIN_RAW_DIRTY_LINE_CAP
+    file_count = cap * 6
+    repo = _dirty_registered_worktree(tmp_path, file_count)
+
+    proc = _explain(repo)
+    assert proc.returncode == 0, (proc.returncode, proc.stderr)
+    out = proc.stdout
+    assert "SKIP_DIRTY" in out, out
+
+    raw_lines = [ln for ln in out.splitlines() if ln.startswith("    | ")]
+    # exactly the cap: not fewer (the dump still happens) and not more
+    # (it is bounded), independent of how much the worktree holds.
+    truncation = [ln for ln in raw_lines if "more line(s) omitted" in ln]
+    assert len(truncation) == 1, out
+    assert len(raw_lines) == cap + 1, (len(raw_lines), file_count, out)
+
+    # the count is capped, never lost
+    assert f"{file_count - cap} more line(s) omitted" in truncation[0], truncation
+    assert f"cover all {file_count}" in truncation[0], truncation
+
+    # the one-line composition summary is unaffected by the cap and still
+    # accounts for every line
+    assert f"composition: untracked={file_count}" in out, out
+
+    # output size is a function of the cap, not of the worktree's contents
+    assert len(out.splitlines()) < cap * 3, (len(out.splitlines()), out)
+
+
+def test_explain_raw_dirty_dump_prints_no_truncation_line_under_the_cap(tmp_path):
+    """Round-2 Major 1, negative control (deterministic). Below the cap the
+    dump is complete and NO truncation line appears - proving the
+    truncation line is produced by real overflow rather than printed
+    unconditionally, and that the cap does not silently clip a small
+    worktree.
+
+    Reddening mutation (EXECUTED): drop the `if omitted > 0:` guard so the
+    truncation line prints unconditionally. This fixture then emits
+    `... -17 more line(s) omitted` and the absence assertion fires.
+    (`>= 0` is NOT a reddening mutation here and was rejected after being
+    run: `omitted` is -17 on an under-cap fixture, so the branch stays
+    dead either way - the guard's real failure mode is unconditionality,
+    not its boundary.) A second, independent reddening mutation: lower
+    `_EXPLAIN_RAW_DIRTY_LINE_CAP` below `file_count`, which fires the
+    complete-dump assertion instead.
+    """
+    cap = ds_cleanup._EXPLAIN_RAW_DIRTY_LINE_CAP
+    file_count = 3
+    assert file_count < cap
+    repo = _dirty_registered_worktree(tmp_path, file_count)
+
+    proc = _explain(repo)
+    assert proc.returncode == 0, (proc.returncode, proc.stderr)
+    out = proc.stdout
+    raw_lines = [ln for ln in out.splitlines() if ln.startswith("    | ")]
+    assert len(raw_lines) == file_count, (raw_lines, out)
+    assert "more line(s) omitted" not in out, out
+
+
+def test_orphan_note_hint_is_conditional_on_explain(tmp_path):
+    """Round-2 Minor 6 (deterministic). The NOTE must not tell an operator
+    to "re-run with --explain" on a run that already passed --explain and
+    is printing the paths a few lines below.
+
+    Reddening mutation (EXECUTED): make `hint` unconditional (drop the
+    `if args.explain` branch, always using the re-run wording). The
+    --explain assertion fires on the first stanza below.
+    """
+    repo = _repo_with_origin(tmp_path)
+    (repo / ".claude" / "worktrees" / "agent-orphan").mkdir(parents=True)
+
+    base = [sys.executable, str(CLEANUP), "--repo", str(repo), "--dry-run", "--no-gh"]
+
+    with_explain = subprocess.run(base + ["--explain"], capture_output=True, text=True)
+    assert with_explain.returncode == 0, with_explain.stderr
+    assert "are NOT registered with git" in with_explain.stdout, with_explain.stdout
+    assert "Re-run with --explain" not in with_explain.stdout, with_explain.stdout
+    assert "The paths are listed below." in with_explain.stdout, with_explain.stdout
+
+    without = subprocess.run(base, capture_output=True, text=True)
+    assert without.returncode == 0, without.stderr
+    assert "are NOT registered with git" in without.stdout, without.stdout
+    assert "Re-run with --explain to see the paths." in without.stdout, without.stdout
+    assert "The paths are listed below." not in without.stdout, without.stdout
 
 
 # --------------------------------------------------------------------------

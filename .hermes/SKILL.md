@@ -10101,7 +10101,9 @@ whose only evidence is "a PR merged": that proves the PR merged, not that
 THIS local tip's content is on the resolved base - precisely the predicate
 this script was built to eliminate (see the plan's Core decision). An
 UNRESOLVABLE base is the same safe boundary one level up: the run prints
-`base=unresolved mode=skipped branches=0 deletions=0`, deletes nothing,
+`base=unresolved mode=skipped ... branches=0 deletions=0 skips=0` (the
+`mode=` field composes every axis that held, so a `--dry-run` or degraded
+run stays distinguishable there), deletes nothing,
 writes no ledger entry, and exits 0.
 
 **Base resolution: this script resolves its own base.** The session-start

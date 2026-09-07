@@ -58,6 +58,7 @@ CASES = [
     ("agentic-team", ["--help"], 0),
     ("agentic-tracker", ["--help"], 0),
     ("agentic-branch-prune", ["--help"], 0),
+    ("agentic-cleanup-worktrees", ["--help"], 0),
     ("agentic-learning-shard", ["--help"], 0),
     # agentic-parse-subagent-usage has no argparse --help; its hand-rolled
     # main() treats any extra arg as session_uuid/agent_id, prints the

@@ -161,8 +161,14 @@ Failure modes: exit 0 on success INCLUDING partial degradation (gh
                delete was refused elsewhere. An unresolvable base fails
                SAFE on the destructive side: every candidate tried is
                named on stderr, the summary line reads
-               `base=unresolved mode=skipped branches=0 deletions=0`,
-               NOTHING is deleted, NO ledger entry is written, and the
+               `base=unresolved mode=<composed> branches=0 deletions=0
+               skips=0` - `<composed>` is `_compose_mode`'s output with
+               `skipped=True`, so it is a bare `skipped` on a plain run and
+               `skipped, dry-run` (and/or `, degraded (gh unavailable)`)
+               when those axes also hold, never a hardcoded single word
+               that would make a --dry-run run indistinguishable from a
+               live one - NOTHING is deleted, NO ledger entry is written,
+               and the
                exit code is 0. Exit 1 ONLY on an internal/usage error:
                --repo is not a directory or not a git repository,
                --pr-data is missing or not valid JSON (validated BEFORE
@@ -227,6 +233,33 @@ from worktree_model import (  # noqa: E402
 # `_lib`, needing no import on this side). An unused alias would be dead
 # code that reads like a live dependency.
 from _lib import resolve_base_branch  # noqa: E402
+
+
+def _compose_mode(degraded: bool, dry_run: bool, skipped: bool = False) -> str:
+    """Compose the summary line's `mode=` field from EVERY axis that
+    changed this run's behavior, never from whichever one won a tiebreak.
+
+    `skipped` (base unresolvable), `degraded` (gh unavailable) and
+    `dry_run` are independent and can hold in any combination; each
+    contributes its own comma-separated part, and "live" is emitted ONLY
+    when no axis is set. This function is the single composer for both
+    summary lines in this file specifically so the unresolvable-base line
+    cannot drift back into hardcoding one axis: an earlier revision of
+    this tool computed `mode = "degraded" if degraded else "live"` and
+    never consulted `args.dry_run`, so a --dry-run run honored the flag
+    while printing the single most dangerous possible misreport for a
+    branch-deletion tool, `mode=live`. The unresolvable-base line then
+    reintroduced the same shape by hardcoding `mode=skipped`.
+    """
+    parts = []
+    if skipped:
+        parts.append("skipped")
+    if degraded:
+        parts.append("degraded (gh unavailable)")
+    if dry_run:
+        parts.append("dry-run")
+    return ", ".join(parts) if parts else "live"
+
 
 PR_LIST_LIMIT = 500
 LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"
@@ -733,7 +766,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             "(no branches deleted, no ledger entry written).",
             file=sys.stderr,
         )
-        print("ds-branch-prune: base=unresolved mode=skipped branches=0 deletions=0")
+        print(
+            "ds-branch-prune: base=unresolved "
+            f"mode={_compose_mode(degraded, args.dry_run, skipped=True)} "
+            "branches=0 deletions=0 skips=0"
+        )
         return 0
     if base_source != "explicit":
         print(f"ds-branch-prune: base auto-resolved to '{resolved_base}' via {base_source}")
@@ -775,12 +812,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # chain would mask whichever fact loses the tiebreak. Both must remain
     # visible when both hold, and a --dry-run invocation must never report
     # the bare "live" an operator would read as "deletions already ran".
-    mode_parts = []
-    if degraded:
-        mode_parts.append("degraded (gh unavailable)")
-    if args.dry_run:
-        mode_parts.append("dry-run")
-    mode = ", ".join(mode_parts) if mode_parts else "live"
+    # `_compose_mode` is shared with the unresolvable-base line above so
+    # neither can drop an axis the other consults.
+    mode = _compose_mode(degraded, args.dry_run)
     print(
         f"ds-branch-prune: base={resolved_base} mode={mode} branches={len(results)} "
         f"deletions={len(delete_results)} skips={len(results) - len(delete_results)}"

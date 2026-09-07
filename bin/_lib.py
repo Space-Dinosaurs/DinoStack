@@ -66,9 +66,15 @@ Public API:
     helpers (see its own docstring for the `env=` REPLACEMENT semantics and
     the synthetic rc=124 timeout result). Exported because
     bin/ds-cleanup-worktrees routes every one of its own subprocess calls
-    through it. bin/ds-branch-prune keeps its own same-named,
-    different-signature `_run` deliberately unchanged and imports this one
-    under an alias instead.
+    through it. bin/ds-branch-prune does NOT import this function at all,
+    under an alias or otherwise: it keeps its own same-named,
+    different-signature `_run` (an `input_text` parameter, no timeout
+    support) that every call site there depends on, the two are
+    deliberately NOT unified, and nothing on that side would call this one,
+    so an alias import would be dead code reading as a live dependency.
+    That file's import block says the same, and
+    `test_branch_prune_defines_its_own_run_and_does_not_import_the_shared_one`
+    pins it.
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, re, subprocess,
                time, pathlib, typing), plus the `git` CLI for
@@ -86,7 +92,9 @@ Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
                       and every private resolver helper - re-exported at its
                       own module level so its test suites' `mod.<name>`
                       attribute access keeps working), bin/ds-branch-prune
-                      (resolve_base_branch, plus _run under an alias).
+                      (resolve_base_branch ONLY - it imports no other
+                      symbol from this module, and specifically not `_run`;
+                      see that function's Public API entry above).
                       bin/ds-identity does NOT
                       use this module - it ships its own
                       _atomic_write_identity, its own lock contextmanager,
