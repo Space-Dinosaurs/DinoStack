@@ -233,7 +233,7 @@
     border-collapse: separate;
     border-spacing: 0;
     width: 100%;
-    min-width: 2840px; /* col1 (240px) + 13 data columns at 200px */
+    min-width: 3040px; /* col1 (240px) + 14 data columns at 200px */
     font-size: 14.5px;
   }
   caption { display: none; }
@@ -525,6 +525,13 @@
         <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial Skeptic (mandatory fresh-context sign-off), risk classification, worktree isolation, planning artifacts, learning-shards/knowledge-commit pipeline - correctness governance</span></div>
       </div>
 
+      <div class="card">
+        <h3>Ponytail <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(DietrichGebert)</span></h3>
+        <p class="identity">Single-axis "lazy senior developer" ruleset plugin: ~100 lines of Markdown injected by lifecycle hooks into ~20 harnesses, plus a mode dial, six slash commands, and subagent injection; optimises code volume and nothing else</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Stopping a model from over-building greenfield UI components; distribution (~130.7k stars in three months, one-command install); a published, adversarially-revised, independently-replicated effectiveness benchmark</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial review, per-change risk gates, worktree isolation, quality gates, planning artifacts, process spine - everything a lines-of-code metric cannot see</span></div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -552,6 +559,7 @@
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
             <th scope="col">ECC</th>
+            <th scope="col">Ponytail</th>
           </tr>
         </thead>
         <tbody>
@@ -571,6 +579,7 @@
             <td>Lead agent + 4 persistent background observers (memory, skill, goal, verification); write-capable subagent fan-out, one level deep only</td>
             <td>Recursive self-similar: <code>rlm("sub-task")</code> spawns a full child instance with its own model, kernel, and history; returns at admission rather than blocking; A2A scoped to parent/siblings/children</td>
             <td>Additive toolkit installed INTO a harness, not a methodology: 68 scoped subagents with their own context and tool permissions (planner, code-reviewer, architect, language-specific reviewers, a11y-architect); no orchestration loop of its own</td>
+            <td>Single agent, ruleset-modified; no roles. The ruleset is propagated into whatever subagents the host harness spawns, scoped by <code>PONYTAIL_SUBAGENT_MATCHER</code></td>
           </tr>
           <tr>
             <th scope="row">Review stance</th>
@@ -588,6 +597,7 @@
             <td>No independent per-change reviewer; <code>/grilling</code> interviews the plan pre-execution; verification observer is advisory and off by default</td>
             <td>None. No independent reviewer, no risk gate, no sign-off step anywhere in the loop; <code>/refine</code> is self-assessment by the same model family</td>
             <td>Review agents are invocable skills the host harness can call on demand (planner, code-reviewer, architect, security review); no mandatory fresh-context gate, no risk taxonomy, no sign-off artifact; AgentShield audits agent config files, not agent output</td>
+            <td>Self-review. <code>/ponytail-review</code> and <code>/ponytail-audit</code> are the same agent grading its own output against the ladder; no independent reviewer context exists</td>
           </tr>
           <tr>
             <th scope="row">Substrate</th>
@@ -605,6 +615,7 @@
             <td>Proprietary CLI + co-trained closed model (Muse Spark 1.2); not open source</td>
             <td>Runnable software: MIT-licensed harness (Linux/macOS) whose single tool is an IPython kernel; harness state <code>H = (prompt, sub-agents, skills, memory)</code> lives in the kernel, mirrored to disk</td>
             <td>MIT OSS distribution repo (287 skills / 68 agents / 94 commands + rules, hooks, MCP configs) + AgentShield scanner + ECC 2.0 control plane + GitHub App; installs into an existing harness</td>
+            <td>~100 lines of Markdown plus Node.js hooks and per-harness packaging; the ruleset is the product, the rest is adapter boilerplate</td>
           </tr>
           <tr>
             <th scope="row">Infrastructure weight</th>
@@ -622,6 +633,7 @@
             <td>Single binary, one curl install; runtime owns worktrees, event log, OS sandbox</td>
             <td>Medium: a background daemon owns live sessions over a local socket, plus persisted kernel snapshots and append-only session JSONL; no server or database</td>
             <td>Medium: installed via Claude Code plugin or <code>npm i -g ecc-universal</code>; local-first ECC 2.0 control plane + hosted GitHub App; no servers/DB in the OSS core</td>
+            <td>None at runtime, but a hard Node.js dependency: with no <code>node</code> on PATH the hooks silently degrade to near-no-op with no error</td>
           </tr>
           <tr>
             <th scope="row">Human-in-loop assumption</th>
@@ -639,6 +651,7 @@
             <td>Staged per-command approvals; <code>/plan</code> gates on approval; multi-hour autonomous runs are the design target</td>
             <td>Single operator attaches to and detaches from a daemon-owned session; <code>/refine</code> fires automatically every ~25 turns without operator involvement</td>
             <td>Per-session enhancement inside the host harness; autonomy stays the host harness's plus ECC's context/memory/learning; no orchestration loop or lifecycle of its own</td>
+            <td>Fully automatic once installed; the only operator control is the mode dial (lite/full/ultra/off), and even that is currently broken in Claude Code (issue #584)</td>
           </tr>
           <tr>
             <th scope="row">Core conviction</th>
@@ -656,6 +669,7 @@
             <td>Durability is the product - replay-exact event log, crash resume, exportable audit trace</td>
             <td>The harness, not the model, is the bottleneck: give the model one tool (code), keep the data out of the context window, and let the harness rewrite its own prompt, skills, and sub-agents</td>
             <td>Optimize the context window, persist everything else - performance, security, and learning as additive harness capability, not governance</td>
+            <td>The best code is the code you never wrote; models over-build by default, and a ladder of &quot;do you actually need this&quot; stops them at the first rung that holds</td>
           </tr>
         </tbody>
       </table>
@@ -686,6 +700,7 @@
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
             <th scope="col">ECC</th>
+            <th scope="col">Ponytail</th>
           </tr>
         </thead>
         <tbody>
@@ -705,6 +720,7 @@
             <td>Low - no adversarial review of diffs; plan-stage interview only</td>
             <td>None. No reviewer at any layer; guardrails are containment-shaped (immutable base prompt, revert-by-ID, no self-source-edits) and never ask whether an update was correct</td>
             <td>Invocable review skills in the implementer's context; no mandatory fresh-context reviewer, no risk taxonomy, no sign-off gate; AgentShield audits config files, not output</td>
+            <td>Low: single-agent ceiling. The one real quality guard is the NOT-lazy carve-out list, which measurably held a path-traversal check that a brevity-only prompt dropped</td>
           </tr>
           <tr>
             <th scope="row">Token cost</th>
@@ -722,6 +738,7 @@
             <td>Lowest in field on Contributor tier ($0.10/M in, $0.20/M out - Meta trains on your data); Standard tier $1.25/M in, $4.25/M out</td>
             <td>Lowest measured in this set: vendor-reported lower total usage than native harnesses (long-context suite), and an independent reviewer's own benchmark puts it well below Claude Code at equal success. Treat vendor figures as vendor-reported</td>
             <td>Context-optimized by design ("optimize the context window, persist everything else"); instincts ranked for SessionStart injection; no published reduction numbers</td>
+            <td>Measured and published: -22% tokens / -20% cost on its own rebuilt benchmark, -10.3% cost (p=0.004) in the independent JetBrains 80-task A/B; own README concedes a terse reasoning model deliberating the rungs can invert this (it does on GPT-5.5)</td>
           </tr>
           <tr>
             <th scope="row">Speed / latency</th>
@@ -739,6 +756,7 @@
             <td>Warm session-long background agents avoid per-task re-exploration (vendor claim, unbenchmarked)</td>
             <td>Fast: non-blocking recursive spawn returns at admission, <code>/refine</code> plans in the background, and kernel-side slicing avoids re-reading data into context</td>
             <td>Per-session additive layer with no orchestration loop, so no gating tax on the critical path</td>
+            <td>Faster: -27% wall time on the rebuilt benchmark, -11% in JetBrains (wide variance); adds no orchestration steps and shortens only the writing phase, never the reading phase</td>
           </tr>
           <tr>
             <th scope="row">Parallelism</th>
@@ -756,6 +774,7 @@
             <td>Native - parallel subagents at ~cores-2 with queueing (Meta's own docs conflict on clamp bounds)</td>
             <td>First-class: recursive non-blocking children each with their own model, kernel, and history; persistent sub-agents are re-addressable, evict after 30 min idle and reload from disk</td>
             <td>None of its own - no orchestration loop; ECC 2.0 adds a worktree-lifecycle service and observability across harnesses</td>
+            <td>Not addressed - orthogonal to concurrency; it modifies whatever the host agent does, one agent at a time</td>
           </tr>
           <tr>
             <th scope="row">Setup overhead</th>
@@ -773,6 +792,7 @@
             <td>Near zero - one curl + browser auth</td>
             <td>Low: one-command curl install, Linux + macOS, MIT. But adopting it means replacing your existing harness wholesale</td>
             <td>Low: Claude Code plugin or <code>npm i -g ecc-universal</code>, selective install builder with profiles (core 8 / full 157)</td>
+            <td>Lowest in this set: <code>/plugin marketplace add</code> + <code>/plugin install</code>, then trust three hooks. Skipping the <code>/hooks</code> step silently produces nothing, and uninstall leaves residue (config file, mode flag, a <code>statusLine</code> entry)</td>
           </tr>
           <tr>
             <th scope="row">Portability across harnesses</th>
@@ -790,6 +810,7 @@
             <td>None - Meta harness + Muse Spark only; early reports say the model underperforms outside its own harness</td>
             <td>Not applicable - it <em>is</em> the harness. Portable across models instead: subscription logins, 8 API providers, and vLLM/Ollama/LM Studio self-host</td>
             <td>Claude Code primary; ~15 harnesses behind adapters of varying maturity (most experimental/instruction-only per the support matrix); root AGENTS.md universal cross-tool file</td>
+            <td>~20 harnesses in two tiers: 14 first-class plugin installs get the auto-injection hooks; 10 (Cursor, Windsurf, Cline, Copilot Chat, Aider, Kiro, Zed, Junie, Amp, Jules) get an instruction-only rule file competing for attention with everything else loaded</td>
           </tr>
           <tr>
             <th scope="row">Determinism / resumability</th>
@@ -807,6 +828,7 @@
             <td>Strongest in field - intent-before-effect log, deterministic export, resume inspects real state</td>
             <td>Strongest in this set: daemon-owned sessions survive detach, append-only session JSONL with branch/fork/clone as leaf-pointer moves, <code>/tree</code> for full history, crash recovery from JSONL plus kernel snapshot</td>
             <td>Memory Vault persists markdown memory (project <code>.ecc/memory/</code>, user <code>~/.ecc/memory/</code>) with an MCP server; instincts ranked for SessionStart; no phase cursor</td>
+            <td>Not addressed - no state, no phases, nothing to resume; the ruleset is stateless per session</td>
           </tr>
         </tbody>
       </table>
@@ -842,6 +864,7 @@
             <th scope="col">Muse Code</th>
             <th scope="col">Prime Agent</th>
             <th scope="col">ECC</th>
+            <th scope="col">Ponytail</th>
           </tr>
         </thead>
         <tbody>
@@ -861,6 +884,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(lead + subagents + observers)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(recursive non-blocking spawn, per-child kernel and history, A2A within the "nuclear family" - sub-agents designed dynamically by <code>/refine</code>, not a fixed roster of specialist roles)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no orchestration loop of its own; ECC 2.0 control plane adds observability and a worktree-lifecycle service, not an orchestrator)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(modifies a single agent; injects its ruleset into subagents the host spawns, but orchestrates nothing)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Risk classification</th>
@@ -878,6 +902,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(staged approvals, no published risk tiers)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not addressed; all work is treated identically)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no risk taxonomy, no classification step)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no notion of per-change risk; the lite/full/ultra dial is a session-wide aggressiveness setting, not a per-change gate)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Independent Skeptic review</th>
@@ -895,6 +920,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(<code>/grilling</code> is a prompting mode; verifier advisory, off by default)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(none anywhere in the loop; its own Factorio result documents the refinement loop compounding cheating skills after the agent found the RCON admin console)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(review agents are invocable skills in the implementer's context, not a mandatory fresh-context gate; AgentShield audits config files, not output)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(<code>/ponytail-review</code> is self-review by the same agent that wrote the diff)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Planning artifacts</th>
@@ -912,6 +938,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/plan</code> approval-gated; <code>/grill-with-docs</code> writes settled decisions into project docs)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no Brief/Plan/ADR tier; harness state is prompt notes, skills, and memories, not planning documents)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(plan-before-build is a skill the agent can invoke; no Brief/Plan/ADR artifact tiers, no Open-Questions gate)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no planning layer at all; the ruleset fires at write time)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Intent layer / memory</th>
@@ -929,6 +956,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(cross-session memory advertised; backend undocumented)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(self-editing harness state - prompt notes, skills as Python functions, project memories, sub-agent designs - CRUD'd by <code>/refine</code> every ~25 turns, injected into the system prompt, revertible by ID - agent-owned and automatic, not a human-curated shared team artifact)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(confidence-scored instincts extracted from real sessions, ranked for SessionStart injection, auto-pruned/decayed when idle, <code>/evolve</code> clusters instincts into skills; cross-harness Memory Vault with MCP server)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>ponytail:</code> corner-cut comments plus the <code>/ponytail-debt</code> harvest form a real, greppable deferred-work ledger - the one memory-shaped artifact it has; no cross-session memory otherwise)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Worktree isolation</th>
@@ -946,6 +974,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(first-class but opt-in via <code>--subagent-worktree-isolation</code>; reportedly no-ops outside a git repo, per docs-derived coverage)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(per-child kernel and history isolate context, but there is no filesystem isolation; vendor states outright it is "not a security sandbox")</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no execution isolation or lifecycle of its own; ECC 2.0 adds a worktree-lifecycle service, not per-spawn isolation)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(worse than absent: the repo-wide <code>/ponytail-audit</code> simplification sweep is explicitly a &quot;keep a backup of your repository&quot; operation)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Quality gates</th>
@@ -963,6 +992,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/goal</code> completion audit can require a named test oracle; no mandated lint/type/test gate)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no lint/typecheck/test gate, no QA step, nothing between a change and its acceptance)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(TDD workflow, verification-loop skill, security-review and language-specific reviewer agents; invocable skills, not enforced gates)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(&quot;lazy code without its check is unfinished&quot; mandates one runnable check - an assert-based self-check or one small test file, with no test framework pulled in; no lint/typecheck/test obligation)</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -1013,6 +1043,9 @@
 
       <h3>ECC (ecc.tools)</h3>
       <p>ECC is an open-source additive agent-harness toolkit you install INTO a harness rather than a methodology that governs how the agent works: an MIT distribution repo (287 skills / 68 agents / 94 commands), an AgentShield config-security scanner (102 static rules over CLAUDE.md, .cursorrules, agents.json, hooks, and MCP surfaces), an ECC 2.0 local-first control plane, and a commercial GitHub App that mines a repo's git history and opens a PR with generated skills and instincts. It is the closest large-scale complement-yet-competitor to DinoStack in this set: ~239K stars in ~7 months, MIT core plus Free/Pro/Enterprise monetization. The decisive contrast is review: ECC ships review agents as invocable skills the implementer's own context can call, with no mandatory fresh-context gate, no risk taxonomy, and no sign-off artifact, while DinoStack's Skeptic is a mandatory fresh-context reviewer whose sign-off gates every Elevated unit. ECC wins on traction/catalog, AgentShield agent-config security scanning, confidence-scored instinct learning with auto-prune/decay, git-history-driven skill generation, a central skill registry, and a working business model. <span class="win">DinoStack wins</span> on independent adversarial review, per-change risk classification, worktree isolation, planning artifacts, and the learning-shards/knowledge-commit institutional-memory pipeline. They compose: DinoStack supplies governance, ECC supplies context/security/learning.</p>
+
+      <h3>Ponytail (DietrichGebert)</h3>
+      <p>Ponytail is a single-axis "lazy senior developer" ruleset plugin (github.com/DietrichGebert/ponytail, ~130.7k stars and ~7k forks in under three months) that injects a seven-rung ladder - does this need to exist / already in the codebase / stdlib / native platform feature / installed dependency / one line / the minimum that works - into ~20 harnesses via lifecycle hooks, a mode dial, six slash commands, and subagent propagation. It is the clearest same-layer, same-mechanism entry in this comparison: an AGENTS.md-shaped ruleset delivered by hooks, competing for the same "which methodology plugin do I install" slot DinoStack occupies. The difference is axis count - DinoStack governs correctness, concurrency, and process; Ponytail governs code volume only, and openly disclosed the limits of that number: the marketed "94% less code" is the ceiling on over-build traps (a date picker going from 404 to 23 lines), not an average, and its own rebuilt four-arm benchmark measured -54% LOC / -22% tokens / -20% cost / -27% time with backend CRUD tasks converging to roughly zero delta (44 vs 44, 24 vs 23, 21 vs 17); an independent JetBrains 80-task A/B replicated at -15.4% median code reduction with audited 0% baseline contamination. <span class="win">DinoStack wins</span> on nearly every capability row in Table C: independent adversarial review (<code>/ponytail-review</code> is the implementer grading its own diff), per-change risk classification, worktree isolation (Ponytail's repo-wide <code>/ponytail-audit</code> sweep runs directly against the working tree and its own mitigation is "keep a backup"), lint/typecheck/test and QA gates, ticket and PR workflow, and planning artifacts. Ponytail wins on two rows that genuinely matter: distribution (~130.7k stars, ~20 harnesses, one-command install, versus DinoStack's 11 adapters and no comparable public adoption) and a published, adversarially-revised, independently-replicated effectiveness benchmark, which DinoStack has none of. Composition is technically plausible - both are hook-injected markdown - but the ladder's "stop at the first rung that works" pressure is in real tension with DinoStack's correctness posture, and if DinoStack ever adopts it, it belongs as an engineer-side preference subordinate to the Skeptic, never as a gate.</p>
 
     </div>
   </div>
@@ -1070,6 +1103,7 @@
       <li><span class="src-title">Prime Agent</span> <span class="desc">- Prime Intellect, an MIT-licensed recursive, self-refining coding harness built on Pi</span></li>
       <li><span class="src-title">DinoStack self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
       <li><span class="src-title">ECC (ecc.tools)</span> <span class="desc">- an open-source additive agent-harness toolkit (ecc.tools / affaan-m/ECC)</span></li>
+      <li><span class="src-title">Ponytail</span> <span class="desc">- DietrichGebert, a single-axis "lazy senior developer" ruleset plugin (github.com/DietrichGebert/ponytail, ponytail.dev)</span></li>
     </ul>
   </div>
 </section>
