@@ -549,6 +549,65 @@ class TestScopeResolution(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("expected one argument", result.stderr)
 
+    def test_project_dir_followed_by_unregistered_double_dash_token_stays_separate(self):
+        """DS-227 round 5 Major: the round-4 guard
+        (`argv[i + 1] not in _KNOWN_OPTION_TOKENS`) is narrower than the
+        round-3 guard it replaced for any "--"-prefixed token that is NOT
+        an exact registered option string. `--all` is not hypothetical -
+        argparse's allow_abbrev resolves it to `--all-projects`. Measured
+        pre-fix (round-4 head 78fb064c): `--project-dir --all` printed
+        `requested project dir: --all`, `scanned (0)`,
+        `error: no_transcripts`, exit 0 - a silent no-data report
+        indistinguishable from a real no-data result. Mutation: drop the
+        `argv[i + 1].startswith("-") and not argv[i + 1].startswith("--")`
+        guards and this reddens (rc becomes 0)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--project-dir", "--all"],
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
+    def test_project_dir_followed_by_unregistered_bogus_flag_stays_separate(self):
+        """Same defect class, an entirely unregistered "--"-prefixed
+        token with no abbreviation collision. Measured pre-fix: silent
+        no-data report, exit 0."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--project-dir", "--bogus"],
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
+    def test_repo_path_followed_by_unregistered_double_dash_token_stays_separate(self):
+        """--repo-path sibling of the round-5 Major. Measured pre-fix:
+        `--repo-path --all` printed `repo_path: <cwd>/--all`, exit 0."""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = _run_cli(
+                Path(tmp),
+                extra_args=["--repo-path", "--all"],
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("expected one argument", result.stderr)
+
+    def test_known_option_tokens_matches_parser_option_strings_bidirectionally(self):
+        """DS-227 round 5 Minor: _KNOWN_OPTION_TOKENS is a hand-typed
+        literal consulted by _normalize_argv BEFORE the real parser is
+        ever constructed, and nothing enforced the correspondence. This
+        pins bidirectional set equality (not containment - this repo has
+        a recorded defect where a containment check passed while the
+        sets diverged) between the literal and the live parser's
+        option_strings. Mutation: add a new option to _build_parser()
+        without updating _KNOWN_OPTION_TOKENS (or vice versa) and this
+        reddens with an AssertionError naming the asymmetric side."""
+        parser = slr._build_parser()
+        live = slr._parser_option_strings(parser)
+        self.assertEqual(live, frozenset(slr._KNOWN_OPTION_TOKENS))
+        # _assert_known_option_tokens_in_sync must not raise on the real parser
+        slr._assert_known_option_tokens_in_sync(parser)
+
 
 # ---------------------------------------------------------------------------
 # Honest reporting: no fabricated zero, scope on every figure, ABSENT literal

@@ -566,13 +566,22 @@ def render(payload: dict) -> str:
 # space-separated form into the `--opt=value` form argparse always accepts,
 # so a single-leading-dash value (the only real shape these two options
 # ever take) works whether it arrives space-separated or with `=`. The
-# following token is left un-merged, as two separate argv entries, in two
+# following token is left un-merged, as two separate argv entries, in three
 # cases: argparse's own "expected one argument" case (the option is the
-# last token, no following value at all), and when the following token is
-# itself one of this parser's own registered option strings
-# (_KNOWN_OPTION_TOKENS) - e.g. `--project-dir -h` must still reach
-# argparse as two separate tokens so `-h` triggers help/usage-error
+# last token, no following value at all); when the following token starts
+# with "--" (a real value never does, so any "--"-prefixed token is an
+# option-shaped argument - registered, unregistered, or a typo - and must
+# reach argparse as its own token rather than be silently swallowed as a
+# value, whatever argparse then does with it); and when the following
+# token is exactly one of this parser's own registered single-dash option
+# strings (_KNOWN_OPTION_TOKENS) - e.g. `--project-dir -h` must still
+# reach argparse as two separate tokens so `-h` triggers help/usage-error
 # handling instead of being silently swallowed as --project-dir's value.
+# A following token with no leading dash at all is never a real value
+# either, but is left un-merged (not rewritten to `--opt=value`) rather
+# than excluded outright: argparse's default consuming behavior already
+# accepts a bare non-dash token as the value with no rewrite needed, so
+# omitting it from the merge changes nothing observable.
 _DASH_VALUE_OPTS = ("--project-dir", "--repo-path")
 _KNOWN_OPTION_TOKENS = ("--json", "--project-dir", "--repo-path", "--all-projects", "-h", "--help")
 
@@ -585,6 +594,8 @@ def _normalize_argv(argv: list) -> list:
         if (
             token in _DASH_VALUE_OPTS
             and i + 1 < len(argv)
+            and argv[i + 1].startswith("-")
+            and not argv[i + 1].startswith("--")
             and argv[i + 1] not in _KNOWN_OPTION_TOKENS
         ):
             normalized.append(f"{token}={argv[i + 1]}")
@@ -595,11 +606,7 @@ def _normalize_argv(argv: list) -> list:
     return normalized
 
 
-def main(argv=None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
-    argv = _normalize_argv(list(argv))
-
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Measure how often the dinostack skill loads per session, and the split "
@@ -618,6 +625,42 @@ def main(argv=None) -> int:
     scope_group.add_argument(
         "--all-projects", action="store_true", help="scan every project directory (explicit widen)"
     )
+    return parser
+
+
+def _parser_option_strings(parser: argparse.ArgumentParser) -> frozenset:
+    """All option strings the parser actually accepts (e.g. "--json", "-h"),
+    derived from the live parser rather than hand-typed. Used to keep
+    _KNOWN_OPTION_TOKENS - the literal _normalize_argv consults BEFORE this
+    parser is ever constructed - in sync with what the parser really
+    registers, so a future option added here without updating that literal
+    cannot silently reproduce the swallow-as-value bug for it."""
+    strings = set()
+    for action in parser._actions:
+        strings.update(action.option_strings)
+    return frozenset(strings)
+
+
+def _assert_known_option_tokens_in_sync(parser: argparse.ArgumentParser) -> None:
+    live = _parser_option_strings(parser)
+    known = frozenset(_KNOWN_OPTION_TOKENS)
+    if live != known:
+        only_known = known - live
+        only_live = live - known
+        raise AssertionError(
+            "_KNOWN_OPTION_TOKENS is out of sync with the parser's real "
+            f"option_strings - only in _KNOWN_OPTION_TOKENS: {sorted(only_known)!r}, "
+            f"only in parser: {sorted(only_live)!r}"
+        )
+
+
+def main(argv=None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = _build_parser()
+    _assert_known_option_tokens_in_sync(parser)
+    argv = _normalize_argv(list(argv))
     args = parser.parse_args(argv)
 
     config_dir = resolve_claude_config_dir()
