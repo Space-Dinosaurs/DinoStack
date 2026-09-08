@@ -123,7 +123,10 @@ being rebased in another worktree it did not already know about) is
 reported to stderr and the run continues - never a hard failure.
 
 Upstream deps: Python 3 stdlib only (argparse, json, subprocess, shutil,
-               sys, pathlib, collections). `git` (CLI) and, unless
+               sys, time, pathlib, collections; `time` reaches the fetch
+               deadline exclusively through this module's own `_now()`
+               seam, which exists so that clock can be faked in tests
+               without patching the stdlib function process-wide). `git` (CLI) and, unless
                --no-gh/--pr-data, `gh` (CLI, for the bulk merged-PR list).
                bin/tests/worktree_model.py (DispositionFacts, Disposition,
                DEFAULT_BASE_BRANCHES, disposition_for_orphan_branch,
@@ -336,8 +339,13 @@ PR_MAX_PAGES = 100
 # PR_FETCH_DEADLINE_SECONDS - wall-clock ceiling on the whole pagination
 #                             loop, checked before each request is issued.
 #
-# Worst case is therefore PR_FETCH_DEADLINE_SECONDS plus one in-flight
-# call, not PR_MAX_PAGES * GH_CALL_TIMEOUT_SECONDS. BOTH bounds resolve to
+# Worst case is therefore about 180s, from three components: the
+# `gh repo view` slug lookup, up to GH_CALL_TIMEOUT_SECONDS (30s), which is
+# issued in `_load_merged_prs` BEFORE the deadline clock is started and so
+# is not covered by it; plus PR_FETCH_DEADLINE_SECONDS (120s) of
+# pagination; plus one in-flight call admitted just under the deadline, up
+# to GH_CALL_TIMEOUT_SECONDS again (30s). Not
+# PR_MAX_PAGES * GH_CALL_TIMEOUT_SECONDS. BOTH bounds resolve to
 # an INCOMPLETE window and never to a complete one, and both failure
 # directions are safe: a timeout that fires too eagerly loses rows, which
 # can only cost deletions, and a timeout that never fires leaves behavior
@@ -597,6 +605,18 @@ query($owner:String!,$name:String!,$pageSize:Int!,$endCursor:String){
 """
 
 
+def _now() -> float:
+    """Monotonic clock seam for the merged-PR fetch deadline.
+
+    Exists so the deadline test can fake the clock by patching THIS
+    module's attribute instead of `time.monotonic` itself. That stdlib
+    function is process-global for the patch's duration and is also what
+    `subprocess.run` uses for its own timeout bookkeeping, so patching it
+    reaches well beyond the code under test.
+    """
+    return time.monotonic()
+
+
 def _gh_repo_slug(repo: str) -> Optional[Tuple[str, str]]:
     """(owner, name) for --repo's checkout, or None when gh cannot say.
 
@@ -704,10 +724,10 @@ def _load_merged_prs(
     total_count: Optional[int] = None
     cursor: Optional[str] = None
     saw_last_page = False
-    deadline = time.monotonic() + PR_FETCH_DEADLINE_SECONDS
+    deadline = _now() + PR_FETCH_DEADLINE_SECONDS
 
     for _page in range(PR_MAX_PAGES):
-        if time.monotonic() >= deadline:
+        if _now() >= deadline:
             return _incomplete_window(
                 nodes,
                 f"the {PR_FETCH_DEADLINE_SECONDS:.0f}s merged-PR fetch deadline elapsed "
@@ -809,8 +829,17 @@ def _incomplete_window(nodes: List[Dict], reason: str) -> Tuple[List[Dict], bool
     An empty result is reported as `degraded` (no PR data at all was
     obtained - the same state an absent `gh` produces), a partial result as
     non-degraded but incomplete. Both carry the reason so the operator is
-    told either way, and NEITHER can widen the delete set: the reason is
-    only ever consumed to print a NOTE and never feeds any layer.
+    told either way, and NEITHER can widen the delete set.
+
+    The reason is NOT merely cosmetic, and must not be read as such.
+    Besides printing the operator NOTE, it is threaded into
+    `evaluate_branch` as one of the two operands of
+    `degraded or incomplete_reason`, which downgrades an absent candidate
+    to `pr_state="not_checked"` instead of the affirmative `"NONE"`.
+    Removing that threading restores the unsafe affirmative claim. What the
+    reason still does NOT do is feed any of the four layers - L1-L4 never
+    read it - so its only reachable effect is to WITHHOLD an affirmative
+    claim, which can subtract deletions and never add one.
     """
     if not nodes:
         return [], True, reason

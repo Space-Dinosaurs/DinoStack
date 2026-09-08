@@ -870,10 +870,23 @@ fi
 ```
 
 Pass `--explain` for a per-branch reason list, `--dry-run` to compute and
-report without deleting anything, or `--no-gh` to force the degraded mode
-(only ancestry and content-on-main evidence, when `gh` is unavailable or
-errors - degradation can only delete FEWER branches than a full run, never
-more, and the run always names the condition rather than staying silent).
+report without deleting anything, or `--no-gh` to force the degraded mode.
+Degraded means NO merged-PR window was obtained at all - `--no-gh`, `gh`
+absent or unauthenticated, an unresolvable repository slug, or the very
+first page failing - so only ancestry and content-on-main evidence (L1/L4)
+remains, and the run prints `mode=degraded (gh unavailable)` plus a NOTE
+naming that degradation. A PARTIAL window is a distinct, weaker state: when
+pagination retrieves some pages and then cannot prove the window complete
+(a mid-run API error, a `totalCount` mismatch, a GraphQL `errors` array, a
+per-call or whole-fetch timeout, or exhausting the page bound), the rows
+already fetched are RETAINED, L2/L3 stay live against them, `mode=` still
+reads `live`, and the run prints an incompleteness NOTE instead - that is
+not a degradation notice, and the two lines are separate. Both states share
+the one guarantee that matters: either can only delete FEWER branches than
+a fully-proven run, never more, because a branch with no matching candidate
+is recorded as `pr_state=not_checked` (inconclusive) rather than the
+affirmative `NONE` - and the run always names the condition rather than
+staying silent.
 
 **Safe boundary:** a branch the predicate cannot prove subsumed resolves to
 `SKIP_UNPROVEN` - reported, never force-deleted. This includes a branch

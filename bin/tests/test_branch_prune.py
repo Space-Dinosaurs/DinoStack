@@ -21,7 +21,10 @@ Upstream deps: bin/ds-branch-prune (module under test, invoked both as a
                and `gh api graphql` responses while delegating every other
                argv to the real subprocess) plus `shutil.which`, so those
                tests behave identically on a runner with no `gh` installed
-               and no auth configured.
+               and no auth configured. The whole-fetch deadline test
+               additionally patches the module's `_now()` clock seam - not
+               `time.monotonic` itself, which would be replaced
+               process-wide for the patch's duration.
 
 Downstream consumers: CI (`python3 -m pytest bin/tests/ -q`, auto-collected
                       per `.github/workflows/bin-tests.yml`); this ticket's
@@ -1570,8 +1573,15 @@ def test_every_gh_call_carries_a_bounded_timeout(tmp_path, monkeypatch):
     invocation must carry a positive, finite timeout - `None` is the
     regression this pins.
 
-    Reddening mutation (executed): drop `timeout=GH_CALL_TIMEOUT_SECONDS`
-    from the `_run(cmd, cwd=repo, ...)` call in `_load_merged_prs`.
+    A merely-positive assertion would survive a weakened timeout, so every
+    recorded value is pinned to GH_CALL_TIMEOUT_SECONDS itself: a bound too
+    SMALL to complete a real call is its own session-start failure, not a
+    fix.
+
+    Reddening mutations (both executed): (a) drop
+    `timeout=GH_CALL_TIMEOUT_SECONDS` from the `_run(cmd, cwd=repo, ...)`
+    call in `_load_merged_prs`; (b) weaken that same call to
+    `timeout=0.001`, which the superseded `t > 0` assertion admitted.
     """
     repo = init_repo(tmp_path)
     pages = [
@@ -1584,7 +1594,9 @@ def test_every_gh_call_carries_a_bounded_timeout(tmp_path, monkeypatch):
     assert degraded is False and incomplete_reason is None
     assert log["repo_view"] == 1 and log["graphql"] == 2, log
     assert len(log["timeouts"]) == 3, log["timeouts"]
-    assert all(isinstance(t, (int, float)) and t > 0 for t in log["timeouts"]), log["timeouts"]
+    assert all(
+        t == ds_branch_prune.GH_CALL_TIMEOUT_SECONDS for t in log["timeouts"]
+    ), log["timeouts"]
 
 
 def test_gh_call_timeout_is_incomplete_never_a_complete_window(tmp_path, monkeypatch):
@@ -1619,17 +1631,22 @@ def test_whole_fetch_deadline_bounds_the_loop_and_reports_incomplete(tmp_path, m
     Crossing it must stop the loop and report INCOMPLETE, retaining what
     was already fetched.
 
-    The clock is faked rather than slept: `time.monotonic` returns 0 while
-    the deadline is computed and for the first page's check, then jumps
-    past the deadline before the second.
+    The clock is faked rather than slept: the module's own `_now` seam
+    returns 0 while the deadline is computed and for the first page's
+    check, then jumps past the deadline before the second. The seam is
+    patched deliberately in preference to `ds_branch_prune.time.monotonic`,
+    which IS the stdlib function and would be replaced process-wide for the
+    test's duration - including for `subprocess.run`'s own timeout
+    bookkeeping.
 
-    Reddening mutation (executed): delete the
-    `if time.monotonic() >= deadline:` guard at the top of the pagination
-    loop.
+    Reddening mutations (both executed): (a) delete the
+    `if _now() >= deadline:` guard at the top of the pagination loop;
+    (b) revert both `_now()` call sites to `time.monotonic()`, which takes
+    the seam out of the code path this test drives.
     """
     repo = init_repo(tmp_path)
     ticks = iter([0.0, 0.0, 10_000.0] + [10_000.0] * 50)
-    monkeypatch.setattr(ds_branch_prune.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(ds_branch_prune, "_now", lambda: next(ticks))
 
     pages = [
         _graphql_page(_pr_nodes(1, 100), total_count=150, has_next=True, end_cursor="c1"),
