@@ -870,10 +870,47 @@ fi
 ```
 
 Pass `--explain` for a per-branch reason list, `--dry-run` to compute and
-report without deleting anything, or `--no-gh` to force the degraded mode
-(only ancestry and content-on-main evidence, when `gh` is unavailable or
-errors - degradation can only delete FEWER branches than a full run, never
-more, and the run always names the condition rather than staying silent).
+report without deleting anything, or `--no-gh` to force the degraded mode.
+Degraded means NO merged-PR window was obtained at all - `--no-gh`, `gh`
+absent or unauthenticated, an unresolvable repository slug, or the very
+first page failing - so only ancestry and content-on-main evidence (L1/L4)
+remains, the run's `mode=` field gains a `degraded (gh unavailable)` part,
+and a NOTE naming that degradation is printed. `mode=` composes every axis
+that held rather than reporting one of them, so that part appears alongside
+any other (a degraded `--dry-run` reads `mode=degraded (gh unavailable),
+dry-run`); read the field for the presence of the part, not as a whole
+string. A PARTIAL window is a distinct, weaker state: when pagination
+retrieves some pages and then cannot prove the window complete (a mid-run
+API error, a `totalCount` mismatch, a GraphQL `errors` array, a per-call or
+whole-fetch timeout, or exhausting the page bound), the rows already
+fetched are RETAINED, L2/L3 stay live against them, and the run prints an
+incompleteness NOTE instead. Incompleteness is not a degradation and
+contributes NO part to `mode=`, so an otherwise-plain run still reads
+`mode=live` (an incomplete `--dry-run` reads `mode=dry-run`); the two NOTE
+lines are separate.
+
+Both states share the one guarantee that matters: either can only delete
+FEWER branches than a fully-proven run, never more. The operative cause is
+candidate ABSENCE, not any `pr_state` value. L2 and L3 each iterate the
+merged-PR candidates matched to the branch, so a branch whose row is
+missing from a short or absent window has no candidate for either layer to
+fire on; it can then only be proven by L1/L4, which read local history
+alone and are window-independent, and otherwise falls through to
+`SKIP_UNPROVEN`. A smaller window therefore starves evidence layers rather
+than fabricating them.
+
+Recording `pr_state=not_checked` rather than the affirmative `NONE` in that
+situation is a separate, contract-correctness measure: it withholds a "no
+merged PR exists for this branch" claim the tool has just finished proving
+it could not enumerate. On the strict branch-deletion path that downgrade
+is currently INERT - `_check_pr_state_strict` treats `not_checked` and
+`NONE` alike as inconclusive, and `origin_reachable`, the only gate that
+reads the distinction, is absent from the `MERGE_EVIDENCE_ORDER` tuple
+`disposition_for_orphan_branch` uses. It is kept anyway, precisely so the
+guarantee above never comes to depend on that coincidence of the present
+gates. Do not remove the candidate-absence handling on the strength of this
+downgrade: candidate absence is what actually holds the guarantee up.
+Either way, the run always names the condition rather than staying silent.
 
 **Safe boundary:** a branch the predicate cannot prove subsumed resolves to
 `SKIP_UNPROVEN` - reported, never force-deleted. This includes a branch
