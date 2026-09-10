@@ -230,6 +230,7 @@ The brief defines the **threat model** the Skeptic must adopt. It is domain-spec
 - The agent must not soften, summarize, or editorialize the brief
 - Nor may it inject a conductor hypothesis, suspicion, or attention-steer - neutrality and completeness are independent axes, with no carve-out for an operator-attributed steer
 - Mechanically enforced at spawn time (`enforce-skeptic-neutrality.py`): denies an untagged claim in field 7, or a conductor-composed-steer phrase in the brief
+- The ban covers every field, every form, tagged or untagged - the hook checks only two bounded surfaces; the reviewing Skeptic's Step 3.9 Neutrality check is the control for the rest
 - Templates exist for: auth, API endpoints, crypto, DB migrations, data pipelines, smart contracts, architecture docs, general code review
 
 <div class="callout">
