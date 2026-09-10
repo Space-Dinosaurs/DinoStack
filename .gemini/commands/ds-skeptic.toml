@@ -49,7 +49,7 @@ You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/s
 
 ## Global-context inputs
 
-The neutrality ban applies to every field below, not only field 7 - no sentence in fields 1-7, the brief above, or the resolved-issues preflight below may carry a conductor hypothesis, suspicion, or attention-steer in any form (bare assertion, disjunctive question, motive imputation, or otherwise). See skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged".
+The neutrality ban applies to every field below, not only field 7 - no sentence in fields 1-7, the brief above, or the resolved-issues preflight below may carry a conductor hypothesis, suspicion, or attention-steer in any form, tagged or untagged (bare assertion, disjunctive question, motive imputation, or otherwise). See skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged".
 
 1. Architect plan: [absolute path to plan.md, OR "n/a - <enumerated reason>"]
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]

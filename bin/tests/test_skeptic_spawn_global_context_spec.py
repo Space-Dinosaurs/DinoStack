@@ -311,3 +311,57 @@ def test_set_shaped_claim_discipline_heading_is_non_dangling() -> None:
         f"{SKEPTIC_PROTOCOL} no longer carries the '### Set-shaped claim "
         "discipline' heading the skeptic.md Rules bullet points at"
     )
+
+
+def test_neutrality_scope_disclosure_prose_pinned() -> None:
+    """Round-2 (977d1450) resolved its Skeptic Major by widening the
+    neutrality-scope-disclosure prose in content/commands/ds-skeptic.md
+    (the brief '[Neutrality: ...]' note at the Adversarial-brief line, and
+    the new '## Global-context inputs' header paragraph) plus
+    content/references/skeptic-protocol.md's '### Scope of the ban'
+    subsection - deliberately choosing prose over a mechanical rule
+    because those sites are otherwise unpinned by any test. Round-3
+    Major 1 closes that gap with distinctive multi-word phrase pins
+    (never a bare identifier, which substring containment could defeat).
+    Reddening mutation for each assertion: delete or narrow the pinned
+    phrase back toward its pre-round-2 wording."""
+    ds_skeptic = _read(COMMANDS_DIR / "ds-skeptic.md")
+    protocol = _read(SKEPTIC_PROTOCOL)
+
+    # ds-skeptic.md brief "[Neutrality: ...]" note (Adversarial-brief line).
+    # Mutation: replace with the round-1 field-7-only wording, e.g.
+    # "[Neutrality: no conductor hypothesis in field 7]".
+    assert (
+        "no conductor hypothesis, suspicion, or attention-steer, in any "
+        "field or form" in ds_skeptic
+    ), (
+        f"{COMMANDS_DIR / 'ds-skeptic.md'} brief '[Neutrality: ...]' note "
+        "no longer carries the every-field scope disclosure"
+    )
+
+    # ds-skeptic.md "## Global-context inputs" header paragraph. Mutation:
+    # delete this paragraph outright (it did not exist pre-round-2).
+    assert (
+        "no sentence in fields 1-7, the brief above, or the resolved-issues "
+        "preflight below may carry a conductor hypothesis, suspicion, or "
+        "attention-steer in any form" in ds_skeptic
+    ), (
+        f"{COMMANDS_DIR / 'ds-skeptic.md'} is missing the Global-context "
+        "header paragraph's every-field neutrality-scope disclosure"
+    )
+
+    # skeptic-protocol.md "### Scope of the ban" subsection. Mutation:
+    # delete the subsection heading or the "steering by exclusion" clause
+    # (part of the observed-forms enumeration that names the exclusion
+    # shape distinct from a bare assertion or disjunctive question).
+    assert (
+        "### Scope of the ban: every field, every form, tagged or untagged"
+        in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} is missing the '### Scope of the ban' "
+        "subsection heading"
+    )
+    assert "steering by exclusion rather than by naming a target" in protocol, (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "steering-by-exclusion observed-forms clause"
+    )
