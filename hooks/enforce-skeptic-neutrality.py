@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
-         neutrality requirement (content/references/skeptic-protocol.md §7
-         "Neutrality requirement") AT SPAWN TIME, not after the review
-         returns. Before this hook, a conductor-composed steer baked into a
+Purpose: PreToolUse hook that mechanically enforces exactly two
+         bounded surfaces of Skeptic-brief neutrality
+         (content/references/skeptic-protocol.md §7 "Neutrality
+         requirement" - not the full rule stated there; see §7 "Scope
+         of the ban") AT SPAWN TIME, not after the review returns.
+         Before this hook, a conductor-composed steer baked into a
          Skeptic spawn's Global-context field 7 ("Conductor spawn brief")
          or adversarial brief could poison the review by naming a specific
          suspected root cause, file, or conclusion as the conductor's own

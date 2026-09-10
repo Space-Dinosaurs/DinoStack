@@ -7239,7 +7239,7 @@ The rule above is not scoped to field 7 or the brief, and a provenance tag does 
 
 A provenance tag discloses where a claim came from; it does not neutralize a conductor's own conclusion into something the reviewer may inherit. Field 7 discloses factual claims the conductor asserted elsewhere - a value, path, count, resolved-issue rationale - never the conductor's assessment of where a defect does or does not lie. A scope permission, instruction, or acceptance criterion given to a different agent is not a claim and is not disclosed as one.
 
-This scope statement supersedes any narrower field- or category-specific restatement elsewhere in this document or in the hook's docstring. Mechanical enforcement below covers a bounded subset only and is not a substitute. The reviewing Skeptic's Step 3.9 Neutrality check is the control for the remainder, scanning every Global-context field and the adversarial brief.
+This scope statement supersedes any narrower field- or category-specific restatement elsewhere in this document or in the hook's docstring - except the "What is not a steer" carve-out above, which it does not override: a resolved-issues preflight entry restating a prior finding is not a conductor conclusion and stays exempt under this wider scope exactly as it was under the narrower one. Mechanical enforcement below covers a bounded subset only and is not a substitute. The reviewing Skeptic's Step 3.9 Neutrality check is the control for the remainder, scanning every Global-context field and the adversarial brief.
 
 **Mechanical enforcement (implemented, DS-187; a bounded subset only - see "Scope of the ban" above for the full rule): `hooks/enforce-skeptic-neutrality.py`.** A PreToolUse hook gates every Agent/Task spawn where `subagent_type == "skeptic"`, scanning `tool_input.prompt`'s Global-context field 7 and adversarial-brief regions before allowing the spawn (precedent: `hooks/enforce-tier.py` and `hooks/enforce-skeptic-round-cap.py` already parse spawn-prompt text; gating on payload content, not inferred capability, is permitted per `hooks/AGENTS.md` §No gating on inferred session capability).
 
@@ -22880,9 +22880,11 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer; see skeptic-protocol.md Section 7 "Neutrality requirement (independent of completeness)"]
+**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"]
 
 ## Global-context inputs
+
+The neutrality ban applies to every field below, not only field 7 - no sentence in fields 1-7, the brief above, or the resolved-issues preflight below may carry a conductor hypothesis, suspicion, or attention-steer in any form (bare assertion, disjunctive question, motive imputation, or otherwise). See skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged".
 
 1. Architect plan: [absolute path to plan.md, OR "n/a - <enumerated reason>"]
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
