@@ -333,10 +333,12 @@ def test_neutrality_scope_disclosure_prose_pinned() -> None:
     # "[Neutrality: no conductor hypothesis in field 7]".
     assert (
         "no conductor hypothesis, suspicion, or attention-steer, in any "
-        "field or form" in ds_skeptic
+        "field or form; see skeptic-protocol.md Section 7 \"Scope of the "
+        "ban: every field, every form, tagged or untagged\"" in ds_skeptic
     ), (
         f"{COMMANDS_DIR / 'ds-skeptic.md'} brief '[Neutrality: ...]' note "
-        "no longer carries the every-field scope disclosure"
+        "no longer carries the every-field scope disclosure, including "
+        "its trailing 'tagged or untagged' qualifier"
     )
 
     # ds-skeptic.md "## Global-context inputs" header paragraph. Mutation:
@@ -344,10 +346,11 @@ def test_neutrality_scope_disclosure_prose_pinned() -> None:
     assert (
         "no sentence in fields 1-7, the brief above, or the resolved-issues "
         "preflight below may carry a conductor hypothesis, suspicion, or "
-        "attention-steer in any form" in ds_skeptic
+        "attention-steer in any form, tagged or untagged" in ds_skeptic
     ), (
         f"{COMMANDS_DIR / 'ds-skeptic.md'} is missing the Global-context "
-        "header paragraph's every-field neutrality-scope disclosure"
+        "header paragraph's every-field neutrality-scope disclosure, "
+        "including its 'tagged or untagged' qualifier"
     )
 
     # skeptic-protocol.md "### Scope of the ban" subsection. Mutation:
