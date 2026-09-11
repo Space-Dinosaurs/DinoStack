@@ -7,7 +7,7 @@
     "@marp-team/marp-core": "4.3.0",
     "@marp-team/marpit": "3.2.1",
     "@puppeteer/browsers": "3.2.1",
-    "puppeteer-core": "25.9.0"
+    "puppeteer-core": "25.10.0"
   },
   "overrides": {
     "@xmldom/xmldom": "0.9.12",
