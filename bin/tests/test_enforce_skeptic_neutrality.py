@@ -1417,3 +1417,23 @@ def test_round4_fix_major2_mutation_first_match_reddens():
         "mutation should have reddened (false deny on the quoted mention "
         "instead of the real, clean field-7 value)"
     )
+
+
+# =========================================================================== #
+# Scope-disclosure fix regression: the module docstring must state that this
+# hook enforces exactly two bounded surfaces (field 7's structural
+# tag-requirement; the two literal phrase categories B/C in the
+# adversarial-brief region), not the general neutrality-ban principle
+# (content/references/skeptic-protocol.md §7 "Scope of the ban").
+# =========================================================================== #
+def test_docstring_states_bounded_scope():
+    """Executed: pins two distinctive multi-word phrases from the
+    scope-disclosure paragraph added to the module docstring, so a bare
+    identifier or single word cannot satisfy this via substring
+    containment. Reddening mutation: reverting the docstring's scope
+    paragraph back to an unqualified claim that this hook 'mechanically
+    enforces the neutrality requirement' with no scope qualifier (the
+    pre-scope-disclosure-fix wording) removes both phrases."""
+    doc = _mod.__doc__ or ""
+    assert "exactly two narrow, bounded surfaces" in doc
+    assert "never by this hook" in doc

@@ -1,14 +1,36 @@
 #!/usr/bin/env python3
 """
-Purpose: PreToolUse hook that mechanically enforces the Skeptic-brief
-         neutrality requirement (content/references/skeptic-protocol.md §7
-         "Neutrality requirement") AT SPAWN TIME, not after the review
-         returns. Before this hook, a conductor-composed steer baked into a
+Purpose: PreToolUse hook that mechanically enforces exactly two
+         bounded surfaces of Skeptic-brief neutrality
+         (content/references/skeptic-protocol.md §7 "Neutrality
+         requirement" - not the full rule stated there; see §7 "Scope
+         of the ban") AT SPAWN TIME, not after the review returns.
+         Before this hook, a conductor-composed steer baked into a
          Skeptic spawn's Global-context field 7 ("Conductor spawn brief")
          or adversarial brief could poison the review by naming a specific
          suspected root cause, file, or conclusion as the conductor's own
          belief - the reviewer then confirms the steer rather than
          independently finding it.
+
+         **Scope disclosure - correcting a past overclaim.** This hook
+         enforces exactly two narrow, bounded surfaces: field 7's
+         structural tag-requirement (below), and two literal phrase
+         categories (B/C) matched in the adversarial-brief region. It
+         does NOT enforce the general principle stated in
+         content/references/skeptic-protocol.md §7 "Scope of the
+         ban" - the ban on any conductor-authored conclusion about the
+         artifact under review, in any field of a Skeptic spawn
+         prompt, in any form, tagged or untagged. This project has
+         repeatedly observed steers reaching briefs in forms neither
+         surface matches - bare assertions, disjunctive questions,
+         motive imputation, narrative synthesis of a review arc,
+         scope-exclusion framing, and partial disclosure of a
+         withheld doubt - every one caught by the reviewing Skeptic's
+         mandatory Neutrality check (content/agents/skeptic.md Step
+         3.9), never by this hook. Neither this hook's registration
+         nor its hooks/AGENTS.md row may be cited as evidence the
+         brief body is mechanically screened beyond these two
+         surfaces.
 
          **PRIMARY deny surface: field 7 is a structural conformance
          check, not a phrase scan.** Field 7's own mandated label

@@ -130,6 +130,7 @@ COMMANDS_DIR = REPO_ROOT / "content" / "commands"
 REFERENCES_DIR = REPO_ROOT / "content" / "references"
 SKEPTIC_PROTOCOL = REPO_ROOT / "content" / "references" / "skeptic-protocol.md"
 SKEPTIC_AGENT = REPO_ROOT / "content" / "agents" / "skeptic.md"
+HOOKS_AGENTS = REPO_ROOT / "hooks" / "AGENTS.md"
 
 # Anchor heading Section 4.5 uses in skeptic-protocol.md - the live pointer
 # check below fails if this heading is ever renamed without updating the
@@ -187,14 +188,30 @@ FIELD_7_MARKER_RE = re.compile(r"field 7|7 fields|conductor spawn brief", re.IGN
 # sites (11 originally enumerated plus the 2 planning-artifacts.md sites
 # discovered during PR #729) - or from the canonical Section 4.5 definition
 # and its agent-team.md restatements - reduces the count below this floor.
+# agent-team.md's floor was raised 4 -> 6 in round 5 (Skeptic Major 1,
+# 7a855583 review): round 4 widened its two field-7-referencing bullets
+# ("the ban is not limited to field 7 or the brief") from 4 to 6
+# occurrences, and the floor must track the live count exactly - it was
+# at zero slack (matching the live count precisely) before round 4, which
+# is what made it load-bearing as an anti-regression floor rather than
+# a loose minimum. Re-verify this floor against a live re-count on any
+# future edit to that file, not by trusting this comment's arithmetic.
+# ds-skeptic.md's floor was raised 1 -> 2 in round 6 (this round's own
+# re-derivation, `39bee732` review): round 3 added a "not only field 7"
+# scope-widening sentence to the spawn template's Global-context inputs
+# block, which is itself a field-7 marker match, moving the live count
+# from 1 to 2 while the floor stayed at 1 (zero slack at origin/main,
+# nonzero at HEAD) - the exact "floor with zero slack silently gains
+# slack" shape this guard exists to catch. Re-verify against a live
+# re-count on any future edit to that file.
 FIELD_7_MIN_OCCURRENCES = {
-    COMMANDS_DIR / "ds-skeptic.md": 1,
+    COMMANDS_DIR / "ds-skeptic.md": 2,
     COMMANDS_DIR / "ds-implement-ticket.md": 5,
     COMMANDS_DIR / "ds-init-project.md": 2,
     COMMANDS_DIR / "ds-ticket-triage.md": 2,
     COMMANDS_DIR / "ds-wrap.md": 4,
     COMMANDS_DIR / "ds-brief.md": 2,
-    REFERENCES_DIR / "agent-team.md": 4,
+    REFERENCES_DIR / "agent-team.md": 6,
     REFERENCES_DIR / "planning-artifacts.md": 4,
     SKEPTIC_PROTOCOL: 7,
 }
@@ -310,4 +327,388 @@ def test_set_shaped_claim_discipline_heading_is_non_dangling() -> None:
     assert "### Set-shaped claim discipline" in protocol_text, (
         f"{SKEPTIC_PROTOCOL} no longer carries the '### Set-shaped claim "
         "discipline' heading the skeptic.md Rules bullet points at"
+    )
+
+
+def test_neutrality_scope_disclosure_prose_pinned() -> None:
+    """Round-2 (977d1450) resolved its Skeptic Major by widening the
+    neutrality-scope-disclosure prose in content/commands/ds-skeptic.md
+    (the brief '[Neutrality: ...]' note at the Adversarial-brief line, and
+    the new '## Global-context inputs' header paragraph) plus
+    content/references/skeptic-protocol.md's '### Scope of the ban'
+    subsection - deliberately choosing prose over a mechanical rule
+    because those sites are otherwise unpinned by any test. Round-3
+    Major 1 closes that gap with distinctive multi-word phrase pins
+    (never a bare identifier, which substring containment could defeat).
+    Reddening mutation for each assertion: delete or narrow the pinned
+    phrase back toward its pre-round-2 wording."""
+    ds_skeptic = _read(COMMANDS_DIR / "ds-skeptic.md")
+    protocol = _read(SKEPTIC_PROTOCOL)
+
+    # ds-skeptic.md brief "[Neutrality: ...]" note (Adversarial-brief line).
+    # Mutation: replace with the round-1 field-7-only wording, e.g.
+    # "[Neutrality: no conductor hypothesis in field 7]".
+    assert (
+        "no conductor hypothesis, suspicion, or attention-steer, in any "
+        "field or form; see skeptic-protocol.md Section 7 \"Scope of the "
+        "ban: every field, every form, tagged or untagged\"" in ds_skeptic
+    ), (
+        f"{COMMANDS_DIR / 'ds-skeptic.md'} brief '[Neutrality: ...]' note "
+        "no longer carries the every-field scope disclosure, including "
+        "its trailing 'tagged or untagged' qualifier"
+    )
+
+    # ds-skeptic.md "## Global-context inputs" header paragraph. Mutation:
+    # delete this paragraph outright (it did not exist pre-round-2).
+    assert (
+        "no sentence in fields 1-7, the brief above, or the resolved-issues "
+        "preflight below may carry a conductor hypothesis, suspicion, or "
+        "attention-steer in any form, tagged or untagged" in ds_skeptic
+    ), (
+        f"{COMMANDS_DIR / 'ds-skeptic.md'} is missing the Global-context "
+        "header paragraph's every-field neutrality-scope disclosure, "
+        "including its 'tagged or untagged' qualifier"
+    )
+
+    # skeptic-protocol.md "### Scope of the ban" subsection. Mutation:
+    # delete the subsection heading or the "steering by exclusion" clause
+    # (part of the observed-forms enumeration that names the exclusion
+    # shape distinct from a bare assertion or disjunctive question).
+    assert (
+        "### Scope of the ban: every field, every form, tagged or untagged"
+        in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} is missing the '### Scope of the ban' "
+        "subsection heading"
+    )
+    assert "steering by exclusion rather than by naming a target" in protocol, (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "steering-by-exclusion observed-forms clause"
+    )
+
+    # Round-4's Skeptic (7a855583) found round-3's sweep applied a wording
+    # test ("pin 3 already contains 'tagged or untagged'") rather than the
+    # instructed load-bearing test, leaving three clauses this section
+    # depends on unpinned. Round-5 closes those three specifically.
+
+    # "partial disclosure" observed-forms clause (line ~557) - names the
+    # shape this branch is titled for: a doubt disclosed with its target
+    # but not its content. Load-bearing for: the enumeration actually
+    # covering the branch's own namesake failure mode, not just the five
+    # forms named in earlier rounds. Mutation: delete this clause from the
+    # enumeration (leaving the other six forms intact).
+    assert (
+        "a partial disclosure that withholds a doubt's content while "
+        "still naming its target" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' observed-forms enumeration "
+        "is missing the partial-disclosure clause"
+    )
+
+    # "does not neutralize" sentence (line ~559) - load-bearing for: a
+    # provenance tag being insufficient, by itself, to clear a conductor's
+    # own conclusion for reviewer consumption. Without this sentence the
+    # section states the ban is wide (every field, every form) but never
+    # actually forecloses the "I tagged it, so it's fine" reading it
+    # exists to close. Mutation: delete the sentence.
+    assert (
+        "it does not neutralize a conductor's own conclusion into "
+        "something the reviewer may inherit" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "provenance-tag-does-not-neutralize sentence"
+    )
+
+    # Supersession sentence (line ~561) - load-bearing for: THIS wide
+    # scope statement winning over any narrower field- or category-scoped
+    # restatement elsewhere in the document (or the hook's docstring),
+    # which is what makes the widening binding rather than merely
+    # additional prose competing with older, narrower text. Mutation:
+    # delete the supersession clause, leaving only the carve-out sentence.
+    assert (
+        "supersedes any narrower field- or category-specific restatement "
+        "elsewhere in this document or in the hook's docstring" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "supersession sentence over narrower restatements"
+    )
+
+
+def test_round7_unpinned_scope_sentences_pinned() -> None:
+    """Round-7: round-6's Task-2 enumeration claimed every sentence in
+    "### Scope of the ban" not newly pinned that round was already covered
+    by test_neutrality_scope_disclosure_prose_pinned,
+    test_round4_widened_clauses_pinned, or test_docstring_states_bounded_scope.
+    That claim was false for three sentences - a repo-wide literal-string
+    search on each confirmed no test referenced any of them. Each was
+    verified unpinned by execution before this test was added (apply the
+    mutation, observe the full suite still passes, then restore).
+
+    Sentence 1 - the section's own scope statement (the breadth clause
+    naming all seven Global-context inputs, the brief, and the
+    resolved-issues preflight, "in every syntactic form"). Load-bearing
+    for: this is the pre-branch scope the whole branch exists to widen -
+    the single most load-bearing sentence in the section. Mutation
+    (executed, left `77 passed`): narrow "It applies to every field of a
+    Skeptic spawn prompt - each of the seven Global-context inputs
+    (Section 4.5), the adversarial brief ... and the resolved-issues
+    preflight - in every syntactic form." down to "It applies to
+    Global-context field 7 and the adversarial brief." The pinned heading
+    survives that mutation unchanged, so a heading/body contradiction was
+    otherwise invisible to every existing test.
+
+    Sentence 2 - "A scope permission, instruction, or acceptance criterion
+    given to a different agent is not a claim and is not disclosed as
+    one." Load-bearing for: distinguishing an instruction given to a
+    DIFFERENT agent (e.g. an engineer's acceptance criteria) from a claim
+    about the artifact under review - without this sentence, the
+    surrounding "does not neutralize" text reads as though any brief
+    content addressed to another role must itself be disclosed as a
+    claim. Mutation (executed, left `2362 passed, 126 subtests passed`):
+    delete the sentence outright.
+
+    Sentence 3 - "The reviewing Skeptic's Step 3.9 Neutrality check is the
+    control for the remainder, scanning every Global-context field and the
+    adversarial brief." Load-bearing for: the section explicitly names
+    which control covers the part the hook's own bounded mechanical
+    enforcement does not - without it, "Mechanical enforcement below
+    covers a bounded subset only and is not a substitute" names a gap but
+    never names what fills it. Mutation (executed, left `77 passed`):
+    delete the sentence.
+    """
+    protocol = _read(SKEPTIC_PROTOCOL)
+
+    assert (
+        "each of the seven Global-context inputs (Section 4.5), the "
+        "adversarial brief and any attack-surface probe or "
+        "domain-extension sentence within it, and the resolved-issues "
+        "preflight - in every syntactic form" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection's own scope "
+        "statement has been narrowed - missing the every-field, "
+        "every-syntactic-form breadth clause"
+    )
+
+    assert (
+        "A scope permission, instruction, or acceptance criterion given "
+        "to a different agent is not a claim and is not disclosed as "
+        "one." in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "scope-permission-is-not-a-claim sentence"
+    )
+
+    assert (
+        "The reviewing Skeptic's Step 3.9 Neutrality check is the "
+        "control for the remainder, scanning every Global-context field "
+        "and the adversarial brief." in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "Step-3.9-is-the-control-for-the-remainder sentence"
+    )
+
+
+def test_round4_widened_clauses_pinned() -> None:
+    """Round-4 (7a855583) widened three pre-existing clauses from a
+    narrower ('Neutrality requirement (independent of completeness)')
+    scope to the wider every-field scope ('Scope of the ban: every
+    field, every form, tagged or untagged'): two bullets in
+    content/references/agent-team.md (:200, :206) and one bullet in
+    content/references/subagent-protocol.md (:425). Round-5 (Skeptic
+    Minor) pins the widening itself, since reverting all three to their
+    pre-round-4 wording left the suite green. Pins use the distinctive
+    widening language and its pointer text, deliberately NOT a count of
+    'field 7' tokens - a count-based pin here would double-count against
+    FIELD_7_MIN_OCCURRENCES and reintroduce the same slack-tracking
+    problem that caused round-4's Major 1 (the floor and this pin must
+    stay independent checks). Mutation for each assertion: revert the
+    matching clause to its pre-round-4 wording (see the f540fb74 diff).
+
+    Round-6 (this round's own re-derivation): the agent-team.md
+    assertion was previously an exact `== 2` count, which is NOT
+    independent of the floor it claims to avoid coupling with - it
+    fails the moment a legitimate third spawn-site bullet adopts the
+    same widening clause (verified: adding a third occurrence pushed
+    agent_team.count() to 3 and reddened this assertion, while
+    FIELD_7_MIN_OCCURRENCES' floor of 6 tolerated the extra field-7
+    marker it also introduces without complaint - the two checks were
+    never symmetric under growth). Changed to a floor (`>=2`), matching
+    the `>=` semantics MIN_OCCURRENCES and FIELD_7_MIN_OCCURRENCES
+    already use elsewhere in this file, so a legitimate third site
+    passes both checks instead of failing this one alone.
+    Mutation for the floor: reduce the real count to 1 (remove one of
+    the two existing widening-clause bullets) and confirm this
+    assertion reddens."""
+    agent_team = _read(REFERENCES_DIR / "agent-team.md")
+    subagent_protocol = _read(REFERENCES_DIR / "subagent-protocol.md")
+
+    # agent-team.md - both the plan-review and engineer-output-review
+    # bullets gained the identical trailing widening clause. Load-bearing
+    # for: the ban applying to every Global-context field at both spawn
+    # sites, not just the field the sentence happens to be discussing.
+    widening_clause = (
+        ", in this or any other field; the ban is not limited to field 7 "
+        "or the brief (see `content/references/skeptic-protocol.md` "
+        "Section 7 \"Scope of the ban: every field, every form, tagged "
+        "or untagged\")."
+    )
+    occurrences = agent_team.count(widening_clause)
+    assert occurrences >= 2, (
+        f"{REFERENCES_DIR / 'agent-team.md'}: expected the round-4 widening "
+        f"clause at both the plan-review and engineer-output-review "
+        f"bullets (at least 2 occurrences), found {occurrences}"
+    )
+
+    # subagent-protocol.md :425 - the "Priming adversarial briefs" Rules
+    # bullet gained an explicit extension beyond field 7 into every other
+    # Global-context field and the resolved-issues preflight, plus the
+    # same pointer retarget. Load-bearing for: the Rules-list restatement
+    # of the ban not silently narrower than the canonical section it
+    # points to.
+    assert (
+        "or, per the wider rule, into any other Global-context field or "
+        "the resolved-issues preflight, tagged or untagged" in subagent_protocol
+    ), (
+        f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
+        "briefs' bullet is missing the round-4 every-field widening clause"
+    )
+    assert (
+        'Section 7 "Scope of the ban: every field, every form, tagged or '
+        'untagged" for the full rule' in subagent_protocol
+    ), (
+        f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
+        "briefs' bullet still points at the pre-round-4 narrower "
+        "'Neutrality requirement' section instead of 'Scope of the ban'"
+    )
+
+
+def test_round6_sweep_closes_remaining_unpinned_widening_sites() -> None:
+    """Round-6 full-cumulative-diff sweep (origin/main..HEAD) found four
+    load-bearing sentences this branch's own prose added that no test
+    anywhere in the suite covered, verified by reverting each to its
+    pre-branch wording and confirming a targeted pytest run stayed green
+    before adding the assertion below (and, for the Step 3.9 site
+    specifically, that the FULL `pytest bin/tests -q` suite - 2361 tests -
+    also stayed green, matching the round-5 reviewer's own measurement
+    of that exact defect). Reddening mutation for each assertion: revert
+    the matching sentence to the quoted pre-branch wording named in its
+    comment.
+
+    Deliberately excluded from this pin (rationale, not oversight): the
+    generated .hermes/SKILL.md mirror, and four docs/ prose restatements
+    in two different buckets. (1) docs/slides/skeptic-protocol-slides.md
+    and its rendered .html are internally cross-checked by
+    check-slides-sync's build-vs-source byte comparison - a stale .md
+    still passes that gate (it only proves the .md and .html agree with
+    each other, not with content/), so this exclusion accepts a real,
+    known coverage gap on that pair's CONTENT rather than claiming
+    mechanical coverage that does not exist. (2) docs/configuration-reference.md
+    and docs/index.html DO carry mechanical verification against content/,
+    but only for a narrow, unrelated slice: test_docs_currency_sync.py (run
+    by bin-tests) checks their kill-switch enumerations against hooks/
+    source and their agent-count claims against content/agents/*.md - it
+    asserts nothing about this branch's neutrality-scope prose, so that
+    coverage does not reach the sentences this pin would otherwise need to
+    track. All four are hand-maintained, human-facing restatements rather than
+    text any agent session loads and acts on (unlike every content/ and
+    hooks/ site pinned above, which IS load-bearing for agent behavior);
+    their staleness is the general AGENTS.md docs-currency-pass
+    obligation's concern, not this spec's. Pinning them here would add
+    four more sites this suite must keep in lockstep with content/
+    prose it does not itself enforce staying in sync - reproducing the
+    exact "prose copy drifts silently, unpinned, three rounds running"
+    failure mode this test exists to close, one level up. The honest
+    disposition is a real gap, named here, not a manufactured
+    equivalence to the build-checked sites."""
+    skeptic_agent = _read(SKEPTIC_AGENT)
+    protocol = _read(SKEPTIC_PROTOCOL)
+    hooks_agents = _read(HOOKS_AGENTS)
+
+    # content/agents/skeptic.md "Reading your spawn prompt" item 4 - the
+    # every-field, every-form, tagged-or-untagged restatement of the ban
+    # from the Skeptic's own operating instructions (distinct from the
+    # Step 3.9 mechanical-check restatement below - this is what the
+    # agent believes about its inputs, not what it is instructed to scan
+    # for). Load-bearing for: the agent's own understanding of field
+    # scope not silently narrowing back to "neither field" (field 7 and
+    # the brief only). Mutation: revert to "Neither field ever carries a
+    # conductor hypothesis or suspicion about the artifact under review."
+    assert (
+        "No field of this input set, and no part of the adversarial "
+        "brief, ever carries a conductor hypothesis, suspicion, or "
+        "conclusion about the artifact under review, in any form and "
+        "whether tagged or untagged" in skeptic_agent
+    ), (
+        f"{SKEPTIC_AGENT} 'Reading your spawn prompt' item 4 is missing "
+        "the every-field, every-form, tagged-or-untagged restatement of "
+        "the neutrality ban"
+    )
+
+    # content/agents/skeptic.md Step 3.9 - the branch's central
+    # deliverable: widening the mechanical Neutrality check's own scan
+    # scope from field 7 + the brief to every Global-context field (1-7)
+    # plus the brief. Verified (round-6): reverting this exact sentence
+    # to "Scan Global-context field 7 and the adversarial brief for a
+    # conductor-composed hypothesis, suspicion, or attention-steer, per
+    # the test defined in "Reading your spawn prompt" item 4 above." left
+    # the full `pytest bin/tests -q` suite (2361 tests) green - this was
+    # entirely unpinned before this assertion.
+    assert (
+        "Scan every field of the Global-context input set (1-7) and the "
+        "adversarial brief for a conductor-composed hypothesis, "
+        "suspicion, or conclusion about the artifact under review, in "
+        "any form and whether tagged or untagged" in skeptic_agent
+    ), (
+        f"{SKEPTIC_AGENT} Step 3.9 is missing the every-field scan-scope "
+        "widening - the Neutrality check's own instruction has narrowed "
+        "back toward field-7-and-brief-only"
+    )
+
+    # content/references/skeptic-protocol.md - the "Mechanical
+    # enforcement" paragraph's scope-disclosure clause, distinct from the
+    # "### Scope of the ban" subsection heading and its enumerated
+    # observed-forms already pinned above. Load-bearing for: readers of
+    # the enforcement paragraph itself (not just the preceding
+    # subsection) being told the hook covers a bounded subset and where
+    # the remainder is actually checked. Mutation: revert to
+    # "**Mechanical enforcement (implemented, DS-187): ...**" with no
+    # bounded-subset qualifier, and delete the preceding sentence
+    # "Mechanical enforcement below covers a bounded subset only and is
+    # not a substitute."
+    assert (
+        "Mechanical enforcement below covers a bounded subset only and "
+        "is not a substitute" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "bounded-subset-only disclosure ahead of the Mechanical "
+        "enforcement paragraph"
+    )
+    assert (
+        "a bounded subset only - see \"Scope of the ban\" above for the "
+        "full rule" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Mechanical enforcement' paragraph header is "
+        "missing its own bounded-subset-only qualifier"
+    )
+
+    # hooks/AGENTS.md - the enforce-skeptic-neutrality.py module-map row's
+    # scope-disclosure sentence. Load-bearing for: a reader of the module
+    # map alone (without opening skeptic-protocol.md or the hook source)
+    # not concluding this hook screens the brief body beyond its two
+    # bounded surfaces. Mutation: revert the row's opening clause to
+    # "Mechanically enforces Skeptic-brief neutrality at spawn time" and
+    # delete the trailing "do not cite this row..." sentence.
+    assert (
+        "Mechanically enforces exactly two bounded surfaces of "
+        "Skeptic-brief neutrality at spawn time" in hooks_agents
+    ), (
+        f"{HOOKS_AGENTS} enforce-skeptic-neutrality.py row is missing the "
+        "exactly-two-bounded-surfaces scope disclosure"
+    )
+    assert (
+        "do not cite this row as evidence the brief body is mechanically "
+        "screened beyond them" in hooks_agents
+    ), (
+        f"{HOOKS_AGENTS} enforce-skeptic-neutrality.py row is missing the "
+        "do-not-cite-as-evidence disclaimer"
     )

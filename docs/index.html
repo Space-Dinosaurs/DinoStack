@@ -1434,8 +1434,9 @@
           <ul>
             <li>Brief is passed to Worker and Skeptic <strong>verbatim</strong> - never softened, summarized, or editorialized</li>
             <li>Brief extension is additive only - domain-specific concerns may be added, existing language never removed or softened</li>
-            <li><strong>Neutrality requirement</strong> - the brief and Global-context field 7 carry no conductor-composed hypothesis, suspicion, or attention-steer; completeness and neutrality are independent axes; no carve-out for an "operator-attributed" steer</li>
+            <li><strong>Neutrality requirement</strong> - every field, in every form, tagged or untagged, carries no conductor-composed hypothesis, suspicion, or attention-steer; completeness and neutrality are independent axes; no carve-out for an "operator-attributed" steer</li>
             <li><strong>Mechanically enforced</strong> (<code>hooks/enforce-skeptic-neutrality.py</code>, DS-187) - a PreToolUse hook denies a Skeptic spawn whose field 7 contains an untagged claim-bearing sentence (a structural conformance check, not a phrase scan), or whose adversarial brief matches a narrow conductor-composed-steer phrase (categories B/C only)</li>
+            <li>The ban applies to <strong>every field, every form, tagged or untagged</strong> - not just the two bounded surfaces the hook checks; the reviewing Skeptic's Step 3.9 Neutrality check is the control for every other steer shape</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">

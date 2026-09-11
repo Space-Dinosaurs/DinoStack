@@ -43,9 +43,11 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer; see skeptic-protocol.md Section 7 "Neutrality requirement (independent of completeness)"]
+**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"]
 
 ## Global-context inputs
+
+The neutrality ban applies to every field below, not only field 7 - no sentence in fields 1-7, the brief above, or the resolved-issues preflight below may carry a conductor hypothesis, suspicion, or attention-steer in any form, tagged or untagged (bare assertion, disjunctive question, motive imputation, or otherwise). See skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged".
 
 1. Architect plan: [absolute path to plan.md, OR "n/a - <enumerated reason>"]
 2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
