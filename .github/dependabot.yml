@@ -12,6 +12,13 @@ updates:
     ignore:
       - dependency-name: "@marp-team/*"
 
+  # Root has one direct dependency (eslint ^8.57.1, currently EOL), so PR volume
+  # here is low. This entry keeps that dependency current; it does not by itself
+  # prevent a repeat of the transitive js-yaml/brace-expansion drift that motivated
+  # it. That class is governed by security alerts, which are independent of
+  # version-update scope: the root manifest was already in the dependency graph
+  # with security updates enabled, and two of its dev-scope brace-expansion alerts
+  # were auto-dismissed rather than acted on.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
