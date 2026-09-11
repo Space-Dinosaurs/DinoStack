@@ -434,6 +434,80 @@ def test_neutrality_scope_disclosure_prose_pinned() -> None:
     )
 
 
+def test_round7_unpinned_scope_sentences_pinned() -> None:
+    """Round-7: round-6's Task-2 enumeration claimed every sentence in
+    "### Scope of the ban" not newly pinned that round was already covered
+    by test_neutrality_scope_disclosure_prose_pinned,
+    test_round4_widened_clauses_pinned, or test_docstring_states_bounded_scope.
+    That claim was false for three sentences - a repo-wide literal-string
+    search on each confirmed no test referenced any of them. Each was
+    verified unpinned by execution before this test was added (apply the
+    mutation, observe the full suite still passes, then restore).
+
+    Sentence 1 - the section's own scope statement (the breadth clause
+    naming all seven Global-context inputs, the brief, and the
+    resolved-issues preflight, "in every syntactic form"). Load-bearing
+    for: this is the pre-branch scope the whole branch exists to widen -
+    the single most load-bearing sentence in the section. Mutation
+    (executed, left `77 passed`): narrow "It applies to every field of a
+    Skeptic spawn prompt - each of the seven Global-context inputs
+    (Section 4.5), the adversarial brief ... and the resolved-issues
+    preflight - in every syntactic form." down to "It applies to
+    Global-context field 7 and the adversarial brief." The pinned heading
+    survives that mutation unchanged, so a heading/body contradiction was
+    otherwise invisible to every existing test.
+
+    Sentence 2 - "A scope permission, instruction, or acceptance criterion
+    given to a different agent is not a claim and is not disclosed as
+    one." Load-bearing for: distinguishing an instruction given to a
+    DIFFERENT agent (e.g. an engineer's acceptance criteria) from a claim
+    about the artifact under review - without this sentence, the
+    surrounding "does not neutralize" text reads as though any brief
+    content addressed to another role must itself be disclosed as a
+    claim. Mutation (executed, left `2362 passed, 126 subtests passed`):
+    delete the sentence outright.
+
+    Sentence 3 - "The reviewing Skeptic's Step 3.9 Neutrality check is the
+    control for the remainder, scanning every Global-context field and the
+    adversarial brief." Load-bearing for: the section explicitly names
+    which control covers the part the hook's own bounded mechanical
+    enforcement does not - without it, "Mechanical enforcement below
+    covers a bounded subset only and is not a substitute" names a gap but
+    never names what fills it. Mutation (executed, left `77 passed`):
+    delete the sentence.
+    """
+    protocol = _read(SKEPTIC_PROTOCOL)
+
+    assert (
+        "each of the seven Global-context inputs (Section 4.5), the "
+        "adversarial brief and any attack-surface probe or "
+        "domain-extension sentence within it, and the resolved-issues "
+        "preflight - in every syntactic form" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection's own scope "
+        "statement has been narrowed - missing the every-field, "
+        "every-syntactic-form breadth clause"
+    )
+
+    assert (
+        "A scope permission, instruction, or acceptance criterion given "
+        "to a different agent is not a claim and is not disclosed as "
+        "one." in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "scope-permission-is-not-a-claim sentence"
+    )
+
+    assert (
+        "The reviewing Skeptic's Step 3.9 Neutrality check is the "
+        "control for the remainder, scanning every Global-context field "
+        "and the adversarial brief." in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "Step-3.9-is-the-control-for-the-remainder sentence"
+    )
+
+
 def test_round4_widened_clauses_pinned() -> None:
     """Round-4 (7a855583) widened three pre-existing clauses from a
     narrower ('Neutrality requirement (independent of completeness)')
@@ -529,9 +603,13 @@ def test_round6_sweep_closes_remaining_unpinned_widening_sites() -> None:
     each other, not with content/), so this exclusion accepts a real,
     known coverage gap on that pair's CONTENT rather than claiming
     mechanical coverage that does not exist. (2) docs/configuration-reference.md
-    and docs/index.html carry NO mechanical verification against
-    content/ at all - no build step, no CI gate, nothing in this suite.
-    All four are hand-maintained, human-facing restatements rather than
+    and docs/index.html DO carry mechanical verification against content/,
+    but only for a narrow, unrelated slice: test_docs_currency_sync.py (run
+    by bin-tests) checks their kill-switch enumerations against hooks/
+    source and their agent-count claims against content/agents/*.md - it
+    asserts nothing about this branch's neutrality-scope prose, so that
+    coverage does not reach the sentences this pin would otherwise need to
+    track. All four are hand-maintained, human-facing restatements rather than
     text any agent session loads and acts on (unlike every content/ and
     hooks/ site pinned above, which IS load-bearing for agent behavior);
     their staleness is the general AGENTS.md docs-currency-pass
