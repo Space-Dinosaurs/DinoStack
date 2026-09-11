@@ -39,7 +39,7 @@ Source: `scripts/package.json` -> `scripts/package-lock.json` (transitive tree i
 | `@tootallnate/quickjs-emscripten` | 0.23.0 | MIT | [https://github.com/justjake/quickjs-emscripten](https://github.com/justjake/quickjs-emscripten) |
 | `@types/node` | 25.9.0 | MIT | [https://github.com/DefinitelyTyped/DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped) |
 | `@types/yauzl` | 2.10.3 | MIT | [https://github.com/DefinitelyTyped/DefinitelyTyped](https://github.com/DefinitelyTyped/DefinitelyTyped) |
-| `@xmldom/xmldom` | 0.9.10 | MIT | [https://github.com/xmldom/xmldom](https://github.com/xmldom/xmldom) |
+| `@xmldom/xmldom` | 0.9.12 | MIT | [https://github.com/xmldom/xmldom](https://github.com/xmldom/xmldom) |
 | `accepts` | 1.3.8 | MIT | [https://github.com/jshttp/accepts](https://github.com/jshttp/accepts) |
 | `agent-base` | 7.1.4 | MIT | [https://github.com/TooTallNate/proxy-agents](https://github.com/TooTallNate/proxy-agents) |
 | `ansi-regex` | 5.0.1 | MIT | [https://github.com/chalk/ansi-regex](https://github.com/chalk/ansi-regex) |
@@ -103,7 +103,7 @@ Source: `scripts/package.json` -> `scripts/package-lock.json` (transitive tree i
 | `is-arrayish` | 0.2.1 | MIT | [https://github.com/qix-/node-is-arrayish](https://github.com/qix-/node-is-arrayish) |
 | `is-fullwidth-code-point` | 3.0.0 | MIT | [https://github.com/sindresorhus/is-fullwidth-code-point](https://github.com/sindresorhus/is-fullwidth-code-point) |
 | `js-tokens` | 4.0.0 | MIT | [https://github.com/lydell/js-tokens](https://github.com/lydell/js-tokens) |
-| `js-yaml` | 4.1.1 | MIT | [https://github.com/nodeca/js-yaml](https://github.com/nodeca/js-yaml) |
+| `js-yaml` | 4.3.2 | MIT | [https://github.com/nodeca/js-yaml](https://github.com/nodeca/js-yaml) |
 | `json-parse-even-better-errors` | 2.3.1 | MIT | [https://github.com/npm/json-parse-even-better-errors](https://github.com/npm/json-parse-even-better-errors) |
 | `katex` | 0.16.47 | MIT | [https://github.com/KaTeX/KaTeX](https://github.com/KaTeX/KaTeX) |
 | `lines-and-columns` | 1.2.4 | MIT | [https://github.com/eventualbuddha/lines-and-columns](https://github.com/eventualbuddha/lines-and-columns) |
@@ -121,7 +121,7 @@ Source: `scripts/package.json` -> `scripts/package-lock.json` (transitive tree i
 | `mj-context-menu` | 0.6.1 | Apache-2.0 | [https://github.com/zorkow/context-menu](https://github.com/zorkow/context-menu) |
 | `ms` | 2.0.0 | MIT | [https://github.com/zeit/ms](https://github.com/zeit/ms) |
 | `ms` | 2.1.3 | MIT | [https://github.com/vercel/ms](https://github.com/vercel/ms) |
-| `nanoid` | 3.3.12 | MIT | [https://github.com/ai/nanoid](https://github.com/ai/nanoid) |
+| `nanoid` | 3.3.19 | MIT | [https://github.com/ai/nanoid](https://github.com/ai/nanoid) |
 | `negotiator` | 0.6.3 | MIT | [https://github.com/jshttp/negotiator](https://github.com/jshttp/negotiator) |
 | `netmask` | 2.1.1 | MIT | [https://github.com/rs/node-netmask](https://github.com/rs/node-netmask) |
 | `once` | 1.4.0 | ISC | [https://github.com/isaacs/once](https://github.com/isaacs/once) |

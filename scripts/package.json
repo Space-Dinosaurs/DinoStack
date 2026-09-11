@@ -2,11 +2,16 @@
   "name": "dinostack-slides-build",
   "private": true,
   "description": "Pinned Marp toolchain for scripts/build-slides.sh - upgrading marp is an intentional same-PR action (bump these, regenerate lock, rebuild every deck's .html).",
-  "dependencies": {
+  "devDependencies": {
     "@marp-team/marp-cli": "4.4.0",
     "@marp-team/marp-core": "4.3.0",
     "@marp-team/marpit": "3.2.1",
     "@puppeteer/browsers": "3.2.1",
     "puppeteer-core": "25.9.0"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12",
+    "nanoid": "3.3.19",
+    "js-yaml": "4.3.2"
   }
 }
