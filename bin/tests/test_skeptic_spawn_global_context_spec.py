@@ -187,6 +187,14 @@ FIELD_7_MARKER_RE = re.compile(r"field 7|7 fields|conductor spawn brief", re.IGN
 # sites (11 originally enumerated plus the 2 planning-artifacts.md sites
 # discovered during PR #729) - or from the canonical Section 4.5 definition
 # and its agent-team.md restatements - reduces the count below this floor.
+# agent-team.md's floor was raised 4 -> 6 in round 5 (Skeptic Major 1,
+# 7a855583 review): round 4 widened its two field-7-referencing bullets
+# ("the ban is not limited to field 7 or the brief") from 4 to 6
+# occurrences, and the floor must track the live count exactly - it was
+# at zero slack (matching the live count precisely) before round 4, which
+# is what made it load-bearing as an anti-regression floor rather than
+# a loose minimum. Re-verify this floor against a live re-count on any
+# future edit to that file, not by trusting this comment's arithmetic.
 FIELD_7_MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 1,
     COMMANDS_DIR / "ds-implement-ticket.md": 5,
@@ -194,7 +202,7 @@ FIELD_7_MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-ticket-triage.md": 2,
     COMMANDS_DIR / "ds-wrap.md": 4,
     COMMANDS_DIR / "ds-brief.md": 2,
-    REFERENCES_DIR / "agent-team.md": 4,
+    REFERENCES_DIR / "agent-team.md": 6,
     REFERENCES_DIR / "planning-artifacts.md": 4,
     SKEPTIC_PROTOCOL: 7,
 }
@@ -367,4 +375,109 @@ def test_neutrality_scope_disclosure_prose_pinned() -> None:
     assert "steering by exclusion rather than by naming a target" in protocol, (
         f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
         "steering-by-exclusion observed-forms clause"
+    )
+
+    # Round-4's Skeptic (7a855583) found round-3's sweep applied a wording
+    # test ("pin 3 already contains 'tagged or untagged'") rather than the
+    # instructed load-bearing test, leaving three clauses this section
+    # depends on unpinned. Round-5 closes those three specifically.
+
+    # "partial disclosure" observed-forms clause (line ~557) - names the
+    # shape this branch is titled for: a doubt disclosed with its target
+    # but not its content. Load-bearing for: the enumeration actually
+    # covering the branch's own namesake failure mode, not just the five
+    # forms named in earlier rounds. Mutation: delete this clause from the
+    # enumeration (leaving the other six forms intact).
+    assert (
+        "a partial disclosure that withholds a doubt's content while "
+        "still naming its target" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' observed-forms enumeration "
+        "is missing the partial-disclosure clause"
+    )
+
+    # "does not neutralize" sentence (line ~559) - load-bearing for: a
+    # provenance tag being insufficient, by itself, to clear a conductor's
+    # own conclusion for reviewer consumption. Without this sentence the
+    # section states the ban is wide (every field, every form) but never
+    # actually forecloses the "I tagged it, so it's fine" reading it
+    # exists to close. Mutation: delete the sentence.
+    assert (
+        "it does not neutralize a conductor's own conclusion into "
+        "something the reviewer may inherit" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "provenance-tag-does-not-neutralize sentence"
+    )
+
+    # Supersession sentence (line ~561) - load-bearing for: THIS wide
+    # scope statement winning over any narrower field- or category-scoped
+    # restatement elsewhere in the document (or the hook's docstring),
+    # which is what makes the widening binding rather than merely
+    # additional prose competing with older, narrower text. Mutation:
+    # delete the supersession clause, leaving only the carve-out sentence.
+    assert (
+        "supersedes any narrower field- or category-specific restatement "
+        "elsewhere in this document or in the hook's docstring" in protocol
+    ), (
+        f"{SKEPTIC_PROTOCOL} 'Scope of the ban' subsection is missing the "
+        "supersession sentence over narrower restatements"
+    )
+
+
+def test_round4_widened_clauses_pinned() -> None:
+    """Round-4 (7a855583) widened three pre-existing clauses from a
+    narrower ('Neutrality requirement (independent of completeness)')
+    scope to the wider every-field scope ('Scope of the ban: every
+    field, every form, tagged or untagged'): two bullets in
+    content/references/agent-team.md (:200, :206) and one bullet in
+    content/references/subagent-protocol.md (:425). Round-5 (Skeptic
+    Minor) pins the widening itself, since reverting all three to their
+    pre-round-4 wording left the suite green. Pins use the distinctive
+    widening language and its pointer text, deliberately NOT a count of
+    'field 7' tokens - a count-based pin here would double-count against
+    FIELD_7_MIN_OCCURRENCES and reintroduce the same slack-tracking
+    problem that caused round-4's Major 1 (the floor and this pin must
+    stay independent checks). Mutation for each assertion: revert the
+    matching clause to its pre-round-4 wording (see the f540fb74 diff)."""
+    agent_team = _read(REFERENCES_DIR / "agent-team.md")
+    subagent_protocol = _read(REFERENCES_DIR / "subagent-protocol.md")
+
+    # agent-team.md - both the plan-review and engineer-output-review
+    # bullets gained the identical trailing widening clause. Load-bearing
+    # for: the ban applying to every Global-context field at both spawn
+    # sites, not just the field the sentence happens to be discussing.
+    widening_clause = (
+        ", in this or any other field; the ban is not limited to field 7 "
+        "or the brief (see `content/references/skeptic-protocol.md` "
+        "Section 7 \"Scope of the ban: every field, every form, tagged "
+        "or untagged\")."
+    )
+    occurrences = agent_team.count(widening_clause)
+    assert occurrences == 2, (
+        f"{REFERENCES_DIR / 'agent-team.md'}: expected the round-4 widening "
+        f"clause at both the plan-review and engineer-output-review "
+        f"bullets (2 occurrences), found {occurrences}"
+    )
+
+    # subagent-protocol.md :425 - the "Priming adversarial briefs" Rules
+    # bullet gained an explicit extension beyond field 7 into every other
+    # Global-context field and the resolved-issues preflight, plus the
+    # same pointer retarget. Load-bearing for: the Rules-list restatement
+    # of the ban not silently narrower than the canonical section it
+    # points to.
+    assert (
+        "or, per the wider rule, into any other Global-context field or "
+        "the resolved-issues preflight, tagged or untagged" in subagent_protocol
+    ), (
+        f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
+        "briefs' bullet is missing the round-4 every-field widening clause"
+    )
+    assert (
+        'Section 7 "Scope of the ban: every field, every form, tagged or '
+        'untagged" for the full rule' in subagent_protocol
+    ), (
+        f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
+        "briefs' bullet still points at the pre-round-4 narrower "
+        "'Neutrality requirement' section instead of 'Scope of the ban'"
     )
