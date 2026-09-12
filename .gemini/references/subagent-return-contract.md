@@ -355,7 +355,8 @@ summary:
   worktree checkouts) via a Bash heredoc and returns only a small, fully
   enum/cap-tagged pointer JSON object (`result`, `criteria[]`,
   `blocking_count`, `blocking_issues[]`, `server_status`, `auth`,
-  `screenshot_evidence_json_path`, `report_path`, `notes`).
+  `screenshot_evidence_json_path`, `report_path`, `notes`,
+  `provenance_check`, `provenance_check_note`).
 - **Shape 3** (fixed literal-line template): `skeptic.md` and
   `goal-condition-evaluator.md` are both fully compliant. `skeptic.md`:
   Unit 1 added one narrow, additive cap declaration on finding-description

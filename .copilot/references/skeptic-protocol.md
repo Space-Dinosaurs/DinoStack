@@ -244,7 +244,7 @@ On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6
 
 Fields 4 and 5 are conductor/architect-supplied navigational context, not verified evidence - the Skeptic independently re-derives any set-shaped claim before relying on it (see §Set-shaped claim discipline above).
 
-**Neutrality:** field 7 carries provenance-tagged factual claims only - never a conductor hypothesis, suspicion, or attention-steer. See Section 7 "Neutrality requirement (independent of completeness)" below for the full rule, the completeness/neutrality distinction, and worked examples.
+**Neutrality:** field 7 carries provenance-tagged factual claims only - never a conductor hypothesis, suspicion, or attention-steer. See Section 7 "Neutrality requirement (independent of completeness)" below for the Skeptic-specific elaboration, the completeness/neutrality distinction, and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance".
 
 ### Enumerated `n/a` rationale set
 
@@ -560,7 +560,7 @@ A provenance tag discloses where a claim came from; it does not neutralize a con
 
 This scope statement supersedes any narrower field- or category-specific restatement elsewhere in this document or in the hook's docstring - except the "What is not a steer" carve-out above, which it does not override: a resolved-issues preflight entry restating a prior finding is not a conductor conclusion and stays exempt under this wider scope exactly as it was under the narrower one. Mechanical enforcement below covers a bounded subset only and is not a substitute. The reviewing Skeptic's Step 3.9 Neutrality check is the control for the remainder, scanning every Global-context field and the adversarial brief.
 
-**Mechanical enforcement (implemented, DS-187; a bounded subset only - see "Scope of the ban" above for the full rule): `hooks/enforce-skeptic-neutrality.py`.** A PreToolUse hook gates every Agent/Task spawn where `subagent_type == "skeptic"`, scanning `tool_input.prompt`'s Global-context field 7 and adversarial-brief regions before allowing the spawn (precedent: `hooks/enforce-tier.py` and `hooks/enforce-skeptic-round-cap.py` already parse spawn-prompt text; gating on payload content, not inferred capability, is permitted per `hooks/AGENTS.md` §No gating on inferred session capability).
+**Mechanical enforcement (implemented, DS-187; a bounded subset only - see "Scope of the ban" above for the Skeptic-specific elaboration, and `content/references/subagent-protocol.md` §11 for the full statement of the general rule): `hooks/enforce-skeptic-neutrality.py`.** A PreToolUse hook gates every Agent/Task spawn where `subagent_type == "skeptic"`, scanning `tool_input.prompt`'s Global-context field 7 and adversarial-brief regions before allowing the spawn (precedent: `hooks/enforce-tier.py` and `hooks/enforce-skeptic-round-cap.py` already parse spawn-prompt text; gating on payload content, not inferred capability, is permitted per `hooks/AGENTS.md` §No gating on inferred session capability).
 
 Two real Skeptic spawns issued during this ticket's own implementation were independently flagged for carrying an untagged claim in field 7, and both scored zero against every semantic steer-phrase category tried across six rounds of design - a defect class phrase-detection cannot express by construction, since the sentence carried no steer-shaped wording at all, just a missing provenance tag. This drove a reframe from detection to constraint:
 
