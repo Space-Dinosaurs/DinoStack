@@ -56,7 +56,9 @@ The installer also:
   same Codex config directory (full methodology embedded directly, never inside this checkout so a
   `git clean` cannot remove it) when it is not;
 - links generated `.codex/agents/` TOML definitions;
-- links snapshot-backed lifecycle hooks and enables `codex_hooks` when needed;
+- links snapshot-backed lifecycle hooks and adds a missing `codex_hooks` flag to the existing
+  `[features]` table (including indented headers), preserving an explicit `false` and string
+  contents; unsupported inline or dotted features definitions are left unchanged with a warning;
 - links DinoStack command-line helpers into `~/.local/bin`;
 - preserves or backs up user-owned config according to the installer guards.
 
@@ -64,7 +66,11 @@ The default activation config is `$HOME/.claude/agentic-engineering.json`.
 For a redirected Codex config directory, activation is isolated at
 `<selected-config>/agentic-engineering.json`; runtime precedence is
 `AGENTIC_CONFIG_DIR` > `CODEX_HOME` > default. A redirected Codex install
-does not validate, create, or mutate `$HOME/.claude`.
+does not validate, create, or mutate `$HOME/.claude`. Lifecycle hooks use the same runtime
+precedence to locate `<selected-config>/hooks.json`; the auto-load reminder reads only the
+selected activation config. Missing or malformed activation silently disables that reminder.
+`--config-dir` selects the installation destination only: launch Codex with `AGENTIC_CONFIG_DIR`
+or `CODEX_HOME` set to that directory to select it at runtime.
 
 To update:
 
@@ -81,7 +87,10 @@ bash ~/DinoStack/.codex/uninstall.sh
 ```
 
 The uninstaller removes only owned symlinks/configuration and leaves real user
-files, foreign symlinks, and the generated repository tree untouched.
+files, foreign symlinks, and the generated repository tree untouched. Owned hook-flag
+removal targets only the real `[features]` assignment, preserving strings, unrelated
+settings, surrounding comments, and table headers. Ambiguous definitions retain the flag and marker
+for manual cleanup.
 
 ## Build and verification lifecycle
 

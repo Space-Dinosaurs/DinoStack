@@ -125,6 +125,13 @@ def load_prompt_generator(repo: Path) -> typing.Any:
     return module
 
 
+def load_hooks_feature(repo: Path) -> typing.Any:
+    spec = importlib.util.spec_from_file_location("hooks_feature", repo / ".codex/lib/hooks-feature.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def copy_repo(destination: Path) -> Path:
     root = destination / "repo"
     def ignore(directory: str, names: list[str]) -> set[str]:
@@ -1977,6 +1984,351 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual("", result.stdout)
         self.assertEqual(home_before, identity_fingerprint(home))
         self.assertEqual([], list(temp_root.iterdir()))
+
+    def test_install_preserves_indented_features_and_reinstall(self) -> None:
+        import tomllib
+
+        home = Path(self.temporary.name) / "home"
+        config_dir = home / ".codex"
+        config_dir.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        install = ["bash", str(self.repo / ".codex/install.sh"),
+                   "--mode=opt-out", "--profile=default", "--no-identity"]
+        for header, flag in [("  [features] # user features", ""),
+                             ("\t[features]", ""),
+                             ("  [features]", "codex_hooks = false\n"),
+                             ("[features]", "codex_hooks = true\n"), ("", "")]:
+            with self.subTest(header=header, flag=flag):
+                config = config_dir / "config.toml"
+                original = 'model = "user-model"\n' + (header + "\n" + flag +
+                            "multi_agent = true\n" if header else "")
+                config.write_text(original)
+                execute(install, cwd=self.repo, env=env)
+                first = config.read_text()
+                parsed = tomllib.loads(first)
+                self.assertEqual("user-model", parsed["model"])
+                self.assertEqual("false" not in flag, parsed["features"]["codex_hooks"])
+                self.assertEqual(1, first.count("codex_hooks ="))
+                if header:
+                    self.assertTrue(parsed["features"]["multi_agent"])
+                    self.assertIn(header, first)
+                if flag:
+                    self.assertEqual(original, first)
+                execute(install, cwd=self.repo, env=env)
+                self.assertEqual(first, config.read_text())
+
+    def test_install_ignores_features_text_inside_multiline_values(self) -> None:
+        import tomllib
+
+        home = Path(self.temporary.name) / "multiline-home"
+        config_dir = home / ".codex"
+        config_dir.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        install = ["bash", str(self.repo / ".codex/install.sh"),
+                   "--mode=opt-out", "--profile=default", "--no-identity"]
+        for delimiter in ['"' * 3, "'" * 3]:
+            with self.subTest(delimiter=delimiter):
+                config = config_dir / "config.toml"
+                original = ('model_instructions_file = ' + delimiter +
+                            '\n  [features]\nkeep this text\n' + delimiter +
+                            '\n  [features]\nmulti_agent = true\n')
+                config.write_text(original)
+                expected_value = tomllib.loads(original)["model_instructions_file"]
+                for _ in range(2):
+                    execute(install, cwd=self.repo, env=env)
+                    parsed = tomllib.loads(config.read_text())
+                    self.assertEqual(expected_value, parsed["model_instructions_file"])
+                    self.assertTrue(parsed["features"]["codex_hooks"])
+                    self.assertTrue(parsed["features"]["multi_agent"])
+
+    def test_hooks_feature_scanner_preserves_values_and_scope(self) -> None:
+        import tomllib
+
+        quote = '"'
+        cases = [
+            ('note = ' + quote * 3 + '\n  [features]\ncodex_hooks = false\n' +
+             '\\' + quote * 3 + ' still text\nend' + quote * 4 + '\n', "added"),
+            ("note = " + "'" * 3 + "\n[features]\ncodex_hooks = true\nend" + "'" * 5 + "\n", "added"),
+            ('note = ["#", "[features]", {text = "codex_hooks = false"}]\n', "added"),
+            ('[other]\ncodex_hooks = false\n  [features] # actual\nmulti_agent = true\n', "added"),
+            ('[features]\ncodex_hooks = false\n', "disabled"),
+            ('["features"]\n"codex_hooks" = true\n', "enabled"),
+            ('features = {multi_agent = true}\n', "unsupported"),
+            ('features.multi_agent = true\n', "unsupported"),
+            ('[features.child]\nvalue = true\n', "unsupported"),
+            ('note = "keep"\r\n  [features] # actual\r\nmulti_agent = true\r\n', "added"),
+        ]
+        path = Path(self.temporary.name) / "feature-config.toml"
+        for original, expected in cases:
+            with self.subTest(original=original):
+                before = tomllib.loads(original)
+                path.write_bytes(original.encode())
+                result = execute([sys.executable, str(self.repo / ".codex/lib/hooks-feature.py"), str(path)],
+                                 cwd=self.repo)
+                self.assertEqual(expected, result.stdout.strip())
+                self.assertEqual("", result.stderr)
+                updated = path.read_bytes().decode()
+                if expected != "added":
+                    self.assertEqual(original, updated)
+                else:
+                    after = tomllib.loads(updated)
+                    self.assertTrue(after["features"].pop("codex_hooks"))
+                    if "features" not in before:
+                        del after["features"]
+                    self.assertEqual(before, after)
+                    self.assertEqual(original, updated.replace("codex_hooks = true\r\n", "", 1)
+                                     if "\r\n" in original else updated[:len(original)]
+                                     if "features" not in before else
+                                     updated.replace("codex_hooks = true\n", "", 1))
+                    repeat = execute([sys.executable, str(self.repo / ".codex/lib/hooks-feature.py"), str(path)],
+                                     cwd=self.repo)
+                    self.assertEqual("enabled", repeat.stdout.strip())
+                    self.assertEqual(updated.encode(), path.read_bytes())
+
+    def test_hooks_feature_descendant_ownership_is_not_overwritten(self) -> None:
+        import tomllib
+
+        path = Path(self.temporary.name) / "descendant.toml"
+        for original in ['[features.codex_hooks]\nvalue = true\n[features]\nmulti_agent = true\n',
+                         '[features]\nmulti_agent = true\n[features.codex_hooks]\nvalue = true\n']:
+            with self.subTest(original=original):
+                path.write_text(original)
+                result = execute([sys.executable, str(self.repo / ".codex/lib/hooks-feature.py"), str(path)],
+                                 cwd=self.repo)
+                self.assertEqual("unsupported", result.stdout.strip())
+                self.assertEqual(original.encode(), path.read_bytes())
+                self.assertEqual(tomllib.loads(original), tomllib.loads(path.read_text()))
+
+    def test_hooks_feature_write_failure_preserves_original(self) -> None:
+        path = Path(self.temporary.name) / "write-failure.toml"
+        for arguments in [[], ["--remove-owned"]]:
+            with self.subTest(arguments=arguments):
+                original = b"[features]\nmulti_agent = true\n"
+                if arguments:
+                    original += b"codex_hooks = true\n"
+                path.write_bytes(original)
+                result = subprocess.run([sys.executable, "-c", """
+import resource, runpy, sys
+resource.setrlimit(resource.RLIMIT_FSIZE, (10, 10))
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+""", str(self.repo / ".codex/lib/hooks-feature.py"), str(path), *arguments],
+                                        capture_output=True, text=True)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(original, path.read_bytes())
+                self.assertEqual([path], list(path.parent.glob("*failure.toml*")))
+
+    def test_hooks_feature_replace_failure_and_mode_preservation(self) -> None:
+        module = load_hooks_feature(self.repo)
+        path = Path(self.temporary.name) / "replace-failure.toml"
+        for arguments in [[], ["--remove-owned"]]:
+            with self.subTest(arguments=arguments):
+                original = b"[features]\nmulti_agent = true\n"
+                if arguments:
+                    original += b"codex_hooks = true\n"
+                path.write_bytes(original)
+                path.chmod(0o640)
+                with mock.patch.object(sys, "argv", ["hooks-feature.py", str(path), *arguments]):
+                    with mock.patch("os.replace", side_effect=PermissionError("injected replace failure")):
+                        with self.assertRaises(PermissionError):
+                            module.main()
+                    self.assertEqual(original, path.read_bytes())
+                    self.assertEqual(0o640, stat.S_IMODE(path.stat().st_mode))
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        module.main()
+                self.assertEqual(0o640, stat.S_IMODE(path.stat().st_mode))
+                self.assertEqual([path], list(path.parent.glob("*failure.toml*")))
+
+    def test_hooks_feature_rejects_symlinks_and_concurrent_changes(self) -> None:
+        module = load_hooks_feature(self.repo)
+        root = Path(self.temporary.name)
+        path, target = root / "raced.toml", root / "protected.toml"
+        original = b"[features]\nmulti_agent = true\n"
+        target.write_bytes(original)
+        path.symlink_to(target)
+        with mock.patch.object(sys, "argv", ["hooks-feature.py", str(path)]):
+            with self.assertRaises(OSError):
+                module.main()
+            self.assertEqual(original, target.read_bytes())
+            path.unlink()
+            for symlink in [False, True]:
+                with self.subTest(symlink=symlink):
+                    path.write_bytes(original)
+                    make_temporary = module.tempfile.mkstemp
+                    def race(*args, **kwargs):
+                        result = make_temporary(*args, **kwargs)
+                        path.unlink()
+                        if symlink:
+                            path.symlink_to(target)
+                        else:
+                            path.write_bytes(b"concurrent user edit\n")
+                        return result
+                    with mock.patch.object(module.tempfile, "mkstemp", side_effect=race):
+                        with self.assertRaisesRegex(OSError, "configuration changed"):
+                            module.main()
+                    self.assertEqual(original, target.read_bytes())
+                    if symlink:
+                        self.assertTrue(path.is_symlink())
+                    else:
+                        self.assertEqual(b"concurrent user edit\n", path.read_bytes())
+                    self.assertEqual([], list(root.glob(".raced.toml.*")))
+                    path.unlink()
+
+    def test_install_warns_without_owning_unsupported_features(self) -> None:
+        home = Path(self.temporary.name) / "unsupported-home"
+        config_dir = home / ".codex"
+        config_dir.mkdir(parents=True)
+        config = config_dir / "config.toml"
+        original = b"features = {multi_agent = true}\n"
+        config.write_bytes(original)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        result = execute(["bash", str(self.repo / ".codex/install.sh"),
+                          "--mode=opt-out", "--profile=default", "--no-identity"],
+                         cwd=self.repo, env=env)
+        self.assertIn("cannot safely add codex_hooks", result.stdout)
+        self.assertEqual(original, config.read_bytes())
+        self.assertFalse((config_dir / ".agentic-eng-added-codex-hooks-flag").exists())
+
+    def test_owned_feature_removal_preserves_other_statements(self) -> None:
+        module = load_hooks_feature(self.repo)
+        cases = [
+            ("[features]\ncodex_hooks = true\n", "removed", "[features]\n"),
+            ("# header\n[features] # keep\n\n# before\n  codex_hooks = true\n# after\n",
+             "removed", "# header\n[features] # keep\n\n# before\n# after\n"),
+            ('note = "codex_hooks = false"\n[features]\n', "absent", None),
+            ("[features.codex_hooks]\nvalue = true\n[features]\n", "unsupported", None),
+            ("features = {codex_hooks = true}\n", "unsupported", None),
+        ]
+        for original, status, expected in cases:
+            with self.subTest(original=original):
+                self.assertEqual((status, original if expected is None else expected),
+                                 module.update_feature(original, remove_owned=True))
+
+    def test_install_uninstall_preserves_fake_flags_and_headers(self) -> None:
+        import tomllib
+
+        home = Path(self.temporary.name) / "lifecycle-home"
+        config_dir = home / ".codex"
+        config_dir.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        config = config_dir / "config.toml"
+        for delimiter in ['"' * 3, "'" * 3]:
+            with self.subTest(delimiter=delimiter):
+                original = ('note = ' + delimiter + '\ncodex_hooks = false\n'
+                            '[features]\n  [features]\nkeep me\n' + delimiter +
+                            '\n[other]\ncodex_hooks = false\n[features]\nmulti_agent = true\n')
+                config.write_text(original)
+                execute(["bash", str(self.repo / ".codex/install.sh"),
+                         "--mode=opt-out", "--profile=default", "--no-identity"],
+                        cwd=self.repo, env=env)
+                self.assertTrue(tomllib.loads(config.read_text())["features"]["codex_hooks"])
+                self.assertTrue((config_dir / ".agentic-eng-added-codex-hooks-flag").exists())
+                execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=self.repo, env=env)
+                self.assertEqual(original.encode(), config.read_bytes())
+                self.assertEqual(tomllib.loads(original), tomllib.loads(config.read_text()))
+                self.assertFalse((config_dir / ".agentic-eng-added-codex-hooks-flag").exists())
+
+    def test_profile_hook_commands_execute_selected_snapshot(self) -> None:
+        home = Path(self.temporary.name) / "home's space"
+        home.mkdir()
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        profiles = [home / "profile one's", home / "profile two"]
+        for index, profile in enumerate(profiles):
+            install_env = dict(env, CODEX_HOME=str(profile))
+            execute(["bash", str(self.repo / ".codex/install.sh"),
+                     "--mode=opt-out", "--profile=default", "--no-identity"],
+                    cwd=self.repo, env=install_env)
+            activation = profile / "agentic-engineering.json"
+            activation.write_text('{"skill_auto_load": true}')
+            hook_config = json.loads((profile / "hooks.json").read_text())
+            skill_command = next(hook["command"] for block in hook_config["hooks"]["UserPromptSubmit"]
+                                 for hook in block["hooks"] if "skill-auto-load-check" in hook["command"])
+            result = subprocess.run(["bash", "-c", skill_command], cwd=self.repo, env=install_env,
+                                    input='{"prompt": "fix the bug"}', capture_output=True, text=True)
+            self.assertEqual(0, result.returncode)
+            self.assertEqual("", result.stderr)
+            self.assertIn(str(home / ".agents/skills/dinostack/SKILL.md"), result.stdout)
+            installed_root = (profile / "hooks.json").resolve().parent.parent
+            snapshot_root = home / f"execution snapshot {index}'s" / ".codex"
+            shutil.copytree(installed_root, snapshot_root, symlinks=False)
+            (profile / "hooks.json").unlink()
+            (profile / "hooks.json").symlink_to(snapshot_root / "config/hooks.json")
+            snapshot = snapshot_root / "hooks"
+            for script in ["risk-reminder.sh", "skill-auto-load-check.sh", "stop-context-codex.js"]:
+                body = (f'console.log("{index}:{script}");\n' if script.endswith(".js")
+                        else f'printf "%s\\n" "{index}:{script}"\n')
+                (snapshot / script).write_text(body)
+        self.assertFalse((home / ".codex/hooks.json").exists())
+        (home / ".codex").mkdir()
+        (home / ".codex/hooks.json").symlink_to((profiles[0] / "hooks.json").resolve())
+        data = json.loads((profiles[0] / "hooks.json").read_text())
+        commands = [hook["command"] for blocks in data["hooks"].values()
+                    for block in blocks for hook in block["hooks"]]
+        for overrides, expected in [({}, 0), ({"CODEX_HOME": str(profiles[1])}, 1),
+                                    ({"CODEX_HOME": str(profiles[1]),
+                                      "AGENTIC_CONFIG_DIR": str(profiles[0])}, 0)]:
+            for command in commands:
+                result = execute(["bash", "-c", command], cwd=self.repo, env=dict(env, **overrides))
+                self.assertTrue(result.stdout.startswith(f"{expected}:"), result.stdout)
+                self.assertEqual("", result.stderr)
+
+    def test_auto_load_profile_activation_and_adapter_controls(self) -> None:
+        home = Path(self.temporary.name) / "home's space"
+        shared = home / ".claude"
+        first, second = home / "profile one's", home / "profile two"
+        for directory in [shared, first, second]:
+            directory.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"AGENTIC_CONFIG_DIR", "CODEX_HOME", "AE_ADAPTER"}}
+        env["HOME"] = str(home)
+        def configure(directory: Path, value: str) -> None:
+            path = directory / "agentic-engineering.json"
+            if value == "missing":
+                path.unlink(missing_ok=True)
+            else:
+                path.write_text(value)
+        def check(overrides: dict[str, str], fires: bool, adapter: str = "codex",
+                  prompt: str = "fix the bug") -> None:
+            result = subprocess.run(["bash", str(self.repo / "hooks/skill-auto-load-check.sh")],
+                                    env=dict(env, AE_ADAPTER=adapter, **overrides),
+                                    input=json.dumps({"prompt": prompt}), capture_output=True, text=True)
+            self.assertEqual(0, result.returncode)
+            self.assertEqual("", result.stderr)
+            self.assertEqual(fires, "SKILL CHECK" in result.stdout, result.stdout)
+            if fires:
+                directory = {"codex": ".agents", "claude": ".claude", "gemini": ".gemini"}[adapter]
+                self.assertIn(str(home / directory / "skills/dinostack/SKILL.md"), result.stdout)
+        configure(shared, '{"skill_auto_load": false}')
+        configure(second, '{"skill_auto_load": true}')
+        check({"CODEX_HOME": str(second)}, True)
+        configure(shared, '{"skill_auto_load": true}')
+        for value in ['{"skill_auto_load": false}', 'invalid', 'missing']:
+            configure(first, value)
+            check({"AGENTIC_CONFIG_DIR": str(first), "CODEX_HOME": str(second)}, False)
+        configure(first, '{"skill_auto_load": true}')
+        configure(second, '{"skill_auto_load": false}')
+        overrides = {"AGENTIC_CONFIG_DIR": str(first), "CODEX_HOME": str(second)}
+        check(overrides, True)
+        check(overrides, False, prompt="hello there")
+        configure(shared, '{"skill_auto_load": false}')
+        check({}, False)
+        configure(shared, '{"skill_auto_load": true}')
+        check({}, True)
+        for adapter in ["claude", "gemini"]:
+            check({"CODEX_HOME": str(second), "AGENTIC_CONFIG_DIR": str(second)}, True, adapter)
+            configure(shared, '{"skill_auto_load": false}')
+            check(overrides, False, adapter)
+            configure(shared, '{"skill_auto_load": true}')
 
     def test_isolated_install_update_and_uninstall_owns_exactly_four_skills(self) -> None:
         home = Path(self.temporary.name) / "home"

@@ -9,7 +9,8 @@
 #   bash .codex/uninstall.sh
 #
 # Upstream deps: bash 3.2+, python3, readlink, rm, rmdir, mktemp; optionally
-#   scripts/lib/hooks-snapshot.sh for snapshot-aware hook cleanup.
+#   scripts/lib/hooks-snapshot.sh for snapshot-aware hook cleanup;
+#   .codex/lib/hooks-feature.py for precise, atomic owned-flag removal.
 #
 # Downstream consumers: developers removing or refreshing the Codex adapter.
 #
@@ -241,54 +242,28 @@ fi
 echo "Removing codex_hooks feature flag..."
 
 if [[ -f "$HOOKS_FLAG_MARKER" ]]; then
+  REMOVE_HOOKS_FLAG_MARKER=1
   if [[ -f "$CONFIG_FILE" ]]; then
-    if grep -q "codex_hooks" "$CONFIG_FILE" 2>/dev/null; then
-      # Remove the codex_hooks line from config.toml (match indented or spaced variants too)
-      TMPFILE="$(mktemp)"
-      grep -vE '^[[:space:]]*codex_hooks[[:space:]]*=' "$CONFIG_FILE" > "$TMPFILE"
-      # Also remove [features] section if it is now empty (only whitespace/comments remain)
-      # Simple approach: remove [features] line if the next non-blank/non-comment line is
-      # another [section] or EOF. Use python3 for reliability.
-      python3 - "$TMPFILE" <<'PYEOF'
-import sys, re
-
-with open(sys.argv[1]) as f:
-    lines = f.readlines()
-
-out = []
-i = 0
-while i < len(lines):
-    line = lines[i]
-    # Detect an empty [features] section: [features] followed by only blank/comment lines
-    # before the next section or EOF
-    if re.match(r'^\[features\]\s*$', line):
-        # Look ahead to see if all remaining lines in this section are blank/comment
-        j = i + 1
-        while j < len(lines) and (lines[j].strip() == '' or lines[j].strip().startswith('#')):
-            j += 1
-        if j >= len(lines) or lines[j].startswith('['):
-            # The [features] section is now empty - skip the header and blanks
-            i = j
-            # Also strip the trailing blank line that was before this section
-            while out and out[-1].strip() == '':
-                out.pop()
-            continue
-    out.append(line)
-    i += 1
-
-with open(sys.argv[1], 'w') as f:
-    f.writelines(out)
-PYEOF
-      mv "$TMPFILE" "$CONFIG_FILE"
-      echo "  - Removed codex_hooks flag from $CONFIG_FILE"
-    else
-      echo "  = codex_hooks not found in $CONFIG_FILE (already removed)"
-    fi
+    HOOKS_FLAG_STATUS="$(python3 "$REPO_DIR/.codex/lib/hooks-feature.py" "$CONFIG_FILE" --remove-owned)"
+    case "$HOOKS_FLAG_STATUS" in
+      removed)
+        echo "  - Removed codex_hooks flag from $CONFIG_FILE"
+        ;;
+      absent)
+        echo "  = codex_hooks not found in [features] (already removed)"
+        ;;
+      unsupported)
+        echo "  WARNING: cannot safely remove codex_hooks from $CONFIG_FILE; leaving it and the marker unchanged."
+        REMOVE_HOOKS_FLAG_MARKER=0
+        ;;
+    esac
   else
     echo "  = $CONFIG_FILE not found - nothing to remove"
   fi
-  rm "$HOOKS_FLAG_MARKER"
-  echo "  - Removed install marker"
+  if [[ "$REMOVE_HOOKS_FLAG_MARKER" -eq 1 ]]; then
+    rm "$HOOKS_FLAG_MARKER"
+    echo "  - Removed install marker"
+  fi
 else
   # Marker is absent. Check if config.toml still has the flag AND hooks.json points to our repo.
   # If both are true the user may have lost the marker; warn but do NOT remove the flag.
