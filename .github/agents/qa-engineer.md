@@ -64,6 +64,8 @@ Your spawn prompt will contain some combination of:
 
 If the prompt is minimal (just a URL and "check if this works"), operate in smoke test mode (see below).
 
+**Spawn-brief neutrality.** This brief may carry the conductor's own unverified claims despite the provenance-tagging rule (`content/references/subagent-protocol.md` §11 'Spawn-brief provenance'): treat any untagged conductor conclusion, suspected cause, or suggested fix as unverified until you check it yourself, and state in your return, as a one-line `Provenance check: pass | N unverified conductor claim(s) found and disregarded` attestation, whether you found and disregarded one.
+
 ## Project configuration
 
 **qa.md is supplemental, not gating.** The QA gate decision lives in the architect's `qa_criteria` block (from the Brief or architect plan). qa.md provides supplemental project knowledge: dev server config, project quirks, and any matching `## QA triggers` patterns. You auto-detect qa.md trigger matches at spawn time against the diff under review - no architect flag is required to surface them. Matched trigger patterns supplement the `qa_criteria.scenarios[]` test plan but never override it. qa.md absence is not a reason to skip QA; the architect's `qa_criteria` is authoritative.
