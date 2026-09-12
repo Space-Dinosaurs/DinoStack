@@ -144,6 +144,24 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                JSONL lines inside an otherwise readable transcript are
                skipped individually.
 
+Reproducibility: The rate this tool prints is a snapshot, not a reproducible
+                 measurement. Claude Code prunes top-level session transcripts
+                 on a rolling window - observed directly against this repo's
+                 own project directory on 2026-09-12: oldest surviving
+                 transcript mtime 2026-08-12, newest 2026-09-03, a span of
+                 roughly 31 days back from today, consistent with (not proof
+                 of an exact) ~30-day rolling retention window. A later run
+                 therefore scans a DIFFERENT population of sessions than an
+                 earlier run did, because the older sessions have simply aged
+                 out - this is why the tool prints its scan window on every
+                 run, and any figure it produces must be recorded together
+                 with that printed window, at the moment of measurement, or
+                 the figure means nothing once the transcripts behind it are
+                 gone. Two runs taken at different times are NOT two points on
+                 a trend line: DS-227's 44.3% (27/61) recorded 2026-09-07 and
+                 53.7% (22/41) recorded 2026-09-11 are different populations
+                 four days apart, not a change in behavior.
+
 Performance: O(total transcript bytes), one streaming pass per file with an
              early-exit-per-signal (each of the three record shapes stops
              being tracked for a file once its first occurrence is found;
