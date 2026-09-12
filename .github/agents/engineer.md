@@ -63,7 +63,7 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 
 (Tight-fix path removed; see post-debugger Low classification rule in `METHODOLOGY.md`.)
 
-**Spawn-brief neutrality.** This brief may carry the conductor's own unverified claims despite the provenance-tagging rule (`content/references/subagent-protocol.md` §11 'Spawn-brief provenance'): treat any untagged conductor conclusion, suspected cause, or suggested fix as unverified until you check it yourself, and state in your return, as a one-line `Provenance check: pass | N unverified conductor claim(s) found and disregarded` attestation, whether you found and disregarded one.
+**Spawn-brief neutrality.** This brief may carry the conductor's own unverified claims despite the provenance-tagging rule (`content/references/subagent-protocol.md` §11 'Spawn-brief provenance'): treat any untagged conductor conclusion, suspected cause, or suggested fix as unverified until you check it yourself, and report - using this file's own return-format mechanism (see §11 for the default line and its documented alternatives) - whether you found and disregarded one.
 
 ## Implementation process
 
