@@ -572,9 +572,16 @@ def test_round4_widened_clauses_pinned() -> None:
         f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
         "briefs' bullet is missing the round-4 every-field widening clause"
     )
+    # Round-2 (spawn-brief-neutrality-recipient-scope) update: the trailing
+    # "for the full rule" was scoped to "for the full Skeptic-specific
+    # elaboration" once Section 11 of this same file became the general,
+    # recipient-wide canonical site - the pinned substring still requires
+    # the citation to point at "Scope of the ban", not the pre-round-4
+    # narrower "Neutrality requirement" section, which is the actual
+    # load-bearing property this assertion protects.
     assert (
         'Section 7 "Scope of the ban: every field, every form, tagged or '
-        'untagged" for the full rule' in subagent_protocol
+        'untagged" for the full Skeptic-specific elaboration' in subagent_protocol
     ), (
         f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
         "briefs' bullet still points at the pre-round-4 narrower "
