@@ -23,10 +23,23 @@ the paragraph claiming a file declares something it does not (round-3's
 failure shape), or a file declaring something the paragraph fails to
 mention (the mirror-image failure, never previously guarded).
 
-Comparisons are bidirectional set equality, never containment - this repo
-has a recorded defect class where a containment check passed while the
-compared sets had actually diverged (see AGENTS.md, "Count-sync numeral
-blind spot" / KNW-20260818-016 family).
+The Notes-declaring file check (`_assert_notes_declaring_files_match`) is
+bidirectional set equality, never containment - this repo has a recorded
+defect class where a containment check passed while the compared sets had
+actually diverged (see AGENTS.md, "Count-sync numeral blind spot" /
+KNW-20260818-016 family). The other two checks are narrower by design and
+do not claim the same bidirectional coverage: the qa-engineer field check
+(`_assert_qa_engineer_fields_present`) confirms only the two fields Section
+11 names are still declared in qa-engineer.md, and the architect carve-out
+check (`_assert_architect_carveout_consistent`) confirms only architect.md
+specifically - membership in the parsed carve-out set, presence of its
+cited directive as a real template-directive line (not merely quoted
+inline as prose elsewhere in the file), and absence of the Notes heading.
+Neither checks the full carve-out enumeration's other 8 entries
+(`perf-analyst.md`, `dependency-auditor.md`, `learning-extractor.md`,
+`learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md`,
+`goal-condition-evaluator.md`, `release-orchestrator.md`) against disk -
+that remains unguarded and is not claimed here.
 
 Every parse helper below asserts non-empty/non-None on its own regex match
 before returning, so a Section 11 rewrite that breaks a parse pattern
@@ -196,9 +209,19 @@ def _assert_architect_carveout_consistent(root: Path) -> None:
     architect_path = root / AGENTS_DIR_REL / "architect.md"
     assert architect_path.is_file(), f"missing file: {architect_path}"
     text = architect_path.read_text(encoding="utf-8")
-    assert phrase in text, (
+    # Plain containment is self-satisfied by architect.md's own round-5
+    # "Spawn-brief neutrality" sentence, which quotes this exact phrase
+    # inline as prose (`the "..." template below declares no ...`) - that
+    # quotation is not the template directive Section 11 cites, so a future
+    # edit could delete the real directive line while leaving the inline
+    # quotation intact and this assertion would still pass. Anchor to the
+    # phrase occupying its own line, the same anchoring the round-5
+    # NOTES_HEADING_LINE_RE fix already applies in the mirror direction.
+    assert re.search(r"(?m)^" + re.escape(phrase), text), (
         f"architect.md no longer contains the exact-structure phrase "
-        f"'{phrase}' that Section 11 cites as its reason for the carve-out"
+        f"'{phrase}' as its own template directive line (only an inline "
+        f"prose quotation of it, if any, would not count) - Section 11 "
+        f"cites this directive as its reason for the carve-out"
     )
     assert not NOTES_HEADING_LINE_RE.search(text), (
         "architect.md now declares '### Notes [ADVISORY]' but Section 11 "
@@ -294,3 +317,47 @@ def test_mutation_removing_one_qa_engineer_schema_field_fails(tmp_path: Path) ->
     with pytest.raises(AssertionError) as excinfo:
         _assert_qa_engineer_fields_present(fixture_root)
     assert "provenance_check_note" in str(excinfo.value)
+
+
+def test_mutation_rewriting_only_architect_directive_line_fails(tmp_path: Path) -> None:
+    """Guards the round-6 containment-vs-anchoring fix: architect.md's
+    round-5 'Spawn-brief neutrality' sentence quotes the exact-structure
+    phrase inline as prose, at a different location from the real template
+    directive line the phrase actually names. Rewriting only the real
+    directive line (leaving the inline prose quotation untouched) must
+    still redden the assertion - a plain `phrase in text` containment check
+    would pass here because the inline quotation alone still satisfies it.
+    """
+    fixture_root = _build_fixture_root(tmp_path)
+
+    _assert_architect_carveout_consistent(fixture_root)
+
+    architect_path = fixture_root / AGENTS_DIR_REL / "architect.md"
+    text = architect_path.read_text(encoding="utf-8")
+    directive_line = "Use this exact structure. Do not rename or reorder sections.\n"
+    assert directive_line in text, "fixture setup assumption violated"
+    # Sanity-check the fixture actually carries the phrase twice - once as
+    # the real directive line, once quoted inline as prose - before
+    # asserting anything about rewriting only one of the two occurrences.
+    phrase = "Use this exact structure. Do not rename or reorder sections"
+    assert text.count(phrase) == 2, (
+        "fixture setup assumption violated: expected the exact-structure "
+        "phrase to appear exactly twice in architect.md (the real "
+        "directive line plus the round-5 inline prose quotation of it), "
+        f"found {text.count(phrase)}"
+    )
+    mutated_text = text.replace(
+        directive_line, "Follow whatever structure seems best.\n", 1
+    )
+    assert mutated_text != text, "mutation substitution did not apply"
+    # The inline prose quotation at the "Spawn-brief neutrality" sentence
+    # must survive untouched - that is the whole point of this mutation.
+    assert f'"{phrase}"' in mutated_text, (
+        "mutation setup error: the inline prose quotation of the phrase "
+        "was unexpectedly removed by the directive-line replacement"
+    )
+    architect_path.write_text(mutated_text, encoding="utf-8")
+
+    with pytest.raises(AssertionError) as excinfo:
+        _assert_architect_carveout_consistent(fixture_root)
+    assert "exact-structure phrase" in str(excinfo.value)
