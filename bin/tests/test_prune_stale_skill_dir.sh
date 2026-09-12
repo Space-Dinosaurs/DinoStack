@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # Purpose: Regression coverage for the skill-rename self-heal mechanism
-#          (agentic-engineering -> dinostack). Covers two things: (1) the
+#          (agentic-engineering -> dinostack and Codex namespacing). Covers (1) the
 #          shared real-directory ownership predicate in
 #          scripts/lib/prune-stale-skill-dir.sh, exercised directly against
 #          fixtures (positive: all-symlinks removed; negative: one
 #          unrecognized entry refuses deletion), and (2) a wiring assertion
 #          per adapter per mechanism proving the prune call sites actually
-#          exist in each install.sh - a mechanism that ships uncalled and
+#          exist in each install.sh, and (3) Codex exact-owned symlink cleanup
+#          preserves foreign links and real entries. A mechanism that ships uncalled and
 #          passes review is the default failure in this repo, not the
 #          exception (pattern: check_prose_wiring() in
 #          test_worktree_lifecycle_spec.sh).
 # Public API: bash bin/tests/test_prune_stale_skill_dir.sh (or under zsh).
 #             No args. Exits 1 on any failure.
 # Upstream deps: scripts/lib/prune-stale-skill-dir.sh, the 7 skill-dir
-#                install.sh scripts.
+#                install.sh scripts, .codex/lib/skill-links.sh, Python 3.
 # Downstream consumers: bin/tests/ CI harness (test_*.sh glob).
 # Failure modes: prints "FAIL: <reason>" per failing assertion; exits 1 if
 #                FAIL count > 0.
@@ -181,7 +182,37 @@ check_wiring ".pi/install.sh"   'ae_prune_stale_skill_dir "\$(dirname' "ae_prune
 check_wiring ".claude/install.sh"   'rm -f "\$_ae_stale_skill_dst"' "stale core-skill symlink deletion"
 check_wiring ".opencode/install.sh" 'rm -f "\$_ae_stale_skill_dst"' "stale core-skill symlink deletion"
 check_wiring ".openclaw/install.sh" 'rm "\$_ae_stale_core_skill_dst"' "stale core-skill symlink deletion"
-check_wiring ".codex/install.sh"    'rm "\$_ae_stale_skill_dst"' "stale core-skill symlink deletion"
+# Codex delegates ownership and deletion to its shared helper. Pin both the
+# source and actual cleanup call sites; a definition alone cannot pass.
+check_wiring ".codex/install.sh" '^source "\$REPO_DIR/.codex/lib/skill-links.sh"$' "Codex ownership helper source"
+check_wiring ".codex/install.sh" '^  codex_remove_skill_link "\$SKILLS_DST/\$skill_name" "\$skill_name"$' "Codex shared legacy-skill cleanup"
+check_wiring ".codex/install.sh" '^  codex_remove_skill_link "\$CODEX_CONFIG_DIR/skills/\$skill_name" "\$skill_name"$' "Codex profile skill cleanup"
+check_wiring ".codex/uninstall.sh" '^source "\$REPO_DIR/.codex/lib/skill-links.sh"$' "Codex uninstall ownership helper source"
+check_wiring ".codex/uninstall.sh" '^  codex_remove_skill_link "\$SKILLS_DST/\$skill_name" "\$skill_name"$' "Codex shared skill uninstall"
+
+# Exercise the sourced production helper against dangling owned and foreign
+# targets. Keep its REPO_DIR binding scoped to the fixture subshell.
+if (
+  . "$REPO_DIR/.codex/lib/skill-links.sh"
+  REPO_DIR="$OWNED_REPO"
+  mkdir -p "$SCRATCH/codex-skills"
+  ln -s "$OWNED_REPO/.codex/skills/dinostack" "$SCRATCH/codex-skills/dinostack"
+  ln -s "../checkout-owned-by-this-test/.codex/skills/wrap" "$SCRATCH/codex-skills/wrap"
+  ln -s "$UNRELATED_REPO/.codex/skills/agentic-engineering" "$SCRATCH/codex-skills/agentic-engineering"
+  mkdir "$SCRATCH/codex-skills/brief"
+  printf '%s\n' 'operator data' > "$SCRATCH/codex-skills/brief/SKILL.md"
+  for skill in dinostack wrap agentic-engineering brief; do
+    codex_remove_skill_link "$SCRATCH/codex-skills/$skill" "$skill"
+  done
+  [[ ! -L "$SCRATCH/codex-skills/dinostack" ]] &&
+    [[ ! -L "$SCRATCH/codex-skills/wrap" ]] &&
+    [[ "$(readlink "$SCRATCH/codex-skills/agentic-engineering")" == "$UNRELATED_REPO/.codex/skills/agentic-engineering" ]] &&
+    [[ "$(cat "$SCRATCH/codex-skills/brief/SKILL.md")" == 'operator data' ]]
+); then
+  pass "Codex removes absolute/relative owned dangling links and preserves foreign links/real entries"
+else
+  fail "Codex exact-owned skill cleanup violated its fixture contract"
+fi
 
 echo ""
 if [[ "$FAIL" -gt 0 ]]; then
