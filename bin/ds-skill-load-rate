@@ -144,6 +144,28 @@ Failure modes: collect()/classify_transcript() never raise and main() never
                JSONL lines inside an otherwise readable transcript are
                skipped individually.
 
+Reproducibility: The rate this tool prints is a snapshot that expires. Claude
+                 Code prunes top-level session transcripts on a rolling window
+                 - observed directly on 2026-09-12 against this repo's own
+                 project directory: oldest surviving transcript mtime
+                 2026-08-12, roughly 31 days back, consistent with (not proof
+                 of an exact) ~30-day retention. This is why the tool prints
+                 its scan window on every run: record any figure together with
+                 that window, at the moment of measurement, or the figure
+                 means nothing once the transcripts behind it are gone.
+                 Successive runs are NOT independent samples - each later
+                 window is a NESTED SUBSET of the earlier one (older sessions
+                 age past the retention cutoff and drop out; nothing about
+                 this makes them a fresh random draw). The same metric
+                 (unprompted load rate) at three points shows this sliding,
+                 not a trend: 44.3% (27/61) on 2026-09-07, 48.8% (20/41) on
+                 2026-09-11, 55.9% (19/34) on 2026-09-12. The corpus is also
+                 not independent of what it measures: this project directory's
+                 own sessions are dinostack methodology work by construction
+                 (this scan's 34 transcripts average ~164 "dinostack" mentions
+                 each), so a working session here is not a representative
+                 sample of a typical repo's activation rate.
+
 Performance: O(total transcript bytes), one streaming pass per file with an
              early-exit-per-signal (each of the three record shapes stops
              being tracked for a file once its first occurrence is found;
