@@ -525,10 +525,10 @@ const productionImporterIgnoredDirectories = new Set([
   'tests',
 ]);
 const productionImporterIgnoredMirrorDirectories = new Set([
-  '.codex/skills/dinostack/hooks',
-  '.codex/skills/brief/resources/hooks',
-  '.codex/skills/implement-ticket/resources/hooks',
-  '.codex/skills/wrap/resources/hooks',
+  '.codex/skills/dinostack-codex/hooks',
+  '.codex/skills/dinostack-codex-brief/resources/hooks',
+  '.codex/skills/dinostack-codex-implement-ticket/resources/hooks',
+  '.codex/skills/dinostack-codex-wrap/resources/hooks',
 ]);
 
 function isWithinDirectory(rootDirectory, candidatePath) {
@@ -804,18 +804,18 @@ function testImporterScannerExactRegressions() {
     );
     fs.symlinkSync(fixtureRoot, path.join(fixtureRoot, 'tests/symlink-target/cycle'), 'dir');
     fs.mkdirSync(
-      path.join(fixtureRoot, '.codex/skills/dinostack'),
+      path.join(fixtureRoot, '.codex/skills/dinostack-codex'),
       { recursive: true }
     );
     fs.symlinkSync(
       '../../../hooks',
-      path.join(fixtureRoot, '.codex/skills/dinostack/hooks'),
+      path.join(fixtureRoot, '.codex/skills/dinostack-codex/hooks'),
       'dir'
     );
-    fs.mkdirSync(path.join(fixtureRoot, '.codex/skills/brief'), { recursive: true });
+    fs.mkdirSync(path.join(fixtureRoot, '.codex/skills/dinostack-codex-brief'), { recursive: true });
     fs.symlinkSync(
-      '../dinostack',
-      path.join(fixtureRoot, '.codex/skills/brief/resources'),
+      '../dinostack-codex',
+      path.join(fixtureRoot, '.codex/skills/dinostack-codex-brief/resources'),
       'dir'
     );
     writeFixture(
@@ -878,8 +878,8 @@ function testImporterScannerExactRegressions() {
     assert(
       fixtureConsumers.includes('.codex/skills/independent-consumer/importer.cjs')
         && !fixtureConsumers.some(
-          (consumer) => consumer.startsWith('.codex/skills/dinostack/hooks/')
-            || consumer.startsWith('.codex/skills/brief/resources/hooks/')
+          (consumer) => consumer.startsWith('.codex/skills/dinostack-codex/hooks/')
+            || consumer.startsWith('.codex/skills/dinostack-codex-brief/resources/hooks/')
         )
         && fixtureConsumers.includes('linked-production/linked.js'),
       'case 12: only generated Codex skill resource hook mirrors are excluded without '

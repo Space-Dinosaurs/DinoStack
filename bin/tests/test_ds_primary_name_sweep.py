@@ -11,7 +11,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
          scripts/codex-skills.py's `literal_rules` REPLACEMENT text (index
          2 of each tuple) still said "agentic-identity" instead of
          "ds-identity", so it shipped into four generated Codex artifacts
-         (.codex/AGENTS.md, .codex/skills/dinostack/
+         (.codex/AGENTS.md, .codex/skills/dinostack-codex/
          METHODOLOGY.md, .codex/skill-compatibility.yml) even though every
          other MAJOR/MINOR finding in the same review round had been fixed.
          No prior test asserted this - that absence is precisely why the
@@ -113,7 +113,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
          (3) `test_codex_generated_identity_commands_use_ds_identity` -
              defense-in-depth directly against the rendered artifact
              MAJOR 1 named that still carries this content post-DS-183
-             (`.codex/skills/dinostack/METHODOLOGY.md`): asserts the
+             (`.codex/skills/dinostack-codex/METHODOLOGY.md`): asserts the
              specific renamed operational string that `literal_rules`
              tuple 0 (the identity resolve-hook) is supposed to produce is
              present verbatim, and that its old-name predecessor is
@@ -159,7 +159,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              `assert_paragraph_rules_reachable()`/`PARAGRAPH_RULES` pair) so
              a future rewording that drops this text again fails the build
              loudly instead of silently. Tuple 0 still renders correctly into
-             `.codex/skills/dinostack/METHODOLOGY.md` (unaffected by
+             `.codex/skills/dinostack-codex/METHODOLOGY.md` (unaffected by
              DS-183 - that file is built independently by
              `scripts/codex-skills.py build()`), so this check still covers
              it there; tuple 5 is now checked directly against the rebuilt
@@ -188,7 +188,7 @@ Public API: python3 -m pytest bin/tests/test_ds_primary_name_sweep.py -q
 Upstream deps: Python 3 stdlib only (ast, json, os, pathlib, subprocess).
                Check (2) parses scripts/codex-skills.py source without
                executing it. Check (3) requires
-               `.codex/skills/dinostack/METHODOLOGY.md` to exist (built by
+               `.codex/skills/dinostack-codex/METHODOLOGY.md` to exist (built by
                `.codex/build.sh`); if absent, that check fails loudly
                rather than skipping, since a repo that ships `.codex/**`
                without this file is itself a defect. `.codex/AGENTS.md`
@@ -225,7 +225,7 @@ BIN_DIR = REPO_ROOT / "bin"
 CONTENT_DIR = REPO_ROOT / "content"
 CODEX_SKILLS_PY = REPO_ROOT / "scripts" / "codex-skills.py"
 CODEX_AGENTS_MD = REPO_ROOT / ".codex" / "AGENTS.md"
-CODEX_METHODOLOGY_MD = REPO_ROOT / ".codex" / "skills" / "dinostack" / "METHODOLOGY.md"
+CODEX_METHODOLOGY_MD = REPO_ROOT / ".codex" / "skills" / "dinostack-codex" / "METHODOLOGY.md"
 
 # The 25 renamed tools (suffix only) - independently re-derived against
 # `ls bin/agentic-*` at review time, same list as
@@ -351,7 +351,7 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
     # again and the rebuilt stub once more carries the Codex-specific
     # --profile-dir "$AE_CODEX_CONFIG_DIR" form - asserted directly below.
     # literal_rules[0] (the identity resolve-hook) renders into
-    # .codex/skills/dinostack/METHODOLOGY.md, built independently by
+    # .codex/skills/dinostack-codex/METHODOLOGY.md, built independently by
     # scripts/codex-skills.py build() and unaffected by DS-183 - checked
     # first below.
     assert CODEX_METHODOLOGY_MD.is_file(), (

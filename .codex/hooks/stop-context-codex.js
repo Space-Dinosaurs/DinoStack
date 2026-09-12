@@ -26,7 +26,7 @@
  * NOTE: This is a thinner version of the Claude Code stop-context.js.
  * The full Claude Code hook uses Claude Code's transcript format which differs
  * from Codex's. This stub captures: cwd, last assistant message, session_id,
- * and timestamp. For richer context, run $wrap before ending a session.
+ * and timestamp. For richer context, run $dinostack-codex-wrap before ending a session.
  *
  * Codex Stop hook requirements:
  *  - Must output JSON on stdout when exiting 0
@@ -123,7 +123,7 @@ ${lastMsgSection}
 ## Notes
 
 This context file is a thin Codex port of the Claude Code stop-context hook.
-For richer context (paths referenced, tools used, uncommitted changes), run $wrap
+For richer context (paths referenced, tools used, uncommitted changes), run $dinostack-codex-wrap
 before ending a session.
 `;
 

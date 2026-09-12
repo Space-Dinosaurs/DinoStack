@@ -2632,8 +2632,8 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
-        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>dinostack</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
-        <tr><td><strong>Workflow invocation</strong></td><td>Invoke the native workflows with <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code>. Bare <code>/ds-brief</code>, <code>/ds-wrap</code>, and <code>/ds-implement-ticket</code> are not Codex invocation syntax.</td></tr>
+        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>dinostack-codex</code>, <code>dinostack-codex-brief</code>, <code>dinostack-codex-wrap</code>, and <code>dinostack-codex-implement-ticket</code>. They install under <code>~/.agents/skills/</code>. The Codex namespace avoids overriding Gemini’s own <code>dinostack</code> skill in the shared discovery directory. Re-run the Codex installer after updating to migrate owned old-name symlinks; foreign links and real entries are preserved. Other harnesses can still discover the Codex-only entries.</td></tr>
+        <tr><td><strong>Workflow invocation</strong></td><td>Invoke the native workflows with <code>$dinostack-codex-brief</code>, <code>$dinostack-codex-wrap</code>, and <code>$dinostack-codex-implement-ticket</code>. Bare <code>/ds-brief</code>, <code>/ds-wrap</code>, and <code>/ds-implement-ticket</code> are not Codex invocation syntax.</td></tr>
         <tr><td><strong>Generation</strong></td><td>The canonical workflow sources are <code>content/commands/ds-brief.md</code>, <code>content/commands/ds-wrap.md</code>, and <code>content/commands/ds-implement-ticket.md</code>. <code>.codex/build.sh</code> runs <code>scripts/codex-skills.py</code> to generate each <code>SKILL.md</code> and <code>RESOURCE-MAP.json</code>, validate relative symlink/resource-map closure, and synchronize the exact allowlist. The read-only check rejects drift.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in user config to enable the installer-managed hooks</td></tr>
@@ -2643,7 +2643,7 @@
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--cyan);">
-      <strong>What's different:</strong> Only <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code> are registered native workflow skills. Other DinoStack command documents can be loaded by the repository dispatcher when the methodology requires them, but they are not bare slash commands. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
+      <strong>What's different:</strong> Only <code>$dinostack-codex-brief</code>, <code>$dinostack-codex-wrap</code>, and <code>$dinostack-codex-implement-ticket</code> are registered native workflow skills. Other DinoStack command documents can be loaded by the repository dispatcher when the methodology requires them, but they are not bare slash commands. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
     </div>
   </div>
 

@@ -5,7 +5,7 @@
 #          split content differently than Claude Code's single embedded
 #          SKILL.md:
 #            - METHODOLOGY_FILE embed-completeness + FLOOR + burn line:
-#              .codex/skills/dinostack/METHODOLOGY.md is the artifact that
+#              .codex/skills/dinostack-codex/METHODOLOGY.md is the artifact that
 #              actually carries the assembled content/sections/*.md body
 #              (built independently by scripts/codex-skills.py build(),
 #              which itself calls scripts/build-methodology.sh - see that
@@ -34,8 +34,8 @@
 #             AGENTS_FILE bytes <= AGENTS_STUB_CEILING. Exits 1 otherwise,
 #             or when a required input is missing.
 #
-# Upstream deps: .codex/skills/dinostack/METHODOLOGY.md and .codex/
-#                skills/dinostack/rules (built by .codex/build.sh via
+# Upstream deps: .codex/skills/dinostack-codex/METHODOLOGY.md and .codex/
+#                skills/dinostack-codex/rules (built by .codex/build.sh via
 #                scripts/codex-skills.py build()); .codex/AGENTS.md (built
 #                by .codex/build.sh); content/sections/[0-9][0-9]-*.md and
 #                content/rules/*.md (excluding module-manifest.md) for the
@@ -106,8 +106,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/budget-gate.sh"
 REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 
-METHODOLOGY_FILE="$REPO_DIR/.codex/skills/dinostack/METHODOLOGY.md"
-RULES_LINK="$REPO_DIR/.codex/skills/dinostack/rules"
+METHODOLOGY_FILE="$REPO_DIR/.codex/skills/dinostack-codex/METHODOLOGY.md"
+RULES_LINK="$REPO_DIR/.codex/skills/dinostack-codex/rules"
 AGENTS_FILE="$REPO_DIR/.codex/AGENTS.md"
 
 # Floor: catches a regression to a pointer-only skill body (the assembly
@@ -254,7 +254,7 @@ if [ "$agents_bytes" -gt "$AGENTS_STUB_CEILING" ]; then
   echo "  above the $AGENTS_STUB_CEILING B ceiling ($overage B over)." >&2
   echo "  This almost certainly means the full methodology body was" >&2
   echo "  re-embedded into .codex/AGENTS.md (a DS-183 regression) instead of" >&2
-  echo "  staying in .codex/skills/dinostack/METHODOLOGY.md, which loads on" >&2
+  echo "  staying in .codex/skills/dinostack-codex/METHODOLOGY.md, which loads on" >&2
   echo "  trigger via the dinostack skill. Investigate .codex/build.sh" >&2
   echo "  directly; do not raise AGENTS_STUB_CEILING to make this pass." >&2
   exit 1

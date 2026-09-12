@@ -4,7 +4,7 @@
 #          shared skill-auto-load-check.sh script gated Codex out unconditionally
 #          (DS-143). DS-183 made .codex/AGENTS.md a minimal trigger-load stub, so
 #          Codex now needs this nudge exactly like Claude Code - this test asserts
-#          Codex gets the nudge, pointed at its own $HOME/.agents/skills/dinostack/
+#          Codex gets the nudge, pointed at its own $HOME/.agents/skills/dinostack-codex/
 #          load path (not Claude's $HOME/.claude/skills/ path). Also carries a
 #          positive control asserting the same nudge for a non-codex/non-gemini
 #          (Claude's real) invocation shape: the nudge must still reach stdout
@@ -68,10 +68,10 @@ else
   fail "expected the skill-load banner on stdout for codex, got stdout: $out"
 fi
 
-if [[ "$out" == *"$HOME_CODEX/.agents/skills/dinostack/SKILL.md"* ]]; then
+if [[ "$out" == *"$HOME_CODEX/.agents/skills/dinostack-codex/SKILL.md"* ]]; then
   pass "codex skill auto-load output points at Codex's own load path (\$HOME/.agents/skills/)"
 else
-  fail "expected the Codex skill path (\$HOME/.agents/skills/dinostack/SKILL.md) on stdout, got: $out"
+  fail "expected the Codex skill path (\$HOME/.agents/skills/dinostack-codex/SKILL.md) on stdout, got: $out"
 fi
 
 if [[ "$out" != *"$HOME_CODEX/.claude/skills/dinostack/SKILL.md"* ]]; then

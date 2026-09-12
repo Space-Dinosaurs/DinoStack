@@ -12,8 +12,8 @@
       "source_token": ".codex/skills/**"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "03704f4305a3a216864291fec7e1256be89f995351867aa98d195bef61922caf",
       "resolution_mode": "native-skill",
@@ -222,8 +222,8 @@
       "source_token": "content/references/spawn-presets-example.yml"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "15834776a2e63a565358019a9fbef88834fcafa0c3851a42cc1f9582175f7fd8",
       "resolution_mode": "native-skill",
@@ -272,7 +272,7 @@
       "source_token": "ds-identity resolve-hook --cwd <cwd>"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "1a6808d75ff9ad806b0ee44dcb3968bd1c0387dd3a238f955507a3d53fdf5bc8",
@@ -312,7 +312,7 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "1fd02077d61c81554421c7f7b48884c51db326d0694f05080ab5a11040b33ced",
@@ -432,8 +432,8 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "2e9ff3bbbbc860c0e0d3e4bb8cda43dbb5fd6b886d97ade467dd74898ae88804",
       "resolution_mode": "native-skill",
@@ -612,8 +612,8 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "4514fa590bf57a57426b557e548cccd3e34c85901f96c6ee4bcffaa21dcab757",
       "resolution_mode": "native-skill",
@@ -692,7 +692,7 @@
       "source_token": "~/DinoStack"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "4c0c4a8919d56d17bd426524da95ab53a4c23317b24fc4a12d2d5ea2c2f4da0f",
@@ -742,8 +742,8 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "4f016d87c66eb90a61aebea1ad4265043eeaf0335c0506b04e8af9a870b5914c",
       "resolution_mode": "native-skill",
@@ -752,7 +752,7 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "4f0ed8e01f7358b8b6ad79450c3a6ebc0294cc7cf8fcd92ac620586968bea6ff",
@@ -872,8 +872,8 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "5ebf04586819ee87e5dcaef61f419e1c17a31fff41b7f8f4585ef45bab3a52c7",
       "resolution_mode": "native-skill",
@@ -962,7 +962,7 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "68760f05df90e690e2cb1c78cd1fc46ae64611a08bd5d2e60e9c5be4f016abfd",
@@ -1042,7 +1042,7 @@
       "source_token": ".claude/install.sh"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "7301e992a203bafaf8159e2d465af10f51b35454223f5ccc4075f638761d749d",
@@ -1052,8 +1052,8 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "74b239f48dd35371e9e8226a3105d1b4dec2f36c8842c23a264f2f64c6646eca",
       "resolution_mode": "native-skill",
@@ -1452,7 +1452,7 @@
       "source_token": "content/references/capability-preflight.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "9f680ae31d2667ae367f3ea981419682684c7f921382e11c1e7922c047778d7b",
@@ -1502,7 +1502,7 @@
       "source_token": "hooks/enforce-skeptic-round-cap.py"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "a5add7157e3dce3c2f5b5dbf5f2dd9e7f6d7294e395e93dd55421609db0a1e6c",
@@ -1562,8 +1562,8 @@
       "source_token": "content/references/cross-harness-teams.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "acd81f45b5a1529bd1ad89cb89a4bdf6c8678d443cc251867053b98803ad6741",
       "resolution_mode": "native-skill",
@@ -1652,8 +1652,8 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "b2c6ca749af33b9869095132180ef8eea73769592dd7364abbfbe8c570fe3e79",
       "resolution_mode": "native-skill",
@@ -1662,8 +1662,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "b32cdd7ade3ed5f9f10602dafb75aacfbcbc941b6459149df474e3e4e0e35219",
       "resolution_mode": "native-skill",
@@ -1822,7 +1822,7 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "c8452983aaf85cec3d5972dc53d5fb88e47483b7cd99a5908c68c894841e8ff9",
@@ -2022,7 +2022,7 @@
       "source_token": "content/references/task-state-file.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "d7bcf63ae46855c77c92028d46d86ae3cc2945574d3e50bebd86a5a36d5e51e6",
@@ -2032,8 +2032,8 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "d8dcd88c10136c9c51679d8c6f3d9668d55b169bef98f324673b13e7083bbfa9",
       "resolution_mode": "native-skill",
@@ -2142,7 +2142,7 @@
       "source_token": "content/references/activation-detail.md"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "e1c2073f3c64eec4e93b649b0e64ca0a247d002d03a165f5d885cb17629f1834",
@@ -2152,7 +2152,7 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "e250251660e7878063f1f29bafc5c6690472ceb0d1cd87f455c54501e755c646",
@@ -2242,8 +2242,8 @@
       "source_token": ".agentic/loop-state.json"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "ee8c2bb22dc08fa13941b0d3579e2e1a58d6051cf427990b72c778341620b926",
       "resolution_mode": "native-skill",
@@ -2282,8 +2282,8 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "f421256d17203c1fe343c536b9b9bee1ab89a5b3e24d26e40c7942dc0fd60ae2",
       "resolution_mode": "native-skill",
@@ -2442,8 +2442,8 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "3ebdf12c41e0e62864659b28c2e31f86e7551004b0dc45627fc28331a7b79b64",
       "resolution_mode": "native-skill",
@@ -2542,7 +2542,7 @@
       "source_token": "`/ds-help`"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "93714c3d12e59a0d70d2aad44264cd54ab8b2b23d3453f433a86dbbd08a7273e",
@@ -2622,8 +2622,8 @@
       "source_token": "~/.claude"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "bc3fde72ce571c7662828b17779e1219b2a09a2e8b4a69e4adaaf239272f0105",
       "resolution_mode": "native-skill",
@@ -2632,7 +2632,7 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "c89d680fe0e2120740133312dc8cc9d203db2537258adf09be65f52634528521",
@@ -2692,8 +2692,8 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "1a2243c83f1e7c5537f43f4491c2dafb79c9fdcd130d2fe80f97d54c15a5150e",
       "resolution_mode": "native-skill",
@@ -2732,8 +2732,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "2f477408dbac5caf5426d9a92f73903d451e01f9734ccedda6bc2182779d4359",
       "resolution_mode": "native-skill",
@@ -2752,8 +2752,8 @@
       "source_token": "Glob"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "33c244ef9951de4795aa23a6d82ea85bc3b191e88df68a0a5b2c47969eea38ad",
       "resolution_mode": "native-skill",
@@ -2762,8 +2762,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "3f4ab5754c91001cc3f2eb1106c3eff4305409687b08c0795e51a6b3fe2ff036",
       "resolution_mode": "native-skill",
@@ -2792,8 +2792,8 @@
       "source_token": "Glob"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "5e4196888533c07c0ddbdfaa3d0aa401b324b91d1568ff5ccd3dbe63b380abf2",
       "resolution_mode": "native-skill",
@@ -2832,8 +2832,8 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "6ed6d8d9ef0272ad31d9078bfb094d4376b666cad6979d48331504a07414e7ea",
       "resolution_mode": "native-skill",
@@ -2842,8 +2842,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "71aba60eb86ee63d27f74dbb32a64c1674392accd16ac0c3a9111f9414369c6c",
       "resolution_mode": "native-skill",
@@ -2852,8 +2852,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "7d74b298b1a07b1ea1e7eca66fd399a060d7619927cbf8e4fd8fe222624c3c59",
       "resolution_mode": "native-skill",
@@ -2862,8 +2862,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "7fee8d3e75b684bbe768f467bc18e3cb9273c859b9ed45ee9437851fa3e940ba",
       "resolution_mode": "native-skill",
@@ -2882,8 +2882,8 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "8e614e97cb4c5cc484b5666b4417b9ce5299aa2f76164eff4e11356a47422ae1",
       "resolution_mode": "native-skill",
@@ -2892,8 +2892,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "92dfefdd1f031736df8d6cd7070f3cb839d1e2cec51d4cab3ff84048cbafacf4",
       "resolution_mode": "native-skill",
@@ -2902,8 +2902,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "94840a11f0f3cabd5981ec81a151d17e753c2ac0afea9dfd3f2d8278c20d330d",
       "resolution_mode": "native-skill",
@@ -2912,8 +2912,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "94d86162a3e065a49d7a1dbfb947e9e86a57ff22198f56ec3dbcde887316e42d",
       "resolution_mode": "native-skill",
@@ -2962,8 +2962,8 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "bcc3e276bb5b80fd94f060580ab30c66e076505cdfec2587f761fd596cfd93cc",
       "resolution_mode": "native-skill",
@@ -2972,8 +2972,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "c09450c2995d501efb999a4462f5a8de0e93e1d1007fc53e11269b528aedf89e",
       "resolution_mode": "native-skill",
@@ -3022,8 +3022,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "cdb338213f01fb3fc9cc3274c568842c78dafd2526752a8fb7778ea4f9c6df7c",
       "resolution_mode": "native-skill",
@@ -3042,8 +3042,8 @@
       "source_token": "content/sections/02-delegation.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "da27c44f00bebc81bf7371ee46fef73294aab801cae45dd4a7256a3b59c8c39b",
       "resolution_mode": "native-skill",
@@ -3052,8 +3052,8 @@
       "source_token": "/ds-brief"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "da5ffb75e56554ee213d6f0f28ae53284bbcb89a7cf59fdb6e4dd1f5db08e23f",
       "resolution_mode": "native-skill",
@@ -3062,8 +3062,8 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "e0379644eea0d1f52bf93af8cba9ab968c86b22b7480403d7bc49af9b87aaf2c",
       "resolution_mode": "native-skill",
@@ -3112,8 +3112,8 @@
       "source_token": "content/references/subagent-protocol.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
+      "expected_target": "dinostack-codex-brief",
+      "generated_token": "$dinostack-codex-brief",
       "kind": "operational",
       "occurrence_hash": "f397dab1f7107e76c56eba201e2de0ce3b5739464ec0faf91eb06cd78993fae1",
       "resolution_mode": "native-skill",
@@ -3512,8 +3512,8 @@
       "source_token": "never"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "06f29c2a6135d765fc059bccba802fe3ed8085cfcd3e258358b514343a334678",
       "resolution_mode": "native-skill",
@@ -4082,8 +4082,8 @@
       "source_token": "then"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "1158b8e47dc96b4d54f29539dd584928a907bf0a694334021181679ef7f632ab",
       "resolution_mode": "native-skill",
@@ -4422,8 +4422,8 @@
       "source_token": "entries"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "16d12920c059921785b112fcb93f9f9a7170159a6b0a8e704d5bd53a4a3a6281",
       "resolution_mode": "native-skill",
@@ -4492,8 +4492,8 @@
       "source_token": ".agentic/loop-state-<LOOP_KEY>.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "17bcd7b92df4ed34f23933d39740f8dbf74d7e5c5b9b72eb6b300df99da4531f",
       "resolution_mode": "native-skill",
@@ -4502,8 +4502,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "17bcd7b92df4ed34f23933d39740f8dbf74d7e5c5b9b72eb6b300df99da4531f",
       "resolution_mode": "native-skill",
@@ -5332,8 +5332,8 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "23fc31f509d487f582575c95867d66aa4d5d06a4b99b47aabd7ce78303edfe45",
       "resolution_mode": "native-skill",
@@ -5542,8 +5542,8 @@
       "source_token": "VERB"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "27ad3acea0a08b8d0150dee5bce5be1665bc56da81c79fe829a2de2ec31cba76",
       "resolution_mode": "native-skill",
@@ -5612,8 +5612,8 @@
       "source_token": "true"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "2892eb9f32f1be0ebffde7b38e55a53acfc44d519d22191dc9acad8c8aff9038",
       "resolution_mode": "native-skill",
@@ -5962,8 +5962,8 @@
       "source_token": "echo"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "2c8c87c2fbbbf34204f9df7ecfca9e851fc80ca430426d38d3fe5d7472cdb398",
       "resolution_mode": "native-skill",
@@ -6582,8 +6582,8 @@
       "source_token": "target"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "3554ba762521d42e7cec8aca8a5568c48b3cc1cdabc6e6369986509b67585958",
       "resolution_mode": "native-skill",
@@ -6762,8 +6762,8 @@
       "source_token": "true"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "38ede4b75be9dd13180287c453ad2143f10883068e6af3e3f3a4a308db7ec0ce",
       "resolution_mode": "native-skill",
@@ -6872,7 +6872,7 @@
       "source_token": "jq"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "39fe1771f5a9d1cc141645c399b4fbf2eb364e9af19cf3c5acec433864a47d68",
@@ -7582,8 +7582,8 @@
       "source_token": "content/references/tracker-writeback.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "438e78c5b863c23c17c277514297f379dc9f349227d41755cb271feee9342cbf",
       "resolution_mode": "native-skill",
@@ -9492,8 +9492,8 @@
       "source_token": "true"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "63dd540d3d6bed5cc2efab9a866267095bf4bba50bac8dc4326991d8f1bbaf42",
       "resolution_mode": "native-skill",
@@ -9502,8 +9502,8 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "63dd540d3d6bed5cc2efab9a866267095bf4bba50bac8dc4326991d8f1bbaf42",
       "resolution_mode": "native-skill",
@@ -10312,8 +10312,8 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "6ccdf4bdac63ce99b3f5128c525c333dedc5fff13cc241550bb8e0d187827eac",
       "resolution_mode": "native-skill",
@@ -10542,8 +10542,8 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "7043e70a39f4f8776975d6d84b7de2c618c00d78d49167f0b2798cbf049d26e9",
       "resolution_mode": "native-skill",
@@ -10632,8 +10632,8 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "733d2fa0d83705b542224b457def490baecdc19a4077b3dfaefbdb931fa6c626",
       "resolution_mode": "native-skill",
@@ -11022,8 +11022,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "78e3ae97ec82704342ce53ed95e7ad2ad6b219a01cfc52d756826215a6e9b106",
       "resolution_mode": "native-skill",
@@ -11972,8 +11972,8 @@
       "source_token": "content/references/task-state-file.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "8782fa7d641b37f8764ffec0c1fef8b94538336cbc5a5904a62a3cfc3f942b14",
       "resolution_mode": "native-skill",
@@ -12262,8 +12262,8 @@
       "source_token": "git"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "8c31c59835c6dde16359b010eed2b84dad262ae4b8881c862ad01e7c39ecab4c",
       "resolution_mode": "native-skill",
@@ -12572,8 +12572,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "8fd3807f21ae79636b2bb22ce3db45fcadf42d01b0a78979c64567a43d40b6d3",
       "resolution_mode": "native-skill",
@@ -12692,8 +12692,8 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "925ebbfd440a4901757b9f9bf9d4f9830205931ccdda6c1fbaff2a65aa1bc45a",
       "resolution_mode": "native-skill",
@@ -12892,8 +12892,8 @@
       "source_token": "git"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "9540765b6a325c7a47bacdfeb88e592e8e1f23f89245a40708975ecd86807589",
       "resolution_mode": "native-skill",
@@ -13002,8 +13002,8 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "975469b0e80d8b97ebc55244c1bd1fe990158185edf3b35921109d6f2f6478cc",
       "resolution_mode": "native-skill",
@@ -13652,8 +13652,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "a07c68489acb28a60c458079cf9dab622db7db0fd1e5ddb9ca1a88fdff29fa79",
       "resolution_mode": "native-skill",
@@ -13932,8 +13932,8 @@
       "source_token": ".agentic/loop-state-<loop_key>.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "a439d5ab80d18c09119ad173eb8ce2dfca1b2ebd7b2f18c04e9bf3810b6c80f3",
       "resolution_mode": "native-skill",
@@ -14732,8 +14732,8 @@
       "source_token": "branch"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ac6ea9c5cbe5636a287828b31ed239e7738c1ad362e5b5737768e83a5a379b40",
       "resolution_mode": "native-skill",
@@ -14752,8 +14752,8 @@
       "source_token": "print"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ac896abfb9e8cdeb0fab793b9be81f2ff145cf4e94bea8e1cbf93435e85af4fd",
       "resolution_mode": "native-skill",
@@ -14952,8 +14952,8 @@
       "source_token": "echo"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "af3e737b79f5cff58c6cd3af75bbeb2ee3b376cb0ccf13aa44691083b3799f33",
       "resolution_mode": "native-skill",
@@ -15252,8 +15252,8 @@
       "source_token": "_wt_path"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "b426de7f604a0ddcf1bb86bb05a489404299740189a1aac8d8724ea3ecd0689b",
       "resolution_mode": "native-skill",
@@ -15612,8 +15612,8 @@
       "source_token": "--head"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "b8e33437854f0df153b2a1fea8a7edfd5bb9f1d269617c5fbb3478a6a29e16bc",
       "resolution_mode": "native-skill",
@@ -15992,7 +15992,7 @@
       "source_token": ".agentic/tracker-states.json"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "be4942922fdbdba5429b06b883c5ce1d0096c6c26d811b6fa84b14795d92d3b5",
@@ -16952,8 +16952,8 @@
       "source_token": "else"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "cb09126eaa103a2eaa3ee25281ee4d16ff431d869713be20b0a1b723b86f64c7",
       "resolution_mode": "native-skill",
@@ -17512,8 +17512,8 @@
       "source_token": ".agentic/tracker.yml"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "d418e04288768ead542503fda6ee7530156b1a0a126477fbcd825ff3f39a63da",
       "resolution_mode": "native-skill",
@@ -17762,8 +17762,8 @@
       "source_token": "if"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "d7b1ee573799747451a8cdf1ab80772db010bf733b2afe3effe183e0d573d05b",
       "resolution_mode": "native-skill",
@@ -17822,8 +17822,8 @@
       "source_token": "/tmp"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "d8d0d8af203d622b5b32264899a9bdbc18bafbfa77d5df0b5435fb9aff04b852",
       "resolution_mode": "native-skill",
@@ -18062,8 +18062,8 @@
       "source_token": "git"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "db6fdab9238145f8468975ec40a2b5b19b06d3243725ef3344e84ed32f59b01f",
       "resolution_mode": "native-skill",
@@ -18362,8 +18362,8 @@
       "source_token": "true"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "df0f4d1c585701fa03aa5fc30c342dc6761049c43dbc37ff4ba1c3f4088c5e4a",
       "resolution_mode": "native-skill",
@@ -18582,8 +18582,8 @@
       "source_token": "do"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "e18fb1c4ff1dc01ce99da5f3d16b6a0c5d35f8235b65b5deaba02b227b04be0b",
       "resolution_mode": "native-skill",
@@ -18722,8 +18722,8 @@
       "source_token": "hooks/session-end-wrap.js"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "e39d6197e5f0c92fd9a204c541a5246f21826031bee86db7766f1d484d9e039a",
       "resolution_mode": "native-skill",
@@ -19052,8 +19052,8 @@
       "source_token": "IS_REWORK"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "e84d421c6c5f3fe7cd30598ed06d30fc8aaed888bda9031e316a26eec8851528",
       "resolution_mode": "native-skill",
@@ -19302,8 +19302,8 @@
       "source_token": "fi"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "ebcac72e16b49674c16e1b0af5488a61478e7ec2a19fb89ce7648556866ab5a7",
       "resolution_mode": "native-skill",
@@ -19532,8 +19532,8 @@
       "source_token": ".agentic/*.json"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "ee5da600c20f7550d1fe6f2657bb849cc21c2cc5be0cc16f120b0e5c6ef2476f",
       "resolution_mode": "native-skill",
@@ -20302,8 +20302,8 @@
       "source_token": "then"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "f9830f44fda6731d9f4f93c9aa0b65fe886063c9ddd1e98bc0b5f77ab32f53de",
       "resolution_mode": "native-skill",
@@ -20352,8 +20352,8 @@
       "source_token": "."
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "f9f8a7460c1c5650764bba99b00c8771072f3eaefe5942896cb5cdb89182c26b",
       "resolution_mode": "native-skill",
@@ -20732,8 +20732,8 @@
       "source_token": "/empty"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "febb9646dd998692a39367bd43ae29bde7cd5f91d678965cda0ad474ea1267bf",
       "resolution_mode": "native-skill",
@@ -20742,8 +20742,8 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "fefe078efb4586fcb4d8f953ede30489fcf25ddec10d1490a94de8dbd9b77e4b",
       "resolution_mode": "native-skill",
@@ -20752,7 +20752,7 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "dinostack",
+      "expected_target": "dinostack-codex",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
       "occurrence_hash": "ff545615c1a2bed89af386569d1b34e94bf6d58559736c6e6882961373fcba07",
@@ -20862,8 +20862,8 @@
       "source_token": "Grep"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "06f47a5d88fa88504eccb9f1e89eed098a4ce1f5b50eb8286890a8377760e45e",
       "resolution_mode": "native-skill",
@@ -20962,8 +20962,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "0d24cf39fcd53cfc57cba1678d9cd12df8af07b09f1707dd14c067ac82d96ca0",
       "resolution_mode": "native-skill",
@@ -20972,8 +20972,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "0e0e946b3d4085af7628d99bb9efdf224dbe4e2565f31118fc2094fcf5a7be8c",
       "resolution_mode": "native-skill",
@@ -21112,8 +21112,8 @@
       "source_token": ".claude/settings.local.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "17f591cc0abe6861aa06bd3d6630d6e72da57baf95303cc1bcfab10402356923",
       "resolution_mode": "native-skill",
@@ -21152,8 +21152,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "1a206e547e2e04c973b87c4b9270ceed2f721c82901f17795d4f199fc5a78df5",
       "resolution_mode": "native-skill",
@@ -21172,8 +21172,8 @@
       "source_token": ".agentic/tracking.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "1a96813329a400e8ac08dbbc7356ee2d71c4f3e563758ac0a84297b9dfe8a750",
       "resolution_mode": "native-skill",
@@ -21222,8 +21222,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "202a1fcf83e88cbe4f6dbad6dd2651b59c897385a8911ad066c6d0324f93477b",
       "resolution_mode": "native-skill",
@@ -21242,8 +21242,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "211786d4b80c3656b51de3be4fdd65f1d6aae8c12ac38b9365a858e6526714a3",
       "resolution_mode": "native-skill",
@@ -21252,8 +21252,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "21ace12ef005695cf69aeb2f6b6b8d2401b1dd5cc285d9d7c84b6c6255bd1f78",
       "resolution_mode": "native-skill",
@@ -21262,8 +21262,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "22cdb281e91847127e2a27d8cd3b58136bfbdcbca11cfbb49d1038ddb5e9915b",
       "resolution_mode": "native-skill",
@@ -21552,8 +21552,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "2e1575ea114dc49846bd9fbb2f4c1cceea733c36efd47a553bc2b70b980fc447",
       "resolution_mode": "native-skill",
@@ -21632,8 +21632,8 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "33cb02508c093fe1b26219e82ed05125b40aaf0b1008aae98cb1e9d152c62f8d",
       "resolution_mode": "native-skill",
@@ -21642,8 +21642,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "343d1e089abd640bfe626e7df7e304d0557e5a8cc0b66c29faee67e08a9a2dcb",
       "resolution_mode": "native-skill",
@@ -21662,8 +21662,8 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "35a73232d20c688dbfc35f11be3395ec51f3d743e659f0e83215d24e1c6a2853",
       "resolution_mode": "native-skill",
@@ -21713,7 +21713,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "Why: the current Codex Stop hook writes continuity only to `~/.codex/projects/[hash]/context.md` and does not read or recompose project-local `$AE_PROJECT_DIR/.agentic/context.md`. `$wrap` owns its richer project-local `$AE_PROJECT_DIR/.agentic/_wrap.md` handoff under the wrap lock. Connecting that handoff to an automatic Codex project-local context writer remains deferred to `context-writer-migration`. Create `$AE_PROJECT_DIR/.agentic/` if it does not exist.",
+      "generated_token": "Why: the current Codex Stop hook writes continuity only to `~/.codex/projects/[hash]/context.md` and does not read or recompose project-local `$AE_PROJECT_DIR/.agentic/context.md`. `$dinostack-codex-wrap` owns its richer project-local `$AE_PROJECT_DIR/.agentic/_wrap.md` handoff under the wrap lock. Connecting that handoff to an automatic Codex project-local context writer remains deferred to `context-writer-migration`. Create `$AE_PROJECT_DIR/.agentic/` if it does not exist.",
       "kind": "operational",
       "occurrence_hash": "383b9d63181827a7773be14b9273553df9733ecc651a1c626890188aaafd4583",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -21803,7 +21803,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "The project-local derived-rollup contract belongs to harnesses that implement the project-local context writer. The current Codex Stop hook instead writes only `~/.codex/projects/[hash]/context.md` and does not recompose `$AE_PROJECT_DIR/.agentic/context.md`. `$wrap` writes `$AE_PROJECT_DIR/.agentic/_wrap.md`; integrating that handoff into an automatic Codex project-local rollup is deferred to `context-writer-migration`.",
+      "generated_token": "The project-local derived-rollup contract belongs to harnesses that implement the project-local context writer. The current Codex Stop hook instead writes only `~/.codex/projects/[hash]/context.md` and does not recompose `$AE_PROJECT_DIR/.agentic/context.md`. `$dinostack-codex-wrap` writes `$AE_PROJECT_DIR/.agentic/_wrap.md`; integrating that handoff into an automatic Codex project-local rollup is deferred to `context-writer-migration`.",
       "kind": "operational",
       "occurrence_hash": "3be65f776bb2940fd1e52ddcf3075c3f631c4448b7cac6263c542e5fcd41b175",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -21882,8 +21882,8 @@
       "source_token": "true"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "40a8d2baa27ccb33cfef6dc66ff76f33fbfb24a056f4ad6c964d3e3f2bf5d1b2",
       "resolution_mode": "native-skill",
@@ -21933,7 +21933,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** This project-local sentinel is written only after a successful `$wrap` Part A write. Claude and OpenCode marker consumers use it for staging suppression. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not consume this sentinel; migration is deferred to `context-writer-migration`.",
+      "generated_token": "**2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** This project-local sentinel is written only after a successful `$dinostack-codex-wrap` Part A write. Claude and OpenCode marker consumers use it for staging suppression. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not consume this sentinel; migration is deferred to `context-writer-migration`.",
       "kind": "operational",
       "occurrence_hash": "42ea5aa4fe84e1cbcf410b0e2114c0b9b43813d6aa3b9b6c500b9432af6a4368",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -22012,8 +22012,8 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "470ef1c4d24d9285ff94a4f3d4232246d0341c0c4b6a596444faf27728cb72bd",
       "resolution_mode": "native-skill",
@@ -22082,8 +22082,8 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "4f0ef00f6c53930da1282c8890e9b54573e9c577b8a16de11aabad86942c647d",
       "resolution_mode": "native-skill",
@@ -22102,8 +22102,8 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "4f2b34db693dd83b058850603a65b70434746077d83c27011f6057f75e76bb77",
       "resolution_mode": "native-skill",
@@ -22112,8 +22112,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "4fb87439fd84ed748b7c910942d493f3d663d90ac25a2c0e7f7df86c88dd09f7",
       "resolution_mode": "native-skill",
@@ -22162,8 +22162,8 @@
       "source_token": ".agentic/"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5173591fa53df405c16dd37aa931cfaea8fc4f84ae332d8761832f985ca6c779",
       "resolution_mode": "native-skill",
@@ -22182,8 +22182,8 @@
       "source_token": "<cwd>/.claude/context.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "52a6a5e4ccb58b71683060556cb450f68757d5a099efd0092eecc677805bd81f",
       "resolution_mode": "native-skill",
@@ -22222,8 +22222,8 @@
       "source_token": "ds-feedback"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "54483b52fda07e9c6227ab994e6b7e0f4f617a470be0b72d037f0836e207cca0",
       "resolution_mode": "native-skill",
@@ -22252,8 +22252,8 @@
       "source_token": "<cwd>/.claude/memory/"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5592ca1cdf5f9f1dc0b30c38aee4e4e5bc91009120cd41d5c2cad027d8c34d73",
       "resolution_mode": "native-skill",
@@ -22272,8 +22272,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "575045f5c3aa549b3001ad9251b48bb47d6b24067f68082b26617c88dfa30ebb",
       "resolution_mode": "native-skill",
@@ -22282,8 +22282,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5767cd2b1c980106e387a3c993f5cec9fc972507eefb3291d0207d792052605f",
       "resolution_mode": "native-skill",
@@ -22302,8 +22302,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "58ac65b2cbffc53f2c1ca10ca4e3b644b54834e74f6adb6f615ff9640becbe54",
       "resolution_mode": "native-skill",
@@ -22312,8 +22312,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "58b42f35f0199e3db02af7393f417c7bef534deb35e41a8cd2b907dd098679cf",
       "resolution_mode": "native-skill",
@@ -22322,8 +22322,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "58d0f34d23598bd09900f3572b3157e26c5e48c0dc55341d70f112ce4cb556a2",
       "resolution_mode": "native-skill",
@@ -22372,8 +22372,8 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5a47d053617bad878fb6f9f612f9fc6567e523bbceb30f7dc92c385498c560d9",
       "resolution_mode": "native-skill",
@@ -22382,8 +22382,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5ae3a66dc27232e28eded48e49db90743adb328ba04545eb7965e918a4495108",
       "resolution_mode": "native-skill",
@@ -22402,8 +22402,8 @@
       "source_token": ".agentic/"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5bcb5785ed26b6680fc0fb770c744642c0aed76ab60bfc01b0d93ddd1e982626",
       "resolution_mode": "native-skill",
@@ -22412,8 +22412,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "5bd3dd0a45e87b23f25493a3a412fe200609be6340db7479d9a64437d6d6c937",
       "resolution_mode": "native-skill",
@@ -22452,8 +22452,8 @@
       "source_token": "<cwd>/.agentic/context.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "5f42db5822bdbbb5097d0f40cd2d24cb615e9d6e123684c722fb1a6dbf5b0aeb",
       "resolution_mode": "native-skill",
@@ -22542,8 +22542,8 @@
       "source_token": ".agentic/_wrap.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "645dd9ee5edff042db80e2917cd21d5fb33cb3e237eb1001cddfe0da633be81e",
       "resolution_mode": "native-skill",
@@ -22672,8 +22672,8 @@
       "source_token": "bin/tests/drain_model.py"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "6a6b31e079d62481f7d9df7eb9da73d7aa92131c62c102e7fcb2d8ed28435176",
       "resolution_mode": "native-skill",
@@ -22702,8 +22702,8 @@
       "source_token": "bin/tests/reach_model.py"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "6d50faa47c1a5a8955a1b651ab5fa8648e35e7b2368da70bed83b7e5e539437a",
       "resolution_mode": "native-skill",
@@ -22782,8 +22782,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "7223a3194f716118bc2b17b50af5b2f343054583fce2cc6732fbf2ace3fcd1c4",
       "resolution_mode": "native-skill",
@@ -22802,8 +22802,8 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "74031e7e1af876d0629875aa4b058f9b321d6f69faaf3b85ce962885950d505a",
       "resolution_mode": "native-skill",
@@ -22812,8 +22812,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "7416fe211081068d749363128defe3b659a4b57ccd07b80b175f889f4d78ba31",
       "resolution_mode": "native-skill",
@@ -22862,8 +22862,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "760837e8fc3561e034d59346e276314a8654bbf8566629d601a642791e30aa9e",
       "resolution_mode": "native-skill",
@@ -22902,8 +22902,8 @@
       "source_token": "<cwd>/.claude/compression-state.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "7816fa8bdf37c49c75fac8be6e5ed869547019838709bf5f95045e9166e0af44",
       "resolution_mode": "native-skill",
@@ -22962,8 +22962,8 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "7c1d579ba713e5d278a0be8be72a83b262124a446cf67949ab028289574459c2",
       "resolution_mode": "native-skill",
@@ -22982,8 +22982,8 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "7ed2756297fd40eda66df394ad6c856a0655f2d73ce5fa388cfc3b77e1587c2f",
       "resolution_mode": "native-skill",
@@ -23033,7 +23033,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "- Do NOT write `_wrap.md`. The current Codex Stop hook already wrote the session's raw continuity to `~/.codex/projects/[hash]/context.md`. A zero-substance `$wrap` would only create an empty project-local handoff; automatic project-local rollup integration remains deferred to `context-writer-migration`.",
+      "generated_token": "- Do NOT write `_wrap.md`. The current Codex Stop hook already wrote the session's raw continuity to `~/.codex/projects/[hash]/context.md`. A zero-substance `$dinostack-codex-wrap` would only create an empty project-local handoff; automatic project-local rollup integration remains deferred to `context-writer-migration`.",
       "kind": "operational",
       "occurrence_hash": "7ffcc4efa3feb9ee16c957b0f6e2f482c696304de5a22594a2ceca743c3de3e5",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -23082,8 +23082,8 @@
       "source_token": ".agentic/deploy.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "817883f4133bb6b5405aabbda577b6d34ef3941bde23c2e6f2afdb2b2bd335f2",
       "resolution_mode": "native-skill",
@@ -23112,8 +23112,8 @@
       "source_token": "~/.claude"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "84e979d07621607db25b34a2678f527c70c4980a88371e8adb16fcc753eb4abd",
       "resolution_mode": "native-skill",
@@ -23142,8 +23142,8 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "86e1c8f6875a41e5a7ef35eebe1c4562f705995918297f828b5ebc56bc8054cb",
       "resolution_mode": "native-skill",
@@ -23162,8 +23162,8 @@
       "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "890e54c4053efe8e92cd59cefd46f984b04d12f2f10edbf6d283a62dae6a5056",
       "resolution_mode": "native-skill",
@@ -23182,8 +23182,8 @@
       "source_token": "content/references/skeptic-protocol.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "89d70a44b684069436791dd5d06689ccbdab4cf72b4505fe50f3dd87d999a45f",
       "resolution_mode": "native-skill",
@@ -23242,8 +23242,8 @@
       "source_token": "<cwd>/.agentic/wrap/.scaffold-verified"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "8d07171fc6673e573d43c6f992980a38503eb2cf3405f17c238ccd72c8236128",
       "resolution_mode": "native-skill",
@@ -23332,8 +23332,8 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "954b21b9362f9f2e3f3d8780dccf716196634834e4a6871ba80fac6dc23c8b7e",
       "resolution_mode": "native-skill",
@@ -23452,8 +23452,8 @@
       "source_token": "done"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "9e1ab74e75dddfcb3d74dc0ac701c6813f65d1818bed58d0f08276903235c6c8",
       "resolution_mode": "native-skill",
@@ -23473,7 +23473,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Final reminder:** After `$wrap` completes, close the session cleanly so the current Codex Stop hook can finish writing `~/.codex/projects/[hash]/context.md`. The project-local migration remains deferred to `context-writer-migration`.",
+      "generated_token": "**Final reminder:** After `$dinostack-codex-wrap` completes, close the session cleanly so the current Codex Stop hook can finish writing `~/.codex/projects/[hash]/context.md`. The project-local migration remains deferred to `context-writer-migration`.",
       "kind": "operational",
       "occurrence_hash": "9f9d6ba753f8577b30d8ff3a8ffbf50d44f2f4eea303aaa2b92a91bde196048f",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -23492,8 +23492,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "a10cc8d85ada2b77b48dfb481632dad371a56eb5ae9dd9d5e2e8f6f2df3d0b49",
       "resolution_mode": "native-skill",
@@ -23502,8 +23502,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "a1b0593906aed2c7dde197cf96c379f6ed9ebe32f385caed5a848d94f25b71f4",
       "resolution_mode": "native-skill",
@@ -23552,8 +23552,8 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "a4f743cd4d7ef0b0c4435bfbfe6e3cd644a05fb1728e42fdc1a33859cbae42ef",
       "resolution_mode": "native-skill",
@@ -23603,7 +23603,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Pre-flight lock acquisition.** `$wrap` writes several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does not write `$AE_PROJECT_DIR/.agentic/context.md`. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`; automatic project-local rollup integration is deferred to `context-writer-migration`. Concurrent `$wrap` runs in the same project would clobber the files `$wrap` does own. Acquire a project-local lock before proceeding:",
+      "generated_token": "**Pre-flight lock acquisition.** `$dinostack-codex-wrap` writes several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does not write `$AE_PROJECT_DIR/.agentic/context.md`. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`; automatic project-local rollup integration is deferred to `context-writer-migration`. Concurrent `$dinostack-codex-wrap` runs in the same project would clobber the files `$dinostack-codex-wrap` does own. Acquire a project-local lock before proceeding:",
       "kind": "operational",
       "occurrence_hash": "aa43524515f9efd599606cb78de1a81371542860fafae899096ded4f75d9da14",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -23642,8 +23642,8 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ad0e4cc2596576dccdcad2ea3fac2c3662f9bfd0f8cd907dfbb5bc180c34a95b",
       "resolution_mode": "native-skill",
@@ -23652,8 +23652,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ae54b5b2921e6f0d8d041457eec228a82a7d42ceae447a7d54254a7905636c4d",
       "resolution_mode": "native-skill",
@@ -23742,8 +23742,8 @@
       "source_token": "else"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "b295ee97ee9c07d7dbafdc9a46412f12a0a3f481c5c96614d4e23db8177188c2",
       "resolution_mode": "native-skill",
@@ -23752,8 +23752,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "b2fd29bfef081e57f4597fb9886e6f9cc002691d2ef008bf80c2db9f9670eca8",
       "resolution_mode": "native-skill",
@@ -23772,8 +23772,8 @@
       "source_token": ".claude/context.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "b3b7565b3daac0161cc0fa5c8dec82c2bc4cd0ac41ef81b01e09ddb2061c7d1c",
       "resolution_mode": "native-skill",
@@ -23792,8 +23792,8 @@
       "source_token": ".agentic/wrap/pending-<session_id>.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "b68c4b410204539dafef91ec168b9bd563f22878bf9cd4cb2463d13dc6818602",
       "resolution_mode": "native-skill",
@@ -23922,8 +23922,8 @@
       "source_token": ".agentic/wrap/lock"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "bc08fecdade68609c15799aad1aedc8399eb0ef22de16d51bdd5219459509661",
       "resolution_mode": "native-skill",
@@ -23932,8 +23932,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "bc4a53f1678e21bbf00375e62792778a1bdc43b95cf92edb227498d59148ad7e",
       "resolution_mode": "native-skill",
@@ -23952,8 +23952,8 @@
       "source_token": "echo"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "bd28d6400b27cd3f8eec60d501af7e527c65e5ea5351806186176cc9cf4d89d6",
       "resolution_mode": "native-skill",
@@ -24002,8 +24002,8 @@
       "source_token": "<cwd>/.agentic/memory-pending.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "befb711c049dc98f53773337a6eb73fff90d1ae7dc7f306e651b5bc3e355b2bb",
       "resolution_mode": "native-skill",
@@ -24032,8 +24032,8 @@
       "source_token": ".agentic/tracking.md"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "c07542da23a1739e67243588494d6c92fb9ce21dcf2a1507c3d6ea531286338e",
       "resolution_mode": "native-skill",
@@ -24042,8 +24042,8 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "c173ba42a1b16da53a099050ee86e9303c916b12714d71cc4f1a366656856209",
       "resolution_mode": "native-skill",
@@ -24092,8 +24092,8 @@
       "source_token": "rm"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "c34f3757c772b2076283687c53a3f12a71840962455c083ac1e5ceb4f80ca102",
       "resolution_mode": "native-skill",
@@ -24102,8 +24102,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "c37f21b2a655f611a1f55a366f7578a48ecb099e74d398a6e973c787b5f355f6",
       "resolution_mode": "native-skill",
@@ -24122,8 +24122,8 @@
       "source_token": "then"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "c43c51cd26a9e48b50e3f9063f95fbddb71e5a5806f1262e7c4c6c519d723cf0",
       "resolution_mode": "native-skill",
@@ -24273,7 +24273,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "Managed only by `$wrap`.",
+      "generated_token": "Managed only by `$dinostack-codex-wrap`.",
       "kind": "operational",
       "occurrence_hash": "ccba7247f3f9cdef1446fcace00ca47f6c37da879ac15ae07c77de1dccc9a14c",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -24303,7 +24303,7 @@
     },
     {
       "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "The current Codex Stop hook writes raw continuity only to `~/.codex/projects/[hash]/context.md` after a Stop event. It does not write project-local `$AE_PROJECT_DIR/.agentic/context.d/<session_id>.md`, does not write `$AE_PROJECT_DIR/.agentic/context.md`, and does not recompose a project-local rollup; migration is deferred to `context-writer-migration`. `$wrap` continues to write the richer project-local `$AE_PROJECT_DIR/.agentic/_wrap.md` handoff and populate AGENTS.md with durable decisions, conventions, stack details, and gotchas.",
+      "generated_token": "The current Codex Stop hook writes raw continuity only to `~/.codex/projects/[hash]/context.md` after a Stop event. It does not write project-local `$AE_PROJECT_DIR/.agentic/context.d/<session_id>.md`, does not write `$AE_PROJECT_DIR/.agentic/context.md`, and does not recompose a project-local rollup; migration is deferred to `context-writer-migration`. `$dinostack-codex-wrap` continues to write the richer project-local `$AE_PROJECT_DIR/.agentic/_wrap.md` handoff and populate AGENTS.md with durable decisions, conventions, stack details, and gotchas.",
       "kind": "operational",
       "occurrence_hash": "cd6057397df24f366829fec9016f07589d50c8479a75a4e57da3ad182473fd05",
       "resolution_mode": "codex-stop-hook-runtime",
@@ -24392,8 +24392,8 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "d37adb22772da75359a35282e4811ea40ad496319de40306716e9c403e6c6f02",
       "resolution_mode": "native-skill",
@@ -24422,8 +24422,8 @@
       "source_token": "`/ds-wrap-deferred`"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "d53ab42158b7b8ca6c28578412755c7b950f35d54d79f4b4795582a97ba50cd5",
       "resolution_mode": "native-skill",
@@ -24492,8 +24492,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "d71e7ff3e52a3eb6d0c15eb8a7ed1185f724eb49b39dac4757ea383d41dfc20b",
       "resolution_mode": "native-skill",
@@ -24522,8 +24522,8 @@
       "source_token": "[cwd]/.agentic/compression-state.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "da391b1bbe706f091353702d6ceffab402794a415404c679bb2b8eaa5ad90450",
       "resolution_mode": "native-skill",
@@ -24692,8 +24692,8 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "e950520d990e0dda11e04b7c523857361e76a9934dcc1d81b8bccbd788a87f2f",
       "resolution_mode": "native-skill",
@@ -24762,8 +24762,8 @@
       "source_token": ".agentic/deploy.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ebcbf14ccae3ea38fcbfee39e9f4cf2ba2c9ae228f0faa6d3919b636a471d1e1",
       "resolution_mode": "native-skill",
@@ -24772,8 +24772,8 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "ec56d09d004bba930d361fa500e64a5693ed62f9c0449a711f92b1ba74899ce2",
       "resolution_mode": "native-skill",
@@ -24822,8 +24822,8 @@
       "source_token": ".claude/compression-state.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "edd9795ba22f94ce651bd6c7b34e562f9425e2cf86abfc8b0879b75c3878f96e",
       "resolution_mode": "native-skill",
@@ -24912,8 +24912,8 @@
       "source_token": "hooks/lib/enforcement_log.py"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "f25c88afd3da1c52e8dbba91355092df3e1f36efdc7bac47e1feaa3c35fa0e6d",
       "resolution_mode": "native-skill",
@@ -24982,8 +24982,8 @@
       "source_token": ".claude/<name>.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "f811abe8111eefe1b07a4fe132700c5a1cd8fad8a69608a83123fdbe7cfea20d",
       "resolution_mode": "native-skill",
@@ -25002,8 +25002,8 @@
       "source_token": ".agentic/learnings.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "f9a3bbb8743827243ef2bb4dcb4d8b694af8899ed6d5b0559574c3e21b030a13",
       "resolution_mode": "native-skill",
@@ -25022,8 +25022,8 @@
       "source_token": ".agentic/_wrap.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "fa8aebadc3022a6cb3f79d6ff0ae8961d894c8e99759a2c1461cf4e6cc1daa58",
       "resolution_mode": "native-skill",
@@ -25052,8 +25052,8 @@
       "source_token": "<cwd>/.agentic/wrap"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "fbc6918627c166dde5e3c131fafa5687562d9fda468e276fffb1dd6b5e59fd36",
       "resolution_mode": "native-skill",
@@ -25072,8 +25072,8 @@
       "source_token": ".agentic/memory.md"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
       "occurrence_hash": "fd20c7388d70521d5d4960ecea02d52de2bb986b759eb6b1398e0d36dda64a9c",
       "resolution_mode": "native-skill",
@@ -25092,8 +25092,8 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
       "occurrence_hash": "fd91980ea1662535f1086ba14c85fcdaf1258e17908389a2164a53211738754e",
       "resolution_mode": "native-skill",

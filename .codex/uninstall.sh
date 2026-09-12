@@ -8,7 +8,8 @@
 # Public API:
 #   bash .codex/uninstall.sh
 #
-# Upstream deps: bash 3.2+, python3, readlink, rm, rmdir, mktemp; optionally
+# Upstream deps: .codex/lib/skill-links.sh for exact skill-link ownership;
+#               bash 3.2+, python3, readlink, rm, rmdir, mktemp; optionally
 #   scripts/lib/hooks-snapshot.sh for snapshot-aware hook cleanup;
 #   .codex/lib/hooks-feature.py for precise, atomic owned-flag removal.
 #
@@ -30,7 +31,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS_SRC="$REPO_DIR/.codex/skills"
 SKILLS_DST="$HOME/.agents/skills"
 LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_NAMES=(dinostack brief wrap implement-ticket)
+# shellcheck source=.codex/lib/skill-links.sh
+source "$REPO_DIR/.codex/lib/skill-links.sh"
+CODEX_CONFIG_DIR="${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-$HOME/.codex}}"
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$HOME/.codex/AGENTS.md"
@@ -79,37 +82,9 @@ fi
 
 echo "Removing native skills..."
 
-for skill_name in "${SKILL_NAMES[@]}"; do
-  skill_src="$SKILLS_SRC/$skill_name"
-  skill_dst="$SKILLS_DST/$skill_name"
-  if [[ -L "$skill_dst" ]]; then
-    current_target="$(readlink "$skill_dst")"
-    if [[ "$current_target" == "$skill_src" || \
-          ( "$skill_name" == "dinostack" && "$current_target" == "$LEGACY_SKILL_SRC" ) ]]; then
-      rm "$skill_dst"
-      echo "  - $skill_name skill symlink removed from $skill_dst"
-    else
-      echo "  = $skill_dst (points to $current_target - not ours, skipping)"
-    fi
-  elif [[ -e "$skill_dst" ]]; then
-    echo "  = $skill_dst (real file/directory - not removing)"
-  else
-    echo "  = $skill_dst (not found - nothing to do)"
-  fi
-done
-
-# Also clean up old (incorrect) symlinks at ~/.codex/skills/ if present
-for skill_name in "${SKILL_NAMES[@]}"; do
-  old_skill_dst="$HOME/.codex/skills/$skill_name"
-  skill_src="$SKILLS_SRC/$skill_name"
-  if [[ -L "$old_skill_dst" ]]; then
-    old_target="$(readlink "$old_skill_dst")"
-    if [[ "$old_target" == "$skill_src" || \
-          ( "$skill_name" == "dinostack" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
-      rm "$old_skill_dst"
-      echo "  - Removed stale legacy symlink at $old_skill_dst"
-    fi
-  fi
+for skill_name in "${SKILL_NAMES[@]}" "${LEGACY_SKILL_NAMES[@]}"; do
+  codex_remove_skill_link "$SKILLS_DST/$skill_name" "$skill_name"
+  codex_remove_skill_link "$CODEX_CONFIG_DIR/skills/$skill_name" "$skill_name"
 done
 
 # ---------------------------------------------------------------------------
