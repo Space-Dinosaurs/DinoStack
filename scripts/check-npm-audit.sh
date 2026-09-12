@@ -15,13 +15,12 @@
 #          and still carry an unaddressed actionable advisory.
 #
 #          DELIBERATELY NOT NAMED HERE: the specific alert-history incident
-#          that prompted this gate. It was measured accurately when written,
-#          but those alerts have since been fixed by a dependency bump and
-#          GitHub cleared their auto-dismiss timestamps on transitioning them
-#          to `state: fixed`. The claim is therefore no longer verifiable from
-#          live state, and a claim that cannot be sourced is deleted rather
-#          than softened. The reasons above are checkable today and are
-#          sufficient on their own.
+#          that prompted this gate. Alert state is mutable - an alert that is
+#          later fixed stops reporting the history it had when someone read
+#          it - so a rationale resting on one is unverifiable by whoever
+#          reads it next, however accurately it was measured when written.
+#          A claim that cannot be sourced is deleted rather than softened.
+#          The reasons above are checkable today and are sufficient alone.
 #
 #          THE FAILURE PREDICATE IS ACTIONABILITY, NOT SEVERITY. A gate that
 #          fails on `npm audit`'s exit code, or on --audit-level=high, would
