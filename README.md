@@ -142,7 +142,8 @@ By default `install-profiles.sh` discovers tenants from existing `~/.<harness>-*
 
 ## Installation modes
 
-DinoStack supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json`:
+DinoStack supports two global activation modes, chosen at install time and persisted in `~/.claude/agentic-engineering.json` by default
+(redirected Codex installs use `<selected-config>/agentic-engineering.json`):
 
 - **`opt-out` (default)** - the methodology is active in every project unless the project's root `AGENTS.md` contains the line `agentic-engineering: opt-out`. Best for most users: the protocol runs everywhere, and individual projects can opt out.
 - **`opt-in`** - the methodology is installed but dormant; it only runs in projects whose root `AGENTS.md` contains the line `agentic-engineering: opt-in`. Best for trying the protocol in one project before rolling it out everywhere.
@@ -154,7 +155,7 @@ bash .claude/install.sh --mode=opt-in
 bash .claude/install.sh --mode=opt-out
 ```
 
-The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, `.hermes`, `.openclaw`, and `.copilot`) - the config file is shared across adapters:
+The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gemini`, `.opencode`, `.pi`, `.omp`, `.kimi`, `.hermes`, `.openclaw`, and `.copilot`) - default installations share the config; redirected Codex installations keep their own:
 
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
@@ -162,7 +163,7 @@ bash .claude/install.sh --no-identity          # skip the developer-identity pro
 bash .claude/install.sh --dry-run             # preview symlink, CLAUDE.md managed-block update, and repo_dir changes; hook, build, and permission phases still execute
 ```
 
-**Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.
+**Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit the selected installation's `agentic-engineering.json` directly.
 
 ## Recommended permissions
 

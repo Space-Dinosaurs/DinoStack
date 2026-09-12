@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Purpose: Regression guard for DS-57. .codex/config/hooks.json wires each
 #          hook command to self-locate at runtime via
-#          dirname(dirname(realpath($HOME/.codex/hooks.json)))/hooks/<script>
+#          dirname(dirname(realpath(<selected-config>/hooks.json)))/hooks/<script>
 #          - a script that is committed nowhere gets silently dropped (the
 #          hook fires, the resolved path does not exist, nothing errors).
 #          This test asserts every "command" entry in the checkout's
@@ -125,7 +125,7 @@ for cmd in "${COMMANDS[@]+"${COMMANDS[@]}"}"; do
     continue
   fi
 
-  resolved="$(HOME="$FAKE_HOME" bash -c "printf '%s' \"$path_expr\"" 2>/dev/null)"
+  resolved="$(AGENTIC_CONFIG_DIR="" CODEX_HOME="" HOME="$FAKE_HOME" bash -c "printf '%s' \"$path_expr\"" 2>/dev/null)"
 
   if [[ -z "$resolved" ]]; then
     _fail "command resolved to an empty path: $cmd"

@@ -6,7 +6,8 @@
 #             [--no-identity] [--config-dir=<dir>]. AGENTIC_CONFIG_DIR provides
 #             the first config-dir fallback; CODEX_HOME provides the second.
 # Upstream deps: .codex/build.sh and its generated AGENTS.md, agents/, skills/,
-#                and config/hooks.json outputs; scripts/lib/identity.sh and
+#                and config/hooks.json outputs; .codex/lib/hooks-feature.py;
+#                scripts/lib/identity.sh and
 #                scripts/lib/hooks-snapshot.sh when present; Bash and Python 3.
 # Downstream consumers: manual installs and update workflows that populate
 #                       ~/.agents/skills/, the selected Codex config directory,
@@ -991,9 +992,9 @@ AE_HOOKS_ROOT="${AE_HOOKS_SNAPSHOT_DIR:-$REPO_DIR}"
 
 # DS-54: HOOKS_SRC is rooted at the hooks snapshot when one was successfully
 # synced, else the checkout (identical to the pre-DS-54 value). The embedded
-# command strings inside .codex/config/hooks.json are unchanged - they derive
+# command strings inside .codex/config/hooks.json derive
 # their own hook-script root at runtime via
-# dirname(dirname(realpath($HOME/.codex/hooks.json))), which resolves to the
+# dirname(dirname(realpath(<selected-config>/hooks.json))), which resolves to the
 # snapshot automatically once HOOKS_DST is re-pointed below.
 HOOKS_SRC="$AE_HOOKS_ROOT/.codex/config/hooks.json"
 # Both LEGACY_HOOKS_SRC candidates are checkout paths: the original
@@ -1059,41 +1060,28 @@ echo "Checking codex_hooks feature flag in config.toml..."
 ADDED_CODEX_HOOKS_FLAG=0
 
 if [[ -f "$CONFIG_FILE" ]]; then
-  if grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=[[:space:]]*true' "$CONFIG_FILE" 2>/dev/null; then
-    echo "  = codex_hooks already enabled in $CONFIG_FILE"
-  elif grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=' "$CONFIG_FILE" 2>/dev/null; then
-    echo ""
-    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo "  WARNING: codex_hooks is present in $CONFIG_FILE but is NOT set to true."
-    echo "  Hooks will not fire until you manually set it to:"
-    echo "    codex_hooks = true"
-    echo "  in the [features] section of $CONFIG_FILE"
-    echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo ""
-  else
-    # File exists, flag is missing. Add it safely.
-    # Check if [features] section exists
-    # Symlink guard: refuse to write through a symlinked config.toml. A
-    # `mv`/`printf >` redirect silently follows and truncates the real target.
-    [[ -L "$CONFIG_FILE" ]] && {
-      echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
-      exit 1
-    }
-    if grep -q "^\[features\]" "$CONFIG_FILE" 2>/dev/null; then
-      # [features] section exists - insert the flag after the FIRST match only
-      # Use a temp file to avoid in-place issues
-      TMPFILE="$(mktemp)"
-      awk 'BEGIN{done=0} /^\[features\]/ && !done {print; print "codex_hooks = true"; done=1; next} 1' "$CONFIG_FILE" > "$TMPFILE"
-      mv "$TMPFILE" "$CONFIG_FILE"
-      echo "  + Added codex_hooks = true to existing [features] section in $CONFIG_FILE"
+  [[ -L "$CONFIG_FILE" ]] && {
+    echo "  ! refusing to write through symlink: $CONFIG_FILE" >&2
+    exit 1
+  }
+  HOOKS_FLAG_STATUS="$(python3 "$REPO_DIR/.codex/lib/hooks-feature.py" "$CONFIG_FILE")"
+  case "$HOOKS_FLAG_STATUS" in
+    enabled)
+      echo "  = codex_hooks already enabled in $CONFIG_FILE"
+      ;;
+    disabled)
+      echo "  WARNING: codex_hooks in [features] is NOT set to true in $CONFIG_FILE."
+      echo "  Hooks will not fire until you manually set it to codex_hooks = true."
+      ;;
+    added)
+      echo "  + Added [features] codex_hooks = true to $CONFIG_FILE"
       ADDED_CODEX_HOOKS_FLAG=1
-    else
-      # No [features] section - append it
-      printf '\n[features]\ncodex_hooks = true\n' >> "$CONFIG_FILE"
-      echo "  + Appended [features] section with codex_hooks = true to $CONFIG_FILE"
-      ADDED_CODEX_HOOKS_FLAG=1
-    fi
-  fi
+      ;;
+    unsupported)
+      echo "  WARNING: cannot safely add codex_hooks to $CONFIG_FILE; leaving it unchanged."
+      echo "  Set codex_hooks = true in a root [features] table manually."
+      ;;
+  esac
 else
   # Config file does not exist - create it with only the feature flag
   mkdir -p "$(dirname "$CONFIG_FILE")"

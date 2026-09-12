@@ -10,7 +10,7 @@
 #          Code does, each pointed at its own skill load path - without it, a session with
 #          skill_auto_load=true gets neither the resident body nor a nudge, and the skill loads
 #          only if the model voluntarily follows its stub's own "load on trigger" prose.
-# Public API: bash hooks/skill-auto-load-check.sh (no args; reads ~/.claude/agentic-engineering.json
+# Public API: bash hooks/skill-auto-load-check.sh (no args; reads the selected activation config
 #             for skill_auto_load, and optionally a JSON payload on stdin with a "prompt" string
 #             field - two structurally-independent command substitutions, not one). No stdin
 #             piped (legacy invocation shape) is a supported input and always fires when
@@ -19,7 +19,9 @@
 #             wiring must set this explicitly). Codex is auto-detected via script_dir
 #             (*/.codex/hooks) - AE_ADAPTER=codex is not set anywhere in this repo, so detection
 #             must not depend on it being present.
-# Upstream deps: ~/.claude/agentic-engineering.json (optional; missing = silent exit). Best-effort
+# Upstream deps: Codex uses AGENTIC_CONFIG_DIR > CODEX_HOME > ~/.claude for activation;
+#                Claude/Gemini use ~/.claude. Missing/malformed selected config = silent exit
+#                without fallback to another profile. Best-effort
 #                stdin JSON payload, "prompt" field only, read via a single bounded os.read
 #                capped at 65536 bytes (never a buffered/looping read - see Failure modes).
 # Downstream consumers: .claude/install.sh (UserPromptSubmit hook), .codex/config/hooks.json
@@ -45,23 +47,26 @@
 #                 It is kept as defense-in-depth against a future edit to the guard, not because
 #                 it is load-bearing today - the flag's load-bearing gate is the earlier guard.
 
-ae_config="$HOME/.claude/agentic-engineering.json"
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 adapter="${AE_ADAPTER:-}"
 if [[ -z "$adapter" && "$script_dir" == *"/.codex/hooks" ]]; then
   adapter="codex"
 fi
 
+ae_config="$HOME/.claude/agentic-engineering.json"
+if [[ "$adapter" == "codex" && -n "${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-}}" ]]; then
+  ae_config="${AGENTIC_CONFIG_DIR:-$CODEX_HOME}/agentic-engineering.json"
+fi
+
 skill_auto_load=$(python3 -c "
 import json, sys
 try:
-    with open('$ae_config') as f:
+    with open(sys.argv[1]) as f:
         val = json.load(f).get('skill_auto_load', False)
         print('true' if val is True else 'false')
 except Exception:
     print('false')
-" 2>/dev/null || echo "false")
+" "$ae_config" 2>/dev/null || echo "false")
 
 # Structurally independent of the substitution above: this one's failure mode is
 # "unknown" (fire), never "false" (silence). A hard death here (process kill,

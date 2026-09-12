@@ -12,6 +12,7 @@
 # Public API: bash bin/tests/test_codex_skill_auto_load_hook.sh
 
 set -uo pipefail
+unset AGENTIC_CONFIG_DIR CODEX_HOME AE_ADAPTER
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -52,12 +53,6 @@ if [[ "$skill_cmd" =~ ^bash[[:space:]]+\".+skill-auto-load-check\.sh\"$ ]]; then
   pass "codex hook command keeps '<interpreter> \"<path>\"' shape"
 else
   fail "codex hook command does not keep '<interpreter> \"<path>\"' shape: $skill_cmd"
-fi
-
-if [[ "$skill_cmd" == *'$(dirname "$(dirname "$(realpath "$HOME/.codex/hooks.json")")")/hooks/skill-auto-load-check.sh'* ]]; then
-  pass "codex hook command targets hooks.json-adjacent codex hook snapshot"
-else
-  fail "codex hook command does not target hooks.json-adjacent codex hook snapshot: $skill_cmd"
 fi
 
 CODEX_STDERR="$TMP_ROOT/codex-stderr.log"
