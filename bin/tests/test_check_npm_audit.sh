@@ -131,7 +131,7 @@ F_ACTIONABLE="$(write_fixture actionable '{
       "fixAvailable": { "name": "js-yaml", "version": "3.13.1", "isSemVerMajor": false }
     }
   },
-  "metadata": { "vulnerabilities": { "high": 1, "total": 1 } }
+  "metadata": { "vulnerabilities": { "high": 1, "total": 1 }, "dependencies": { "total": 99 } }
 }')"
 expect "actionable advisory (non-breaking fix) fails the gate" \
   "$F_ACTIONABLE" 1 "ACTIONABLE"
@@ -147,7 +147,7 @@ F_TRUE="$(write_fixture fix_true '{
       "fixAvailable": true
     }
   },
-  "metadata": { "vulnerabilities": { "high": 1, "total": 1 } }
+  "metadata": { "vulnerabilities": { "high": 1, "total": 1 }, "dependencies": { "total": 99 } }
 }')"
 expect "actionable advisory (fixAvailable === true) fails the gate" \
   "$F_TRUE" 1 "ACTIONABLE"
@@ -166,7 +166,7 @@ F_BREAKING="$(write_fixture breaking '{
       "fixAvailable": { "name": "@marp-team/marp-cli", "version": "2.4.0", "isSemVerMajor": true }
     }
   },
-  "metadata": { "vulnerabilities": { "high": 1, "total": 1 } }
+  "metadata": { "vulnerabilities": { "high": 1, "total": 1 }, "dependencies": { "total": 99 } }
 }')"
 expect "breaking-only advisory passes the gate" \
   "$F_BREAKING" 0 "breaking-only"
@@ -181,7 +181,7 @@ F_UNFIXABLE="$(write_fixture unfixable '{
       "fixAvailable": false
     }
   },
-  "metadata": { "vulnerabilities": { "critical": 1, "total": 1 } }
+  "metadata": { "vulnerabilities": { "critical": 1, "total": 1 }, "dependencies": { "total": 99 } }
 }')"
 expect "unfixable advisory passes the gate even at critical severity" \
   "$F_UNFIXABLE" 0 "unfixable"
@@ -208,7 +208,7 @@ F_MIXED="$(write_fixture mixed '{
       "fixAvailable": { "name": "js-yaml", "version": "3.13.1", "isSemVerMajor": false }
     }
   },
-  "metadata": { "vulnerabilities": { "high": 2, "moderate": 1, "total": 3 } }
+  "metadata": { "vulnerabilities": { "high": 2, "moderate": 1, "total": 3 }, "dependencies": { "total": 99 } }
 }')"
 expect "one actionable advisory among breaking-only ones still fails" \
   "$F_MIXED" 1 "js-yaml"
@@ -217,7 +217,7 @@ expect "one actionable advisory among breaking-only ones still fails" \
 F_CLEAN="$(write_fixture clean '{
   "auditReportVersion": 2,
   "vulnerabilities": {},
-  "metadata": { "vulnerabilities": { "total": 0 } }
+  "metadata": { "vulnerabilities": { "total": 0 }, "dependencies": { "total": 99 } }
 }')"
 expect "clean report passes" "$F_CLEAN" 0 "no actionable advisory"
 
@@ -230,8 +230,13 @@ F_ENDPOINT="$(write_fixture endpoint_failure '{
   "message": "request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: connect ECONNREFUSED",
   "error": { "summary": "", "detail": "" }
 }')"
+# The needle is npm's OWN message text, not the shared "the audit did not run"
+# prefix. Every did-not-run guard in the classifier prints that prefix, so a
+# needle matching it would still match if THIS guard were deleted and a later
+# one caught the payload instead - the assertion would survive its own
+# mutation. Only the {message} guard reproduces npm's reason string.
 expect "registry failure payload is exit 2 (did-not-run), never 0" \
-  "$F_ENDPOINT" 2 "the audit did not run"
+  "$F_ENDPOINT" 2 "connect ECONNREFUSED"
 
 # --- Scenario 8: malformed JSON is exit 2 ----------------------------------
 F_MALFORMED="$(write_fixture malformed 'not json at all {{{')"
@@ -240,9 +245,12 @@ expect "malformed payload is exit 2" "$F_MALFORMED" 2 "not JSON"
 # --- Scenario 9: report with no vulnerabilities KEY is exit 2 --------------
 # Distinct from scenario 7: a payload that has auditReportVersion but whose
 # vulnerabilities key is missing entirely is still "did not run", not clean.
-F_NOVULNKEY="$(write_fixture no_vuln_key '{ "auditReportVersion": 2 }')"
+# Carries a valid metadata.dependencies.total so the zero-dependency guard
+# cannot be what catches it, and asserts on the shape-guard's OWN reason
+# string rather than the prefix every did-not-run path shares.
+F_NOVULNKEY="$(write_fixture no_vuln_key '{ "auditReportVersion": 2, "metadata": { "dependencies": { "total": 99 } } }')"
 expect "report lacking a vulnerabilities key is exit 2, not a clean pass" \
-  "$F_NOVULNKEY" 2 "the audit did not run"
+  "$F_NOVULNKEY" 2 "no auditReportVersion/vulnerabilities in payload"
 
 # --- Scenario 9b: a vulnerabilities object with NO auditReportVersion ------
 # Isolates the auditReportVersion clause of the did-not-run guard. Scenarios
@@ -253,9 +261,9 @@ expect "report lacking a vulnerabilities key is exit 2, not a clean pass" \
 # map with no report version is a truncated/partial response, not a clean
 # audit, and reading it as "0 vulnerabilities" is the exact no-op-as-zero
 # failure this guard exists to prevent.
-F_NOVERSION="$(write_fixture no_report_version '{ "vulnerabilities": {} }')"
+F_NOVERSION="$(write_fixture no_report_version '{ "vulnerabilities": {}, "metadata": { "dependencies": { "total": 99 } } }')"
 expect "a vulnerabilities map with no auditReportVersion is exit 2, not a clean pass" \
-  "$F_NOVERSION" 2 "the audit did not run"
+  "$F_NOVERSION" 2 "no auditReportVersion/vulnerabilities in payload"
 
 # --- Scenario 9c: a bare `null` payload is exit 2 --------------------------
 # Isolates the `report === null` clause of the did-not-run guard. Without this
@@ -269,13 +277,46 @@ F_NULL="$(write_fixture null_payload 'null')"
 expect "a bare null payload is a reported exit 2, not a classifier crash" \
   "$F_NULL" 2 "the audit did not run"
 
+# --- Scenario 9d: a DEGENERATE lockfile is exit 2, not a clean pass --------
+# The literal payload npm 11.19.0 writes for a package-lock.json containing
+# `{}` (captured by running `npm audit --json --prefix` against exactly that).
+# Every other guard accepts it: it is an object, it has auditReportVersion 2,
+# and its vulnerabilities value is a well-formed empty object. Before this
+# scenario the gate reported it as "OK: no actionable advisory" - a PRESENT
+# manifest shrinking coverage to nothing, which is the same failure the
+# missing-lockfile check exists to prevent, reached by a file that exists.
+# metadata.dependencies.total was in the payload all along and unread.
+F_DEGENERATE="$(write_fixture degenerate_lockfile '{
+  "auditReportVersion": 2,
+  "vulnerabilities": {},
+  "metadata": {
+    "vulnerabilities": { "info": 0, "low": 0, "moderate": 0, "high": 0, "critical": 0, "total": 0 },
+    "dependencies": { "prod": 1, "dev": 0, "optional": 0, "peer": 0, "peerOptional": 0, "total": 0 }
+  }
+}')"
+expect "a lockfile resolving 0 dependencies is exit 2, never a clean pass" \
+  "$F_DEGENERATE" 2 "resolved 0 dependencies"
+
+# --- Scenario 9e: no metadata.dependencies.total at all is exit 2 ----------
+# The other half of the same guard, and a distinct clause: a payload that
+# never states how many dependencies were resolved cannot evidence that the
+# manifest resolved any. Asserted separately from 9d because the two clauses
+# print different reasons and each needs its own reddening mutation.
+F_NODEPS="$(write_fixture no_dep_total '{
+  "auditReportVersion": 2,
+  "vulnerabilities": {},
+  "metadata": { "vulnerabilities": { "total": 0 } }
+}')"
+expect "a report with no metadata.dependencies.total is exit 2, not a clean pass" \
+  "$F_NODEPS" 2 "no metadata.dependencies.total in payload"
+
 # --- Scenario 10: unrecognised fixAvailable shape fails toward noticing ----
 F_WEIRD="$(write_fixture weird_shape '{
   "auditReportVersion": 2,
   "vulnerabilities": {
     "odd-pkg": { "name": "odd-pkg", "severity": "low", "fixAvailable": "maybe" }
   },
-  "metadata": { "vulnerabilities": { "low": 1, "total": 1 } }
+  "metadata": { "vulnerabilities": { "low": 1, "total": 1 }, "dependencies": { "total": 99 } }
 }')"
 expect "unrecognised fixAvailable shape is treated as actionable" \
   "$F_WEIRD" 1 "unrecognised fixAvailable shape"
@@ -411,9 +452,13 @@ set_payloads() {
   printf '%s\n' "$2" >"$LIVE_BIN/scripts.json"
 }
 
-P_ACTIONABLE='{"auditReportVersion":2,"vulnerabilities":{"js-yaml":{"name":"js-yaml","severity":"high","fixAvailable":{"name":"js-yaml","version":"3.13.1","isSemVerMajor":false}}}}'
-P_CLEAN='{"auditReportVersion":2,"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0}}}'
+P_ACTIONABLE='{"auditReportVersion":2,"vulnerabilities":{"js-yaml":{"name":"js-yaml","severity":"high","fixAvailable":{"name":"js-yaml","version":"3.13.1","isSemVerMajor":false}}},"metadata":{"dependencies":{"total":99}}}'
+P_CLEAN='{"auditReportVersion":2,"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0},"dependencies":{"total":99}}}'
 P_ENDPOINT='{"message":"request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: connect ECONNREFUSED","error":{"summary":"","detail":""}}'
+# A lockfile that resolves nothing. npm returns a well-formed report, so this
+# is the one did-not-run shape that is indistinguishable from a clean audit
+# by every guard except the dependency-count one.
+P_DEGENERATE='{"auditReportVersion":2,"vulnerabilities":{},"metadata":{"vulnerabilities":{"total":0},"dependencies":{"total":0}}}'
 
 # run_live <tree-dir> <PATH-value> <ci-value, empty = off CI>
 # The PATH is passed WHOLE, not as a prefix: the missing-npm scenario needs a
@@ -512,7 +557,11 @@ expect_live "live: same precedence when the unauditable manifest comes first" \
 # did not run", which is a red under CI, not a false green and not a false
 # finding. That safety net is the general answer to malformed payloads; no
 # classifier can enumerate every one of them in advance.
-P_CRASH='{"auditReportVersion":2,"vulnerabilities":{"some-pkg":null}}'
+# metadata.dependencies.total is present and non-zero ON PURPOSE: without it
+# the zero-dependency did-not-run guard catches this payload first and reports
+# cleanly, and the scenario stops testing what it says it tests. The payload
+# must still get PAST every guard and throw in the vulnerabilities loop.
+P_CRASH='{"auditReportVersion":2,"vulnerabilities":{"some-pkg":null},"metadata":{"dependencies":{"total":99}}}'
 set_payloads "$P_CRASH" "$P_CRASH"
 expect_live "live: a classifier crash is a did-not-run, never 'actionable advisories found'" \
   "$LIVE_TREE" "$LIVE_PATH" "1" 2 "the audit did not run under CI" "actionable dependency advisories found"
@@ -536,6 +585,54 @@ expect_live "live: npm absent under CI is exit 2" \
   "$LIVE_TREE" "$NO_NPM_PATH" "1" 2 "npm is not on PATH"
 expect_live "live: npm absent off CI is a loud SKIPPED, exit 0" \
   "$LIVE_TREE" "$NO_NPM_PATH" "" 0 "SKIPPED"
+
+# --- Scenario 20: a degenerate manifest is a did-not-run in LIVE mode too ---
+# The classify-mode assertion (9d) proves the classifier verdict; this proves
+# the live loop MAPS that verdict onto the script contract rather than
+# swallowing it. Both manifests resolve zero dependencies, so nothing
+# actionable is found and the run would otherwise exit 0 having audited
+# nothing - a green CI job asserting nothing, which is the failure mode this
+# gate exists to prevent. Asserted under CI, where it must be a hard red.
+set_payloads "$P_DEGENERATE" "$P_DEGENERATE"
+expect_live "live: manifests resolving 0 dependencies are a hard exit 2 under CI" \
+  "$LIVE_TREE" "$LIVE_PATH" "1" 2 "the audit did not run under CI" "OK - no advisory"
+
+# --- Scenario 21: an EMPTY MANIFEST_DIRS refuses to run ---------------------
+# The gate auditing nothing because its own manifest list was emptied. Under
+# bash 5 both loops simply no-op and the script exits 0; under bash 3.2 the
+# "${MANIFEST_DIRS[@]}" expansions are an unbound-variable error. Neither is
+# an acceptable answer, so the gate asserts the list is non-empty first.
+# Scenario 12 pins the list CONTENT by grep; that pin cannot detect what the
+# gate DOES when the list is empty, which is what this scenario runs.
+EMPTY_TREE="$LIVE_ROOT/emptydirs/tree"
+mkdir -p "$EMPTY_TREE/scripts"
+sed 's/^MANIFEST_DIRS=.*/MANIFEST_DIRS=()/' "$GATE_SCRIPT" >"$EMPTY_TREE/scripts/check-npm-audit.sh"
+printf '{}\n' >"$EMPTY_TREE/package-lock.json"
+printf '{}\n' >"$EMPTY_TREE/scripts/package-lock.json"
+if ! grep -q '^MANIFEST_DIRS=()$' "$EMPTY_TREE/scripts/check-npm-audit.sh"; then
+  _fail "scenario 21 setup: MANIFEST_DIRS was not emptied, so the scenario asserts nothing"
+else
+  set_payloads "$P_CLEAN" "$P_CLEAN"
+  expect_live "live: an empty MANIFEST_DIRS is exit 2 under CI, never a green no-op" \
+    "$EMPTY_TREE" "$LIVE_PATH" "1" 2 "MANIFEST_DIRS is empty"
+  expect_live "live: an empty MANIFEST_DIRS is exit 2 OFF CI too, never a skip" \
+    "$EMPTY_TREE" "$LIVE_PATH" "" 2 "MANIFEST_DIRS is empty"
+fi
+
+# --- Scenario 22: BOTH manifests failing names BOTH in the summary ----------
+# could_not_run accumulates rather than overwrites. While it was assigned, a
+# run where both manifests failed named only the LAST one in the one-line
+# summary, understating how much coverage was lost. The per-manifest ERROR
+# lines printed either way, so nothing was unlogged - but the summary is what
+# a reader acts on. Both labels must appear in the single summary line.
+set_payloads "$P_ENDPOINT" "$P_ENDPOINT"
+run_live "$LIVE_TREE" "$LIVE_PATH" "1"
+summary="$(printf '%s\n' "$OUT" | grep 'the audit did not run under CI' | head -1)"
+if [[ "$RC" -eq 2 && "$summary" == *"./package-lock.json"* && "$summary" == *"scripts/package-lock.json"* ]]; then
+  _pass "live: both manifests failing names BOTH in the one-line summary"
+else
+  _fail "live: summary line named only some of the failed manifests (rc=$RC): [$summary]"
+fi
 
 echo
 echo "passed: $PASS, failed: $FAIL"

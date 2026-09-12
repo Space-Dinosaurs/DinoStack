@@ -9,6 +9,13 @@ updates:
     # @marp-team/* is pinned to exact versions and upgraded only as a coordinated
     # same-PR action (bump all three packages + lockfile + rebuild slides). Single-
     # package automated bumps break the slides-sync CI gate.
+    #
+    # This suppresses SECURITY updates as well as version updates. Every
+    # advisory scripts/ carries today remediates through @marp-team/marp-cli,
+    # so Dependabot will not open a PR for any of them - by this deliberate
+    # choice, not because the automation failed to see them. See the
+    # Retirement block in scripts/check-npm-audit.sh: its retirement test
+    # cannot be run on an advisory whose remediating package is ignored here.
     ignore:
       - dependency-name: "@marp-team/*"
 
@@ -16,9 +23,9 @@ updates:
   # here is low. This entry keeps that dependency current; it does not by itself
   # prevent a repeat of the transitive js-yaml/brace-expansion drift that motivated
   # it. That class is governed by security alerts, which are independent of
-  # version-update scope: the root manifest was already in the dependency graph
-  # with security updates enabled, and two of its dev-scope brace-expansion alerts
-  # were auto-dismissed rather than acted on.
+  # version-update scope, so this entry says nothing about whether such an
+  # advisory gets acted on. scripts/check-npm-audit.sh is the compensating
+  # control for that.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:

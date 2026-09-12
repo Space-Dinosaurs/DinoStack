@@ -31,7 +31,8 @@ Exit 2 is deliberately distinct from exit 1: it means no gate ran, so it says no
 | Tool | Why | Install |
 |---|---|---|
 | bash >= 5 | macOS ships 3.2, under which `scripts/check-methodology-drift.sh` and `bin/tests/test_update_shared_constants.sh` fail for reasons unrelated to your change (below) | `brew install bash` |
-| node + npm + `npm ci` | `hooks/tests/test-stdin-guard.js` loads `espree`, a transitive `eslint` dependency; `npm` itself is what `scripts/check-npm-audit.sh` audits with | `npm ci` |
+| node + npm | `npm` is what `scripts/check-npm-audit.sh` audits with, and it ships with node | `brew install node` |
+| `espree` | `hooks/tests/test-stdin-guard.js` loads it, a transitive `eslint` dependency | `npm ci` |
 | pytest, pytest-timeout, pyyaml | `bin/tests/`, and the adapter build scripts | `pip install pytest pytest-timeout pyyaml` |
 | zsh | the bash/zsh parity assertions in `test_check_resident_budget.sh` and `test_phase8_telemetry_shell.py` | `brew install zsh` |
 | gitleaks | `test_gitleaks_allowlist_scope.sh` hard-fails without it | `brew install gitleaks` |

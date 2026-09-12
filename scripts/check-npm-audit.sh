@@ -75,6 +75,22 @@
 #           this compensates for is still not working. It is a compensating
 #           control, NOT a permanent enforcement floor, and should not be
 #           treated as one.
+#
+#           SCOPE LIMIT ON THAT TEST, and it is not a small one: Dependabot
+#           `ignore` rules suppress security updates as well as version
+#           updates, so an advisory whose remediating package is ignored can
+#           never produce the update PR the test looks for. .github/
+#           dependabot.yml ignores @marp-team/* on /scripts, and every
+#           advisory scripts/ carries today remediates through
+#           @marp-team/marp-cli. For that population the test is guaranteed
+#           to answer "no update PR was open" - because of a deliberate
+#           config choice, NOT because the automation failed to reach the
+#           advisory. Answering the retirement question on that evidence
+#           would keep this gate alive on a result that was never capable of
+#           coming out any other way. So: run the test only on an advisory
+#           whose remediating package is NOT covered by an `ignore` rule. If
+#           the gate has only ever gone red on ignored packages, the test has
+#           not been run yet and the retirement question stays open.
 #   Cost against Pillars 1/5/6 - one advisory CI job, ~0.5 s per manifest,
 #           no install step, no matrix. It is deliberately NOT a required
 #           check: a red here is information for the operator, not a merge
@@ -124,13 +140,22 @@
 # Downstream consumers: .github/workflows/codeql.yml npm-audit job;
 #            scripts/check-local.sh; bin/tests/test_check_npm_audit.sh.
 #
-# Failure modes: a MISSING lockfile is exit 2, never a skip - a renamed or
-#            deleted manifest must not silently shrink this gate's coverage
-#            to nothing. A report lacking auditReportVersion or a
-#            vulnerabilities object is treated as "did not run" (exit 2)
-#            rather than as an empty result, because npm emits a bare
-#            {message, error} object on registry failure and that object
-#            would otherwise parse as zero vulnerabilities.
+# Failure modes: every way this gate can end up auditing nothing is exit 2,
+#            never a skip and never a clean pass. There are four, and they
+#            are separate checks because each is reached differently:
+#              - a MISSING lockfile (a renamed or deleted manifest).
+#              - an EMPTY MANIFEST_DIRS (the list itself edited to nothing).
+#              - a PRESENT but DEGENERATE lockfile, which is the one that
+#                looks clean: a package-lock.json containing `{}` returns a
+#                well-formed report with auditReportVersion 2, an empty
+#                vulnerabilities map and metadata.dependencies.total 0
+#                (measured on npm 11.19.0). Zero resolved dependencies is a
+#                did-not-run; only a report showing the manifest resolved at
+#                least one dependency can claim a clean tree.
+#              - a report lacking auditReportVersion or a vulnerabilities
+#                object, because npm emits a bare {message, error} object on
+#                registry failure and that object would otherwise parse as
+#                zero vulnerabilities.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -215,6 +240,30 @@ process.stdin.on("end", () => {
   ) {
     const why = report && report.message ? report.message : "no auditReportVersion/vulnerabilities in payload";
     console.log(`  ERROR: ${label}: the audit did not run - ${why}`);
+    process.exit(3);
+  }
+
+  // A PRESENT but degenerate lockfile audits as a flawless clean report. A
+  // package-lock.json containing `{}` yields auditReportVersion 2, an empty
+  // vulnerabilities map, and metadata.dependencies.total 0 (measured on npm
+  // 11.19.0), which every guard above accepts and which then prints "OK: no
+  // actionable advisory". That shrinks the coverage of this gate to nothing
+  // - the identical failure the missing-lockfile check exists to prevent,
+  // reached by a file that exists rather than one that does not. Zero
+  // resolved dependencies is therefore a did-not-run, never a clean tree.
+  // For reference, the two manifests in this repo resolve 99 and 170.
+  //
+  // NO APOSTROPHES ANYWHERE IN THIS node -e BODY: it is a single-quoted
+  // shell string, so one apostrophe terminates it and the rest of the
+  // classifier is parsed by bash as filenames.
+  const deps = report.metadata && report.metadata.dependencies;
+  const depTotal = deps && typeof deps.total === "number" ? deps.total : null;
+  if (depTotal === null) {
+    console.log(`  ERROR: ${label}: the audit did not run - no metadata.dependencies.total in payload, so the report cannot show that the manifest resolved anything.`);
+    process.exit(3);
+  }
+  if (depTotal < 1) {
+    console.log(`  ERROR: ${label}: the audit did not run - the manifest resolved 0 dependencies (an empty or degenerate lockfile), so a clean result asserts nothing.`);
     process.exit(3);
   }
 
@@ -325,6 +374,22 @@ cannot_run() {
   exit 0
 }
 
+# An EMPTY MANIFEST_DIRS is a hard exit 2 and never a skip, for the same
+# reason a missing lockfile is: both loops below would no-op, overall would
+# stay 0, and the gate would exit 0 under CI having audited nothing - the one
+# shape this gate exists to prevent. Not left to the grep pin in
+# bin/tests/test_check_npm_audit.sh: a pin asserts the list's CONTENT is
+# unchanged, not that the gate refuses to run on an empty one. Checked before
+# node/npm so the diagnosis is the real defect rather than a missing tool, and
+# written as a count (safe on an empty array under bash 3.2, unlike the
+# "${MANIFEST_DIRS[@]}" expansions below, which are an unbound-variable error
+# there - measured on 3.2.57).
+if [ "${#MANIFEST_DIRS[@]}" -eq 0 ]; then
+  echo "check-npm-audit: MANIFEST_DIRS is empty - this gate would audit nothing." >&2
+  echo "  A gate that goes green having asserted nothing is worse than a red one." >&2
+  exit 2
+fi
+
 if ! command -v node >/dev/null 2>&1; then
   cannot_run "node is not on PATH"
 fi
@@ -375,7 +440,18 @@ for d in "${MANIFEST_DIRS[@]}"; do
     # Neither exits here. Exiting mid-loop DISCARDED an actionable advisory
     # an earlier manifest had already found - off CI that printed a FAIL line
     # naming the advisory and then exited 0 SKIPPED.
-    *) could_not_run="npm audit produced no usable report for $label" ;;
+    # APPENDED, not assigned: when BOTH manifests fail, an assignment left the
+    # one-line summary below naming only the last one, silently understating
+    # how much coverage was lost. The per-manifest ERROR lines above always
+    # print either way, so nothing was unlogged - but the summary is what a
+    # reader acts on, and it is consumed twice below.
+    *)
+      if [ -n "$could_not_run" ]; then
+        could_not_run="$could_not_run; npm audit produced no usable report for $label"
+      else
+        could_not_run="npm audit produced no usable report for $label"
+      fi
+      ;;
   esac
 done
 

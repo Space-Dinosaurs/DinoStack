@@ -386,8 +386,8 @@ fi
 # present-but-broken.
 # ---------------------------------------------------------------------------
 # Wrappers for exactly the tools check-local.sh and its stub gates use: the
-# six the preflight itself probes, plus the coreutils the gate harness needs
-# once preflight passes.
+# seven the preflight itself probes (bash, node, npm, python3, gh, zsh,
+# gitleaks), plus the coreutils the gate harness needs once preflight passes.
 STUB_TOOLS="sed head sort dirname basename node npm python3 gh zsh gitleaks \
 mktemp cat date grep tr wc git rm mkdir chmod touch env uname awk cut expr diff"
 
@@ -456,7 +456,14 @@ assert_preflight_miss "node missing"     node     "brew install node"
 # exists to prevent - so a missing npm must stop the run, not quietly shrink
 # what it covers. The espree probe above does not subsume this: espree can be
 # present on a tree whose node_modules came from another package manager.
-assert_preflight_miss "npm missing"      npm      "check-npm-audit.sh cannot audit"
+# The needle is the INSTALL COMMAND, matching what the assertion says it
+# checks. It was previously a fragment of the reason string
+# ("check-npm-audit.sh cannot audit"), which left the install-command axis
+# asserting nothing: mutating the _miss call's second argument to anything,
+# including the empty string, kept the suite green. `brew install node` is
+# correct here because npm ships WITH node; `npm ci` cannot be the remedy for
+# a missing npm.
+assert_preflight_miss "npm missing"      npm      "fix: brew install node"
 
 # node present but espree unresolvable - the exact dependency three engineers
 # re-diagnosed independently in one session.
