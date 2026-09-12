@@ -42,6 +42,17 @@ merged trees had never been evaluated by any run**:
   `codeql.yml` (SARIF upload is default-branch-scoped), `gitleaks.yml`
   (full-history scan of `main`), and `scorecard.yml` (scores the default
   branch). Nothing else.
+
+  `codeql.yml` carries a second job, `npm-audit`, which inherits all three of
+  that workflow's triggers. The **`schedule`** trigger is why the job lives
+  there rather than in a workflow of its own: it audits both lockfiles for
+  advisories with a non-breaking fix available, and the failure class it
+  exists for is DRIFT, not a diff. An advisory gets published, or stops being
+  acted on, while no lockfile changes at all - so no PR-triggered run would
+  ever evaluate it, and only a run on an unchanged tree catches it. Its
+  `push: main` inheritance is incidental and costs
+  ~1 s; it is not a new grant under this policy and is not a precedent for
+  adding non-SARIF jobs to that workflow.
 - **`verify-merged-tree.yml` is the single post-merge run**, on
   `push: branches: [main]` + `workflow_dispatch`. Its `needs-full-run` gate job
   (~10 s) compares the pushed commit's tree object against the tree of the

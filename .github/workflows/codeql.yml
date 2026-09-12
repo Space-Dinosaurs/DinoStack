@@ -55,3 +55,44 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{ matrix.language }}'
+
+  # Dependency-advisory gate. Lives here rather than in its own workflow
+  # because this is the repo's security-analysis workflow and it ALREADY
+  # carries the exact trigger set this gate needs, including the weekly
+  # schedule - and the schedule is the load-bearing one. The failure class
+  # this gate exists for is DRIFT: an advisory is published, or stops being
+  # acted on, against a lockfile that nobody is touching. No diff introduces
+  # it, so a PR-only gate would never fire on it. A newly published advisory
+  # against an unchanged lockfile surfaces on the next scheduled run.
+  #
+  # ADVISORY, NOT REQUIRED. Deliberately absent from the main ruleset's
+  # required-checks list, following scripts/check-command-file-budget.sh and
+  # scripts/check-slide-overflow.sh. Note what that precedent does NOT mean:
+  # the job is NOT continue-on-error. It goes red on an actionable advisory
+  # like any other check, it just does not block the merge button.
+  #
+  # No matrix, ubuntu-latest only. This repo has a recorded incident where a
+  # matrix added to an existing job quietly made a required check
+  # unsatisfiable AND burned ~12,000 macOS runner minutes (~$1000) before
+  # anyone noticed. Do not add one here.
+  npm-audit:
+    name: npm audit (actionable advisories)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # No `npm ci` and no cache. `npm audit` resolves the dependency tree
+      # from the lockfile alone and needs no node_modules present (verified
+      # on a tree with neither node_modules/ nor scripts/node_modules/), so
+      # an install step here would add minutes and buy nothing.
+      - name: Set up node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Audit both manifests for actionable advisories
+        run: bash scripts/check-npm-audit.sh

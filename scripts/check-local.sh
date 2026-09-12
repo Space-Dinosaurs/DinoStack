@@ -46,13 +46,24 @@
 #            for a bash >= 5 when the `bash` on PATH is older (macOS ships
 #            3.2). Defaults to /usr/local/bin/bash:/opt/homebrew/bin/bash.
 #
-# Upstream dependencies: bash >= 5, node + npm ci, python3 + pytest +
+# Upstream dependencies: bash >= 5, node + npm + npm ci, python3 + pytest +
 #            pytest-timeout + pyyaml, zsh, gitleaks, gh >= 2.52, git. The
 #            preflight verifies each and prints the exact install command for
-#            whatever is missing. NOTHING here downgrades a missing tool to a
+#            whatever is missing. NOTHING here downgrades a missing TOOL to a
 #            skip: a silently-skipped assertion is indistinguishable from a
 #            pass (see AGENTS.md, three separate recorded instances of that
 #            failure family).
+#
+#            ONE GATE CAN STILL SKIP ITSELF, and no preflight can prevent it:
+#            check-npm-audit.sh needs the npm advisory ENDPOINT, not just a
+#            tool. Offline, or with the registry unreachable, it prints a
+#            SKIPPED block and exits 0 rather than blocking an unrelated
+#            change on a gate that structurally cannot run. So a green run
+#            here is NOT proof that the dependency audit ran - read that
+#            gate's own output, which says which of the two happened. The
+#            same condition is a hard failure under ${CI}, so it can never go
+#            green in CI without auditing; the local skip is the only place
+#            this asymmetry exists, and it is deliberate.
 #
 # Downstream consumers: contributors; CONTRIBUTING.md "Local toolchain";
 #            bin/tests/test_check_local.sh.
@@ -132,6 +143,16 @@ if ! command -v node >/dev/null 2>&1; then
 elif ! node -e "require('espree')" >/dev/null 2>&1; then
   _miss "the espree parser required by hooks/tests/test-stdin-guard.js (a transitive eslint dep)" \
         "npm ci"
+fi
+# npm itself, for check-npm-audit.sh. Listed even though the espree probe
+# above already fails for most npm-less machines (espree arrives via `npm
+# ci`): that probe passes on a tree whose node_modules came from another
+# package manager or a copied checkout, and on such a tree the audit gate
+# would downgrade itself to a skip - the one thing this preflight exists to
+# prevent. Naming npm here costs a machine that has node but not npm nothing
+# it was not already going to be told.
+if ! command -v npm >/dev/null 2>&1; then
+  _miss "npm (not on PATH; scripts/check-npm-audit.sh cannot audit without it)" "brew install node"
 fi
 
 # python3 + the three modules bin-tests.yml installs.
@@ -409,6 +430,21 @@ if _require_file scripts/check-no-false-umbrella-claims.sh; then
 fi
 if _require_file scripts/check-corpus-coverage.py; then
   _run_gate "check-corpus-coverage.py" python3 scripts/check-corpus-coverage.py
+fi
+# The ONE covered gate that needs the network (the npm advisory endpoint).
+# It is covered rather than deferred to the NOT-RUN block because it costs
+# ~0.5 s per manifest and needs no install step, so it is nothing like the
+# three gates excluded there on cost.
+#
+# Its TOOL is in the preflight above; its ENDPOINT cannot be. When the
+# registry is unreachable the gate splits on ${CI} - a loud SKIPPED block
+# locally, a hard red in CI - so it can never go green in CI having asserted
+# nothing, but a green LOCAL run does not prove it audited. That is stated in
+# this script's header rather than only here, because the reader who needs it
+# is the one reading a green summary, not this line. See the gate's own
+# header, "Network / CI asymmetry".
+if _require_file scripts/check-npm-audit.sh; then
+  _run_gate "check-npm-audit.sh" "$BASH5" scripts/check-npm-audit.sh
 fi
 
 # ---------------------------------------------------------------------------
