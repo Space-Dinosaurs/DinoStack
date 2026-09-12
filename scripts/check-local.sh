@@ -410,6 +410,18 @@ fi
 if _require_file scripts/check-corpus-coverage.py; then
   _run_gate "check-corpus-coverage.py" python3 scripts/check-corpus-coverage.py
 fi
+# The ONE covered gate that needs the network (the npm advisory endpoint).
+# It is covered rather than deferred to the NOT-RUN block because it costs
+# ~0.5 s per manifest and needs no install step, so it is nothing like the
+# three gates excluded there on cost. It is also the only gate here whose
+# tool (npm) is deliberately NOT in the preflight above: requiring npm would
+# exit 2 and run NOTHING for a contributor who lacks it, to cover a single
+# advisory check. Instead the gate itself splits on ${CI} - a loud SKIPPED
+# block locally, a hard red in CI - so it can never go green in CI having
+# asserted nothing. See its header, "Network / CI asymmetry".
+if _require_file scripts/check-npm-audit.sh; then
+  _run_gate "check-npm-audit.sh" "$BASH5" scripts/check-npm-audit.sh
+fi
 
 # ---------------------------------------------------------------------------
 # Coverage gap, printed on EVERY run. A green run above means "the covered set

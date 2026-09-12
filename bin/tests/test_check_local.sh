@@ -162,7 +162,7 @@ EOF
   local s
   for s in build-all.sh check-symlinks-relative.sh check-methodology-drift.sh \
            check-no-false-umbrella-claims.sh stamp-agent-fragments.sh \
-           check-codex-skill-sync.sh; do
+           check-codex-skill-sync.sh check-npm-audit.sh; do
     printf '#!/usr/bin/env bash\necho "stub %s ok"\nexit 0\n' "$s" > "$d/scripts/$s"
     chmod +x "$d/scripts/$s"
   done
