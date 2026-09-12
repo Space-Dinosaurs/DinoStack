@@ -690,12 +690,21 @@ def test_round6_sweep_closes_remaining_unpinned_widening_sites() -> None:
         "bounded-subset-only disclosure ahead of the Mechanical "
         "enforcement paragraph"
     )
+    # Round-3 (spawn-brief-neutrality-recipient-scope) update: "for the
+    # full rule" was stale once Section 11 of subagent-protocol.md became
+    # the general, recipient-wide canonical site - the pinned substring
+    # now requires the paragraph to point readers at that section for the
+    # full statement rather than claiming "Scope of the ban" itself is
+    # the full rule.
     assert (
         "a bounded subset only - see \"Scope of the ban\" above for the "
-        "full rule" in protocol
+        "Skeptic-specific elaboration, and `content/references/"
+        "subagent-protocol.md` §11 for the full statement of the general "
+        "rule" in protocol
     ), (
         f"{SKEPTIC_PROTOCOL} 'Mechanical enforcement' paragraph header is "
-        "missing its own bounded-subset-only qualifier"
+        "missing its own bounded-subset-only qualifier and its pointer to "
+        "subagent-protocol.md §11 for the full statement"
     )
 
     # hooks/AGENTS.md - the enforce-skeptic-neutrality.py module-map row's
