@@ -309,7 +309,7 @@ Per-line self-check: would a future reader need this line to know what to build,
 
 Subject line: `type(scope): <imperative description>`, written in the imperative mood. The cap is on the whole subject INCLUDING the `type(scope):` prefix - ≤ 50 characters total, leaving roughly 25-35 characters for the description on typical scopes. A description that cannot fit pushes the detail into the body. Conventional git subject-line guidance: git truncates long subjects in tooling output, and 50 is the traditional subject cap. This is guidance, not a repo-precedent claim - subjects in this repo routinely run 60-120+ characters.
 
-The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Co-Authored-By, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
+The body below the blank line is uncapped; put detail there. Trailer lines (Closes, Developer, Signed-off-by) are excluded from the subject cap and pass through unchanged.
 
 ### Assembled PR bodies
 

@@ -8473,16 +8473,6 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
-      "generated_token": "short",
-      "kind": "display-only",
-      "occurrence_hash": "52827728992904db5a2b7426dd274e9198d9b363a6a6f8e0dae5dc1197cc0719",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "short"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
       "generated_token": "-",
       "kind": "display-only",
       "occurrence_hash": "52cce85b2127327d0132338fc58e53fd6113c30be19e61620e442fff704bc866",
@@ -13840,6 +13830,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "fi"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "short",
+      "kind": "display-only",
+      "occurrence_hash": "a347bcd5bec2a1f3b2b920bffc2605e14c63ae1aad9dc87412f744f66f2d7835",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "short"
     },
     {
       "expected_target": "hashed-source-occurrence",
