@@ -59,11 +59,11 @@ jobs:
   # Dependency-advisory gate. Lives here rather than in its own workflow
   # because this is the repo's security-analysis workflow and it ALREADY
   # carries the exact trigger set this gate needs, including the weekly
-  # schedule - and the schedule is the load-bearing one. The failure this
-  # gate exists for (two high-severity alerts auto-dismissed and unfixed for
-  # five weeks) is a DRIFT failure: no diff introduces it, so a PR-only gate
-  # would not have caught it either. A newly published advisory against an
-  # unchanged lockfile surfaces on the next scheduled run.
+  # schedule - and the schedule is the load-bearing one. The failure class
+  # this gate exists for is DRIFT: an advisory is published, or stops being
+  # acted on, against a lockfile that nobody is touching. No diff introduces
+  # it, so a PR-only gate would never fire on it. A newly published advisory
+  # against an unchanged lockfile surfaces on the next scheduled run.
   #
   # ADVISORY, NOT REQUIRED. Deliberately absent from the main ruleset's
   # required-checks list, following scripts/check-command-file-budget.sh and

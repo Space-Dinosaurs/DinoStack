@@ -1,12 +1,27 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Purpose: Compensating control for dependency advisories. This repo shipped a
-#          high-severity js-yaml CVE in two manifests, and two high-severity
-#          brace-expansion alerts were auto-dismissed on 2026-08-03 and left
-#          unfixed for five weeks. Nothing measured it: before this script,
-#          `grep -rln 'npm audit' .github/workflows/ scripts/*.sh` returned
-#          nothing. This closes that hole for both npm manifests in the repo -
-#          package-lock.json at the root and scripts/package-lock.json.
+# Purpose: Compensating control for dependency advisories. Nothing in this repo
+#          measured them: before this script, no workflow and no script called
+#          `npm audit` at all - `git grep -l 'npm audit' <any pre-gate commit>
+#          -- .github/workflows/ scripts/` returns nothing - while a
+#          high-severity advisory with a non-breaking fix sat unfixed in BOTH
+#          manifests. This closes that hole for both npm manifests in the repo
+#          - package-lock.json at the root and scripts/package-lock.json.
+#
+#          Configuring Dependabot version updates does not close it. Security
+#          alerts are governed independently of version-update scope, and a
+#          dev-scope alert can be auto-triaged away without anyone acting on
+#          it, so a manifest can be fully covered by .github/dependabot.yml
+#          and still carry an unaddressed actionable advisory.
+#
+#          DELIBERATELY NOT NAMED HERE: the specific alert-history incident
+#          that prompted this gate. It was measured accurately when written,
+#          but those alerts have since been fixed by a dependency bump and
+#          GitHub cleared their auto-dismiss timestamps on transitioning them
+#          to `state: fixed`. The claim is therefore no longer verifiable from
+#          live state, and a claim that cannot be sourced is deleted rather
+#          than softened. The reasons above are checkable today and are
+#          sufficient on their own.
 #
 #          THE FAILURE PREDICATE IS ACTIONABILITY, NOT SEVERITY. A gate that
 #          fails on `npm audit`'s exit code, or on --audit-level=high, would
@@ -42,20 +57,25 @@
 #          of being silently swallowed.
 #
 # Pillar 8 record (docs/overview/vision.md):
-#   Catch - a high-severity js-yaml CVE sat in BOTH manifests, and two
-#           high-severity brace-expansion alerts were auto-dismissed by a
-#           Dependabot triage preset on 2026-08-03 and left unfixed for five
-#           weeks. Nothing in the repo would have reported any of them: there
-#           was no `npm audit` call in any workflow or script. This gate fails
-#           on exactly that population - an advisory with a non-breaking fix
-#           available - so all three would have been a red job the same day.
-#   Retirement - this gate retires when Dependabot (or an equivalent) is
-#           configured to open update PRs for BOTH manifests with no
-#           auto-dismiss preset in front of it. At that point an actionable
-#           advisory arrives as a reviewable PR on its own, and a second
-#           mechanism asserting the same thing is duplicated machinery. It is
-#           a compensating control for a disabled automation, NOT a permanent
-#           enforcement floor, and should not be treated as one.
+#   Catch - a high-severity advisory with a non-breaking fix available sat
+#           unfixed in BOTH manifests, and nothing in the repo would have
+#           reported it: there was no `npm audit` call in any workflow or
+#           script (verifiable against any pre-gate commit). This gate fails on
+#           exactly that population - an advisory with a non-breaking fix
+#           available - so it would have been a red job the same day.
+#   Retirement - keyed to an OBSERVABLE, not to a config file. "Dependabot is
+#           configured for both manifests" is NOT the condition and never was:
+#           .github/dependabot.yml already configures npm updates for both
+#           directories, and security alerts are governed separately from
+#           version-update scope, so that file says nothing about whether an
+#           advisory gets acted on. The testable condition: the next time this
+#           gate goes red, check whether an update PR proposing that same fix
+#           was already open BEFORE the gate fired. If it was, the automation
+#           is reaching these advisories on its own, this gate is duplicated
+#           machinery, and it should be deleted. If it was not, the mechanism
+#           this compensates for is still not working. It is a compensating
+#           control, NOT a permanent enforcement floor, and should not be
+#           treated as one.
 #   Cost against Pillars 1/5/6 - one advisory CI job, ~0.5 s per manifest,
 #           no install step, no matrix. It is deliberately NOT a required
 #           check: a red here is information for the operator, not a merge
@@ -77,6 +97,13 @@
 #   exit 2 - THE AUDIT DID NOT RUN (npm missing, registry unreachable, or a
 #            payload that is not an audit report). Never conflated with 0:
 #            a no-op read must not be reported as "zero vulnerabilities".
+#
+#   PRECEDENCE when manifests disagree: an actionable advisory DETECTED in any
+#            manifest outranks another manifest's inability to run, so such a
+#            run is exit 1 (on CI and off it), never a skip. A real finding is
+#            never discarded in favour of "this gate asserted nothing". The
+#            unaudited manifest is named in the same output, so the incomplete
+#            coverage stays visible rather than being traded away.
 #
 # Network / CI asymmetry: live mode needs the registry. When it is
 #            unreachable (or npm is absent), the behaviour SPLITS on ${CI},
@@ -123,6 +150,11 @@ usage() {
 }
 
 CLASSIFY_FILE=""
+# Mode is tracked separately from the filename. Deriving "are we classifying?"
+# from `[ -n "$CLASSIFY_FILE" ]` alone made `--classify ""` fall through to a
+# LIVE NETWORK AUDIT: the caller asked for a deterministic offline
+# classification and silently got the opposite of what it asked for.
+CLASSIFY_MODE=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
@@ -132,6 +164,7 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       CLASSIFY_FILE="$2"
+      CLASSIFY_MODE=1
       shift 2
       ;;
     *)
@@ -144,9 +177,18 @@ done
 
 # ---------------------------------------------------------------------------
 # The classifier. Reads one npm audit --json report on stdin, prints a
-# per-advisory breakdown, and exits 0 (no actionable), 1 (actionable), or
+# per-advisory breakdown, and exits 0 (no actionable), 4 (actionable), or
 # 3 (payload is not an audit report). Kept in one place so live mode and
 # --classify mode cannot drift apart.
+#
+# ACTIONABLE IS 4, NOT 1, AND THAT IS LOAD-BEARING. node exits 1 on an
+# uncaught exception, so while actionable was 1 a classifier CRASH was
+# indistinguishable from a real finding: callers reported it as "actionable
+# advisories found", failing loud with the wrong diagnosis and sending the
+# reader to hunt an advisory that does not exist. With 4 reserved for the
+# verdict, every unexpected code - 1 included - falls through to the
+# did-not-run path, which is what a crash actually is. Callers map these onto
+# the script's public 0/1/2 contract; 4 never escapes this file.
 # ---------------------------------------------------------------------------
 classify_report() {
   local label="$1"
@@ -226,7 +268,7 @@ process.stdin.on("end", () => {
     process.exit(0);
   }
   console.log(`  FAIL: ${label}: ${actionable.length} actionable advisory/advisories with a non-breaking fix available.`);
-  process.exit(1);
+  process.exit(4);
 });
 ' "$label"
 }
@@ -234,7 +276,12 @@ process.stdin.on("end", () => {
 # ---------------------------------------------------------------------------
 # --classify mode. Deterministic, offline, and never skips.
 # ---------------------------------------------------------------------------
-if [ -n "$CLASSIFY_FILE" ]; then
+if [ "$CLASSIFY_MODE" -eq 1 ]; then
+  # An empty path is a usage error, never a silent fall-through to live mode.
+  if [ -z "$CLASSIFY_FILE" ]; then
+    echo "check-npm-audit: --classify needs a non-empty file argument" >&2
+    exit 2
+  fi
   if ! command -v node >/dev/null 2>&1; then
     echo "check-npm-audit: node is not on PATH - cannot classify" >&2
     exit 2
@@ -248,7 +295,10 @@ if [ -n "$CLASSIFY_FILE" ]; then
   rc=$?
   case "$rc" in
     0) exit 0 ;;
-    1) exit 1 ;;
+    4) exit 1 ;;
+    # 3 is the classifier's did-not-run verdict. Any OTHER code is a
+    # classifier crash (node exits 1 on an uncaught exception), which is also
+    # a did-not-run, not a finding.
     *) exit 2 ;;
   esac
 fi
@@ -297,6 +347,10 @@ AUDIT_OUT="$(mktemp -t check-npm-audit.XXXXXX)"
 trap 'rm -f "$AUDIT_OUT"' EXIT
 
 overall=0
+# Set (not exited on) when a manifest could not be audited, so the loop can
+# finish and the two outcomes can be weighed together after it. See the
+# precedence block below.
+could_not_run=""
 echo "check-npm-audit: auditing ${#MANIFEST_DIRS[@]} manifest(s) from lockfiles (no node_modules required)"
 
 for d in "${MANIFEST_DIRS[@]}"; do
@@ -316,17 +370,40 @@ for d in "${MANIFEST_DIRS[@]}"; do
   rc=$?
   case "$rc" in
     0) ;;
-    1) overall=1 ;;
-    *) cannot_run "npm audit produced no usable report for $label" ;;
+    4) overall=1 ;;
+    # 3 is the classifier's did-not-run verdict; any other code is a
+    # classifier crash, which is also a did-not-run rather than a finding.
+    # Neither exits here. Exiting mid-loop DISCARDED an actionable advisory
+    # an earlier manifest had already found - off CI that printed a FAIL line
+    # naming the advisory and then exited 0 SKIPPED.
+    *) could_not_run="npm audit produced no usable report for $label" ;;
   esac
 done
 
 echo
+# PRECEDENCE, decided deliberately: a DETECTED actionable advisory outranks a
+# later manifest's inability to run. Exit 1 is a true, specific statement
+# about this tree - a named advisory with a named non-breaking fix, already
+# printed above. The did-not-run path says only "this gate asserted nothing",
+# which carries strictly less information and, off CI, is a skip. Letting the
+# skip win discards a real finding and prints SKIPPED directly beneath a FAIL
+# line naming the advisory, which is the worst available outcome. The reverse
+# costs nothing: the unaudited manifest is still named below, so incomplete
+# coverage stays visible, and under CI both paths are red regardless.
 if [ "$overall" -ne 0 ]; then
   echo "::error::check-npm-audit: actionable dependency advisories found (a non-breaking fix is available)"
   echo "check-npm-audit: FAILED - at least one advisory has a non-breaking fix available."
+  if [ -n "$could_not_run" ]; then
+    echo "  AND COVERAGE WAS INCOMPLETE: $could_not_run"
+    echo "  Fixing what is listed above does not fully clear this run - a manifest was never audited."
+  fi
   echo "  Fix with: npm audit fix --prefix <manifest dir>   (then commit the lockfile)"
   exit 1
+fi
+# No actionable advisory was found, but a manifest never ran, so this gate
+# cannot claim a clean tree: hard red under CI, loud skip off it.
+if [ -n "$could_not_run" ]; then
+  cannot_run "$could_not_run"
 fi
 echo "check-npm-audit: OK - no advisory with a non-breaking fix available."
 exit 0

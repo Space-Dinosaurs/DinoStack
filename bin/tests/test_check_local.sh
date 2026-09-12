@@ -388,7 +388,7 @@ fi
 # Wrappers for exactly the tools check-local.sh and its stub gates use: the
 # six the preflight itself probes, plus the coreutils the gate harness needs
 # once preflight passes.
-STUB_TOOLS="sed head sort dirname basename node python3 gh zsh gitleaks \
+STUB_TOOLS="sed head sort dirname basename node npm python3 gh zsh gitleaks \
 mktemp cat date grep tr wc git rm mkdir chmod touch env uname awk cut expr diff"
 
 make_stub_path() {
@@ -451,6 +451,12 @@ $out"
 assert_preflight_miss "zsh missing"      zsh      "brew install zsh"
 assert_preflight_miss "gitleaks missing" gitleaks "brew install gitleaks"
 assert_preflight_miss "node missing"     node     "brew install node"
+# npm is required for scripts/check-npm-audit.sh. Without it that gate
+# downgrades ITSELF to a skip, which is the exact outcome this preflight
+# exists to prevent - so a missing npm must stop the run, not quietly shrink
+# what it covers. The espree probe above does not subsume this: espree can be
+# present on a tree whose node_modules came from another package manager.
+assert_preflight_miss "npm missing"      npm      "check-npm-audit.sh cannot audit"
 
 # node present but espree unresolvable - the exact dependency three engineers
 # re-diagnosed independently in one session.
