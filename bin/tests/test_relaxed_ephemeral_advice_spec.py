@@ -30,8 +30,8 @@ DOCS = REPO_ROOT / "docs/index.html"
 RISK_SLIDES = REPO_ROOT / "docs/slides/risk-classification-slides.md"
 PROFILE_SLIDES = REPO_ROOT / "docs/slides/profiles-slides.md"
 CANONICAL_SKILL = REPO_ROOT / "content/SKILL.md"
-CODEX_SKILL = REPO_ROOT / ".codex/skills/dinostack/SKILL.md"
-CODEX_METHODOLOGY = REPO_ROOT / ".codex/skills/dinostack/METHODOLOGY.md"
+CODEX_SKILL = REPO_ROOT / ".codex/skills/dinostack-codex/SKILL.md"
+CODEX_METHODOLOGY = REPO_ROOT / ".codex/skills/dinostack-codex/METHODOLOGY.md"
 
 PREDICATES = (
     "output is chat text only",

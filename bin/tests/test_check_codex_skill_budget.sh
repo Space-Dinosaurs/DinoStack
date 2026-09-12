@@ -106,14 +106,14 @@ done
 #   budget-gate.sh} (copies of the real ones), content/sections/ (
 #   EXPECTED_SECTION_COUNT stubs, each with a distinct heading),
 #   content/rules/ (EXPECTED_RULES_COUNT stubs), a real rules/ symlink
-#   under .codex/skills/dinostack/ pointing at content/rules, and
+#   under .codex/skills/dinostack-codex/ pointing at content/rules, and
 #   METHODOLOGY.md/AGENTS.md padded to the requested byte counts (embedding
 #   every section heading so the embed-completeness check passes by
 #   default - individual scenarios mutate from there).
 build_fixture() {
   local dir="$1" methodology_bytes="$2" agents_bytes="$3"
   mkdir -p "$dir/scripts/lib" "$dir/content/sections" "$dir/content/rules" \
-    "$dir/.codex/skills/dinostack"
+    "$dir/.codex/skills/dinostack-codex"
 
   cp "$GATE_SCRIPT" "$dir/scripts/check-codex-skill-budget.sh"
   cp "$GATE_LIB" "$dir/scripts/lib/budget-gate.sh"
@@ -147,7 +147,7 @@ if pad_len < 0:
     sys.stderr.write('build_fixture: methodology_bytes too small for headings\n')
     sys.exit(1)
 
-methodology_path = os.path.join(fixture_dir, '.codex', 'skills', 'dinostack', 'METHODOLOGY.md')
+methodology_path = os.path.join(fixture_dir, '.codex', 'skills', 'dinostack-codex', 'METHODOLOGY.md')
 with open(methodology_path, 'w') as f:
     f.write(header_block)
     f.write('x' * pad_len)
@@ -161,7 +161,7 @@ with open(agents_path, 'w') as f:
   mkdir -p "$dir/.codex"
   mv "$dir/AGENTS.md" "$dir/.codex/AGENTS.md"
 
-  ln -s "../../../content/rules" "$dir/.codex/skills/dinostack/rules"
+  ln -s "../../../content/rules" "$dir/.codex/skills/dinostack-codex/rules"
 }
 
 # run_gate <dir> -> stdout on fd1, stderr on fd2, sets RC
@@ -201,7 +201,7 @@ fi
 # --- Scenario: missing METHODOLOGY.md --------------------------------------
 FIX="$TMP_ROOT/missing-methodology"
 build_fixture "$FIX" "$MID_METHODOLOGY" "$MID_AGENTS"
-rm "$FIX/.codex/skills/dinostack/METHODOLOGY.md"
+rm "$FIX/.codex/skills/dinostack-codex/METHODOLOGY.md"
 run_gate "$FIX"
 if [[ "$RC" -ne 0 ]] && [[ "$GATE_STDERR" == *"missing file"* ]]; then
   _pass "missing METHODOLOGY.md fails with a 'missing file' message"
@@ -253,7 +253,7 @@ with open(p) as f:
 text = text.replace('## Section 1\n', '', 1)
 with open(p, 'w') as f:
     f.write(text)
-" "$FIX/.codex/skills/dinostack/METHODOLOGY.md"
+" "$FIX/.codex/skills/dinostack-codex/METHODOLOGY.md"
 run_gate "$FIX"
 if [[ "$RC" -ne 0 ]] && [[ "$GATE_STDERR" == *"embed incomplete"* ]] && [[ "$GATE_STDERR" == *"missing section heading"* ]]; then
   _pass "dropped section heading fails as embed incomplete (missing heading)"
@@ -278,7 +278,7 @@ fi
 # --- Scenario: rules symlink missing ---------------------------------------
 FIX="$TMP_ROOT/rules-link-missing"
 build_fixture "$FIX" "$MID_METHODOLOGY" "$MID_AGENTS"
-rm "$FIX/.codex/skills/dinostack/rules"
+rm "$FIX/.codex/skills/dinostack-codex/rules"
 run_gate "$FIX"
 if [[ "$RC" -ne 0 ]] && [[ "$GATE_STDERR" == *"embed incomplete"* ]] && [[ "$GATE_STDERR" == *"does not exist"* ]]; then
   _pass "missing rules symlink fails as embed incomplete (unreachable)"

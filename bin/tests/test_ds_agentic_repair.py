@@ -197,7 +197,8 @@ def test_stray_dot_agentic_memory_nested_shape(tmp_path):
     assert result.verdict == "stray"
 
 
-def test_negative_shipped_template(tmp_path):
+@pytest.mark.parametrize("relative", ["content/templates/.agentic", ".codex/skills/dinostack-codex/templates/.agentic"])
+def test_negative_shipped_template(tmp_path, relative):
     """Negative control: a shipped-template fixture (content/templates/
     .agentic shape - seed files only, zero runtime markers, and ALSO
     on the Layer-1 exact-exclusion list - both layers independently
@@ -216,7 +217,7 @@ def test_negative_shipped_template(tmp_path):
     """
     repo = tmp_path / "dinostack"
     _make_git_marker(repo)
-    tmpl = repo / "content" / "templates" / ".agentic"
+    tmpl = repo / relative
     _make_template_agentic(tmpl)
 
     before = _snapshot(repo)

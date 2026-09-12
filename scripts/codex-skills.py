@@ -68,11 +68,12 @@ ROOT_REGISTRY_MAGIC = "DINOSTACK_CODEX_SKILL_ROOT_OWNERSHIP"
 ROOT_REGISTRY = Path(".agentic/codex-skill-root-ownership.json")
 CODEX_CONTEXT_PATH = "~/.codex/projects/[hash]/context.md"
 CONTEXT_WRITER_MIGRATION = "context-writer-migration"
-SKILLS = ("dinostack", "brief", "wrap", "implement-ticket")
+LEGACY_SKILLS = ("dinostack", "brief", "wrap", "implement-ticket")
+SKILLS = ("dinostack-codex", "dinostack-codex-brief", "dinostack-codex-wrap", "dinostack-codex-implement-ticket")
 WORKFLOWS = {
-    "brief": "content/commands/ds-brief.md",
-    "wrap": "content/commands/ds-wrap.md",
-    "implement-ticket": "content/commands/ds-implement-ticket.md",
+    "dinostack-codex-brief": "content/commands/ds-brief.md",
+    "dinostack-codex-wrap": "content/commands/ds-wrap.md",
+    "dinostack-codex-implement-ticket": "content/commands/ds-implement-ticket.md",
 }
 NATIVE_COMMAND_SKILLS = {Path(source).stem: skill for skill, source in WORKFLOWS.items()}
 COMMAND_NAMES: tuple[str, ...] = ()
@@ -199,7 +200,7 @@ def workflow_resolution(name: str) -> tuple[str, str, str]:
     if native_skill:
         return f"${native_skill}", "native-skill", native_skill
     if name == "dinostack":
-        return f"${name}", "native-skill", name
+        return "$dinostack-codex", "native-skill", "dinostack-codex"
     if name == "simplify":
         return (
             SIMPLIFY_CONTRACT,
@@ -361,7 +362,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
                 "`$AE_PROJECT_DIR/.agentic/context.d/<session_id>.md`, does not write "
                 "`$AE_PROJECT_DIR/.agentic/context.md`, and does not recompose a project-local "
                 f"rollup; that writer migration is deferred to `{CONTEXT_WRITER_MIGRATION}`. "
-                "`$wrap` may still write its richer project-local `_wrap.md` handoff, but the "
+                "`$dinostack-codex-wrap` may still write its richer project-local `_wrap.md` handoff, but the "
                 "current Codex Stop hook does not consume it."
             ),
         ),
@@ -405,7 +406,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
                 f"`{CODEX_CONTEXT_PATH}` after a Stop event. It does not write project-local "
                 "`$AE_PROJECT_DIR/.agentic/context.d/<session_id>.md`, does not write "
                 "`$AE_PROJECT_DIR/.agentic/context.md`, and does not recompose a project-local "
-                f"rollup; migration is deferred to `{CONTEXT_WRITER_MIGRATION}`. `$wrap` "
+                f"rollup; migration is deferred to `{CONTEXT_WRITER_MIGRATION}`. `$dinostack-codex-wrap` "
                 "continues to write the richer project-local "
                 "`$AE_PROJECT_DIR/.agentic/_wrap.md` handoff and populate AGENTS.md with durable "
                 "decisions, conventions, stack details, and gotchas."
@@ -418,7 +419,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             r"nothing\)",
             (
                 f"- Do NOT write `_wrap.md`. The current Codex Stop hook already wrote the "
-                f"session's raw continuity to `{CODEX_CONTEXT_PATH}`. A zero-substance `$wrap` "
+                f"session's raw continuity to `{CODEX_CONTEXT_PATH}`. A zero-substance `$dinostack-codex-wrap` "
                 "would only create an empty project-local handoff; automatic project-local "
                 f"rollup integration remains deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
@@ -427,12 +428,12 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             r"\*\*Pre-flight lock acquisition\.\*\* /ds-wrap writes to several shared "
             r"project-local files.*?Acquire a project-local lock before proceeding:",
             (
-                "**Pre-flight lock acquisition.** `$wrap` writes several shared project-local "
+                "**Pre-flight lock acquisition.** `$dinostack-codex-wrap` writes several shared project-local "
                 "files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling "
                 "snapshots). It does not write `$AE_PROJECT_DIR/.agentic/context.md`. The current "
                 f"Codex Stop hook writes only `{CODEX_CONTEXT_PATH}`; automatic project-local "
                 f"rollup integration is deferred to `{CONTEXT_WRITER_MIGRATION}`. Concurrent "
-                "`$wrap` runs in the same project would clobber the files `$wrap` does own. "
+                "`$dinostack-codex-wrap` runs in the same project would clobber the files `$dinostack-codex-wrap` does own. "
                 "Acquire a project-local lock before proceeding:"
             ),
         ),
@@ -452,7 +453,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             r"\*\*2\. `\.agentic/wrap/last-wrap` \(the wrap-recency sentinel\)\.\*\*.*?(?=\n\n)",
             (
                 "**2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** "
-                "This project-local sentinel is written only after a successful `$wrap` Part A "
+                "This project-local sentinel is written only after a successful `$dinostack-codex-wrap` Part A "
                 "write. Claude and OpenCode marker consumers use it for staging suppression. "
                 f"The current Codex Stop hook writes only `{CODEX_CONTEXT_PATH}` and does not "
                 f"consume this sentinel; migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
@@ -468,7 +469,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
                 "The project-local derived-rollup contract belongs to harnesses that implement "
                 "the project-local context writer. The current Codex Stop hook instead writes "
                 f"only `{CODEX_CONTEXT_PATH}` and does not recompose "
-                "`$AE_PROJECT_DIR/.agentic/context.md`. `$wrap` writes "
+                "`$AE_PROJECT_DIR/.agentic/context.md`. `$dinostack-codex-wrap` writes "
                 "`$AE_PROJECT_DIR/.agentic/_wrap.md`; integrating that handoff into an automatic "
                 f"Codex project-local rollup is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
@@ -478,7 +479,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             (
                 f"Why: the current Codex Stop hook writes continuity only to "
                 f"`{CODEX_CONTEXT_PATH}` and does not read or recompose project-local "
-                "`$AE_PROJECT_DIR/.agentic/context.md`. `$wrap` owns its richer project-local "
+                "`$AE_PROJECT_DIR/.agentic/context.md`. `$dinostack-codex-wrap` owns its richer project-local "
                 "`$AE_PROJECT_DIR/.agentic/_wrap.md` handoff under the wrap lock. Connecting "
                 "that handoff to an automatic Codex project-local context writer remains "
                 f"deferred to `{CONTEXT_WRITER_MIGRATION}`. Create "
@@ -500,7 +501,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
             r"\*\*Final reminder:\*\* After `/ds-wrap` completes, close the session cleanly.*?(?=\n\n|\Z)",
             (
-                "**Final reminder:** After `$wrap` completes, close the session cleanly so the "
+                "**Final reminder:** After `$dinostack-codex-wrap` completes, close the session cleanly so the "
                 f"current Codex Stop hook can finish writing `{CODEX_CONTEXT_PATH}`. The "
                 f"project-local migration remains deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
@@ -625,9 +626,9 @@ LITERAL_RULES: tuple[tuple[str, str, str, str, str, str, str], ...] = (
         "AE_CODEX_CONFIG_DIR",
         "codex-config-directory",
     ),
-    (r"~/DinoStack/\.claude/skills/dinostack", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
+    (r"~/DinoStack/\.claude/skills/dinostack", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack-codex", "dinostack-repository"),
     (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
-    (r"~?/??\.claude/skills/dinostack", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack", "dinostack-repository"),
+    (r"~?/??\.claude/skills/dinostack", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "dinostack-codex", "dinostack-repository"),
     (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
     (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
     (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
@@ -672,7 +673,7 @@ def assert_paragraph_rules_reachable(repo: Path) -> None:
     anchors to was reworded and the regex opener here was not updated to
     match (the CRITICAL this closes: content/sections/09-events-log.md's
     "Writer scope" paragraph was reworded and .codex/AGENTS.md /
-    .codex/skills/dinostack/METHODOLOGY.md silently reverted to telling
+    .codex/skills/dinostack-codex/METHODOLOGY.md silently reverted to telling
     Codex agents about hook telemetry Codex does not have)."""
     corpus = reachability_corpus(repo)
     unmatched = [pattern for pattern, _ in PARAGRAPH_RULES if not re.search(pattern, corpus, re.S)]
@@ -811,7 +812,7 @@ def add_codex_stop_hook_occurrences(
                 f"project-local automatic writing is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-        ("Preserved by Stop hook.", "Managed only by `$wrap`."),
+        ("Preserved by Stop hook.", "Managed only by `$dinostack-codex-wrap`."),
         (
             '- `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value '
             "(other values reserved for future writers; the Stop hook cannot distinguish "
@@ -870,7 +871,7 @@ def add_codex_stop_hook_occurrences(
 
 
 def render_runtime_guidance(text: str, repo: Path) -> str:
-    text = re.sub(r"(?<![\w./-])/wrap\b", "$wrap", text)
+    text = re.sub(r"(?<![\w./-])/wrap\b", "$dinostack-codex-wrap", text)
     doc = Document("generated:.codex/AGENTS.md", text)
     found = inventory_document(doc, repo)
     rendered = transform(text, found, repo)
@@ -1221,7 +1222,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             continue
         generated = generated.replace("$CLAUDE_CODE_SESSION_ID", "$AE_SESSION_ID")
         generated = codexify_project_paths(generated, include_claude=True)
-        generated = re.sub(r"(?<![\w.])/wrap\b", "$wrap", generated)
+        generated = re.sub(r"(?<![\w.])/wrap\b", "$dinostack-codex-wrap", generated)
         if any(
             forbidden in generated
             for forbidden in (
@@ -1298,7 +1299,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         if "run_in_background" in generated:
             raise SkillError(f"incomplete Codex background-command mapping in {doc.source}")
         generated = codexify_project_paths(generated, include_claude=True)
-        generated = re.sub(r"(?<![\w.])/wrap\b", "$wrap", generated)
+        generated = re.sub(r"(?<![\w.])/wrap\b", "$dinostack-codex-wrap", generated)
         add_project_path_inventory(found, doc, match.start(), match.group(0))
         add_occurrence(
             found, occupied, doc, match.start(), match.end(), "spawn-semantics",
@@ -1543,10 +1544,13 @@ def frontmatter(repo: Path, name: str) -> str:
 
 
 def preamble(name: str) -> str:
-    workflow = name != "dinostack"
+    workflow = name != "dinostack-codex"
     shared = "resources" if workflow else "."
     return f"""
 <!-- Generated by scripts/codex-skills.py. Do not edit directly. -->
+
+Use this skill only in Codex. In another harness, do not execute its workflow or dispatch
+instructions; use that harness’s DinoStack integration.
 
 ## Codex resource resolution
 
@@ -1554,7 +1558,7 @@ Before executing this skill, resolve the physical directory containing this load
 (follow the installed skill-directory symlink) and bind it as `AE_SKILL_ROOT`. Set
 `AE_CORE_SKILL_ROOT` to `{shared}` beneath that physical root and validate its
 `.dinostack-skill.json` marker has `magic={MAGIC}`, `adapter=codex`,
-`name=dinostack`, and `schema_version={SCHEMA}`. Resolve every logical resource through
+`name=dinostack-codex`, and `schema_version={SCHEMA}`. Resolve every logical resource through
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to
@@ -1583,7 +1587,7 @@ fields. When isolation is required, the conductor creates the worktree manually 
 
 
 def resource_map(name: str) -> dict[str, object]:
-    if name == "dinostack":
+    if name == "dinostack-codex":
         resources = {
             "METHODOLOGY.md": {"path": "METHODOLOGY.md", "type": "file"},
             "agents": {"path": "agents", "type": "directory"},
@@ -1805,7 +1809,7 @@ def render_tree(
     records, by_source = current_inventory(repo)
     docs = {doc.source: doc.text for doc in documents(repo)}
     (staging / ROOT_MARKER).write_bytes(canonical_json(ownership_marker))
-    core = staging / "dinostack"
+    core = staging / "dinostack-codex"
     core.mkdir(parents=True)
     core_body = transform(docs["content/SKILL.md"], by_source["content/SKILL.md"], repo)
     methodology = transform(
@@ -1813,10 +1817,10 @@ def render_tree(
         by_source["assembled:METHODOLOGY.md"],
         repo,
     )
-    (core / "SKILL.md").write_text(frontmatter(repo, "dinostack") + preamble("dinostack") + core_body, encoding="utf-8")
+    (core / "SKILL.md").write_text(frontmatter(repo, "dinostack-codex") + preamble("dinostack-codex") + core_body, encoding="utf-8")
     (core / "METHODOLOGY.md").write_text(methodology, encoding="utf-8")
-    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("dinostack")))
-    (core / ".dinostack-skill.json").write_bytes(canonical_json(marker("dinostack")))
+    (core / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map("dinostack-codex")))
+    (core / ".dinostack-skill.json").write_bytes(canonical_json(marker("dinostack-codex")))
 
     target_paths = {
         "rules": repo / "content/rules", "commands": repo / "content/commands",
@@ -1830,7 +1834,7 @@ def render_tree(
         ),
     }
     for rel, target in target_paths.items():
-        final_path = output / "dinostack" / rel
+        final_path = output / "dinostack-codex" / rel
         safe_link(core / rel, os.path.relpath(target, final_path.parent))
 
     for name, source in WORKFLOWS.items():
@@ -1840,7 +1844,7 @@ def render_tree(
         (skill / "SKILL.md").write_text(frontmatter(repo, name) + preamble(name) + body, encoding="utf-8")
         (skill / "RESOURCE-MAP.json").write_bytes(canonical_json(resource_map(name)))
         (skill / ".dinostack-skill.json").write_bytes(canonical_json(marker(name)))
-        safe_link(skill / "resources", "../dinostack")
+        safe_link(skill / "resources", "../dinostack-codex")
 
 
 def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
@@ -1867,7 +1871,7 @@ def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
 
 def validate_resources(root: Path) -> None:
     generated_root = root.resolve(strict=True)
-    repository = (root / "dinostack/bin").resolve(strict=True).parent
+    repository = (root / "dinostack-codex/bin").resolve(strict=True).parent
     for name in SKILLS:
         skill = root / name
         if json.loads((skill / ".dinostack-skill.json").read_text()) != marker(name):
@@ -1980,7 +1984,10 @@ def validate_generated_root_path(
         raise SkillError(f"cannot read generated root ownership marker: {marker_path}: {exc}") from exc
     if not isinstance(marker_payload, dict) or marker_bytes != canonical_json(marker_payload):
         raise SkillError(f"invalid generated root ownership marker: {marker_path}")
-    if expected_marker is not None and marker_payload != expected_marker:
+    comparison = dict(marker_payload)
+    if comparison.get("skills") == list(LEGACY_SKILLS):
+        comparison["skills"] = list(SKILLS)
+    if expected_marker is not None and comparison != expected_marker:
         raise SkillError(f"generated root ownership marker binding mismatch: {marker_path}")
     return marker_payload
 
@@ -1995,7 +2002,7 @@ def validate_arbitrary_binding(
         marker_payload.get("adapter") != "codex"
         or marker_payload.get("magic") != ROOT_MAGIC
         or marker_payload.get("schema_version") != SCHEMA
-        or marker_payload.get("skills") != list(SKILLS)
+        or marker_payload.get("skills") not in (list(SKILLS), list(LEGACY_SKILLS))
         or not isinstance(binding, dict)
         or binding.get("kind") != "absolute"
         or binding.get("repo") != str(repo)
@@ -2028,7 +2035,7 @@ def prepare_root_ownership(
     marker_payload = validate_generated_root_path(output, required=required)
     if marker_payload is not None:
         validate_arbitrary_binding(repo, output, marker_payload)
-        return marker_payload, False
+        return dict(marker_payload, skills=list(SKILLS)), False
 
     if required:
         raise SkillError(f"generated root missing or unsafe: {output}")

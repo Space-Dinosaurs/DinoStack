@@ -9,10 +9,10 @@ lifecycle hooks, and exactly four native Codex skills.
 
 | Skill | Source and purpose |
 |---|---|
-| `dinostack` | Core engineering methodology generated from `content/SKILL.md` and the assembled methodology. |
-| `brief` | Native `$brief` workflow generated from `content/commands/ds-brief.md`. |
-| `wrap` | Native `$wrap` workflow generated from `content/commands/ds-wrap.md`. |
-| `implement-ticket` | Native `$implement-ticket` workflow generated from `content/commands/ds-implement-ticket.md`. |
+| `dinostack-codex` | Core engineering methodology generated from `content/SKILL.md` and the assembled methodology. |
+| `dinostack-codex-brief` | Native `$dinostack-codex-brief` workflow generated from `content/commands/ds-brief.md`. |
+| `dinostack-codex-wrap` | Native `$dinostack-codex-wrap` workflow generated from `content/commands/ds-wrap.md`. |
+| `dinostack-codex-implement-ticket` | Native `$dinostack-codex-implement-ticket` workflow generated from `content/commands/ds-implement-ticket.md`. |
 
 Each directory has a generated `SKILL.md`, `RESOURCE-MAP.json`, and
 `.dinostack-skill.json`. The core skill also has generated `METHODOLOGY.md` and
@@ -26,6 +26,27 @@ of duplicating those resources.
 `.codex/skill-frontmatter/*.yml` supplies the four frontmatter blocks. Generated
 skill files must not be edited by hand.
 
+## Shared skill namespace and upgrades
+
+Codex uses `dinostack-codex`, `dinostack-codex-brief`, `dinostack-codex-wrap`, and
+`dinostack-codex-implement-ticket` as both directory and frontmatter names.
+Gemini also discovers `~/.agents/skills`, and prefers it over `~/.gemini/skills`
+at the same tier. The Codex namespace prevents its core payload from overriding
+Gemini’s `dinostack` skill outside this repository.
+
+Re-run `bash .codex/install.sh --no-identity` after updating. It removes obsolete
+`dinostack`, `brief`, `wrap`, `implement-ticket`, and `agentic-engineering` links
+only when their normalized targets match this checkout’s generated sources,
+including relative and dangling links. Real entries and foreign links survive;
+resolve reported conflicts yourself before retrying. No old-name aliases remain.
+Use the namespaced dollar invocations above; canonical source command names stay
+unchanged. Uninstall applies the same ownership checks.
+
+Other harnesses can still discover these skills. Their Codex-only descriptions
+and entry guards catch accidental activation of incompatible dispatch instructions;
+they do not filter discovery. Retire the guards when the payload becomes
+harness-neutral or discovery becomes harness-isolated.
+
 ## Installation
 
 ```bash
@@ -37,10 +58,10 @@ The installer runs `.codex/build.sh`, then creates these user-scope skill
 symlinks:
 
 ```text
-~/.agents/skills/dinostack -> <checkout>/.codex/skills/dinostack
-~/.agents/skills/brief               -> <checkout>/.codex/skills/brief
-~/.agents/skills/wrap                -> <checkout>/.codex/skills/wrap
-~/.agents/skills/implement-ticket    -> <checkout>/.codex/skills/implement-ticket
+~/.agents/skills/dinostack-codex -> <checkout>/.codex/skills/dinostack-codex
+~/.agents/skills/dinostack-codex-brief               -> <checkout>/.codex/skills/dinostack-codex-brief
+~/.agents/skills/dinostack-codex-wrap                -> <checkout>/.codex/skills/dinostack-codex-wrap
+~/.agents/skills/dinostack-codex-implement-ticket    -> <checkout>/.codex/skills/dinostack-codex-implement-ticket
 ```
 
 It does not overwrite a real file/directory or a symlink owned by another
@@ -52,7 +73,7 @@ belong under `~/.agents/skills/`.
 The installer also:
 
 - links `.codex/AGENTS.md` (the trigger-load stub) to the selected Codex config directory when the
-  dinostack skill is reachable, or a real `AGENTS.degraded.md` companion file written inside that
+  dinostack-codex skill is reachable, or a real `AGENTS.degraded.md` companion file written inside that
   same Codex config directory (full methodology embedded directly, never inside this checkout so a
   `git clean` cannot remove it) when it is not;
 - links generated `.codex/agents/` TOML definitions;
@@ -140,7 +161,7 @@ staged.
 
 - `.codex/AGENTS.md` - generated global stub (runtime binding preamble, activation-preflight
   pointer, and a skill-load-on-trigger instruction). The full methodology body loads on trigger
-  via the `dinostack` skill (`.codex/skills/dinostack/METHODOLOGY.md`), not from this file
+  via the `dinostack-codex` skill (`.codex/skills/dinostack-codex/METHODOLOGY.md`), not from this file
   (DS-183). `.codex/install.sh` normally symlinks the installed `AGENTS.md` at this stub; when the
   skill link is unhealthy at install time it instead writes the full body into a separate
   `AGENTS.degraded.md` companion file inside the selected Codex config directory (never inside
@@ -154,7 +175,7 @@ staged.
   for manual workflows not exposed as native skills.
 - `.codex/references/` - relative symlink mirror of canonical references.
 
-The native `$brief`, `$wrap`, and `$implement-ticket` skills are the supported
+The native `$dinostack-codex-brief`, `$dinostack-codex-wrap`, and `$dinostack-codex-implement-ticket` skills are the supported
 registered workflow entry points. Other command documents remain manual
 resources loaded through the repository dispatcher when the generated
 methodology directs Codex to them.

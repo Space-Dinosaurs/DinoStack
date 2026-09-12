@@ -270,7 +270,7 @@ _EXCLUDED_PATH_EXACT = {
     ".cursor/templates/.agentic",
     ".gemini/templates/.agentic",
     ".claude/skills/dinostack/templates/.agentic",
-    ".codex/skills/dinostack/templates/.agentic",
+    ".codex/skills/dinostack-codex/templates/.agentic",
 }
 
 #: Prefix exclusions. `.agentic/stray-agentic-archive/` is this tool's OWN

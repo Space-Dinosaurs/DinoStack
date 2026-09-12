@@ -5,7 +5,8 @@
 #             [--profile=relaxed|default|strict] [--identity=<handle>]
 #             [--no-identity] [--config-dir=<dir>]. AGENTIC_CONFIG_DIR provides
 #             the first config-dir fallback; CODEX_HOME provides the second.
-# Upstream deps: .codex/build.sh and its generated AGENTS.md, agents/, skills/,
+# Upstream deps: .codex/lib/skill-links.sh for exact skill-link ownership;
+#                .codex/build.sh and its generated AGENTS.md, agents/, skills/,
 #                and config/hooks.json outputs; .codex/lib/hooks-feature.py;
 #                scripts/lib/identity.sh and
 #                scripts/lib/hooks-snapshot.sh when present; Bash and Python 3.
@@ -16,7 +17,7 @@
 #                before any user-state mutation; existing safe non-owned targets
 #                are backed up before replacement; optional identity and snapshot
 #                helpers degrade with explicit warnings. DS-183: when the
-#                dinostack skill link does not resolve, ~/.codex/AGENTS.md is
+#                dinostack-codex skill link does not resolve, ~/.codex/AGENTS.md is
 #                symlinked to a real degrade-path companion file with the
 #                full methodology body embedded (written inside the Codex
 #                config directory, never inside this checkout, so it
@@ -94,7 +95,8 @@ fi
 SKILLS_SRC="$REPO_DIR/.codex/skills"
 SKILLS_DST="$HOME/.agents/skills"
 LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_NAMES=(dinostack brief wrap implement-ticket)
+# shellcheck source=.codex/lib/skill-links.sh
+source "$REPO_DIR/.codex/lib/skill-links.sh"
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
@@ -377,15 +379,15 @@ AE_FINAL_DESTINATIONS=(
   $'link\t'"$HOOKS_DST"$'\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/hooks.json"
 )
 for skill_name in "${SKILL_NAMES[@]}"; do
-  if [[ "$skill_name" == "dinostack" ]]; then
+  if [[ "$skill_name" == "dinostack-codex" ]]; then
     AE_FINAL_DESTINATIONS+=(
-      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
-      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
+      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"$'\t'"$SKILLS_SRC/dinostack"$'\t'"$SKILLS_SRC/agentic-engineering"
+      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"$'\t'"$SKILLS_SRC/dinostack"$'\t'"$SKILLS_SRC/agentic-engineering"
     )
   else
     AE_FINAL_DESTINATIONS+=(
-      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"
-      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"
+      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$SKILLS_SRC/${skill_name#dinostack-codex-}"
+      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$SKILLS_SRC/${skill_name#dinostack-codex-}"
     )
   fi
 done
@@ -573,7 +575,7 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load dinostack skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack-codex skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -636,46 +638,11 @@ fi
 # The correct path per Codex docs is ~/.agents/skills/<name>/.
 # ---------------------------------------------------------------------------
 
-for skill_name in "${SKILL_NAMES[@]}"; do
-  old_skill_dst="$CODEX_CONFIG_DIR/skills/$skill_name"
-  skill_src="$SKILLS_SRC/$skill_name"
-  if [[ -L "$old_skill_dst" ]]; then
-    old_target="$(readlink "$old_skill_dst")"
-    if [[ "$old_target" == "$skill_src" || \
-          ( "$skill_name" == "dinostack" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
-      rm "$old_skill_dst"
-      echo "  - Removed stale symlink at $old_skill_dst"
-    else
-      echo "  ! $old_skill_dst points to $old_target (not ours - leaving it)"
-    fi
-  elif [[ -e "$old_skill_dst" ]]; then
-    echo "  ! Real file/directory at $old_skill_dst - not removing (manual cleanup may be needed)"
-  fi
+for skill_name in "${SKILL_NAMES[@]}" "${LEGACY_SKILL_NAMES[@]}"; do
+  codex_remove_skill_link "$CODEX_CONFIG_DIR/skills/$skill_name" "$skill_name"
 done
-
-# ---------------------------------------------------------------------------
-# Remove stale pre-rename core skill symlinks (agentic-engineering -> dinostack).
-# The generated source directory moved from .codex/skills/agentic-engineering
-# to .codex/skills/dinostack, so a pre-rename install's symlink at either
-# destination now points at a path that no longer exists on disk (a broken
-# symlink whose target string still names this checkout). Same discipline as
-# the loop above: only removed when the (possibly broken) target resolves
-# inside this methodology checkout.
-# ---------------------------------------------------------------------------
-
-for _ae_stale_skill_dst in "$SKILLS_DST/agentic-engineering" "$CODEX_CONFIG_DIR/skills/agentic-engineering"; do
-  if [[ -L "$_ae_stale_skill_dst" ]]; then
-    _ae_old_target="$(readlink "$_ae_stale_skill_dst")"
-    if [[ "$_ae_old_target" == "$SKILLS_SRC/agentic-engineering" || \
-          "$_ae_old_target" == */DinoStack/* || "$_ae_old_target" == *-DinoStack/* ]]; then
-      rm "$_ae_stale_skill_dst"
-      echo "  - Removed stale pre-rename symlink at $_ae_stale_skill_dst"
-    else
-      echo "  ! $_ae_stale_skill_dst points to $_ae_old_target (not ours - leaving it)"
-    fi
-  elif [[ -e "$_ae_stale_skill_dst" ]]; then
-    echo "  ! Real file/directory at $_ae_stale_skill_dst - not removing (manual cleanup may be needed)"
-  fi
+for skill_name in "${LEGACY_SKILL_NAMES[@]}"; do
+  codex_remove_skill_link "$SKILLS_DST/$skill_name" "$skill_name"
 done
 
 # ---------------------------------------------------------------------------
@@ -696,11 +663,9 @@ for skill_name in "${SKILL_NAMES[@]}"; do
   fi
   if [[ -L "$skill_dst" ]]; then
     current_target="$(readlink "$skill_dst")"
-    if [[ "$current_target" == "$skill_src" ]]; then
-      echo "  = $skill_name (already linked)"
-    elif [[ "$skill_name" == "dinostack" && "$current_target" == "$LEGACY_SKILL_SRC" ]]; then
+    if codex_skill_link_owned "$skill_dst" "$skill_name"; then
       ln -sfn "$skill_src" "$skill_dst"
-      echo "  ~ $skill_name (migrated from deleted singular skill source)"
+      echo "  = $skill_name (already linked)"
     else
       echo "  ! $skill_name (symlink points elsewhere: $current_target - skipping)"
     fi
@@ -713,11 +678,11 @@ for skill_name in "${SKILL_NAMES[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# DS-183 link-health gate for the dinostack skill (mirrors .claude/install.sh's
+# DS-183 link-health gate for the dinostack-codex skill (mirrors .claude/install.sh's
 # SKILL_LINK_OK, .claude/install.sh:474-537). .codex/AGENTS.md is generated as
 # a stub (runtime binding preamble + activation-preflight pointer + a
 # skill-load-on-trigger instruction) - it no longer embeds the full
-# methodology body. The full body only loads when the dinostack skill is
+# methodology body. The full body only loads when the dinostack-codex skill is
 # actually REACHABLE from where Codex loads skills - $HOME/.agents/skills/
 # per the Codex docs, regardless of whether the install step got there via a
 # symlink. When it is not, the trigger path is unreachable, so the fallback
@@ -736,7 +701,7 @@ done
 
 DINOSTACK_SKILL_LINK_OK=true
 DINOSTACK_SKILL_LINK_REASON=""
-_ae_dinostack_skill_dst="$SKILLS_DST/dinostack"
+_ae_dinostack_skill_dst="$SKILLS_DST/dinostack-codex"
 # DS-183 round 5 (Minor fix): `-f` is true for a present-but-zero-byte file,
 # so a truncated SKILL.md/METHODOLOGY.md would have reported healthy with
 # nothing readable behind it. `-s` requires both existence and size > 0.
@@ -765,7 +730,7 @@ mkdir -p "$CODEX_CONFIG_DIR"
 
 if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
   echo ""
-  echo "  WARNING: the dinostack skill is not reachable ($DINOSTACK_SKILL_LINK_REASON)."
+  echo "  WARNING: the dinostack-codex skill is not reachable ($DINOSTACK_SKILL_LINK_REASON)."
   echo "  The trigger-loaded methodology body would be unreachable from the stub, so the full"
   echo "  methodology body is being written into a real file in your Codex config directory"
   echo "  (\$CODEX_CONFIG_DIR/AGENTS.degraded.md) and \$AGENTS_DST is symlinked at THAT instead"
@@ -842,9 +807,9 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" != "true" ]]; then
     echo ""
     echo "---"
     echo ""
-    echo "## Embedded methodology (degrade path - dinostack skill link unavailable)"
+    echo "## Embedded methodology (degrade path - dinostack-codex skill link unavailable)"
     echo ""
-    cat "$REPO_DIR/.codex/skills/dinostack/METHODOLOGY.md"
+    cat "$REPO_DIR/.codex/skills/dinostack-codex/METHODOLOGY.md"
     echo ""
     echo "---"
     echo ""
@@ -1178,10 +1143,10 @@ if [[ "$DINOSTACK_SKILL_LINK_OK" == "true" ]]; then
   echo "  ~/.codex/AGENTS.md  -> $AGENTS_SRC"
   echo "    Contains: Minimal always-resident stub (runtime binding preamble, activation-preflight"
   echo "              pointer, skill-load-on-trigger instruction). The full methodology body loads"
-  echo "              on trigger via the dinostack skill above, not from this file."
+  echo "              on trigger via the dinostack-codex skill above, not from this file."
 else
   echo "  ~/.codex/AGENTS.md  -> $AGENTS_DEGRADED (degrade path)"
-  echo "    Contains: Full agentic engineering methodology, embedded directly (dinostack skill"
+  echo "    Contains: Full agentic engineering methodology, embedded directly (dinostack-codex skill"
   echo "              link was unavailable at install time - $DINOSTACK_SKILL_LINK_REASON)."
 fi
 echo ""
@@ -1196,7 +1161,7 @@ echo "    Requires: [features] codex_hooks = true in ~/.codex/config.toml (added
 echo ""
 echo "What is available in the repo:"
 echo "  .codex/AGENTS.md       - Trigger-load stub; source for the global ~/.codex/AGENTS.md symlink"
-echo "                            when the dinostack skill link is healthy (conditional - see"
+echo "                            when the dinostack-codex skill link is healthy (conditional - see"
 echo "                            \$CODEX_CONFIG_DIR/AGENTS.degraded.md, NOT in this repo, for the"
 echo "                            unhealthy case)"
 echo "  .codex/agents/         - Generated named agent TOML files (source: content/agents/*.md)"
@@ -1213,8 +1178,8 @@ echo "  Safe to run alongside the Claude Code adapter."
 echo ""
 echo "Next steps:"
 echo "  1. Open Codex in a project that uses this methodology."
-echo "  2. The dinostack skill will trigger automatically for software development tasks."
-echo "  3. ~/.codex/AGENTS.md binds the runtime and points at the dinostack skill; the full"
+echo "  2. The dinostack-codex skill will trigger automatically for software development tasks."
+echo "  3. ~/.codex/AGENTS.md binds the runtime and points at the dinostack-codex skill; the full"
 echo "     methodology loads on trigger (step 2), not globally in every Codex session (DS-183)."
 echo "  4. The project's AGENTS.md (if present) loads additional project-specific rules."
 echo "  5. Risk reminder hook fires automatically before each prompt."

@@ -45,7 +45,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[2]
 GENERATOR = Path("scripts/codex-skills.py")
 PROMPT_GENERATOR = Path(".codex/lib/prompt-wrappers.py")
-SKILL_NAMES = {"dinostack", "brief", "wrap", "implement-ticket"}
+SKILL_NAMES = {"dinostack-codex", "dinostack-codex-brief", "dinostack-codex-wrap", "dinostack-codex-implement-ticket"}
 ROOT_MARKER = ".dinostack-generated-root.json"
 
 
@@ -243,6 +243,120 @@ class CodexSkillGenerationTests(unittest.TestCase):
     def public_build(self) -> subprocess.CompletedProcess[str]:
         return execute(["bash", str(self.repo / ".codex/build.sh")], cwd=self.repo)
 
+    def test_namespaced_skill_identity_and_prompt_contract(self) -> None:
+        expected = {"dinostack-codex", "dinostack-codex-brief",
+                    "dinostack-codex-wrap", "dinostack-codex-implement-ticket"}
+        root = self.repo / ".codex/skills"
+        self.assertEqual(expected, {p.name for p in root.iterdir() if p.is_dir()})
+        for name in expected:
+            text = (root / name / "SKILL.md").read_text()
+            self.assertIn(f"name: {name}\n", text)
+            self.assertIn("description: Codex only.", text)
+            self.assertIn("Use this skill only in Codex.", text)
+            self.assertEqual(name, json.loads((root / name / ".dinostack-skill.json").read_text())["name"])
+        for prompt in (self.repo / ".codex/prompts").glob("*.md"):
+            self.assertIn("`$dinostack-codex`", prompt.read_text())
+            self.assertNotIn("`$dinostack`", prompt.read_text())
+
+    def test_namespace_upgrade_retires_only_exact_owned_links(self) -> None:
+        home = Path(self.temporary.name) / "namespace-home"
+        config = home / "profile"
+        shared = home / ".agents/skills"
+        shared.mkdir(parents=True)
+        (config / "skills").mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"CODEX_HOME", "AGENTIC_CONFIG_DIR"}}
+        env.update(HOME=str(home), AGENTIC_CONFIG_DIR=str(config))
+        owned = []
+        for directory in (shared, config / "skills"):
+            for index, old in enumerate(("dinostack", "brief", "wrap", "implement-ticket", "agentic-engineering")):
+                link = directory / old
+                target = self.repo / ".codex/skills" / old
+                if directory == config / "skills" and old == "dinostack":
+                    target = self.repo / ".codex/skill"
+                link.symlink_to(os.path.relpath(target, directory) if index % 2 else target)
+                owned.append(link)
+        foreign = shared / "unrelated"
+        foreign.symlink_to(home / "foreign-DinoStack/.codex/skills/brief")
+        real = shared / "personal"
+        real.mkdir()
+        (real / "SKILL.md").write_text("personal skill bytes")
+        before = {p: identity_fingerprint(p) for p in (foreign, real)}
+        install = ["bash", str(self.repo / ".codex/install.sh"), "--mode=opt-out",
+                   "--profile=default", "--no-identity"]
+        execute(install, cwd=self.repo, env=env)
+        self.assertTrue(all(not p.is_symlink() for p in owned))
+        self.assertTrue((shared / "dinostack-codex/SKILL.md").is_file())
+        self.assertTrue((shared / "dinostack-codex-wrap/resources/METHODOLOGY.md").is_file())
+        for new, old in (("dinostack-codex", "dinostack"), ("dinostack-codex-wrap", "wrap")):
+            (shared / new).unlink()
+            (shared / new).symlink_to(os.path.relpath(self.repo / ".codex/skills" / old, shared))
+        execute(install, cwd=self.repo, env=env)
+        for _ in range(2):
+            execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=self.repo, env=env)
+        self.assertFalse(any((shared / name).is_symlink() for name in SKILL_NAMES))
+        self.assertEqual(before, {p: identity_fingerprint(p) for p in (foreign, real)})
+
+    def test_namespace_upgrade_preserves_foreign_legacy_and_occupied_names(self) -> None:
+        home = Path(self.temporary.name) / "foreign-home"
+        shared = home / ".agents/skills"
+        local = home / ".codex/skills"
+        shared.mkdir(parents=True)
+        local.mkdir(parents=True)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"CODEX_HOME", "AGENTIC_CONFIG_DIR"}}
+        env["HOME"] = str(home)
+        preserved = []
+        for directory in (shared, local):
+            for name in ("dinostack", "brief", "agentic-engineering"):
+                path = directory / name
+                path.symlink_to(home / "foreign-DinoStack/.codex/skills" / name)
+                preserved.append(path)
+            real = directory / "wrap"
+            real.mkdir()
+            (real / "SKILL.md").write_text("foreign real skill")
+            preserved.append(real)
+        before = {p: identity_fingerprint(p) for p in preserved}
+        install = ["bash", str(self.repo / ".codex/install.sh"), "--mode=opt-out",
+                   "--profile=default", "--no-identity"]
+        execute(install, cwd=self.repo, env=env)
+        execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=self.repo, env=env)
+        self.assertEqual(before, {p: identity_fingerprint(p) for p in preserved})
+        occupied = shared / "dinostack-codex"
+        occupied.symlink_to(home / "foreign-DinoStack/absent")
+        before = identity_fingerprint(shared)
+        result = execute(install, cwd=self.repo, env=env, expected=1)
+        self.assertIn("symlink points outside installer-owned sources", result.stderr)
+        self.assertEqual(before, identity_fingerprint(shared))
+
+    def test_namespace_foreign_pre_rename_source_is_not_checkout_owned(self) -> None:
+        home = Path(self.temporary.name) / "foreign-pre-rename-home"
+        shared = home / ".agents/skills"
+        shared.mkdir(parents=True)
+        link = shared / "agentic-engineering"
+        link.symlink_to(home / "other-DinoStack/.codex/skills/agentic-engineering")
+        before = identity_fingerprint(link)
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"CODEX_HOME", "AGENTIC_CONFIG_DIR"}}
+        env["HOME"] = str(home)
+        execute(["bash", str(self.repo / ".codex/install.sh"), "--mode=opt-out",
+                 "--profile=default", "--no-identity"], cwd=self.repo, env=env)
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(before, identity_fingerprint(link))
+
+    def test_namespace_legacy_generated_root_marker_upgrade(self) -> None:
+        arbitrary = Path(self.temporary.name) / "arbitrary-skills"
+        self.build_at_output(arbitrary)
+        for root in (self.repo / ".codex/skills", arbitrary):
+            with self.subTest(root=root):
+                marker_path = root / ROOT_MARKER
+                marker = json.loads(marker_path.read_text())
+                marker["skills"] = ["dinostack", "brief", "wrap", "implement-ticket"]
+                marker_path.write_text(json.dumps(marker, sort_keys=True, separators=(",", ":")) + "\n")
+                self.build_at_output(root)
+                self.assertEqual("dinostack-codex", json.loads(marker_path.read_text())["skills"][0])
+                self.check_at_output(root)
+
     def test_exact_four_valid_skills_and_unrelated_cwd(self) -> None:
         skills = self.repo / ".codex/skills"
         self.assertEqual(
@@ -266,7 +380,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual(before, fingerprint(self.repo))
 
     def test_generated_byte_and_missing_resource_mutations_fail(self) -> None:
-        skill = self.repo / ".codex/skills/brief/SKILL.md"
+        skill = self.repo / ".codex/skills/dinostack-codex-brief/SKILL.md"
         skill.write_text(skill.read_text() + "corruption\n", encoding="utf-8")
         self.check(expected=1)
         self.build()
@@ -275,11 +389,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_every_generated_output_class_is_mutation_checked(self) -> None:
         mutations = (
-            ("skill body", ".codex/skills/brief/SKILL.md", "file"),
-            ("marker", ".codex/skills/wrap/.dinostack-skill.json", "file"),
-            ("resource map", ".codex/skills/implement-ticket/RESOURCE-MAP.json", "file"),
-            ("core resource link", ".codex/skills/dinostack/rules", "link"),
-            ("workflow resource link", ".codex/skills/brief/resources", "link"),
+            ("skill body", ".codex/skills/dinostack-codex-brief/SKILL.md", "file"),
+            ("marker", ".codex/skills/dinostack-codex-wrap/.dinostack-skill.json", "file"),
+            ("resource map", ".codex/skills/dinostack-codex-implement-ticket/RESOURCE-MAP.json", "file"),
+            ("core resource link", ".codex/skills/dinostack-codex/rules", "link"),
+            ("workflow resource link", ".codex/skills/dinostack-codex-brief/resources", "link"),
         )
         for label, relative, kind in mutations:
             with self.subTest(output_class=label):
@@ -332,11 +446,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("PARAGRAPH_RULES", inventory.stderr)
 
     def test_frontmatter_and_link_mutations_fail(self) -> None:
-        frontmatter = self.repo / ".codex/skill-frontmatter/brief.yml"
+        frontmatter = self.repo / ".codex/skill-frontmatter/dinostack-codex-brief.yml"
         frontmatter.write_text("---\nname: wrong\ndescription: broken\n---\n", encoding="utf-8")
         self.check(expected=1)
-        shutil.copy2(REPO / ".codex/skill-frontmatter/brief.yml", frontmatter)
-        link = self.repo / ".codex/skills/brief/resources"
+        shutil.copy2(REPO / ".codex/skill-frontmatter/dinostack-codex-brief.yml", frontmatter)
+        link = self.repo / ".codex/skills/dinostack-codex-brief/resources"
         link.unlink()
         link.symlink_to("../../../../outside")
         self.check(expected=1)
@@ -442,11 +556,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_unexpected_paths_fail_then_build_prunes_and_repairs(self) -> None:
         stale_file = self.repo / ".codex/skills/stale.txt"
-        stale_directory = self.repo / ".codex/skills/dinostack/stale"
+        stale_directory = self.repo / ".codex/skills/dinostack-codex/stale"
         stale_file.write_text("stale", encoding="utf-8")
         stale_directory.mkdir()
         (stale_directory / "old.txt").write_text("old", encoding="utf-8")
-        generated = self.repo / ".codex/skills/wrap/SKILL.md"
+        generated = self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md"
         generated.write_text("drift", encoding="utf-8")
         self.check(expected=1)
         self.build()
@@ -500,9 +614,9 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual(tree_before, fingerprint(self.repo / ".codex/skills"))
 
     def test_project_local_paths_keep_invoked_project_scope(self) -> None:
-        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
-        ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
-        core = (self.repo / ".codex/skills/dinostack/SKILL.md").read_text(encoding="utf-8")
+        wrap = (self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md").read_text(encoding="utf-8")
+        ticket = (self.repo / ".codex/skills/dinostack-codex-implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        core = (self.repo / ".codex/skills/dinostack-codex/SKILL.md").read_text(encoding="utf-8")
         for path in (
             ".claude/settings.json",
             ".claude/settings.local.json",
@@ -546,7 +660,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertNotIn("legacy `legacy Claude Task`", generated)
         self.assertNotIn("set `the explicit Codex", generated)
         self.assertNotIn("legacy Claude Task Decomposition", generated)
-        self.assertNotIn(".agentic$wrap", generated)
+        self.assertNotIn(".agentic$dinostack-codex-wrap", generated)
         self.assertIn("git worktree add", generated)
         self.assertNotIn('origin/main"', generated)
         self.assertIn('origin/$BASE_BRANCH"', generated)
@@ -722,7 +836,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         # tokens - not merely leave them absent because the kernel
         # restoration itself never landed in the built artifact.
         generated_ticket = (
-            self.repo / ".codex/skills/implement-ticket/SKILL.md"
+            self.repo / ".codex/skills/dinostack-codex-implement-ticket/SKILL.md"
         ).read_text(encoding="utf-8")
         self.assertIn("Caller enumeration", generated_ticket)
         self.assertIn("Resume banners", generated_ticket)
@@ -730,7 +844,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("$AE_PROJECT_DIR/.agentic/loop-state-", generated_ticket)
 
     def test_wrap_busy_lock_uses_codex_command_polling_and_session_binding(self) -> None:
-        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
+        wrap = (self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md").read_text(encoding="utf-8")
         busy = re.search(
             r"(?ms)^3\. \*\*On busy:.*?(?=^4\. Liveness)",
             wrap,
@@ -1042,7 +1156,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         # Force the degrade path: a real (non-symlink) directory sitting
         # where install.sh would otherwise place the dinostack skill
         # symlink makes the skill unreachable at its load path.
-        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst = home / ".agents/skills/dinostack-codex"
         skill_dst.mkdir(parents=True)
 
         install = [
@@ -1151,7 +1265,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         env.pop("CODEX_HOME", None)
 
         # Force the degrade path, same technique as the test above.
-        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst = home / ".agents/skills/dinostack-codex"
         skill_dst.mkdir(parents=True)
 
         codex_dir = home / ".codex"
@@ -1222,7 +1336,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         env.pop("CODEX_HOME", None)
 
         # Force the degrade path.
-        skill_dst = home / ".agents/skills/dinostack"
+        skill_dst = home / ".agents/skills/dinostack-codex"
         skill_dst.mkdir(parents=True)
 
         codex_dir = home / ".codex"
@@ -1283,8 +1397,8 @@ class CodexSkillGenerationTests(unittest.TestCase):
         # DS-183 moved this guidance out of the always-loaded `.codex/AGENTS.md`
         # stub into the trigger-loaded wrap skill body, so `.codex/AGENTS.md`
         # is deliberately excluded here - it no longer carries this text.
-        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
-        for label, text in (("wrap", wrap),):
+        wrap = (self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md").read_text(encoding="utf-8")
+        for label, text in (("dinostack-codex-wrap", wrap),):
             with self.subTest(surface=label):
                 self.assertIn("~/.codex/projects/[hash]/context.md", text)
                 self.assertIn("context-writer-migration", text)
@@ -1301,7 +1415,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 self.assertNotIn("the next Stop turn", text)
 
         introduction = wrap[
-            wrap.index("# $wrap"):wrap.index("**Relationship to `wrap-ticket`.**")
+            wrap.index("# $dinostack-codex-wrap"):wrap.index("**Relationship to `wrap-ticket`.**")
         ]
         self.assertIn("~/.codex/projects/[hash]/context.md", introduction)
         self.assertIn("context-writer-migration", introduction)
@@ -1388,10 +1502,10 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("Use the `spawn_agent` tool", rendered)
 
     def test_generated_skills_preserve_task_nouns(self) -> None:
-        ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
-        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
+        ticket = (self.repo / ".codex/skills/dinostack-codex-implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        wrap = (self.repo / ".codex/skills/dinostack-codex-wrap/SKILL.md").read_text(encoding="utf-8")
         methodology = (
-            self.repo / ".codex/skills/dinostack/METHODOLOGY.md"
+            self.repo / ".codex/skills/dinostack-codex/METHODOLOGY.md"
         ).read_text(encoding="utf-8")
         self.assertIn('task -> "Task"; omit to accept project default', ticket)
         self.assertIn("### Task-state initialization", ticket)
@@ -1539,9 +1653,9 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_dispatch_rejects_escaping_and_wrong_type_descriptors(self) -> None:
         dispatcher = self.repo / "bin/agentic-codex-dispatch"
-        map_path = self.repo / ".codex/skills/dinostack/RESOURCE-MAP.json"
+        map_path = self.repo / ".codex/skills/dinostack-codex/RESOURCE-MAP.json"
         original = map_path.read_bytes()
-        hostile = self.repo / ".codex/skills/dinostack/dispatch-fifo"
+        hostile = self.repo / ".codex/skills/dinostack-codex/dispatch-fifo"
         cases = (
             ("absolute", {"path": str((Path(self.temporary.name) / "outside").resolve()), "type": "file"}),
             ("traversal", {"path": "../../../../outside", "type": "file"}),
@@ -1590,7 +1704,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             str(requested),
         )
         self.assertIn(str((physical / "skills").resolve()), result.stdout)
-        self.assertTrue((physical / "skills/dinostack/SKILL.md").is_file())
+        self.assertTrue((physical / "skills/dinostack-codex/SKILL.md").is_file())
 
     def test_default_and_explicit_symlinked_output_roots_are_rejected_without_target_mutation(
         self,
@@ -1798,7 +1912,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
         stale = output / "stale.txt"
         stale.write_text("generated-root stale content\n", encoding="utf-8")
-        generated = output / "brief/SKILL.md"
+        generated = output / "dinostack-codex-brief/SKILL.md"
         generated.write_text("drift\n", encoding="utf-8")
         self.build_at_output(output)
 
@@ -2257,7 +2371,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                                     input='{"prompt": "fix the bug"}', capture_output=True, text=True)
             self.assertEqual(0, result.returncode)
             self.assertEqual("", result.stderr)
-            self.assertIn(str(home / ".agents/skills/dinostack/SKILL.md"), result.stdout)
+            self.assertIn(str(home / ".agents/skills/dinostack-codex/SKILL.md"), result.stdout)
             installed_root = (profile / "hooks.json").resolve().parent.parent
             snapshot_root = home / f"execution snapshot {index}'s" / ".codex"
             shutil.copytree(installed_root, snapshot_root, symlinks=False)
@@ -2307,7 +2421,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             self.assertEqual(fires, "SKILL CHECK" in result.stdout, result.stdout)
             if fires:
                 directory = {"codex": ".agents", "claude": ".claude", "gemini": ".gemini"}[adapter]
-                self.assertIn(str(home / directory / "skills/dinostack/SKILL.md"), result.stdout)
+                self.assertIn(str(home / directory / ("skills/dinostack-codex/SKILL.md" if adapter == "codex" else "skills/dinostack/SKILL.md")), result.stdout)
         configure(shared, '{"skill_auto_load": false}')
         configure(second, '{"skill_auto_load": true}')
         check({"CODEX_HOME": str(second)}, True)
@@ -2406,10 +2520,10 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.assertEqual([], offenders)
         readme = (self.repo / ".codex/README.md").read_text(encoding="utf-8")
         self.assertIn("exactly four native Codex skills", readme)
-        self.assertIn("~/.agents/skills/dinostack", readme)
-        self.assertIn("~/.agents/skills/brief", readme)
-        self.assertIn("~/.agents/skills/wrap", readme)
-        self.assertIn("~/.agents/skills/implement-ticket", readme)
+        self.assertIn("~/.agents/skills/dinostack-codex", readme)
+        self.assertIn("~/.agents/skills/dinostack-codex-brief", readme)
+        self.assertIn("~/.agents/skills/dinostack-codex-wrap", readme)
+        self.assertIn("~/.agents/skills/dinostack-codex-implement-ticket", readme)
         self.assertIn("relative resource symlinks", readme)
         self.assertIn("bash scripts/check-codex-skill-sync.sh", readme)
 
@@ -2421,8 +2535,8 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             "docs/index.html",
         )
         inventory = (
-            "exactly four native Codex skills: dinostack, brief, wrap, "
-            "and implement-ticket."
+            "exactly four native Codex skills: dinostack-codex, dinostack-codex-brief, dinostack-codex-wrap, "
+            "and dinostack-codex-implement-ticket."
         )
         forbidden = (
             "hardlinks, no transform",
@@ -2440,7 +2554,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                 visible = re.sub(r"\s+", " ", visible)
                 visible = re.sub(r"\s+([,.;:])", r"\1", visible)
                 self.assertIn(inventory, visible)
-                for invocation in ("$brief", "$wrap", "$implement-ticket"):
+                for invocation in ("$dinostack-codex-brief", "$dinostack-codex-wrap", "$dinostack-codex-implement-ticket"):
                     self.assertIn(invocation, content)
                 for stale_claim in forbidden:
                     self.assertNotIn(stale_claim.lower(), content.lower())
@@ -2464,7 +2578,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             if item["resolution_mode"] == "native-skill"
             and item["expected_target"] in module.WORKFLOWS
         }
-        self.assertEqual({"$brief", "$wrap", "$implement-ticket"}, native_tokens)
+        self.assertEqual({"$dinostack-codex-brief", "$dinostack-codex-wrap", "$dinostack-codex-implement-ticket"}, native_tokens)
         skeptic_tokens = {
             item["generated_token"]
             for item in compatibility["occurrences"]
@@ -2504,7 +2618,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         # install.sh - so the workflow-token assertions below are retargeted
         # at that installed symlink target rather than installed AGENTS.md.
         installed_methodology = (
-            home / ".agents/skills/dinostack/METHODOLOGY.md"
+            home / ".agents/skills/dinostack-codex/METHODOLOGY.md"
         ).read_text(encoding="utf-8")
         for token in sorted(native_tokens):
             self.assertIn(token, installed_methodology)
@@ -2596,7 +2710,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             / "context.md"
         )
         emitted_context = context_path.read_text(encoding="utf-8")
-        self.assertIn("$wrap", emitted_context)
+        self.assertIn("$dinostack-codex-wrap", emitted_context)
         self.assertNotRegex(emitted_context, r"(?<![\w./-])/ds-[a-z0-9-]+\b")
 
     def test_codex_stop_hook_documentation_matches_runtime_path(self) -> None:
@@ -2700,14 +2814,14 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         # by the false_project_local_claims negative check above via
         # generated_surfaces).
         for relative in (
-            ".codex/skills/wrap/SKILL.md",
-            ".codex/skills/implement-ticket/SKILL.md",
+            ".codex/skills/dinostack-codex-wrap/SKILL.md",
+            ".codex/skills/dinostack-codex-implement-ticket/SKILL.md",
         ):
             with self.subTest(runtime_guidance=relative):
                 text = generated_surfaces[relative]
                 self.assertIn(runtime_path, text)
                 self.assertIn("context-writer-migration", text)
-        wrap = generated_surfaces[".codex/skills/wrap/SKILL.md"]
+        wrap = generated_surfaces[".codex/skills/dinostack-codex-wrap/SKILL.md"]
         self.assertIn(
             "The current Codex Stop hook writes raw continuity only to "
             f"`{runtime_path}`",
@@ -2719,12 +2833,12 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             wrap,
         )
         self.assertIn(
-            "`$wrap` continues to write the richer project-local "
+            "`$dinostack-codex-wrap` continues to write the richer project-local "
             "`$AE_PROJECT_DIR/.agentic/_wrap.md` handoff",
             wrap,
         )
         self.assertNotIn("Neither writes `context.md` directly.", wrap)
-        self.assertIn("$wrap", wrap)
+        self.assertIn("$dinostack-codex-wrap", wrap)
 
     def test_generated_markdown_has_no_operational_bare_ds_workflow_invocations(self) -> None:
         markdown = [self.repo / ".codex/AGENTS.md"]
@@ -2738,7 +2852,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                     path.is_symlink()
                     and path.relative_to(self.repo).as_posix()
                     == (
-                        ".codex/skills/dinostack/templates/.agentic/"
+                        ".codex/skills/dinostack-codex/templates/.agentic/"
                         "skill-candidates.md"
                     )
                 ):
@@ -2781,7 +2895,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
                     )
         self.assertEqual([], offenders)
         preamble = (
-            self.repo / ".codex/skills/dinostack/SKILL.md"
+            self.repo / ".codex/skills/dinostack-codex/SKILL.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "supported inputs (`task_name`, `message`, and `fork_turns`)",
@@ -2969,10 +3083,10 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.addCleanup(sys.modules.pop, module_name, None)
         spec.loader.exec_module(module)
 
-        resource_map = module.resource_map("dinostack")
+        resource_map = module.resource_map("dinostack-codex")
         resources = resource_map["resources"]
         manifest_descriptor = resources["project-scaffolding.yml"]
-        skill_root = self.repo / ".codex/skills/dinostack"
+        skill_root = self.repo / ".codex/skills/dinostack-codex"
         manifest = skill_root / manifest_descriptor["path"]
         self.assertTrue(manifest.is_file())
         seeds = re.findall(
@@ -3097,9 +3211,9 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             "content/sections/02-delegation.md",
             "hooks/pre-commit",
             ".codex/hooks/stop-context-codex.js",
-            ".codex/skill-frontmatter/brief.yml",
+            ".codex/skill-frontmatter/dinostack-codex-brief.yml",
             ".codex/skill-compatibility.yml",
-            ".codex/skills/brief/SKILL.md",
+            ".codex/skills/dinostack-codex-brief/SKILL.md",
             "scripts/codex-skills.py",
             ".codex/config/hooks.json",
             ".gemini/hooks/stop-context-gemini.js",
@@ -3163,9 +3277,9 @@ runpy.run_path(sys.argv[0], run_name="__main__")
             "scripts/check-codex-skill-sync.sh",
             "scripts/test/test_codex_skills.py",
             ".codex/build.sh",
-            ".codex/skill-frontmatter/brief.yml",
+            ".codex/skill-frontmatter/dinostack-codex-brief.yml",
             ".codex/skill-compatibility.yml",
-            ".codex/skills/brief/SKILL.md",
+            ".codex/skills/dinostack-codex-brief/SKILL.md",
             ".codex/prompts/ds-brief.md",
             ".codex/prompt-generation-state/manifest.json",
             ".codex/commands/ds-brief.md",
@@ -3204,7 +3318,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         execute(["git", "commit", "-qm", "fixture"], cwd=self.repo)
         precommit = ["bash", str(self.repo / "hooks/pre-commit")]
 
-        generated = self.repo / ".codex/skills/brief/SKILL.md"
+        generated = self.repo / ".codex/skills/dinostack-codex-brief/SKILL.md"
         original_generated = generated.read_bytes()
         generated.write_text(
             generated.read_text(encoding="utf-8") + "\nstaged corruption\n",
@@ -3240,7 +3354,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         generated_deletion = execute(precommit, cwd=self.repo, expected=1)
         self.assertIn("Checking staged Codex native skill sync", generated_deletion.stdout)
         self.assertIn("generated skill drift", generated_deletion.stderr)
-        self.assertIn("brief/SKILL.md", generated_deletion.stderr)
+        self.assertIn("dinostack-codex-brief/SKILL.md", generated_deletion.stderr)
 
         execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
         unrelated = self.repo / "README.md"
@@ -3266,7 +3380,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
         self.assertTrue(all(item["resolution_mode"] == "cleanup-resource-contract" for item in simplify))
 
     def test_proceed_tokens_remain_display_only(self) -> None:
-        generated = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        generated = (self.repo / ".codex/skills/dinostack-codex-implement-ticket/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("`yes`/proceed override", generated)
         payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
         proceed = [item for item in payload["occurrences"] if item["source_token"] == "/proceed"]
@@ -3310,7 +3424,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
         self.assertEqual(sorted(inventory), inventory)
         self.assertNotIn("ds-wrap-deferred", inventory)
         self.assertEqual(
-            {"dinostack", "brief", "wrap", "implement-ticket", ROOT_MARKER},
+            {"dinostack-codex", "dinostack-codex-brief", "dinostack-codex-wrap", "dinostack-codex-implement-ticket", ROOT_MARKER},
             {entry.name for entry in (self.repo / ".codex/skills").iterdir()},
         )
         prompts = self.repo / ".codex/prompts"
@@ -3325,7 +3439,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
                 f"description: Run DinoStack workflow {name}\n"
                 'argument-hint: "[arguments]"\n'
                 "---\n"
-                "Use the `$dinostack` skill. From that loaded skill's physical root, "
+                "Use the `$dinostack-codex` skill. From that loaded skill's physical root, "
                 f"read and execute the canonical `commands/{name}.md` workflow with these arguments:\n\n"
                 "$ARGUMENTS\n"
             )

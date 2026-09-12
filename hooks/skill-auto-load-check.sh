@@ -117,7 +117,7 @@ if [[ "$skill_auto_load" == "true" && "$content_state" != "no_match" ]]; then
       load_instruction="invoke the dinostack skill (activate_skill), or read $skill_path directly if activate_skill is unavailable in this session"
       ;;
     codex)
-      skill_path="$HOME/.agents/skills/dinostack/SKILL.md"
+      skill_path="$HOME/.agents/skills/dinostack-codex/SKILL.md"
       load_instruction="read $skill_path"
       ;;
     *)
