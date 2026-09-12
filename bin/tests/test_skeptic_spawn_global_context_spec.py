@@ -572,9 +572,16 @@ def test_round4_widened_clauses_pinned() -> None:
         f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
         "briefs' bullet is missing the round-4 every-field widening clause"
     )
+    # Round-2 (spawn-brief-neutrality-recipient-scope) update: the trailing
+    # "for the full rule" was scoped to "for the full Skeptic-specific
+    # elaboration" once Section 11 of this same file became the general,
+    # recipient-wide canonical site - the pinned substring still requires
+    # the citation to point at "Scope of the ban", not the pre-round-4
+    # narrower "Neutrality requirement" section, which is the actual
+    # load-bearing property this assertion protects.
     assert (
         'Section 7 "Scope of the ban: every field, every form, tagged or '
-        'untagged" for the full rule' in subagent_protocol
+        'untagged" for the full Skeptic-specific elaboration' in subagent_protocol
     ), (
         f"{REFERENCES_DIR / 'subagent-protocol.md'} 'Priming adversarial "
         "briefs' bullet still points at the pre-round-4 narrower "
@@ -683,12 +690,21 @@ def test_round6_sweep_closes_remaining_unpinned_widening_sites() -> None:
         "bounded-subset-only disclosure ahead of the Mechanical "
         "enforcement paragraph"
     )
+    # Round-3 (spawn-brief-neutrality-recipient-scope) update: "for the
+    # full rule" was stale once Section 11 of subagent-protocol.md became
+    # the general, recipient-wide canonical site - the pinned substring
+    # now requires the paragraph to point readers at that section for the
+    # full statement rather than claiming "Scope of the ban" itself is
+    # the full rule.
     assert (
         "a bounded subset only - see \"Scope of the ban\" above for the "
-        "full rule" in protocol
+        "Skeptic-specific elaboration, and `content/references/"
+        "subagent-protocol.md` §11 for the full statement of the general "
+        "rule" in protocol
     ), (
         f"{SKEPTIC_PROTOCOL} 'Mechanical enforcement' paragraph header is "
-        "missing its own bounded-subset-only qualifier"
+        "missing its own bounded-subset-only qualifier and its pointer to "
+        "subagent-protocol.md §11 for the full statement"
     )
 
     # hooks/AGENTS.md - the enforce-skeptic-neutrality.py module-map row's
