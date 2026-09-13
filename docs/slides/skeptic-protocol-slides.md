@@ -315,7 +315,7 @@ since claimed a fix. Determine for yourself whether each is now resolved:
 [M1: No error handling on payment callback]
 ```
 
-**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`). When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
+**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`) - the brief itself carries each entry's id and description only. When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
 
 **Auto-close rule:** when the Skeptic grants sign-off (zero new findings), ALL `findings_log` entries with `status: open` or `status: addressed` are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.
 

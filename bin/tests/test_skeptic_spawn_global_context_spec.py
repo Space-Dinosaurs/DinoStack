@@ -157,7 +157,11 @@ SPAWN_TEMPLATE_SITES = [
 # pointer naming it) at each site, not just once anywhere in the file.
 MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 1,
-    COMMANDS_DIR / "ds-implement-ticket.md": 5,  # Phase 3b, per-unit, integration, Phase 6, meta-Skeptic
+    # DS-230: re-derived from disk on 2026-09-13 - live count is 6 (Phase 3b,
+    # per-unit, integration, Phase 6, meta-Skeptic, plus one further site), so
+    # the floor sits at zero slack. The prior value (5) carried one occurrence of
+    # slack. Re-run the count on any future edit to that file.
+    COMMANDS_DIR / "ds-implement-ticket.md": 6,
     COMMANDS_DIR / "ds-init-project.md": 1,
     COMMANDS_DIR / "ds-ticket-triage.md": 1,
     COMMANDS_DIR / "ds-wrap.md": 2,  # Step 2 context-file review, Part E compression
@@ -213,7 +217,10 @@ FIELD_7_MARKER_RE = re.compile(r"field 7|7 fields|conductor spawn brief", re.IGN
 # re-count on any future edit to that file.
 FIELD_7_MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 2,
-    COMMANDS_DIR / "ds-implement-ticket.md": 5,
+    # DS-230: re-derived from disk on 2026-09-13 with FIELD_7_MARKER_RE - live
+    # count is 6, so the floor sits at zero slack. The prior value (5) carried
+    # one occurrence of slack. Re-run the count on any future edit to that file.
+    COMMANDS_DIR / "ds-implement-ticket.md": 6,
     COMMANDS_DIR / "ds-init-project.md": 2,
     COMMANDS_DIR / "ds-ticket-triage.md": 2,
     COMMANDS_DIR / "ds-wrap.md": 4,
