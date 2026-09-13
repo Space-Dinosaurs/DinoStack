@@ -651,6 +651,11 @@ _run_status = _mod._run_status
 _make_run_id = _mod._make_run_id
 _LEAF_WORKER_CLAUSE = _mod._LEAF_WORKER_CLAUSE
 HARNESS_BINARY = _mod.HARNESS_BINARY
+_SKILL_ARTIFACT_BY_HARNESS = _mod._SKILL_ARTIFACT_BY_HARNESS
+_ALLOW_NO_METHODOLOGY_ENV = _mod._ALLOW_NO_METHODOLOGY_ENV
+_resolve_skill_artifact = _mod._resolve_skill_artifact
+KNOWN_HARNESSES = _mod.KNOWN_HARNESSES
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def _make_argv_recording_exec(tmp_path: Path, binary_name: str, argv_out: Path) -> Path:
@@ -671,6 +676,42 @@ def _make_argv_recording_exec(tmp_path: Path, binary_name: str, argv_out: Path) 
     script.write_text("\n".join(lines) + "\n", encoding="utf-8")
     script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
     return bin_dir
+
+
+def _make_argv_capturing_exec(tmp_path: Path, binary_name: str, argv_out: Path) -> Path:
+    """Fake binary that NUL-delimits its own argv[1:] into *argv_out*.
+
+    Unlike _make_argv_recording_exec (one-arg-per-line), this survives an
+    arg containing embedded newlines - the augmented brief always does,
+    since the leaf-worker clause and the methodology pointer sentence are
+    each terminated with "\\n\\n".
+    """
+    bin_dir = tmp_path / f"nul_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / binary_name
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        f"with open({str(argv_out)!r}, 'wb') as fh:\n"
+        "    fh.write(b'\\x00'.join(\n"
+        "        a.encode('utf-8', 'surrogateescape') for a in sys.argv[1:]\n"
+        "    ))\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
+
+
+def _read_captured_argv(argv_out: Path) -> list[str]:
+    """Read back argv captured by _make_argv_capturing_exec."""
+    raw = argv_out.read_bytes()
+    if not raw:
+        return []
+    return [
+        part.decode("utf-8", "surrogateescape")
+        for part in raw.split(b"\x00")
+    ]
 
 
 def _make_fake_exec(tmp_path: Path, binary_name: str, stdout_payload: str) -> Path:
@@ -874,14 +915,19 @@ def _dispatch_via_subprocess(
     brief_file: Path,
     harness: str = "codex",
     role: str = "engineer",
-) -> tuple[int, str]:
+    env_overrides: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
     """Run dispatch as a subprocess with fake_bin_dir prepended to PATH.
 
-    Returns (returncode, run_id_or_stderr).
+    Returns (returncode, stdout, stderr) as three separate values - a
+    scenario needing stderr while a run-id is on stdout can't read either
+    correctly from a single merged string.
     """
     import sys as _sys
     env_patch = dict(_os.environ)
     env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    if env_overrides:
+        env_patch.update(env_overrides)
     agentic_team_path = str(_BIN / "agentic-team")
     result = _subprocess_mod.run(
         [_sys.executable, agentic_team_path,
@@ -894,7 +940,7 @@ def _dispatch_via_subprocess(
         text=True,
         env=env_patch,
     )
-    return result.returncode, result.stdout.strip() or result.stderr.strip()
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
 def _wait_for_stdout(run_dir: Path, timeout: float = 5.0) -> None:
@@ -940,7 +986,7 @@ def test_worker_workdir_isolated_from_repo(tmp_path):
 
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id, _stderr = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
     assert rc == 0, f"dispatch failed: {run_id}"
     assert run_id, "dispatch must print a run-id"
 
@@ -983,7 +1029,7 @@ def test_worker_brief_contains_leaf_clause(tmp_path):
     original_brief = "Do the task."
     brief_file = _make_brief_file(tmp_path, original_brief)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id, _stderr = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -997,6 +1043,354 @@ def test_worker_brief_contains_leaf_clause(tmp_path):
     assert "do not spawn sub-agents" in stdout_text, (
         "leaf-worker clause must include 'do not spawn sub-agents'"
     )
+
+
+# ---------------------------------------------------------------------------
+# Methodology-delivery for headless gemini/kimi workers (file-in-run-dir)
+# ---------------------------------------------------------------------------
+
+def test_methodology_file_delivered_gemini_and_kimi(tmp_path):
+    """(a) project-local artifact is copied byte-for-byte into the run dir;
+    the pointer names the correct relative path; leaf clause + pointer
+    precede the original brief - via captured argv ordering, not substring.
+    """
+    for harness in ("gemini", "kimi"):
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        workdir = tmp_path / f"wd_{harness}"
+        artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+        artifact_dir.mkdir(parents=True)
+        fixture_bytes = f"FIXTURE-{harness}-CONTENT\n".encode("utf-8") * 5
+        artifact_path = artifact_dir / artifact_name
+        artifact_path.write_bytes(fixture_bytes)
+
+        binary_name = HARNESS_BINARY[harness]
+        argv_out = tmp_path / f"argv_{harness}.bin"
+        fake_bin_dir = _make_argv_capturing_exec(tmp_path, binary_name, argv_out)
+
+        original_brief = f"Do the {harness} task."
+        brief_file = _make_brief_file(tmp_path, original_brief)
+
+        rc, run_id, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+        )
+        assert rc == 0, f"[{harness}] dispatch failed: {stderr}"
+
+        run_dir = workdir / ".agentic" / "teamrun" / run_id
+        dest = run_dir / artifact_name
+        assert dest.is_file(), f"[{harness}] artifact must be copied into run dir"
+        assert dest.read_bytes() == fixture_bytes, (
+            f"[{harness}] copied artifact must be byte-identical to the source"
+        )
+
+        captured = _read_captured_argv(argv_out)
+        matches = [a for a in captured if a.startswith(_LEAF_WORKER_CLAUSE)]
+        assert len(matches) == 1, (
+            f"[{harness}] expected exactly one argv element carrying the "
+            f"augmented brief, got {len(matches)}: {captured!r}"
+        )
+        augmented = matches[0]
+
+        expected_rel = str(dest.relative_to(workdir))
+        pointer_marker = f"read the file `{expected_rel}`"
+        idx_leaf = augmented.index(_LEAF_WORKER_CLAUSE)
+        idx_pointer = augmented.index(pointer_marker)
+        idx_brief = augmented.index(original_brief)
+        assert idx_leaf == 0, f"[{harness}] leaf clause must come first"
+        assert idx_leaf < idx_pointer < idx_brief, (
+            f"[{harness}] expected order leaf-clause < pointer < brief, "
+            f"got indices {idx_leaf}, {idx_pointer}, {idx_brief}"
+        )
+
+
+def test_methodology_absent_refuses_dispatch(tmp_path):
+    """(b) no candidate at either base -> exit 2, no run dir, absent-specific stderr."""
+    empty_home = tmp_path / "empty_home"
+    empty_home.mkdir()
+    for harness in ("gemini", "kimi"):
+        workdir = tmp_path / f"wd_absent_{harness}"
+        workdir.mkdir()
+        binary_name = HARNESS_BINARY[harness]
+        fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "should not run")
+        brief_file = _make_brief_file(tmp_path)
+
+        rc, _stdout, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            env_overrides={"HOME": str(empty_home)},
+        )
+        assert rc == 2, f"[{harness}] absent artifact must refuse (exit 2)"
+        assert not (workdir / ".agentic").exists(), (
+            f"[{harness}] no run directory may be left behind on refusal"
+        )
+        artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness][1]
+        assert f"no {artifact_name} at" in stderr, (
+            f"[{harness}] stderr must be the absent-specific message, got: {stderr!r}"
+        )
+
+
+def test_methodology_unreadable_refuses_dispatch(tmp_path):
+    """(c) project-local candidate exists but is unreadable (mode 0) -> exit 2,
+    no run dir, a stderr string DISTINCT from the absent case, no fallthrough
+    to a global candidate even if one is present.
+    """
+    if hasattr(_os, "geteuid") and _os.geteuid() == 0:
+        pytest.skip("root bypasses file-mode permission checks")
+
+    for harness in ("gemini", "kimi"):
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        workdir = tmp_path / f"wd_unreadable_{harness}"
+        artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+        artifact_dir.mkdir(parents=True)
+        artifact_path = artifact_dir / artifact_name
+        artifact_path.write_bytes(b"unreadable fixture\n")
+        artifact_path.chmod(0)
+
+        binary_name = HARNESS_BINARY[harness]
+        fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "should not run")
+        brief_file = _make_brief_file(tmp_path)
+
+        try:
+            rc, _stdout, stderr = _dispatch_via_subprocess(
+                tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            )
+            assert rc == 2, f"[{harness}] unreadable artifact must refuse (exit 2)"
+            assert not (workdir / ".agentic").exists(), (
+                f"[{harness}] no run directory may be left behind on refusal"
+            )
+            assert "could not be read" in stderr, (
+                f"[{harness}] stderr must be the unreadable-specific message, got: {stderr!r}"
+            )
+            assert f"no {artifact_name} at" not in stderr, (
+                f"[{harness}] unreadable stderr must not read as the absent-case message"
+            )
+        finally:
+            artifact_path.chmod(0o644)
+
+
+def test_methodology_empty_refuses_dispatch(tmp_path):
+    """(c2) project-local candidate exists, is readable, but is zero bytes ->
+    exit 2, no run dir, a stderr string DISTINCT from both the absent and
+    the unreadable cases, no fallthrough to a global candidate even if one
+    is present.
+
+    Zero-byte artifacts are the documented failure mode of this repo's own
+    adapter build scripts (a `{ ... } > "$dst"` redirect truncates the
+    destination before the generator writes anything; an aborted build
+    leaves exactly this state on disk) - a 1-byte read-probe that merely
+    avoids raising OSError cannot see it, since read(1) on an empty file
+    returns b"" without raising.
+    """
+    for harness in ("gemini", "kimi"):
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        workdir = tmp_path / f"wd_empty_{harness}"
+        artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+        artifact_dir.mkdir(parents=True)
+        artifact_path = artifact_dir / artifact_name
+        artifact_path.write_bytes(b"")
+
+        # A global candidate is present and readable, to prove the "empty"
+        # status genuinely does not fall through to it (rather than merely
+        # having nothing to fall through to).
+        fake_home = tmp_path / f"fake_home_empty_{harness}"
+        global_dir = fake_home / skill_dir / "skills" / "dinostack"
+        global_dir.mkdir(parents=True)
+        (global_dir / artifact_name).write_bytes(
+            f"GLOBAL-FIXTURE-{harness}\n".encode("utf-8")
+        )
+
+        binary_name = HARNESS_BINARY[harness]
+        fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "should not run")
+        brief_file = _make_brief_file(tmp_path)
+
+        rc, _stdout, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            env_overrides={"HOME": str(fake_home)},
+        )
+        assert rc == 2, f"[{harness}] empty artifact must refuse (exit 2)"
+        assert not (workdir / ".agentic").exists(), (
+            f"[{harness}] no run directory may be left behind on refusal"
+        )
+        assert "is empty (0 bytes)" in stderr, (
+            f"[{harness}] stderr must be the empty-specific message, got: {stderr!r}"
+        )
+        assert "could not be read" not in stderr, (
+            f"[{harness}] empty stderr must not read as the unreadable-case message"
+        )
+        assert f"no {artifact_name} at" not in stderr, (
+            f"[{harness}] empty stderr must not read as the absent-case message"
+        )
+
+
+def test_methodology_global_fallback_used_when_project_local_absent(tmp_path):
+    """(d) no project-local candidate; a global ($HOME) candidate resolves and is used."""
+    for harness in ("gemini", "kimi"):
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        fake_home = tmp_path / f"fake_home_{harness}"
+        global_dir = fake_home / skill_dir / "skills" / "dinostack"
+        global_dir.mkdir(parents=True)
+        fixture_bytes = f"GLOBAL-FIXTURE-{harness}\n".encode("utf-8")
+        (global_dir / artifact_name).write_bytes(fixture_bytes)
+
+        workdir = tmp_path / f"wd_global_{harness}"
+        workdir.mkdir()
+        binary_name = HARNESS_BINARY[harness]
+        fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "ok")
+        brief_file = _make_brief_file(tmp_path)
+
+        rc, run_id, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            env_overrides={"HOME": str(fake_home)},
+        )
+        assert rc == 0, f"[{harness}] global fallback must succeed: {stderr}"
+        run_dir = workdir / ".agentic" / "teamrun" / run_id
+        dest = run_dir / artifact_name
+        assert dest.read_bytes() == fixture_bytes, (
+            f"[{harness}] copied artifact must come from the global candidate"
+        )
+
+
+def test_methodology_allow_no_methodology_override(tmp_path):
+    """(e) AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1 with an absent artifact dispatches
+    anyway (exit 0), prints a WARNING to stderr, and sends no pointer sentence.
+    """
+    empty_home = tmp_path / "empty_home"
+    empty_home.mkdir()
+    harness = "gemini"
+    binary_name = HARNESS_BINARY[harness]
+    argv_out = tmp_path / "argv_allow.bin"
+    fake_bin_dir = _make_argv_capturing_exec(tmp_path, binary_name, argv_out)
+
+    workdir = tmp_path / "wd_allow"
+    workdir.mkdir()
+    original_brief = "Do the task with no methodology."
+    brief_file = _make_brief_file(tmp_path, original_brief)
+
+    rc, _run_id, stderr = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+        env_overrides={"HOME": str(empty_home), _ALLOW_NO_METHODOLOGY_ENV: "1"},
+    )
+    assert rc == 0, f"dispatch must succeed with the override set: {stderr}"
+    assert "WARNING" in stderr, "override path must print a WARNING to stderr"
+
+    captured = _read_captured_argv(argv_out)
+    matches = [a for a in captured if a.startswith(_LEAF_WORKER_CLAUSE)]
+    assert len(matches) == 1
+    expected = _LEAF_WORKER_CLAUSE + original_brief
+    assert matches[0] == expected, (
+        "with no artifact resolved, the brief must be leaf-clause + original "
+        "brief only - no pointer sentence"
+    )
+
+
+def test_methodology_copy_failure_cleans_up_run_dir(tmp_path, monkeypatch, capsys):
+    """(f) a copy-time OSError leaves no run directory behind."""
+    import argparse as _argparse
+
+    harness = "gemini"
+    skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+    workdir = tmp_path / "wd_copyfail"
+    artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / artifact_name).write_bytes(b"readable fixture\n")
+    brief_file = _make_brief_file(tmp_path)
+
+    def _raise_oserror(*_args, **_kwargs):
+        raise OSError("disk full (simulated)")
+
+    monkeypatch.setattr(_mod.shutil, "copyfile", _raise_oserror)
+
+    args = _argparse.Namespace(
+        harness=harness,
+        role="engineer",
+        brief=str(brief_file),
+        workdir=str(workdir),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 2, "copy failure must return exit 2"
+
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    remaining = list(teamrun_dir.iterdir()) if teamrun_dir.exists() else []
+    assert remaining == [], (
+        f"the incomplete run directory must be removed, found: {remaining!r}"
+    )
+
+    captured = capsys.readouterr()
+    assert "failed to copy methodology artifact" in captured.err
+
+
+def test_methodology_seven_other_harnesses_byte_identical_brief(tmp_path):
+    """(g) the 7 harnesses with no _SKILL_ARTIFACT_BY_HARNESS entry get a
+    byte-identical brief through the single assembly site: leaf-clause +
+    brief_text, with no methodology_note inserted.
+    """
+    other_harnesses = sorted(KNOWN_HARNESSES - set(_SKILL_ARTIFACT_BY_HARNESS))
+    assert len(other_harnesses) == 7, (
+        f"expected 7 non-delivery harnesses, got {len(other_harnesses)}: {other_harnesses}"
+    )
+    original_brief = "Do the regression-check task."
+    brief_file = _make_brief_file(tmp_path, original_brief)
+
+    for harness in other_harnesses:
+        binary_name = HARNESS_BINARY[harness]
+        argv_out = tmp_path / f"argv_reg_{harness}.bin"
+        fake_bin_dir = _make_argv_capturing_exec(tmp_path, binary_name, argv_out)
+        workdir = tmp_path / f"wd_reg_{harness}"
+        workdir.mkdir()
+
+        env_overrides = {"AGENTIC_TEAM_ALLOW_COPILOT": "1"} if harness == "copilot" else None
+        rc, _run_id, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            env_overrides=env_overrides,
+        )
+        assert rc == 0, f"[{harness}] dispatch must succeed: {stderr}"
+
+        captured = _read_captured_argv(argv_out)
+        expected = _LEAF_WORKER_CLAUSE + original_brief
+        matches = [a for a in captured if a == expected]
+        assert len(matches) == 1, (
+            f"[{harness}] expected exactly one byte-identical brief element in "
+            f"argv, got {len(matches)}: {captured!r}"
+        )
+
+
+def test_methodology_real_artifact_bounds_pointer_overhead(tmp_path):
+    """(h) using the actual shipped .gemini/.kimi skill artifacts, the added
+    pointer overhead is bounded - excluding the fixture brief's own bytes.
+    """
+    real_paths = {
+        "gemini": _REPO_ROOT / ".gemini" / "skills" / "dinostack" / "SKILL.full.md",
+        "kimi": _REPO_ROOT / ".kimi" / "skills" / "dinostack" / "SKILL.md",
+    }
+    for harness, real_path in real_paths.items():
+        assert real_path.is_file(), f"[{harness}] real artifact must exist: {real_path}"
+
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        workdir = tmp_path / f"wd_real_{harness}"
+        artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+        artifact_dir.mkdir(parents=True)
+        artifact_dir_target = artifact_dir / artifact_name
+        artifact_dir_target.write_bytes(real_path.read_bytes())
+
+        binary_name = HARNESS_BINARY[harness]
+        argv_out = tmp_path / f"argv_real_{harness}.bin"
+        fake_bin_dir = _make_argv_capturing_exec(tmp_path, binary_name, argv_out)
+
+        original_brief = "Do the real-artifact task."
+        brief_file = _make_brief_file(tmp_path, original_brief)
+
+        rc, run_id, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+        )
+        assert rc == 0, f"[{harness}] dispatch with the real artifact must succeed: {stderr}"
+
+        captured = _read_captured_argv(argv_out)
+        matches = [a for a in captured if a.startswith(_LEAF_WORKER_CLAUSE)]
+        assert len(matches) == 1
+        augmented_brief = matches[0]
+        overhead = len(augmented_brief) - len(original_brief)
+        assert overhead < 1024, (
+            f"[{harness}] pointer overhead (excluding the fixture brief bytes) "
+            f"must stay under 1024 chars, got {overhead}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1110,7 +1504,7 @@ def test_reaper_writes_exit_zero_on_success(tmp_path):
     fake_bin_dir = _make_fake_exec(tmp_path, "codex", '{"result":"ok"}')
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id, _stderr = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1143,7 +1537,7 @@ def test_reaper_writes_exit_nonzero_on_failure(tmp_path):
 
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id, _stderr = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1166,7 +1560,7 @@ def test_collect_exit_code_reflects_worker_success(tmp_path, capsys):
     fake_bin_dir = _make_fake_exec(tmp_path, "codex", '{"result":"hello"}')
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id, _stderr = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
