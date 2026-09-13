@@ -1166,6 +1166,49 @@ def test_methodology_unreadable_refuses_dispatch(tmp_path):
             artifact_path.chmod(0o644)
 
 
+def test_methodology_empty_refuses_dispatch(tmp_path):
+    """(c2) project-local candidate exists, is readable, but is zero bytes ->
+    exit 2, no run dir, a stderr string DISTINCT from both the absent and
+    the unreadable cases, no fallthrough to a global candidate even if one
+    is present.
+
+    Zero-byte artifacts are the documented failure mode of this repo's own
+    adapter build scripts (a `{ ... } > "$dst"` redirect truncates the
+    destination before the generator writes anything; an aborted build
+    leaves exactly this state on disk) - a 1-byte read-probe that merely
+    avoids raising OSError cannot see it, since read(1) on an empty file
+    returns b"" without raising.
+    """
+    for harness in ("gemini", "kimi"):
+        skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+        workdir = tmp_path / f"wd_empty_{harness}"
+        artifact_dir = workdir / skill_dir / "skills" / "dinostack"
+        artifact_dir.mkdir(parents=True)
+        artifact_path = artifact_dir / artifact_name
+        artifact_path.write_bytes(b"")
+
+        binary_name = HARNESS_BINARY[harness]
+        fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "should not run")
+        brief_file = _make_brief_file(tmp_path)
+
+        rc, _stdout, stderr = _dispatch_via_subprocess(
+            tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+        )
+        assert rc == 2, f"[{harness}] empty artifact must refuse (exit 2)"
+        assert not (workdir / ".agentic").exists(), (
+            f"[{harness}] no run directory may be left behind on refusal"
+        )
+        assert "is empty (0 bytes)" in stderr, (
+            f"[{harness}] stderr must be the empty-specific message, got: {stderr!r}"
+        )
+        assert "could not be read" not in stderr, (
+            f"[{harness}] empty stderr must not read as the unreadable-case message"
+        )
+        assert f"no {artifact_name} at" not in stderr, (
+            f"[{harness}] empty stderr must not read as the absent-case message"
+        )
+
+
 def test_methodology_global_fallback_used_when_project_local_absent(tmp_path):
     """(d) no project-local candidate; a global ($HOME) candidate resolves and is used."""
     for harness in ("gemini", "kimi"):
