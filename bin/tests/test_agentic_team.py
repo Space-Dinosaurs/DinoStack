@@ -1724,12 +1724,28 @@ def test_no_model_argv_unchanged():
 
 def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
     """dispatch --model X --harness kimi -> succeeds (rc 0), no fail-fast
-    reject; the model flag reaches the spawned argv."""
+    reject; the model flag reaches the spawned argv.
+
+    This test's subject is --model forwarding, not methodology delivery, so
+    it must not depend on whether the developer/CI machine happens to have a
+    global ~/.kimi/skills/dinostack/SKILL.md install: kimi is one of the two
+    harnesses gated by _resolve_skill_artifact (_SKILL_ARTIFACT_BY_HARNESS),
+    which falls through to Path.home() when no project-local candidate
+    exists. HOME is pinned to an empty directory so the resolver
+    deterministically returns "absent" regardless of machine state, and
+    AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1 is set so the resulting refusal is
+    bypassed - exercising the override path already covered by
+    test_methodology_allow_no_methodology_override, not a bug in this test.
+    """
     import argparse as _argparse
 
     workdir = tmp_path / "wd"
     workdir.mkdir()
     brief_file = _make_brief_file(tmp_path)
+    empty_home = tmp_path / "empty_home"
+    empty_home.mkdir()
+    monkeypatch.setenv("HOME", str(empty_home))
+    monkeypatch.setenv(_ALLOW_NO_METHODOLOGY_ENV, "1")
 
     captured: dict = {}
 
