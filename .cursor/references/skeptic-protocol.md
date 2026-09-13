@@ -29,7 +29,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/references/subagent-protocol.md (references Section 7),
                       content/references/agent-team.md (references Section 7's
                       Neutrality requirement for the pre-implementation and
-                      post-implementation Skeptic-on-plan spawn templates)
+                      post-implementation Skeptic-on-plan spawn templates),
+                      content/references/delegation-detail.md (points at Section 7's
+                      Brief section slots from the Worker Preamble and Execution
+                      Contract Template)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -202,7 +205,7 @@ raise one as a new finding without saying which prior finding it is.
 
 The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
-**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor passes the findings_log entries (status=open or status=addressed) as the preflight list. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` and `claimed_fix` are the conductor's own bookkeeping and stay out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
 
 ---
 
@@ -523,7 +526,7 @@ The brief should be specific to the domain and threat model of the work being re
 
 The brief a conductor composes for a Skeptic spawn has three named sections. Each is a slot with a fixed item form, never a free-prose region.
 
-All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`. This placement is load-bearing: it keeps the slots inside the brief region the mechanical guard below already scans, rather than outside every scanned region.
+All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
 Every item in every slot takes the form defined at `content/references/subagent-protocol.md` §11 "Brief section form".
 
@@ -531,7 +534,7 @@ Every item in every slot takes the form defined at `content/references/subagent-
 - **Questions the review must answer explicitly** - the properties whose determination is required output. Each item names the property, not a question about it: "the mechanism's soundness given nothing forces the worker to open the file", never "whether X is really Y".
 - **Repo-specific hazards** - repo-wide, diff-independent hazard classes only. A hazard whose statement is specific to the diff under review is a conductor conclusion and belongs in no slot.
 
-The resolved-issues preflight (Section 4) and the Global-context fields (Section 4.5) are held to the same form: the preflight carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination.
+The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The Global-context fields (Section 4.5) keep the formats Section 4.5 mandates for them, several of which are verbatim pasted artifacts rather than composed items; what binds every one of them is the ban below, not this item form.
 
 ### Neutrality requirement (independent of completeness)
 

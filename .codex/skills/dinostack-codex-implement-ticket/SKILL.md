@@ -2017,9 +2017,9 @@ ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id
 The following findings were raised in earlier iterations. For each:
 - If the current diff shows the finding was addressed: mark it CLOSED with a one-line confirmation.
 - If the current diff does NOT show the finding was addressed: re-raise it using [PREV: <id>] prefix in the finding title.
-- Do not re-raise findings that were resolved - do not invent new instances of a previously-closed finding without new evidence.
+- Do not invent new instances of a closed finding without new evidence.
 
-[paste findings_log entries with status=open or status=addressed]
+[paste the id and description of each open or addressed entry]
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:

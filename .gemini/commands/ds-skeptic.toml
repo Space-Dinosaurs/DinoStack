@@ -45,7 +45,7 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"]
+**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"] [Brief sections: compose "Attack surface", "Questions the review must answer explicitly", and "Repo-specific hazards" as slots - see skeptic-protocol.md Section 7 "Brief section slots"]
 
 ## Global-context inputs
 
