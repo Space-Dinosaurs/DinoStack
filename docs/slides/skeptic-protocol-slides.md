@@ -232,6 +232,7 @@ The brief defines the **threat model** the Skeptic must adopt. It is domain-spec
 - Mechanically enforced at spawn time (`enforce-skeptic-neutrality.py`): denies an untagged claim in field 7, or a conductor-composed-steer phrase in the brief
 - The ban covers every field, every form, tagged or untagged - the hook checks only two bounded surfaces; the reviewing Skeptic's Step 3.9 Neutrality check is the control for the rest
 - The underlying rule is general, not Skeptic-only - it binds every spawn brief, to any recipient role; see subagent-protocol.md Section 11 "Spawn-brief provenance"
+- Its three sections (attack surface, questions the review must answer explicitly, repo-specific hazards) are slots with a stated item form, defined once in subagent-protocol.md Section 11 "Brief section form"
 - Templates exist for: auth, API endpoints, crypto, DB migrations, data pipelines, smart contracts, architecture docs, general code review
 
 <div class="callout">
@@ -304,14 +305,14 @@ The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either
   .callout { font-size: 0.74em; padding: 0.28em 0.9em; margin-top: 0.2em; }
 </style>
 
-On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise already-fixed issues:
+On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise a prior finding as a new one:
 
 ```
-The following issues were identified and resolved in prior rounds.
-Do not re-raise them unless the resolution is genuinely insufficient:
+The following findings were raised in prior rounds and the Worker has
+since claimed a fix. Determine for yourself whether each is now resolved:
 
-[C1: Missing auth check on /admin endpoint → Added middleware guard]
-[M1: No error handling on payment callback → Added try/catch with rollback]
+[C1: Missing auth check on /admin endpoint]
+[M1: No error handling on payment callback]
 ```
 
 **Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`). When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.

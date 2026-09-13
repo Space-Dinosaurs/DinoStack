@@ -8,8 +8,9 @@ Public API: Referenced by section number across the methodology. Key sections:
   Section 4.5 - Global-context input set (required in every spawn brief)
   Section 5 - Re-route limits and convergence failure
   Section 6 - Findings classification (Critical/Major/Minor definitions)
-  Section 7 - The Adversarial Brief Requirement (includes the Neutrality
-              requirement subsection, independent of completeness)
+  Section 7 - The Adversarial Brief Requirement (includes the Brief section
+              slots subsection defining the three brief slots, and the
+              Neutrality requirement subsection, independent of completeness)
   Section 8 - Adversarial brief templates (domain-specific)
   Section 9 - Review scope guidance for decomposed tasks
   Section 11 - Sign-off format and validation rules
@@ -117,7 +118,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 6. **Worker addresses findings** — fixes each Critical or Major finding, or documents a specific reason why it is not a real problem — and returns the revised output.
 
-7. **Primary agent updates the resolved issues preflight list** with each addressed finding and its resolution.
+7. **Primary agent updates the resolved issues preflight list** with each addressed finding's identifier and description.
 
 8. **Primary agent spawns a NEW fresh Skeptic** — never a continuation of the prior Skeptic — with the revised output, the same adversarial brief, and the updated preflight list. **When the prior round's unresolved findings were all prose-only and the fix diff carries no code/test/behavior change (§Prose-scoped re-check),** the primary agent names the narrowed mode explicitly in the spawn prompt and supplies the fix commit range `sha1..sha2` (the pre-fix and post-fix SHAs) in addition to the standard inputs - Global-context field 6 (the branch diff) does not by itself convey this range. Otherwise, spawn the standard full-pass Skeptic.
 
@@ -189,16 +190,17 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
 Before invoking each new Skeptic (rounds 2+), the primary agent prepends this block to the adversarial brief:
 
 ```
-The following issues were identified and resolved in prior rounds. Do not
-re-raise them unless you believe the resolution is genuinely insufficient:
+The following findings were raised in prior rounds and the Worker has since
+claimed a fix. Determine for yourself whether each is now resolved; do not
+raise one as a new finding without saying which prior finding it is.
 
-[C1: <description of finding> → <resolution applied>]
-[C2: <description of finding> → <resolution applied>]
-[M1: <description of finding> → <resolution applied>]
+[C1: <description of finding>]
+[C2: <description of finding>]
+[M1: <description of finding>]
 ...
 ```
 
-The preflight list prevents the Skeptic from re-raising already-addressed findings as new Critical or Major items. It does not prevent the Skeptic from contesting a resolution — if the Skeptic believes a stated resolution is insufficient, it may re-raise the finding with an explicit explanation of why.
+The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
 **Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor passes the findings_log entries (status=open or status=addressed) as the preflight list. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
 
@@ -516,6 +518,20 @@ The adversarial brief defines the threat model the Skeptic must adopt. It is wri
 The brief should be specific to the domain and threat model of the work being reviewed. Generic briefs produce generic findings.
 
 **Brief extension:** The primary agent may extend a template brief with domain-specific additions: *"In addition to the above, also consider: [domain-specific concerns]."* The primary agent must never remove or soften any language from the selected template. Extension is additive only.
+
+### Brief section slots
+
+The brief a conductor composes for a Skeptic spawn has three named sections. Each is a slot with a fixed item form, never a free-prose region.
+
+All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`. This placement is load-bearing: it keeps the slots inside the brief region the mechanical guard below already scans, rather than outside every scanned region.
+
+Every item in every slot takes the form defined at `content/references/subagent-protocol.md` §11 "Brief section form".
+
+- **Attack surface** - the artifacts and mechanisms the review must reach. One artifact per item.
+- **Questions the review must answer explicitly** - the properties whose determination is required output. Each item names the property, not a question about it: "the mechanism's soundness given nothing forces the worker to open the file", never "whether X is really Y".
+- **Repo-specific hazards** - repo-wide, diff-independent hazard classes only. A hazard whose statement is specific to the diff under review is a conductor conclusion and belongs in no slot.
+
+The resolved-issues preflight (Section 4) and the Global-context fields (Section 4.5) are held to the same form: the preflight carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination.
 
 ### Neutrality requirement (independent of completeness)
 

@@ -33,7 +33,7 @@ The Skeptic pattern counters this by introducing a genuinely independent reviewe
 - The Skeptic must always be a fresh invocation — never a continuation of a prior Skeptic round. A Skeptic that has heard the Worker's justifications is no longer independent.
 - The adversarial brief must be specific enough that a bad implementation would actually fail it. Generic briefs produce generic findings and provide false assurance.
 - The main agent must pass the brief verbatim. Softening or summarizing the brief degrades adversarial independence just as continuing a prior Skeptic does.
-- The resolved issues preflight list prevents a fresh Skeptic from re-raising already-addressed findings as new Critical items — but it does not prevent the Skeptic from contesting a resolution it finds insufficient.
+- The resolved issues preflight list prevents a fresh Skeptic from re-raising already-addressed findings as new Critical items. It carries each prior finding's identifier and description only; whether a finding is actually resolved stays the Skeptic's own determination from the diff.
 - The sign-off format is required, not optional. It requires the Skeptic to explicitly state what it reviewed and attest to an active search for problems. A sign-off without these elements is not a valid sign-off.
 - The system uses three risk tiers: Trivial (delegated to a worktree-isolated engineer, no Skeptic), Low (direct action with a brief inline self-check), and Elevated (Worker + fresh independent Skeptic, orchestrated by the main agent). There is no self-review path for Elevated work - adversarial independence requires a clean context that self-review cannot provide.
 
