@@ -65,7 +65,7 @@ See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block
 
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
-- Rounds 2+: "The following issues were identified and resolved in prior rounds. Do not re-raise them unless the resolution is genuinely insufficient: [list each: C1/M1/etc: description - resolution applied]"
+- Rounds 2+: "The following findings were raised in prior rounds and the Worker has since claimed a fix. Determine for yourself whether each is now resolved; do not raise one as a new finding without saying which prior finding it is: [list each: C1/M1/etc: description]"
 
 Evaluate and return your findings using the sign-off format from your agent definition.
 ---
@@ -111,7 +111,7 @@ You are a Worker agent. Address the Skeptic findings below and return your revis
 For each Critical or Major finding: fix it, or document a specific reason why it is not a real problem. Return your revised complete output.
 ---
 
-Update the resolved issues preflight list with each addressed finding and its resolution.
+Update the resolved issues preflight list with each addressed finding's identifier and description.
 
 Return to Step 2 with the revised output.
 
@@ -145,5 +145,5 @@ Pick the single best match. If multiple apply, use the first match in this list.
 
 - The Skeptic is always a fresh spawn - never a continuation of a prior round.
 - The main agent never touches the Worker's implementation. Review only the returned result.
-- Keep the preflight list honest: only mark issues as resolved when they genuinely are.
+- Keep the preflight list to identifier and description only: whether a finding is resolved is the Skeptic's determination from the diff, never a disposition the list asserts.
 - Pass the adversarial brief to the Skeptic verbatim - never soften or summarize it.
