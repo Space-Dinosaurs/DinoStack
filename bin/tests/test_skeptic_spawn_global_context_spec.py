@@ -157,8 +157,10 @@ SPAWN_TEMPLATE_SITES = [
 # pointer naming it) at each site, not just once anywhere in the file.
 MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 1,
-    # DS-230: re-derived from disk on 2026-09-13 - live count is 6 (Phase 3b,
-    # per-unit, integration, Phase 6, meta-Skeptic, plus one further site), so
+    # DS-230: re-derived from disk on 2026-09-13 - live count is 6 (the Phase 3b
+    # architect-plan review at :1369, the per-unit spawn at :1755, the
+    # integration spawn at :1757, the multi-dimensional spawn at :1759, the
+    # Phase 6 spawn at :1848, and the meta-Skeptic at :2019), so
     # the floor sits at zero slack. The prior value (5) carried one occurrence of
     # slack. Re-run the count on any future edit to that file.
     COMMANDS_DIR / "ds-implement-ticket.md": 6,

@@ -1255,6 +1255,7 @@ When spawning `dependency-auditor`, include:
 
 When spawning `qa-engineer`, include:
 - The unit's acceptance criteria as the test plan
+- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 - The qa.md config (dev server command, port, URLs) — resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback
 - Which pages/features to verify based on the files changed
 - The qa-engineer uses `agent-browser` for all browser interaction
@@ -6716,7 +6717,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       post-implementation Skeptic-on-plan spawn templates),
                       content/references/delegation-detail.md (points at Section 7's
                       Brief section slots from the Worker Preamble and Execution
-                      Contract Template)
+                      Contract Template),
+                      content/commands/ds-skeptic.md (Step 2 spawn template cites
+                      Section 4.5, Section 7's Scope of the ban, and Section 7's
+                      Brief section slots)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -7208,7 +7212,7 @@ The brief should be specific to the domain and threat model of the work being re
 
 ### Brief section slots
 
-The brief a conductor composes for a Skeptic spawn has three named sections. Each is a slot with a fixed item form, never a free-prose region.
+Alongside the Section 8 template it is built from, a Skeptic brief carries three named sections the conductor composes itself. Each of those three is a slot with a fixed item form, never a free-prose region. The pasted template prose is not a slot and is never reshaped into slot items - the verbatim rule above governs it, and a Brief extension stays additive prose under that same rule.
 
 All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
@@ -7218,7 +7222,7 @@ Every item in every slot takes the form defined at `content/references/subagent-
 - **Questions the review must answer explicitly** - the properties whose determination is required output. Each item names the property, not a question about it: "the mechanism's soundness given nothing forces the worker to open the file", never "whether X is really Y".
 - **Repo-specific hazards** - repo-wide, diff-independent hazard classes only. A hazard whose statement is specific to the diff under review is a conductor conclusion and belongs in no slot.
 
-The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The Global-context fields (Section 4.5) keep the formats Section 4.5 mandates for them, several of which are verbatim pasted artifacts rather than composed items; what binds every one of them is the ban below, not this item form.
+The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The verbatim Section 8 template sitting inside the same brief block, and the Global-context fields (Section 4.5) - several of which are themselves verbatim pasted artifacts rather than composed items - are not: each keeps the form its own rule mandates. What binds all of them is the ban below, not this item form.
 
 ### Neutrality requirement (independent of completeness)
 
@@ -8191,7 +8195,7 @@ When spawning an `engineer` Worker on an Elevated-risk task, the conductor inclu
 
 The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in `content/references/risk-config-and-tiers.md`); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
-Two spawn-prompt obligations are wider than this contract and are stated in Section 11 rather than here, because they hold for every Worker on every path rather than for contract-carrying `engineer` spawns only: the `.agentic/context.md` content, and the `SESSION_KEY` line. See Section 11, "**Spawning Workers**" and "**`SESSION_KEY` at spawn time**".
+Four spawn-prompt obligations are wider than this contract and are stated in Section 11 rather than here, because they hold for every Worker on every path rather than for contract-carrying `engineer` spawns only: the `.agentic/context.md` content, the `SESSION_KEY` line, spawn-brief provenance, and the brief section form. See Section 11, "**Spawning Workers**", "**`SESSION_KEY` at spawn time**", "**Spawn-brief provenance**", and "**Brief section form**".
 
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
@@ -18962,7 +18966,7 @@ The following findings were raised in earlier iterations. For each:
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
-- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `severity`, `first_raised: <iteration>`, `status: open`.
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
 - Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.

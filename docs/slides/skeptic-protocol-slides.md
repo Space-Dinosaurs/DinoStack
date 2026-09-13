@@ -232,7 +232,7 @@ The brief defines the **threat model** the Skeptic must adopt. It is domain-spec
 - Mechanically enforced at spawn time (`enforce-skeptic-neutrality.py`): denies an untagged claim in field 7, or a conductor-composed-steer phrase in the brief
 - The ban covers every field, every form, tagged or untagged - the hook checks only two bounded surfaces; the reviewing Skeptic's Step 3.9 Neutrality check is the control for the rest
 - The underlying rule is general, not Skeptic-only - it binds every spawn brief, to any recipient role; see subagent-protocol.md Section 11 "Spawn-brief provenance"
-- Its three sections (attack surface, questions the review must answer explicitly, repo-specific hazards) are slots with a stated item form, defined once in subagent-protocol.md Section 11 "Brief section form"
+- The three sections the conductor composes itself (attack surface, questions the review must answer explicitly, repo-specific hazards) are slots with a stated item form, defined once in subagent-protocol.md Section 11 "Brief section form" - the pasted template is not a slot
 - Templates exist for: auth, API endpoints, crypto, DB migrations, data pipelines, smart contracts, architecture docs, general code review
 
 <div class="callout">
@@ -315,7 +315,7 @@ since claimed a fix. Determine for yourself whether each is now resolved:
 [M1: No error handling on payment callback]
 ```
 
-**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`) - the brief itself carries each entry's id and description only. When the Skeptic re-raises a previously-addressed finding, it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
+**Inside the persistence loop:** the preflight list is backed by `findings_log` - a structured in-context accumulator tracking every finding across all iterations (`id`, `description`, `severity`, `first_raised`, `status`, `claimed_fix`, `re_raised`); the brief carries id and description only. When the Skeptic re-raises an addressed finding it uses `[PREV: <id>]` so the conductor can mechanically detect it and update `re_raised: true`.
 
 **Auto-close rule:** when the Skeptic grants sign-off (zero new findings), ALL `findings_log` entries with `status: open` or `status: addressed` are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.
 

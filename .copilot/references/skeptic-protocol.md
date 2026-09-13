@@ -32,7 +32,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       post-implementation Skeptic-on-plan spawn templates),
                       content/references/delegation-detail.md (points at Section 7's
                       Brief section slots from the Worker Preamble and Execution
-                      Contract Template)
+                      Contract Template),
+                      content/commands/ds-skeptic.md (Step 2 spawn template cites
+                      Section 4.5, Section 7's Scope of the ban, and Section 7's
+                      Brief section slots)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -524,7 +527,7 @@ The brief should be specific to the domain and threat model of the work being re
 
 ### Brief section slots
 
-The brief a conductor composes for a Skeptic spawn has three named sections. Each is a slot with a fixed item form, never a free-prose region.
+Alongside the Section 8 template it is built from, a Skeptic brief carries three named sections the conductor composes itself. Each of those three is a slot with a fixed item form, never a free-prose region. The pasted template prose is not a slot and is never reshaped into slot items - the verbatim rule above governs it, and a Brief extension stays additive prose under that same rule.
 
 All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
@@ -534,7 +537,7 @@ Every item in every slot takes the form defined at `content/references/subagent-
 - **Questions the review must answer explicitly** - the properties whose determination is required output. Each item names the property, not a question about it: "the mechanism's soundness given nothing forces the worker to open the file", never "whether X is really Y".
 - **Repo-specific hazards** - repo-wide, diff-independent hazard classes only. A hazard whose statement is specific to the diff under review is a conductor conclusion and belongs in no slot.
 
-The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The Global-context fields (Section 4.5) keep the formats Section 4.5 mandates for them, several of which are verbatim pasted artifacts rather than composed items; what binds every one of them is the ban below, not this item form.
+The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The verbatim Section 8 template sitting inside the same brief block, and the Global-context fields (Section 4.5) - several of which are themselves verbatim pasted artifacts rather than composed items - are not: each keeps the form its own rule mandates. What binds all of them is the ban below, not this item form.
 
 ### Neutrality requirement (independent of completeness)
 
