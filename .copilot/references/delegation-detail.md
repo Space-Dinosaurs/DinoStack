@@ -387,6 +387,8 @@ The `verification` field is **mandatory**. Its purpose is to force the conductor
 
 The `SESSION_KEY` field is **mandatory and never omitted**. It is the one line in this template whose obligation is wider than the template itself: it belongs in **every** Worker's spawn prompt, including Trivial-path solo spawns and the non-`engineer` roles this contract does not otherwise cover. Omitting it raises no error - the Worker simply skips shard capture in silence, so the learning is lost with no signal. Derive the value once per session and pass that same value every time; the derivation rule, the harness caveats, and the reason the scope is blanket rather than per-role live in `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**".
 
+Every section of the brief this template accompanies is a slot with a stated item form, not a free-prose region: each item is a bare noun phrase naming an artifact, a mechanism, a property, or a finding identifier. The form, and the strip test that decides whether an item still carries a steer, live in `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"; the Skeptic's three named slots are enumerated at `content/references/skeptic-protocol.md` §7 "Brief section slots".
+
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
 ## AskUserQuestion and Operator Decisions Enforcement Mechanics

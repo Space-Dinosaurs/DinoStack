@@ -164,7 +164,14 @@ MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-brief.md": 1,  # Turn N+k step 7 Skeptic-on-Brief spawn
     REFERENCES_DIR / "agent-team.md": 2,  # architect-plan review, engineer-output review
     REFERENCES_DIR / "planning-artifacts.md": 2,  # Skeptic-on-Brief step 8, Plan-tier second-pass
-    SKEPTIC_PROTOCOL: 3,  # Section 4.5 heading, heading-distinction cross-ref, Section 14 meta-Skeptic list
+    # DS-230: re-derived from disk on 2026-09-13 with
+    # `Path(p).read_text().count('Global-context inputs')` - live count is 4,
+    # so the floor sits at zero slack. The four sites: the Section 4.5 heading,
+    # the Section 4.5 heading-distinction cross-ref, the Section 7 "Scope of the
+    # ban" restatement, and the Section 14 meta-Skeptic list. The prior value (3)
+    # carried one occurrence of slack. Never carry this arithmetic forward - re-run
+    # the count on any future edit to this file.
+    SKEPTIC_PROTOCOL: 4,
 }
 
 
@@ -213,7 +220,12 @@ FIELD_7_MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-brief.md": 2,
     REFERENCES_DIR / "agent-team.md": 6,
     REFERENCES_DIR / "planning-artifacts.md": 4,
-    SKEPTIC_PROTOCOL: 7,
+    # DS-230: re-derived from disk on 2026-09-13 with FIELD_7_MARKER_RE against
+    # content/references/skeptic-protocol.md - live count is 19, so the floor sits
+    # at zero slack. The prior value (7) carried 12 occurrences of slack, present
+    # on origin/main before this ticket; DS-230's own edits moved the count by 0.
+    # Never carry this arithmetic forward - re-run the count on any future edit.
+    SKEPTIC_PROTOCOL: 19,
 }
 
 
