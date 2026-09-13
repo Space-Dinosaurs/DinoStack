@@ -198,7 +198,7 @@ How `ds-team dispatch` invokes each harness non-interactively:
 | Harness | Non-interactive invocation | Notes |
 |---|---|---|
 | **codex** | `codex exec "<brief>" --json --sandbox read-only --skip-git-repo-check` | `--sandbox read-only` applied by default; JSONL event stream |
-| **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline; methodology delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`) because Gemini CLI denies `activate_skill` non-interactively - dispatch refuses (exit 2) if unresolvable/unreadable, override with `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` |
+| **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline; methodology delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`) because Gemini CLI denies `activate_skill` non-interactively - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, override with `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output. Note: `< /dev/null` is presentation shorthand -- the dispatcher sets `stdin=subprocess.DEVNULL` at the `Popen` call; it is not a literal argv element. |
 | **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior; methodology delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`) for the same reason as gemini - same refusal/override behavior |
 | **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
@@ -308,7 +308,7 @@ The guard is layered. Layers are listed strongest to weakest:
 
 ## Failure modes
 
-- **No dinostack skill artifact resolvable (or a resolved one is unreadable) for a gemini/kimi worker.** `dispatch` refuses (exit 2, no run directory) rather than launching a worker with no methodology, unless `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` is set.
+- **No dinostack skill artifact resolvable (or a resolved one is unreadable or empty) for a gemini/kimi worker.** `dispatch` refuses (exit 2, no run directory) rather than launching a worker with no methodology, unless `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` is set.
 - **cursor-agent headless hang.** Known upstream bug. The dispatcher always
   redirects stdin from `/dev/null` and starts a timeout kill watchdog (default
   300 s for cursor-agent, 1800 s otherwise). The harness is marked

@@ -1187,12 +1187,23 @@ def test_methodology_empty_refuses_dispatch(tmp_path):
         artifact_path = artifact_dir / artifact_name
         artifact_path.write_bytes(b"")
 
+        # A global candidate is present and readable, to prove the "empty"
+        # status genuinely does not fall through to it (rather than merely
+        # having nothing to fall through to).
+        fake_home = tmp_path / f"fake_home_empty_{harness}"
+        global_dir = fake_home / skill_dir / "skills" / "dinostack"
+        global_dir.mkdir(parents=True)
+        (global_dir / artifact_name).write_bytes(
+            f"GLOBAL-FIXTURE-{harness}\n".encode("utf-8")
+        )
+
         binary_name = HARNESS_BINARY[harness]
         fake_bin_dir = _make_fake_exec(tmp_path, binary_name, "should not run")
         brief_file = _make_brief_file(tmp_path)
 
         rc, _stdout, stderr = _dispatch_via_subprocess(
             tmp_path, workdir, fake_bin_dir, brief_file, harness=harness,
+            env_overrides={"HOME": str(fake_home)},
         )
         assert rc == 2, f"[{harness}] empty artifact must refuse (exit 2)"
         assert not (workdir / ".agentic").exists(), (
