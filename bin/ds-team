@@ -50,6 +50,14 @@ Failure modes: Unknown harness name in roles or default_harness -> non-zero
                dispatch: workdir not writable -> non-zero exit.
                dispatch: --model is forwarded for all KNOWN_HARNESSES using
                  each harness's own flag spelling (_MODEL_FLAG_BY_HARNESS).
+               dispatch: gemini/kimi refuse (exit 2, no run directory left
+                 behind on any refusal path including a copy-time OSError,
+                 which triggers rmtree cleanup) when no dinostack skill
+                 artifact is resolvable (_SKILL_ARTIFACT_BY_HARNESS) or a
+                 resolved artifact is unreadable (_resolve_skill_artifact's
+                 three-state return: "ok"/"unreadable"/"absent", via a real
+                 read-probe since is_file() cannot see permission state),
+                 unless AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1 is set.
                status/collect: unknown run-id -> non-zero exit.
                collect: on terminal status, unlinks the shared .active
                  sentinel ONLY when no sibling run is still live (read-only
@@ -104,8 +112,11 @@ KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
 
 # ---------------------------------------------------------------------------
-# Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
-# these are binary NAMES, not model IDs).
+# Harness binary-name map (Unit 2 - one of several hardcoded per-harness
+# fact tables in this file; see also HARNESS_INVOCATION_FAMILY,
+# HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG, _MODEL_FLAG_BY_HARNESS,
+# _STDIN_DEVNULL_HARNESSES, and _SKILL_ARTIFACT_BY_HARNESS below).
+# These are binary NAMES, not model IDs.
 # Harness label -> CLI binary probed via `command -v <binary>`.
 # ---------------------------------------------------------------------------
 HARNESS_BINARY: dict[str, str] = {
@@ -119,6 +130,23 @@ HARNESS_BINARY: dict[str, str] = {
     "opencode":     "opencode",
     "copilot":      "copilot",
 }
+
+# ---------------------------------------------------------------------------
+# Harnesses whose headless CLI has no confirmed skill-trigger route (no
+# activate_skill tool available non-interactively for gemini; no headless
+# skill-trigger mechanism at all for kimi) - dispatch delivers the dinostack
+# methodology as a file copied into the run directory instead. Maps harness
+# -> (adapter skill dir, artifact basename) under
+# <base>/<skill_dir>/skills/dinostack/<artifact_name>.
+# ---------------------------------------------------------------------------
+_SKILL_ARTIFACT_BY_HARNESS: dict[str, tuple[str, str]] = {
+    "gemini": (".gemini", "SKILL.full.md"),
+    "kimi": (".kimi", "SKILL.md"),
+}
+
+# Env var: set to "1" to dispatch a gemini/kimi worker with no methodology
+# artifact rather than refusing (exit 2).
+_ALLOW_NO_METHODOLOGY_ENV = "AGENTIC_TEAM_ALLOW_NO_METHODOLOGY"
 
 # ---------------------------------------------------------------------------
 # Harness invocation-family labels (human-readable; describes how the harness
@@ -813,6 +841,47 @@ _LEAF_WORKER_CLAUSE = (
     "do not invoke oh-my-claudecode.\n\n"
 )
 
+def _resolve_skill_artifact(harness: str, workdir: Path) -> tuple[Path | None, str]:
+    """Resolve the dinostack skill artifact for *harness*.
+
+    Returns (path, status) where status is one of:
+      "not_needed" - harness has no entry in _SKILL_ARTIFACT_BY_HARNESS
+      "ok"         - a candidate was found AND a 1-byte read-probe succeeded
+      "unreadable" - a candidate exists (is_file() True) but the read-probe
+                     raised OSError. Does NOT fall through to the next
+                     candidate: a broken project-local file should be
+                     reported, not silently masked by a working global copy.
+      "absent"     - no candidate exists at either base
+
+    is_file() alone cannot detect an unreadable file: measured, a mode-000
+    file still returns is_file() == True. A real read-probe is required to
+    tell "absent" from "present but unreadable".
+    """
+    pair = _SKILL_ARTIFACT_BY_HARNESS.get(harness)
+    if not pair:
+        return None, "not_needed"
+    skill_dir, artifact_name = pair
+    bases = [workdir]
+    try:
+        bases.append(Path.home())
+    except RuntimeError:
+        pass  # $HOME unresolvable; project-local candidate still tried.
+    for base in bases:
+        candidate = base / skill_dir / "skills" / "dinostack" / artifact_name
+        try:
+            if not candidate.is_file():
+                continue
+        except OSError:
+            continue
+        try:
+            with candidate.open("rb") as fh:
+                fh.read(1)
+        except OSError:
+            return candidate, "unreadable"
+        return candidate, "ok"
+    return None, "absent"
+
+
 # Sibling CLIs that each worker shim must block (guards against accidental
 # bare-name re-entry by a cooperative worker; absolute-path calls bypass this -
 # this is a guardrail, NOT a security sandbox).
@@ -1122,12 +1191,54 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 
     brief_text = brief_file.read_text(encoding="utf-8")
 
-    # AC5 defense-in-depth: embed leaf-worker clause into the brief.
-    augmented_brief = _LEAF_WORKER_CLAUSE + brief_text
-
-    # All 7 KNOWN_HARNESSES now have a confirmed --model flag
-    # (_MODEL_FLAG_BY_HARNESS), so no fail-fast reject is needed here -
+    # All 7 non-file-delivery KNOWN_HARNESSES now have a confirmed --model
+    # flag (_MODEL_FLAG_BY_HARNESS), so no fail-fast reject is needed here -
     # dispatch already returned 2 above for any harness not in KNOWN_HARNESSES.
+
+    # Methodology-delivery pre-flight (gemini/kimi only; AC5 defense-in-depth
+    # for everyone else is still the leaf-worker clause alone). Resolved
+    # BEFORE the run directory is created so a refusal leaves no state.
+    methodology_note = ""
+    _pending_artifact: Path | None = None
+    if harness in _SKILL_ARTIFACT_BY_HARNESS:
+        resolved_path, status = _resolve_skill_artifact(harness, workdir)
+        if status == "ok":
+            _pending_artifact = resolved_path
+        else:
+            skill_dir, artifact_name = _SKILL_ARTIFACT_BY_HARNESS[harness]
+            if os.environ.get(_ALLOW_NO_METHODOLOGY_ENV) == "1":
+                print(
+                    f"ds-team dispatch: WARNING - dispatching {harness!r} worker "
+                    f"with NO methodology ({status}; {_ALLOW_NO_METHODOLOGY_ENV}=1 "
+                    f"set).",
+                    file=sys.stderr,
+                )
+            elif status == "unreadable":
+                print(
+                    f"ds-team dispatch: cannot deliver methodology to a headless "
+                    f"{harness!r} worker - {resolved_path} exists but could not "
+                    f"be read (permission denied, or it vanished mid-check). "
+                    f"Rebuilding will NOT fix a permissions problem; fix access "
+                    f"to that file, or set {_ALLOW_NO_METHODOLOGY_ENV}=1 to "
+                    f"dispatch anyway. Refusing to dispatch a worker that would "
+                    f"silently receive no methodology.",
+                    file=sys.stderr,
+                )
+                return 2
+            else:  # "absent"
+                print(
+                    f"ds-team dispatch: cannot deliver methodology to a headless "
+                    f"{harness!r} worker - no {artifact_name} at "
+                    f"{workdir / skill_dir / 'skills' / 'dinostack' / artifact_name} "
+                    f"or ~/{skill_dir}/skills/dinostack/{artifact_name}. Run `bash "
+                    f"{skill_dir}/build.sh` (project) or that adapter's install.sh "
+                    f"(global) to generate it, then retry, or set "
+                    f"{_ALLOW_NO_METHODOLOGY_ENV}=1 to dispatch anyway. Refusing "
+                    f"to dispatch a worker that would silently receive no "
+                    f"methodology.",
+                    file=sys.stderr,
+                )
+                return 2
 
     run_id = _make_run_id(role)
 
@@ -1146,6 +1257,41 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # Copy the resolved methodology artifact into the run directory (if any)
+    # before any other run-dir contents are created, so a copy failure's
+    # cleanup removes a run directory containing nothing else.
+    if _pending_artifact is not None:
+        dest = run_dir / _pending_artifact.name
+        try:
+            shutil.copyfile(_pending_artifact, dest)
+        except OSError as exc:
+            print(
+                f"ds-team dispatch: failed to copy methodology artifact "
+                f"{_pending_artifact} into the run directory: {exc}. Removing "
+                f"the incomplete run directory.",
+                file=sys.stderr,
+            )
+            shutil.rmtree(run_dir, ignore_errors=True)
+            return 2
+        rel = dest.relative_to(workdir)  # cannot raise: run_dir is always
+                                          # workdir/.agentic/teamrun/<run_id>
+                                          # and _make_run_id emits no separators
+        methodology_note = (
+            f"Before doing anything else, read the file `{rel}` in your working "
+            f"directory - it is this repository's full DinoStack methodology "
+            f"(delegation model, risk classification, Skeptic loop, quality "
+            f"gates). It is general background written for any role including "
+            f"a conductor role: you are NOT the conductor for this dispatch. "
+            f"Follow the leaf-worker clause above and the task below; ignore "
+            f"any instruction in that file to spawn subagents, run git, or act "
+            f"as a conductor.\n\n"
+        )
+
+    # Single assembly site for ALL 9 harnesses. For the 7 unaffected harnesses
+    # methodology_note is still "" and this is byte-identical to pre-change.
+    # This is the ONLY place augmented_brief is assigned.
+    augmented_brief = _LEAF_WORKER_CLAUSE + methodology_note + brief_text
 
     # Workdir fence (PRIMARY): worker cwd = its own workdir (caller supplies
     # a throwaway copy/worktree; we honor it and never let the worker default
