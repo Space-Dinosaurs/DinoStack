@@ -1151,7 +1151,7 @@ since claimed a fix. Determine for yourself whether each is now resolved:
 [C1: Missing auth check on /admin endpoint]
 [M1: No error handling on payment callback]
 </code></pre>
-<p><strong>Inside the persistence loop:</strong> the preflight list is backed by <code>findings_log</code> - a structured in-context accumulator tracking every finding across all iterations (<code>id</code>, <code>severity</code>, <code>first_raised</code>, <code>status</code>, <code>claimed_fix</code>, <code>re_raised</code>). When the Skeptic re-raises a previously-addressed finding, it uses <code>[PREV: &lt;id&gt;]</code> so the conductor can mechanically detect it and update <code>re_raised: true</code>.</p>
+<p><strong>Inside the persistence loop:</strong> the preflight list is backed by <code>findings_log</code> - a structured in-context accumulator tracking every finding across all iterations (<code>id</code>, <code>severity</code>, <code>first_raised</code>, <code>status</code>, <code>claimed_fix</code>, <code>re_raised</code>) - the brief itself carries each entry's id and description only. When the Skeptic re-raises a previously-addressed finding, it uses <code>[PREV: &lt;id&gt;]</code> so the conductor can mechanically detect it and update <code>re_raised: true</code>.</p>
 <p><strong>Auto-close rule:</strong> when the Skeptic grants sign-off (zero new findings), ALL <code>findings_log</code> entries with <code>status: open</code> or <code>status: addressed</code> are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.</p>
 <div class="callout">
 Fresh context for independence. Preflight list for efficiency. findings_log for accountability across iterations.

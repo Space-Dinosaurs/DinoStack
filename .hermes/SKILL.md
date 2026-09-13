@@ -1210,13 +1210,13 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 **HUD file writes (P1 fan-out).** When fan-out Workers are active (P1), each Worker writes phase transition updates to `.agentic/hud/<worker-id>.json`. The `worker_id` is provided in the spawn prompt alongside `task_id`. The conductor reads all HUD files on demand to produce an aggregate status display. The Stop hook (or conductor post-completion cleanup) removes the Worker's HUD file on normal exit. HUD files not updated within 5 minutes should be treated as stale (`[stale]`) when the conductor reads them.
 
 When spawning `skeptic` for architect plan review, include:
-- The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?" (subject to the neutrality requirement - see `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)")
+- The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?" (subject to the neutrality requirement - see `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)"), with the brief's own sections composed as slots per Section 7 "Brief section slots"
 - The architect's complete plan output
 - Any established architectural constraints or prior decisions the Skeptic should check against
 - The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) leads with the unit's stable key (§4.5) followed by " | " and the file paths the plan proposes to modify rather than a git diff, field 1 (architect plan) is the plan itself under review, field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet, and field 7 (conductor spawn brief, claim-bearing text only) carries the provenance-tagged claims or `n/a` per the canonical reasons - never a conductor hypothesis or suspicion about the artifact under review, in this or any other field; the ban is not limited to field 7 or the brief (see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban: every field, every form, tagged or untagged").
 
 When spawning `skeptic` for engineer output review, include:
-- The adversarial brief (run `/ds-skeptic` for templates) (subject to the same neutrality requirement)
+- The adversarial brief (run `/ds-skeptic` for templates) (subject to the same neutrality requirement, and with its sections composed as slots per `content/references/skeptic-protocol.md` Section 7 "Brief section slots")
 - The engineer's output (file paths or inline)
 - Resolved issues preflight from prior rounds
 - The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - field 6 (diff under review) leads with the unit's stable key (its worktree branch, or the ticket id for a single-unit spawn - never a bare multi-unit ticket id, per §4.5) followed by " | " and the git diff command or file paths for the engineer's change; fields 1-5 map to the architect plan, Brief/Plan artifact, `qa_criteria` block, per-consumer impact table, and related files; field 7 (conductor spawn brief, claim-bearing text only) carries the provenance-tagged claims written into this spawn prompt, or `n/a - <reason>`, using the enumerated `n/a - <reason>` rationale where one genuinely applies - never a conductor hypothesis or suspicion about the artifact under review, in this or any other field; the ban is not limited to field 7 or the brief (see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban: every field, every form, tagged or untagged").
@@ -6713,7 +6713,10 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/references/subagent-protocol.md (references Section 7),
                       content/references/agent-team.md (references Section 7's
                       Neutrality requirement for the pre-implementation and
-                      post-implementation Skeptic-on-plan spawn templates)
+                      post-implementation Skeptic-on-plan spawn templates),
+                      content/references/delegation-detail.md (points at Section 7's
+                      Brief section slots from the Worker Preamble and Execution
+                      Contract Template)
 
 Failure modes: If this document goes stale, conductors construct incorrect spawn
                briefs (missing Global-context block), Skeptics apply wrong findings
@@ -6886,7 +6889,7 @@ raise one as a new finding without saying which prior finding it is.
 
 The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
-**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor passes the findings_log entries (status=open or status=addressed) as the preflight list. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` and `claimed_fix` are the conductor's own bookkeeping and stay out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
 
 ---
 
@@ -7207,7 +7210,7 @@ The brief should be specific to the domain and threat model of the work being re
 
 The brief a conductor composes for a Skeptic spawn has three named sections. Each is a slot with a fixed item form, never a free-prose region.
 
-All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`. This placement is load-bearing: it keeps the slots inside the brief region the mechanical guard below already scans, rather than outside every scanned region.
+All three slots are composed INSIDE the brief block - after the `Adversarial brief:` marker and before `What to review:`.
 
 Every item in every slot takes the form defined at `content/references/subagent-protocol.md` §11 "Brief section form".
 
@@ -7215,7 +7218,7 @@ Every item in every slot takes the form defined at `content/references/subagent-
 - **Questions the review must answer explicitly** - the properties whose determination is required output. Each item names the property, not a question about it: "the mechanism's soundness given nothing forces the worker to open the file", never "whether X is really Y".
 - **Repo-specific hazards** - repo-wide, diff-independent hazard classes only. A hazard whose statement is specific to the diff under review is a conductor conclusion and belongs in no slot.
 
-The resolved-issues preflight (Section 4) and the Global-context fields (Section 4.5) are held to the same form: the preflight carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination.
+The resolved-issues preflight (Section 4) is held to the same form: it carries each prior finding's identifier and description, and whether a finding is resolved is the reviewer's determination. The Global-context fields (Section 4.5) keep the formats Section 4.5 mandates for them, several of which are verbatim pasted artifacts rather than composed items; what binds every one of them is the ban below, not this item form.
 
 ### Neutrality requirement (independent of completeness)
 
@@ -7758,8 +7761,9 @@ Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
                       Execution Contract Template, the two spawn checklists a
                       conductor actually fills - both restate the `SESSION_KEY`
-                      line and point back here for its derivation rule, so a change
-                      to that rule must be reflected in both;
+                      line and the brief-section-form line, and point back here for
+                      the derivation rule behind each, so a change to either rule
+                      must be reflected in both;
                       content/references/skeptic-protocol.md (Section 9 of this file
                       defines their relationship);
                       content/sections/12-protocol-details.md (the pointer table
@@ -8203,17 +8207,7 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 
 **Spawn-brief provenance:** every claim-bearing sentence the main agent writes into a spawn prompt (a value, path, count, or root-cause/rationale assertion) must carry a provenance tag per the provenance test in `content/sections/04-risk-classification.md`. This is a spawn-time obligation on the main agent, not on the Worker's return - the Skeptic checks it via Global-context field 7 (`content/references/skeptic-protocol.md` §4.5). Worked example, stated abstractly: a Skeptic Minor naming a suggested value is not license to invent the underlying rationale for a file the conductor never read - pass the finding and the file path to the engineer attributed to the Skeptic that raised it, and never with a rationale the conductor did not itself verify. Beyond tagging, this brief carries exactly four things: the task, the artifact or surface, the constraints, and facts the conductor actually verified, each with its citation - never the conductor's own hypotheses, suspected causes, suggested fixes, predictions about the answer, or characterizations of what is probably wrong, in any grammatical form, tagged or untagged, to any recipient role. A hedge such as "verify this before acting on it" does not neutralize a claim stated in the same breath - the recipient's anchor is set the instant the claim appears, regardless of the qualifier attached to it. Every subagent applies the same self-check the Skeptic applies at its own Step 3.9 (`content/agents/skeptic.md`): if any part of its own spawn prompt states an unverified conclusion, suspected cause, suggested fix, or characterization of what is probably wrong, the subagent verifies it independently or disregards it - this verify-or-disregard duty is unconditional and holds regardless of return format. Reporting that check back is a second, format-permitting half of the same duty, not a separate obligation: the subagent uses whichever mechanism its own return format already defines for it, never a mechanism this paragraph merely asserts into existence. Three mechanisms are recognized, each already present in the citing role's own file: (1) a freestanding `Provenance check: pass | N unverified conductor claim(s) found and disregarded` line, for a role whose format has room for free-form prose outside any mechanically-validated block - `engineer.md` explicitly permits prose notes after its structured return, `product-discovery.md`'s return to the conductor is a conversational handoff with the same room, and any Shape 1 role (`content/references/subagent-return-contract.md`) that declares a `### Notes [ADVISORY]` field folds it there instead - `debugger.md`, `investigator.md`, `orchestration-planner.md`, and `security-auditor.md` each declare one; (2) a role's own already-declared schema field, for a Shape 2 role whose schema already names one - `qa-engineer.md`'s `provenance_check`/`provenance_check_note` pair; (3) a role's own already-declared fixed sign-off line, for a Shape 3 role whose template already names one - the Skeptic's existing Step 3.9 `Neutrality check:` line (no additional line is added to its fixed seven-line format, per `content/agents/skeptic.md`'s Sign-off format). A role whose return is a single mechanically-validated schema block, a fixed literal-line template, or a fixed markdown-sectioned report, with no such field or line declared today, is carved out of this reporting half only - the verify-or-disregard duty above still binds it unconditionally, and adding the missing field or line for it is deferred work, not a license to skip the duty: `perf-analyst.md`, `dependency-auditor.md`, `learning-extractor.md`, `learnings-agent.md`, `wrap-ticket.md`, and `adr-drift-detector.md` (Shape 2, schema declares no such field yet), `goal-condition-evaluator.md` (Shape 3, its `Return exactly this two-line structure and nothing else` template has no spare line), `release-orchestrator.md` (Shape 4, its fixed report sections declare no such field yet), and `architect.md` (Shape 1, its `Use this exact structure. Do not rename or reorder sections` template declares no `### Notes [ADVISORY]` field and returns only the plan). `adr-generator.md` is exempt from the reporting half entirely, not merely carved out pending a field: its deliverable is the generated ADR document itself, not a conductor-parsed return payload, so there is no return channel to attest in - the verify-or-disregard duty still binds its composition of that document.
 
-**Brief section form.** Every section a spawn brief composes - to any recipient
-role - is a slot with a stated item form, never a free-prose region. An item is a
-bare noun phrase: it names an artifact, a mechanism, a property, or a finding
-identifier, and stops. No finite verb (`assess`, `determine`, `judge`, `verify`),
-no subordinating clause (`whether`, `or whether`), and no trailing clause naming
-an expected answer, a suspected cause, or a region already settled. Where an item
-needs context to be findable, state the context as a fact - what the file is, what
-it does - and stop before the question. The test: delete every clause after the
-artifact name; if the item still identifies what to examine or implies fault, the
-deleted clauses were the steer. The Skeptic's own slots are defined at
-`content/references/skeptic-protocol.md` §7 "Brief section slots".
+**Brief section form.** Every section a spawn brief composes - to any recipient role - is a slot with a stated item form, never a free-prose region. An item is a bare noun phrase: it names an artifact, a mechanism, a property, or a finding identifier, and stops. No finite verb (`assess`, `determine`, `judge`, `verify`), no subordinating clause (`whether`, `or whether`), and no trailing clause naming an expected answer, a suspected cause, or a region already settled. Where an item needs context to be findable, state the context as a fact - what the file is, what it does - and stop before the question. The test: delete every clause after the artifact name; if the item still identifies what to examine or implies fault, the deleted clauses were the steer. The Skeptic's own slots are defined at `content/references/skeptic-protocol.md` §7 "Brief section slots".
 
 **Sign-off is the main agent's responsibility.** The main agent spawns Skeptics and accumulates the exchange log. A Worker does not return a sign-off statement — the Skeptic provides sign-off to the main agent directly.
 
@@ -14488,7 +14482,7 @@ dependency_scan: clean | cves_found | not_run
 ---
 name: skeptic
 model: opus
-description: "Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a \"## Global-context inputs\" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, diff under review, and conductor spawn brief (claim-bearing text only, or n/a)). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format."
+description: "Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing prior-round findings by identifier and description, and (4) a Global-context input set (a \"## Global-context inputs\" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, diff under review, and conductor spawn brief (claim-bearing text only, or n/a)). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format."
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -14510,7 +14504,7 @@ Your spawn prompt will contain four things:
 
 1. **Adversarial brief** - the specific attack surface or failure scenario to probe. This is your primary lens.
 2. **Worker output** - either pasted inline or as file paths. If file paths are given, read those files before evaluating.
-3. **Resolved issues preflight** - findings from prior rounds that have already been addressed. Round 1 will say "No prior rounds." Rounds 2+ will list each prior finding by identifier and description; whether it is resolved is your determination.
+3. **Resolved issues preflight** - findings raised in prior rounds for which the Worker has since claimed a fix. Round 1 will say "No prior rounds." Rounds 2+ will list each prior finding by identifier and description; whether it is resolved is your determination.
 4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), plus any category-level Brief extension. No field of this input set, and no part of the adversarial brief, ever carries a conductor hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". If any field or the brief appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement, a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the Skeptic-specific elaboration and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance". This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
 
 ## Classification definitions
@@ -18962,9 +18956,9 @@ ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id
 The following findings were raised in earlier iterations. For each:
 - If the current diff shows the finding was addressed: mark it CLOSED with a one-line confirmation.
 - If the current diff does NOT show the finding was addressed: re-raise it using [PREV: <id>] prefix in the finding title.
-- Do not re-raise findings that were resolved - do not invent new instances of a previously-closed finding without new evidence.
+- Do not invent new instances of a closed finding without new evidence.
 
-[paste findings_log entries with status=open or status=addressed]
+[paste the id and description of each open or addressed entry]
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
@@ -22925,7 +22919,7 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"]
+**Adversarial brief:** [Paste verbatim from the selection table] [Neutrality: no conductor hypothesis, suspicion, or attention-steer, in any field or form; see skeptic-protocol.md Section 7 "Scope of the ban: every field, every form, tagged or untagged"] [Brief sections: compose "Attack surface", "Questions the review must answer explicitly", and "Repo-specific hazards" as slots - see skeptic-protocol.md Section 7 "Brief section slots"]
 
 ## Global-context inputs
 
