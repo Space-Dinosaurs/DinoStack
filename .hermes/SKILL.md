@@ -3222,9 +3222,9 @@ map in `bin/ds-team` (the one allowed per-harness hardcoded fact).
 | Harness | Non-interactive incantation | Model flag | Output flag | Notes / gotchas |
 |---|---|---|---|---|
 | **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `-m <model>` | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
-| **gemini** | `gemini -p "<brief>"` | `-m <model>` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin. Response text extracted via `jq '.response'`. |
+| **gemini** | `gemini -p "<brief>"` | `-m <model>` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin; methodology is delivered as a file in the run directory at dispatch time (`.gemini/skills/dinostack/SKILL.full.md`, full corpus) because Gemini CLI denies `activate_skill` non-interactively (`write.toml`, priority 10, `interactive = false` in the installed policy bundle) - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, or set `AGENTIC_TEAM_ALLOW_NO_METHODOLOGY=1` to override. Response text extracted via `jq '.response'`. |
 | **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--model <model>` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. `--list-models` also confirmed (used by discovery model probe). |
-| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology loaded via inline skill content in the brief. |
+| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology is delivered as a file in the run directory at dispatch time (`.kimi/skills/dinostack/SKILL.md`, already full corpus) for the same reason as Gemini - dispatch refuses (exit 2) if unresolvable, unreadable, or empty, same override. |
 | **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
 | **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
 | **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
@@ -3238,6 +3238,26 @@ extension-load warnings tolerated) and cursor-agent via `cursor-agent
 have no reliable list command confirmed and always report `models: []`. Every probe
 has a 10s timeout and fails silently to `[]` on any exception -- a broken
 probe never breaks `discover` as a whole.
+
+**Methodology-delivery scope, alternatives rejected, and known limitations.**
+File-in-run-dir delivery is used for gemini and kimi only, because both were
+live-confirmed to have no headless skill-trigger route (see the table Notes
+above). pi and omp ship stub `SKILL.md` files and their headless skill-loading
+is unaudited; codex, cursor-agent, opencode, copilot, and claude-as-worker use
+other mechanisms and were not investigated as part of this fix. Two
+alternatives were rejected: `tools.allowed: ["activate_skill"]` restores the
+tool to Gemini's headless schema live, but call-time reliability was
+unconfirmed across two attempts (one quota-contaminated), so it is named here
+for a future investigator rather than adopted; argv-inlining the skill content
+was rejected outright because it overflows Linux's `MAX_ARG_STRLEN`
+(131,072 B) on `ubuntu-latest` CI runners. Known limitation:
+`.gemini/skills/dinostack/` has no `references/`/`agents/` siblings, unlike
+`.kimi/skills/dinostack/` -- `SKILL.full.md`'s internal pointers to
+`content/references/*.md` resolve only when `worker_cwd` happens to be a
+DinoStack checkout itself; in a genuine consumer-repo throwaway workdir those
+pointers dangle. Separately, the `head -c 50000` guard on large stdin named
+in the gemini table row above has no implementation anywhere in this
+codebase (grep-confirmed) -- pre-existing, out of scope here, left untouched.
 
 **RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
 harness above, copilot is dispatched with `--allow-all-paths` in addition to
