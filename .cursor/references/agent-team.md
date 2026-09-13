@@ -240,6 +240,7 @@ When spawning `dependency-auditor`, include:
 
 When spawning `qa-engineer`, include:
 - The unit's acceptance criteria as the test plan
+- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 - The qa.md config (dev server command, port, URLs) — resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback
 - Which pages/features to verify based on the files changed
 - The qa-engineer uses `agent-browser` for all browser interaction
