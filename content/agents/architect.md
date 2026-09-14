@@ -65,7 +65,7 @@ Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in
 
 Use this exact structure. Do not rename or reorder sections.
 
-This plan is a contract over files, tests, and interfaces. Prose beyond what an engineer needs to execute is reviewed at Minor and never blocks.
+This plan is a contract over files, tests, and interfaces. Prose beyond what an engineer needs to execute is reviewed at Minor and does not by itself withhold sign-off.
 
 ```
 ## Technical Plan: [feature name]
