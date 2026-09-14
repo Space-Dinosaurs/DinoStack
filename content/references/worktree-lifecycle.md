@@ -271,7 +271,7 @@ explicit refspec**:
 git push origin "HEAD:refs/heads/chore/tweak-<key>"
 ```
 
-Committed on the
+Measured: committed on the
 detached HEAD, pushed by this exact refspec form to a scratch branch,
 confirmed landed via `git ls-remote`, then deleted the scratch ref -
 clean round trip. **Binding constraint - braced variables always, and
