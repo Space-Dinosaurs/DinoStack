@@ -190,7 +190,12 @@ ln -sfn "$BIN_DIR/agentic-doctor" "$FAKE_HOME/.local/bin/agentic-doctor"
 printf 'external\n' > "$FAKE_HOME/external/thing"
 ln -sfn "$FAKE_HOME/external/thing" "$FAKE_HOME/.local/bin/agentic-foreign"
 
-HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/uninstall.sh" \
+# DS-231: unset the four config-dir vars. .claude/uninstall.sh now resolves the
+# same chain install.sh does, so a session with CLAUDE_CONFIG_DIR set would aim
+# this uninstall at the developer's REAL config dir. Uninstall only deletes, so
+# there is no $HOME-containment refusal to catch the mistake.
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/uninstall.sh" \
   < /dev/null > "$FAKE_HOME/.uninstall_out" 2>&1
 RC=$?
 

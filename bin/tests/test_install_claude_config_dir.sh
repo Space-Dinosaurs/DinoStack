@@ -313,6 +313,38 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T10: the CWE-59 DIRECTORY-level case. T7 covers a symlinked FILE
+# (settings.json); this covers CLAUDE_CONFIG_DIR itself being a symlink whose
+# target escapes $HOME. The install must refuse outright and write nothing into
+# the victim directory - mkdir -p would otherwise follow the link and every
+# later write would land outside the intended tree.
+# ---------------------------------------------------------------------------
+H7="$SB/home/h7"
+seed_home "$H7"
+VICTIM_DIR="$SB/victim-dir-outside-home"
+mkdir -p "$VICTIM_DIR"
+printf '%s\n' 'untouched' > "$VICTIM_DIR/sentinel"
+VICTIM_DIR_SHA_BEFORE="$(sha "$VICTIM_DIR/sentinel")"
+VICTIM_DIR_COUNT_BEFORE="$(find "$VICTIM_DIR" | wc -l | tr -d ' ')"
+ln -sfn "$VICTIM_DIR" "$H7/altcfg-link"
+
+OUT7="$(run_install "$H7" "$H7/altcfg-link")"
+RC7="$(last_rc)"
+VICTIM_DIR_COUNT_AFTER="$(find "$VICTIM_DIR" | wc -l | tr -d ' ')"
+if [[ "$RC7" -ne 0 ]] && grep -Fq "refusing to install through symlinked config dir" <<<"$OUT7"; then
+  pass "T10 install refused a config dir symlinked outside \$HOME (rc=$RC7)"
+else
+  fail "T10 install did NOT refuse a config dir symlinked outside \$HOME (rc=$RC7)"
+  grep -Fi "refus" <<<"$OUT7" | head -3 >&2
+fi
+if [[ "$VICTIM_DIR_COUNT_BEFORE" == "$VICTIM_DIR_COUNT_AFTER" ]] \
+  && [[ "$VICTIM_DIR_SHA_BEFORE" == "$(sha "$VICTIM_DIR/sentinel")" ]]; then
+  pass "T10 victim directory outside \$HOME unmodified (entries: $VICTIM_DIR_COUNT_AFTER)"
+else
+  fail "T10 victim directory was written through the symlink (before=$VICTIM_DIR_COUNT_BEFORE after=$VICTIM_DIR_COUNT_AFTER)"
+fi
+
+# ---------------------------------------------------------------------------
 # Containment re-assertion: the live checkout must be untouched.
 # ---------------------------------------------------------------------------
 assert_sandbox_hooks_dir

@@ -199,6 +199,23 @@ PYEOF
 #   the permissions scope label                        - already derived from
 #     AE_CONFIG_DIR; grants write to the tree actually installed into.
 #
+# OUT-OF-FILE consumer that had to follow (DS-231 round 2):
+#   .claude/uninstall.sh - resolves this same chain at its :7-25. It is not a
+#     consumer of this variable, but it is the paired writer/remover of every
+#     "FOLLOWS" row above, so a divergence there is silent and total: uninstall
+#     would print "[skip] ... directory not found" for each managed tree and
+#     still end "Uninstall complete.", leaving the symlinks, the settings.json
+#     hook entries, and the CLAUDE.md managed block in place. Any future edit
+#     to the AE_CONFIG_DIR expansion below must be mirrored there.
+#
+# SIBLING TOOL, resolved separately: bin/ds-doctor's _config_dir() re-implements
+#   this chain (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > ~/.claude) rather than
+#   reusing _lib.resolve_claude_config_dir(), whose four-var chain adds
+#   CODEX_HOME and PI_CODING_AGENT_DIR for identity-profile resolution - vars
+#   this installer does not consult. Measured: with only CODEX_HOME set, _lib
+#   returns ~/.codex while this file returns ~/.claude. ds-doctor cannot see the
+#   --config-dir flag at all; that limit is documented in its own docstring.
+#
 # STAYS on the real $HOME, with the reason:
 #   AE_CONFIG_PATH (agentic-engineering.json) - four readers hardcode
 #     $HOME/.claude/agentic-engineering.json with no config-dir chain:

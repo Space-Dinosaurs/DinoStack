@@ -3,11 +3,17 @@
 Purpose: Inspect global dinostack install health and (with --fix)
          converge drift. Every ~/.claude path named below is really
          <config_dir>, the ACTIVE harness config dir resolved by _config_dir()
-         through _lib.resolve_claude_config_dir()'s four-var chain
-         (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > CODEX_HOME >
-         PI_CODING_AGENT_DIR, default ~/.claude) - DS-231, so this tool and
-         .claude/install.sh agree on where artifacts live and --fix can never
-         write a second copy into a dir the harness does not read.
+         through the SAME env chain .claude/install.sh uses
+         (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR, default ~/.claude) - DS-231.
+         Deliberately NOT _lib.CONFIG_DIR_ENV's four-var chain: that one adds
+         CODEX_HOME and PI_CODING_AGENT_DIR for identity-profile resolution,
+         which the Claude installer never consults, so using it here would
+         point ds-doctor at a directory install.sh never writes.
+         The agreement is therefore exact for an env-resolved install, and
+         --fix cannot write a second copy into a dir the harness does not read.
+         It does NOT extend to install.sh's `--config-dir=<dir>` flag, which
+         outranks both env vars and leaves no trace for ds-doctor to read - see
+         _config_dir()'s KNOWN LIMIT paragraph.
          Checks that managed symlinks under <config_dir> resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
          each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
@@ -249,16 +255,6 @@ import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# bin/ itself, for `_lib`, which owns the ONE harness-config-dir resolver this
-# script shares with the installer's env chain. Resolved-path insert so a bare
-# PATH-symlink invocation (~/.local/bin/ds-doctor -> repo bin/ds-doctor) still
-# finds it, matching the pattern in bin/ds-branch-prune:256-261.
-# ---------------------------------------------------------------------------
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from _lib import resolve_claude_config_dir  # noqa: E402
-
-# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -271,21 +267,49 @@ def _config_path() -> Path:
     return _home() / ".agentic" / "agentic-engineering-config.json"
 
 
-def _config_dir() -> Path:
-    """Active harness config dir - the SAME dir .claude/install.sh installs into.
+# Harness config-dir env vars consulted by .claude/install.sh, in its
+# precedence order. DELIBERATELY NOT _lib.CONFIG_DIR_ENV, which carries two
+# more entries (CODEX_HOME, PI_CODING_AGENT_DIR) for the IDENTITY-profile
+# resolution it was written for. .claude/install.sh does not consult those two,
+# so resolving them here would send ds-doctor to a directory the Claude
+# installer never writes - measured: with only CODEX_HOME set, _lib's resolver
+# returns ~/.codex while install.sh returns ~/.claude, and every check below
+# would then SKIP or validate the wrong tree. Keep this list byte-identical in
+# ORDER and MEMBERSHIP to install.sh's own chain; it is intentionally a
+# different list from _lib's, not a stale copy of it.
+_INSTALL_CONFIG_DIR_ENV: tuple[str, ...] = (
+    "AGENTIC_CONFIG_DIR",
+    "CLAUDE_CONFIG_DIR",
+)
 
-    Delegates to _lib.resolve_claude_config_dir(), which walks the canonical
-    four-var chain (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > CODEX_HOME >
-    PI_CODING_AGENT_DIR) and falls back to ~/.claude. Re-evaluated each call so
-    tests can override the environment.
+
+def _config_dir() -> Path:
+    """Active harness config dir, resolved exactly as .claude/install.sh does.
+
+    Chain: AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > ~/.claude, matching
+    .claude/install.sh's AE_CONFIG_DIR expansion. Re-evaluated each call so
+    tests can override the environment. Values are expanduser()'d and
+    abspath()'d, and a whitespace-only value is treated as unset, so a literal
+    "~/.claude" resolves the way a shell would rather than to a "~"
+    subdirectory of the cwd.
+
+    KNOWN LIMIT: install.sh's `--config-dir=<dir>` flag outranks both env vars
+    and is invisible here - it leaves no trace in the environment ds-doctor
+    later runs in. An install made with that flag is therefore NOT checked
+    against its own config dir; ds-doctor reports on the env-resolved dir
+    instead. Passing the same AGENTIC_CONFIG_DIR when invoking ds-doctor is the
+    workaround.
 
     DS-231: before this existed, every check below hardcoded ~/.claude while
-    the installer (after DS-231) honors CLAUDE_CONFIG_DIR. That disagreement is
-    not merely cosmetic - `--fix` would write a SECOND copy of an artifact into
-    ~/.claude while the installed one lives in the active config dir, which is
-    exactly the divergent-copy state DS-231 exists to prevent.
+    the installer honors CLAUDE_CONFIG_DIR - so `--fix` could write a SECOND
+    copy of an artifact into ~/.claude while the installed one lived in the
+    active config dir, the divergent-copy state DS-231 exists to prevent.
     """
-    return resolve_claude_config_dir()
+    for var in _INSTALL_CONFIG_DIR_ENV:
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            return Path(os.path.abspath(os.path.expanduser(raw)))
+    return _home() / ".claude"
 
 
 def _settings_path() -> Path:
@@ -301,13 +325,13 @@ def _plugins_dir() -> Path:
 
     DS-231 replaced this function's own partial resolver (CLAUDE_CONFIG_DIR
     only) with _config_dir(), so plugins, settings.json and the managed link
-    trees now all resolve through the SAME four-var chain. Before DS-231 this
+    trees now all resolve through the SAME chain install.sh uses. Before DS-231 this
     function was deliberately independent of _settings_path(), which stayed
     hardcoded to ~/.claude/settings.json for every other check in the module;
     that asymmetry is gone - keeping it would leave `--fix` writing into a dir
     the harness never reads.
 
-    Env values are expanduser()'d and abspath()'d by _lib's resolver: a literal
+    Env values are expanduser()'d and abspath()'d by _config_dir(): a literal
     "~/.claude" value (a real, observed shape for this env var) must resolve to
     the same directory a shell would give it, not to a literal "~" subdirectory
     relative to cwd; an empty or whitespace-only value is treated as unset; a
