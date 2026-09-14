@@ -1848,7 +1848,7 @@ cap_reached (iteration == 3) or convergence_failure ──&gt; ESCALATE to human
 <ul>
 <li><strong>3-pass cap is independent</strong>: exhausting Phase 6 Skeptic cap does not consume Phase 6b QA budget</li>
 <li><strong>Phase 6b only runs after Phase 6 clean exit</strong> - if Phase 6 escalates (<code>cap_reached</code>, <code>convergence_failure</code>, <code>blocked</code>), Phase 6b is skipped entirely</li>
-<li><strong><code>qa_failures_log</code> schema</strong>: each failure tracked with <code>id</code>, <code>description</code>, <code>first_raised</code>, <code>status</code>, <code>claimed_fix</code>, <code>re_raised</code> - mirrors <code>findings_log</code> structure</li>
+<li><strong><code>qa_failures_log</code> schema</strong>: each failure tracked with <code>id</code>, <code>description</code>, <code>first_raised</code>, <code>status</code>, <code>re_raised</code></li>
 <li><strong>QA convergence trigger</strong>: same failure re-raised unchanged after a claimed fix - no severity qualifier (QA failures are not Critical/Major/Minor; any re-raised failure triggers <code>convergence_failure</code>)</li>
 <li><strong>Same BLOCKED/NEEDS_CONTEXT handling</strong>: Engineer BLOCKED = immediate escalation; NEEDS_CONTEXT = context re-supply without incrementing iteration</li>
 </ul>

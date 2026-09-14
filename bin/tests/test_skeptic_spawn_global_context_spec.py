@@ -25,8 +25,9 @@ INCLUDED (constructs an actual spawn prompt a conductor would copy,
 verified to lack the block prior to this fix):
   - content/commands/ds-skeptic.md               (Step 2 Skeptic template)
   - content/commands/ds-implement-ticket.md       (Phase 3b architect-plan
-    review, Phase 5 per-unit spawning, Phase 5 integration Skeptic, Phase 6
-    main spawn template, Section 14 meta-Skeptic spawn brief)
+    review, Phase 5 per-unit spawning, Phase 5 integration Skeptic, Phase 5
+    multi-dimensional spawning, Phase 6 main spawn template, Section 14
+    meta-Skeptic spawn brief - six sites, matching MIN_OCCURRENCES below)
   - content/commands/ds-init-project.md           (CLAUDE.md split Skeptic)
   - content/commands/ds-ticket-triage.md          (Phase 4b artifact Skeptic)
   - content/commands/ds-wrap.md                   (Step 2 context-file
@@ -35,7 +36,7 @@ verified to lack the block prior to this fix):
     review "include:" list, ":200" engineer-output review "include:" list -
     both are prescriptive spawn-input enumerations in the same shape as the
     command templates above; a conductor following either verbatim assembles
-    a prompt missing all 6 Global-context fields. Originally excluded in the
+    a prompt missing all 7 Global-context fields. Originally excluded in the
     first pass of this fix as "mentions Skeptic review generically" - that
     reasoning did not survive scrutiny: these are "when spawning `skeptic`
     for X review, include:" lists, i.e. exactly the defect class this test
@@ -157,11 +158,17 @@ SPAWN_TEMPLATE_SITES = [
 # pointer naming it) at each site, not just once anywhere in the file.
 MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 1,
-    # DS-230: re-derived from disk on 2026-09-13 - live count is 6 (the Phase 3b
-    # architect-plan review at :1369, the per-unit spawn at :1755, the
-    # integration spawn at :1757, the multi-dimensional spawn at :1759, the
-    # Phase 6 spawn at :1848, and the meta-Skeptic at :2019), so
-    # the floor sits at zero slack. The prior value (5) carried one occurrence of
+    # DS-230: re-derived from disk (grep the literal string) - live count is 6.
+    # Cited by heading rather than line number, deliberately: an insertion above
+    # any of them shifts every line below it, which is how the previous form of
+    # this comment went stale inside the very commit that added a bullet. The six:
+    #   "Architect plan Skeptic review (mandatory)"      (Phase 3)
+    #   "Per-unit Skeptic spawning"                      (Phase 5)
+    #   "Integration Skeptic"                            (Phase 5)
+    #   "Multi-dimensional Skeptic spawning"             (Phase 5)
+    #   "**The Global-context input set**" bullet        (Phase 6 spawn template)
+    #   "The original Skeptic's Global-context input set verbatim" (meta-Skeptic)
+    # The floor sits at zero slack; the prior value (5) carried one occurrence of
     # slack. Re-run the count on any future edit to that file.
     COMMANDS_DIR / "ds-implement-ticket.md": 6,
     COMMANDS_DIR / "ds-init-project.md": 1,
