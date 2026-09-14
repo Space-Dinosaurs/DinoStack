@@ -378,7 +378,7 @@ Conductor reads `brief-session.json` `brief_source` field.
 > not 'cannot specify', no Open Questions remaining (a non-empty "Deferred defaults" section
 > does not count as unresolved Open Questions - those do not block). The problem framing and success
 > criteria have already been operator-confirmed in the $dinostack-codex-brief session - DO NOT relitigate
-> framing decisions. Major findings are limited to: missing field, empty Verification,
+> framing decisions. Findings are limited to: missing field, empty Verification,
 > unresolved Open Questions, or contradictions between Brief fields. Out of scope:
 > framing critique, alternative solutions, scope arguments."
 

@@ -27,7 +27,7 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
                       check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
-               section (03-planning-artifacts.md) is a Major Skeptic finding.
+               section (03-planning-artifacts.md) is a Minor Skeptic finding.
                Stale step numbering in Gate semantics causes misrouted
                cross-references across phases; update inline step references
                whenever steps are renumbered. Stale field guidance misleads

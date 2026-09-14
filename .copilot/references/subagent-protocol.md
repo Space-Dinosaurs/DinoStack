@@ -156,7 +156,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
-| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: skeptic \| iteration N/2 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
 | `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
@@ -167,7 +167,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-review (round 1)]"
 
 **Loop breadcrumb examples:**
-- `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
+- `[loop: skeptic | iteration 1/2 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
 
 **Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (tmp+rename) - loop state is keyed per ticket, so two sessions on two tickets in one checkout write different files; the unkeyed `.agentic/loop-state.json` is the legacy path, still read on resume but no longer written. The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/ds-implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.

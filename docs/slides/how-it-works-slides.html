@@ -1820,7 +1820,7 @@ hr {
 " lang="C" data-marpit-pagination="11" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="16">
 <h2 id="the-persistence-loop---engineer---skeptic---qa">The persistence loop - Engineer -&gt; Skeptic -&gt; QA</h2>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Phase 6: Skeptic loop (max 3 fix passes)          Phase 6b: QA loop (max 3 fix passes)
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Phase 6: Skeptic loop (max 2 fix passes)          Phase 6b: QA loop (max 3 fix passes)
 ─────────────────────────────────────────         ─────────────────────────────────────
 Engineer implements                               (only runs if Phase 6 exits cleanly)
     │
@@ -1830,13 +1830,13 @@ Skeptic reviews ──&gt; sign-off? ──&gt; Phase 6b ──&gt;  QA verifies
     │ cap_reached / convergence? ──&gt; ESCALATE        │ cap / convergence? ──&gt; ESCALATE
 </code></pre>
 <ul>
-<li><strong>3 fix passes per phase</strong> - caps are independent (Skeptic cap and QA cap are separate budgets)</li>
+<li><strong>2 fix passes in the Skeptic loop, 3 in the QA loop</strong> - caps are independent (Skeptic cap and QA cap are separate budgets)</li>
 <li><strong><code>findings_log</code> carries forward</strong> - prior findings tracked by ID; closed findings are not re-litigated</li>
 <li><strong>Convergence failure</strong> - one re-raise of a <strong>Critical</strong> finding after a claimed fix triggers immediate escalation (does not wait for a second attempt)</li>
 <li><strong>Escalation reasons</strong>: <code>cap_reached</code>, <code>convergence_failure</code>, <code>blocked</code></li>
 </ul>
 <div class="callout">
-The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
+The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/2 | open findings: 1 Critical]</code>
 </div>
 <div class="callout">
 <strong>Loop durability:</strong> state is written per ticket to <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> at each phase transition (atomic write), superseding the single legacy <code>.agentic/loop-state.json</code>. Two tickets in one checkout never contend. Loops survive rate limits and session exits — the next session resumes that ticket's own state from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
@@ -1995,7 +1995,7 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>cap_reached</strong><br />
-3 fix passes ran. An unresolved Critical always escalates - the cap never ships a Critical. Otherwise the conductor ships (accepted debt in the PR body) or escalates, per operator approval inside Phase 6 today.
+The loop's fix passes ran out (2 in a Skeptic loop, 3 in a QA loop). An unresolved Critical always escalates - the cap never ships a Critical. Otherwise the conductor ships (accepted debt in the PR body) or escalates.
 </div>
 <div class="card">
 <strong>convergence_failure</strong><br />
