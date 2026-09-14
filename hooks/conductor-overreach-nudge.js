@@ -72,9 +72,17 @@
  *                     file if writeFileSync succeeds but renameSync fails,
  *                     rather than leaking it.
  *
- * Public API: none (CLI entry point only, invoked by the Claude Code Stop
- *             hook per .claude/settings.json). Not imported by other
- *             modules.
+ * Public API: primarily a CLI entry point, invoked by the Claude Code Stop
+ *             hook per .claude/settings.json. Also exports four
+ *             underscore-prefixed internals (_sentinelPath, _hasFired,
+ *             _markFired, _pruneAgedSentinels) via a test-only
+ *             module.exports at end of file, so
+ *             hooks/tests/test-conductor-overreach-nudge.js can shim-load
+ *             and unit-test _markFired's rename-failure path directly
+ *             (mirroring hooks/stop-context.js's identical precedent) -
+ *             this file therefore now HAS a requirer, and the exported
+ *             names are an internal test seam, not a public contract for
+ *             other production modules to depend on.
  *
  * Upstream deps: Node built-ins (fs, path), hooks/lib/stdin-guard.js
  *                (readStdinGuarded), hooks/lib/overreach-detector.js
@@ -119,7 +127,12 @@
  * Performance: single stdin read + single bounded transcript file read/pass
  *              (see overreach-detector.js) + one best-effort sentinel
  *              existence check/write + one best-effort events.jsonl append.
- *              No subprocess calls.
+ *              On a successful sentinel write, also one readdirSync of
+ *              .agentic/ plus a statSync (and, for aged entries, an
+ *              unlinkSync) per sentinel-prefixed entry found there
+ *              (_pruneAgedSentinels) - bounded by however many sentinel
+ *              files have accumulated since the last successful prune, not
+ *              by transcript size. No subprocess calls.
  */
 
 'use strict';
@@ -266,9 +279,11 @@ function _hasFired(cwd, sessionId) {
  * per-process tmp-file + rename, matching hooks/lib/loop_guard.py's
  * write_counter discipline. On a successful write, also runs the
  * best-effort age-based prune (_pruneAgedSentinels) so the sentinel
- * population stays bounded - a prune failure never flips this function's
- * return value, since it only runs after the current session's own write
- * has already succeeded.
+ * population stays bounded. The write outcome (`wrote`) is fully
+ * determined by the write/rename try block BEFORE the prune is ever
+ * called, and the prune call is itself independently wrapped - so a
+ * prune failure structurally CANNOT flip this function's return value,
+ * not merely by relying on _pruneAgedSentinels's own internal catch-all.
  *
  * @param {string} cwd
  * @param {string} sessionId
@@ -279,6 +294,7 @@ function _markFired(cwd, sessionId) {
   const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
   const sentinelPath = _sentinelPath(cwd, sessionId);
   const tmp = `${sentinelPath}.tmp.${process.pid}`;
+  let wrote = false;
   try {
     fs.mkdirSync(agenticDir, { recursive: true });
     fs.writeFileSync(tmp, '');
@@ -291,11 +307,19 @@ function _markFired(cwd, sessionId) {
       try { fs.unlinkSync(tmp); } catch (_) { /* best-effort */ }
       throw renameErr;
     }
-    _pruneAgedSentinels(cwd);
-    return true;
+    wrote = true;
   } catch (_) {
-    return false;
+    wrote = false;
   }
+  if (wrote) {
+    // Independently wrapped: even though _pruneAgedSentinels never
+    // throws by its own contract, this call site does not rely on that
+    // contract to protect `wrote` - `wrote` is already fixed above.
+    try {
+      _pruneAgedSentinels(cwd);
+    } catch (_) { /* best-effort; never affects the write outcome */ }
+  }
+  return wrote;
 }
 
 async function run() {
@@ -372,11 +396,19 @@ async function run() {
 
 run();
 
-// Test shim: appended at module load so test files can import internals
-// without executing run(). This hook has no production module.exports;
-// this shim is only reached when a test replaces the `run();` call above
-// before requiring the file, mirroring hooks/stop-context.js's identical
-// precedent (see that file's own trailing comment).
+// Test shim: this module.exports block executes on EVERY load, including
+// direct CLI invocation - run() above is async and unawaited, so control
+// reaches here immediately regardless of whether a test replaced the
+// `run();` call. That is harmless in production: nothing requires this
+// file as a module outside a test (it is invoked as a CLI script, and
+// require()'s return value has no observer), so the assignment is inert.
+// It exists so hooks/tests/test-conductor-overreach-nudge.js can shim-load
+// this file (replacing `run();` with a no-op first) and call these
+// internals directly, mirroring hooks/stop-context.js's identical
+// precedent - see that file's own trailing comment for the same pattern
+// (its comment states the same "only reached when a test replaces run()"
+// claim, which is equally inaccurate there for the same async/unawaited
+// reason; left unchanged there as out of scope for this fix).
 if (typeof module !== 'undefined') {
   module.exports = {
     _sentinelPath,

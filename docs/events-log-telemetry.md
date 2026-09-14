@@ -237,7 +237,12 @@ written before anything is emitted, and needs no reset (unlike the
 cap-2/reset-on-user-turn pattern used by the sibling `hooks/lib/loop_guard.py`
 Python hooks), since a genuine new user turn cannot make the monotonic
 trigger any less true. A missing `session_id`, or a failed sentinel write,
-also results in no emission - fail toward silence.
+also results in no emission - fail toward silence. On a successful write,
+a best-effort sweep also deletes `.conductor-overreach-fired-*` entries
+older than a 7-day retention window - never any other file in `.agentic/` -
+so the sentinel population stays bounded instead of accumulating one
+zero-byte file per session forever; a prune failure never affects whether
+the current advisory fires.
 
 **Calibration.** `bin/ds-measure-conductor-tool-calls` measures this exact
 cumulative whole-transcript statistic (not a per-turn or run-length proxy)

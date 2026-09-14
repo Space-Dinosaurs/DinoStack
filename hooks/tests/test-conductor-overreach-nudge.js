@@ -95,6 +95,16 @@
  *                                  regression for the unbounded-
  *                                  accumulation Minor (one zero-byte file
  *                                  per session, forever, with no prune).
+ *                                  ALSO asserts the prune's blast-radius
+ *                                  guard: two aged non-sentinel files
+ *                                  (tasks.jsonl, loop-state-x.json) planted
+ *                                  in the same .agentic/ dir both survive -
+ *                                  the prefix check is the only thing
+ *                                  standing between this sweep and every
+ *                                  other file in .agentic/, and was
+ *                                  otherwise unasserted (deleting the
+ *                                  `startsWith(_SENTINEL_PREFIX)` guard left
+ *                                  this suite green before this addition).
  *   16. rename-failure-no-tmp-residue: unit-tests _markFired directly via
  *                                  the shim-load pattern (same technique as
  *                                  hooks/tests/test-stop-context-health.js),
@@ -622,12 +632,6 @@ console.log('\nTest 14: sentinel-write-failure-no-emit');
   cleanup(cwd);
 }
 
-/** Mirrors the hook's own _sentinelPath sanitization for test-side setup. */
-function _testSentinelPath(cwd, sessionId) {
-  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(cwd, '.agentic', `.conductor-overreach-fired-${safeId}`);
-}
-
 // ---------------------------------------------------------------------------
 // Test 15: prune-removes-aged-sentinel-keeps-fresh
 // ---------------------------------------------------------------------------
@@ -638,16 +642,35 @@ console.log('\nTest 15: prune-removes-aged-sentinel-keeps-fresh');
     path.join(cwd, '.agentic', 'config.json'),
     JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
   );
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
 
   // Pre-existing sentinel older than the 7-day retention window.
-  const oldSentinel = _testSentinelPath(cwd, 'old-session');
+  const oldSentinel = _internalSentinelPath(cwd, 'old-session');
   fs.writeFileSync(oldSentinel, '');
-  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
   fs.utimesSync(oldSentinel, eightDaysAgo, eightDaysAgo);
 
   // Pre-existing sentinel well within the retention window.
-  const freshSentinel = _testSentinelPath(cwd, 'fresh-session');
+  const freshSentinel = _internalSentinelPath(cwd, 'fresh-session');
   fs.writeFileSync(freshSentinel, '');
+
+  // Blast-radius guard: aged NON-sentinel files in the same .agentic/ dir
+  // (real repo-root artifacts, not this hook's own file shape) must survive
+  // the sweep untouched. The `startsWith(_SENTINEL_PREFIX)` filter is the
+  // only thing standing between this prune and every other file in
+  // .agentic/ - deleting that one line left this suite green before this
+  // assertion existed. Deliberately NOT events.jsonl: this same triggering
+  // run's own _appendEvent unconditionally appendFileSync's events.jsonl
+  // moments later regardless of what prune did to it, which would recreate
+  // the file either way and make an events.jsonl-survives assertion pass
+  // vacuously whether or not the blast-radius guard exists. tasks.jsonl and
+  // loop-state-x.json are both real .agentic/ artifacts this hook never
+  // writes.
+  const otherAgedTasks = path.join(cwd, '.agentic', 'tasks.jsonl');
+  fs.writeFileSync(otherAgedTasks, '{"task":"unrelated"}\n');
+  fs.utimesSync(otherAgedTasks, eightDaysAgo, eightDaysAgo);
+  const otherAgedLoopState = path.join(cwd, '.agentic', 'loop-state-x.json');
+  fs.writeFileSync(otherAgedLoopState, '{}');
+  fs.utimesSync(otherAgedLoopState, eightDaysAgo, eightDaysAgo);
 
   const sessionId = 'overreach-session-015';
   const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
@@ -656,7 +679,9 @@ console.log('\nTest 15: prune-removes-aged-sentinel-keeps-fresh');
 
   assert(!fs.existsSync(oldSentinel), 'the aged (>7d) sentinel was pruned');
   assert(fs.existsSync(freshSentinel), 'the fresh sentinel was left alone');
-  assert(fs.existsSync(_testSentinelPath(cwd, sessionId)), "the current session's own sentinel was written");
+  assert(fs.existsSync(_internalSentinelPath(cwd, sessionId)), "the current session's own sentinel was written");
+  assert(fs.existsSync(otherAgedTasks), 'an aged tasks.jsonl in the same dir was NOT swept (blast-radius guard)');
+  assert(fs.existsSync(otherAgedLoopState), 'an aged loop-state-x.json in the same dir was NOT swept (blast-radius guard)');
   cleanup(cwd);
 }
 
@@ -667,14 +692,6 @@ console.log('\nTest 16: rename-failure-no-tmp-residue');
 {
   const cwd = makeTempProject();
   const sessionId = 'overreach-session-016';
-  // MUST use the module's own _sentinelPath, not the local _testSentinelPath
-  // duplicate: resolveAgenticCwd realpath-normalizes cwd (e.g. macOS's
-  // /var -> /private/var symlink), so a locally-recomputed path from the
-  // raw (unnormalized) cwd silently diverges from what _markFired actually
-  // operates on - existsSync-based assertions in tests 12/13/15 don't
-  // notice this (the OS resolves the symlink transparently either way),
-  // but this test's stub match is a STRING comparison and needs the exact
-  // path _markFired will pass to fs.renameSync.
   const sentinelPath = _internalSentinelPath(cwd, sessionId);
 
   // Stub fs.renameSync to fail ONLY for this sentinel's own tmp path -
