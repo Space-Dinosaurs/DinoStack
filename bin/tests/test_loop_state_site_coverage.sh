@@ -383,21 +383,27 @@ fi
 # DS-232 r3 pin: ship-at-cap must stay expressed in EXISTING machinery.
 #
 # Two halves carry that decision, and both live on Phase 6 Step 3's
-# cap_reached bullet: the conductor RECORDS the round-cap `ship` decision that
-# Step 2 requires for deferring a Major, and the branch then rejoins the
-# ordinary clean exit rather than inventing a parallel one. Matching BOTH on
-# ONE line ties the pin to that bullet instead of to the file at large, so
-# splitting them apart also reddens.
+# cap_reached bullet: the ship decision at cap IS the explicit approval Step 2
+# requires for deferring a Major, and the branch then rejoins the ordinary
+# clean exit rather than inventing a parallel one. Matching BOTH on ONE line
+# ties the pin to that bullet instead of to the file at large, so splitting
+# them apart also reddens.
+#
+# The pin deliberately does NOT mention the hook's state file. Writing
+# `decision: "ship"` into `.agentic/skeptic-round-<unit-key>.json` leaves an
+# unconsumed bypass token there that ALLOWs a later third Skeptic spawn
+# (verified by runtime probe), so the decision is recorded by the deferred
+# findings_log entries and the PR body instead.
 #
 # Reddening mutations: delete either phrase; reword either one; or move them
 # onto separate bullets. Any of the three drops the same-line match to 0.
 # ---------------------------------------------------------------------------
-SHIP_PIN="$(grep -F 'record `decision: "ship"`' "$FILE" \
+SHIP_PIN="$(grep -F 'this ship decision at cap is the explicit approval' "$FILE" \
   | grep -cF 'take the clean-exit branch above' || true)"
 if [ "${SHIP_PIN:-0}" -ge 1 ]; then
-  _pass "ship-at-cap pin: cap_reached bullet defers via the recorded ship decision and rejoins the clean exit"
+  _pass "ship-at-cap pin: cap_reached bullet defers on the ship decision itself and rejoins the clean exit"
 else
-  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'record \`decision: \"ship\"\`' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit or a new termination_reason."
+  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'this ship decision at cap is the explicit approval' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit, a new termination_reason, or a write into the round-cap hook's state file."
 fi
 
 # ---------------------------------------------------------------------------
