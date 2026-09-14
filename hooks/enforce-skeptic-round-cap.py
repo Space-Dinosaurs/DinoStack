@@ -3,8 +3,9 @@
 Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          round-budget policy (content/sections/05-qa-gate.md §Re-route
          limits, content/references/skeptic-protocol.md §Round budget and
-         value-per-round gate): a max of 3 Skeptic rounds per unit before the
-         conductor must record an explicit `ship` or `escalate` decision.
+         value-per-round gate): a max of `_ROUND_CAP` Skeptic rounds per
+         unit before the conductor must record an explicit `ship` or
+         `escalate` decision.
          Before this hook, the cap was enforced only by "the conductor tracks
          re-route count in-context" - unenforced prose. A single session ran
          12 Skeptic rounds / 13 spawns on one unit with no mechanism firing.
@@ -153,10 +154,11 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
              under-counts a real cap violation. This does not add real
              cross-process locking; a true simultaneous race can still
              double-charge a round - see Failure modes below.
-           - next_round <= 3: ALLOW. Persist round_count = next_round and
-             clear any stale `decision` (a new round supersedes a prior
-             ship/escalate record - each cap hit needs its own decision).
-           - next_round >= 4 (cap reached):
+           - next_round <= _ROUND_CAP: ALLOW. Persist round_count =
+             next_round and clear any stale `decision` (a new round
+             supersedes a prior ship/escalate record - each cap hit needs
+             its own decision).
+           - next_round >= _ROUND_CAP + 1 (cap reached):
                - decision == "escalate": ALLOW (human explicitly authorized
                  another round). Consumed on use - persist round_count =
                  next_round, decision reset to null, so a later cap hit
@@ -381,7 +383,7 @@ import sys
 import time
 from pathlib import Path
 
-_ROUND_CAP = 3
+_ROUND_CAP = 2
 _KEY_SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 _MAX_KEY_LEN = 80
 # Covers: numbered ("6. Diff under review: ..."), hyphen-bullet
