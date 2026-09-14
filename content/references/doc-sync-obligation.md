@@ -38,13 +38,7 @@ Over-documenting is itself drift - do not add speculative doc edits to changes t
 
 ## Worker obligation
 
-On a predicate-tripping change, in the same change update every invalidated intent-layer doc (scan `README.md`, `CONTRIBUTING.md`, `content/SKILL.md`, affected `content/sections` + `content/references` cross-refs) and attest in the change summary:
-
-`Doc-sync: [predicate clause N triggered] -> updated [doc paths]: [what changed].`
-
-OR if not tripped:
-
-`Doc-sync: predicate not triggered (no reality-asserting change).`
+On a predicate-tripping change, in the same change update every invalidated intent-layer doc (scan `README.md`, `CONTRIBUTING.md`, `content/SKILL.md`, affected `content/sections` + `content/references` cross-refs).
 
 ## Skeptic verification
 
