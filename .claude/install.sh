@@ -18,6 +18,16 @@
 #     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
 #     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
 #     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
+#   CLAUDE_CONFIG_DIR env (DS-231): also redirects the harness config dir, but
+#     ranks BELOW the flag and AGENTIC_CONFIG_DIR - full precedence is
+#     --config-dir > AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > ~/.claude. It is
+#     deliberately NOT an "explicit redirect": it does not move
+#     agentic-engineering.json and does not flip developer identity to profile
+#     scope. See the AE_CONFIG_DIR consumer audit below for the per-consumer
+#     follows/stays split and the measured reason for each "stays" row.
+#   ae_resolve_write_target <path> (internal): resolves a bridge symlink to its
+#     real path when that path stays under $HOME; refuses (rc 1) when it
+#     escapes $HOME; passes a non-symlink through unchanged.
 #   --dry-run: print symlink actions, the CLAUDE.md managed-block update
 #              intent, and repo_dir write intent without executing them.
 #              Hook wiring, build, and permission phases still execute.
@@ -100,6 +110,10 @@ AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
 AE_DRY_RUN=false
+# Initialized before the loop so an exported AE_CONFIG_DIR_FLAG in the calling
+# environment can never be mistaken for a --config-dir flag passed on this
+# invocation. Parity with .codex/install.sh:53.
+AE_CONFIG_DIR_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -129,27 +143,156 @@ for arg in "$@"; do
   esac
 done
 
+# ---------------------------------------------------------------------------
+# ae_resolve_write_target <path>
+#
+# Resolve a write destination that may be a bridge symlink, without ever
+# loosening the symlink-write refusals further down this script.
+#
+#   - <path> is a symlink whose realpath stays under $HOME: prints the
+#     realpath, returns 0. The caller then writes to a REAL file, so the
+#     os.path.islink() refusals never fire and a bridged install keeps
+#     working instead of aborting.
+#   - <path> is a symlink whose realpath escapes $HOME: prints nothing,
+#     returns 1. The caller refuses. This is the CWE-59 case the refusals
+#     exist for and it stays refused.
+#   - <path> is not a symlink (or does not exist): prints <path> unchanged,
+#     returns 0.
+#
+# Arguments are passed as argv, never interpolated into the Python source,
+# for the same CWE-94 reason as ae_read_json_key below. Containment is a
+# lexical check on the resolved path against the resolved $HOME, so a
+# symlink chain that lands outside $HOME is caught however many hops it took.
+# ---------------------------------------------------------------------------
+ae_resolve_write_target() {
+  python3 - "$1" "$HOME" <<'PYEOF'
+import os, sys
+path, home = sys.argv[1], sys.argv[2]
+if not os.path.islink(path):
+    print(path)
+    sys.exit(0)
+real = os.path.realpath(path)
+home_real = os.path.realpath(home)
+if real == home_real or real.startswith(home_real.rstrip(os.sep) + os.sep):
+    print(real)
+    sys.exit(0)
+sys.exit(1)
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# AE_CONFIG_DIR consumer audit (DS-231, AC4)
+#
+# Every consumer of AE_CONFIG_DIR below, and whether it FOLLOWS the resolved
+# config dir or deliberately STAYS on the real $HOME. A row that stays names
+# the measured reason, not an assertion.
+#
+# FOLLOWS the resolved config dir (these are what the harness reads):
+#   AGENTS_DST / COMMANDS_DST / SKILLS_DST / SETTINGS  - the managed symlink
+#     trees and settings.json the harness loads at startup.
+#   AE_OUTPUT_STYLE_DST_DIR                            - /config reads the
+#     style list from the active config dir; this is DS-231's reported defect.
+#   CLAUDE.md (via AE_CLAUDE_MD_PATH)                  - the managed-block
+#     file the harness imports.
+#   the stale pre-rename skill prune                   - derives from
+#     SKILLS_DST, so it must prune in the same tree it installs into.
+#   the permissions scope label                        - already derived from
+#     AE_CONFIG_DIR; grants write to the tree actually installed into.
+#
+# STAYS on the real $HOME, with the reason:
+#   AE_CONFIG_PATH (agentic-engineering.json) - four readers hardcode
+#     $HOME/.claude/agentic-engineering.json with no config-dir chain:
+#     bin/ds-config:86, bin/ds-status:127, bin/ds-disable:50, and
+#     hooks/skill-auto-load-check.sh:56 (whose redirect branch at :57 is
+#     gated on `adapter == codex`, so it never fires for Claude). Moving it
+#     on a bare CLAUDE_CONFIG_DIR would split activation state: install
+#     writes one file, every reader reads another. It still follows an
+#     EXPLICIT redirect (flag / AGENTIC_CONFIG_DIR), which is the
+#     pre-existing per-profile contract and is unchanged here.
+#   $HOME/.agentic hooks snapshot - scripts/lib/hooks-snapshot.sh:131,255
+#     anchor the snapshot base to "$HOME/.agentic" by contract, and
+#     scripts/lib/repo-dir.sh:71 reads repo_dir from the same $HOME path.
+#     Per-checkout shared state, not per-harness config.
+#   $HOME/.local/bin - PATH wrappers are shared across every harness.
+#   ~/.claude.json MCP blocks - not under AE_CONFIG_DIR at all, and read with
+#     its own semantics. NOTE (measured, out of scope for DS-231): this file
+#     is a second instance of the same defect class - on a host with
+#     CLAUDE_CONFIG_DIR set, the harness reads <config-dir>/.claude.json while
+#     this installer writes $HOME/.claude.json, so configured MCP servers can
+#     diverge between the two. Deliberately NOT fixed here; follow-up ticket.
+# ---------------------------------------------------------------------------
+
 # Harness config directory (redirectable for per-profile installs).
-# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.claude.
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > CLAUDE_CONFIG_DIR
+# env > default ~/.claude.
+# Rationale for that order: the flag and AGENTIC_CONFIG_DIR are DinoStack's
+# own "install into a separate profile tree" switches, so they must outrank a
+# value that merely happens to be ambient. CLAUDE_CONFIG_DIR states where the
+# HARNESS reads its config, so an install that ignores it is invisible to the
+# tool it was made for - it therefore outranks only the hardcoded default.
+# Same chain shape as .codex/install.sh:76 and .pi/install.sh:60.
 # Only the per-harness config dir is redirected; shared user state
 # (~/.agentic, ~/.local/bin, ~/.claude.json) always stays in the real $HOME.
-AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
+AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}}"
+
+# An EXPLICIT request to relocate DinoStack-owned state. Deliberately excludes
+# CLAUDE_CONFIG_DIR: that variable says where the harness reads, which is not
+# a request to move DinoStack's own per-profile identity or activation state.
+# Merely having it set must not flip identity scope from global to profile
+# (_ae_identity_bind_config_dir's second argument, scripts/lib/identity.sh:58-60)
+# nor move AE_CONFIG_PATH. This is a deliberate divergence from
+# .codex/install.sh:79,90-93, which does include CODEX_HOME in both.
+AE_CONFIG_DIR_EXPLICIT_REDIRECT="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}"
+
+# Symlink guard: never write THROUGH a symlink blindly. mkdir -p would
+# silently follow a symlinked config dir and any subsequent writes land
+# outside the intended per-profile tree (CWE-59 directory-level). A dir that
+# is a symlink resolving to somewhere still under $HOME is a legitimate
+# bridged layout (one config dir per harness, all pointing at one real tree),
+# so resolve it and proceed on the REAL path; anything escaping $HOME is
+# still refused outright. Resolution happens BEFORE the identity binding and
+# AE_CONFIG_PATH below so every downstream consumer sees one real path.
+if [[ -L "$AE_CONFIG_DIR" ]]; then
+  if _ae_resolved_cfg_dir="$(ae_resolve_write_target "$AE_CONFIG_DIR")"; then
+    echo "  = config dir is a symlink; installing into its target: $_ae_resolved_cfg_dir"
+    AE_CONFIG_DIR="$_ae_resolved_cfg_dir"
+    unset _ae_resolved_cfg_dir
+  else
+    echo "  ! refusing to install through symlinked config dir (target escapes \$HOME): $AE_CONFIG_DIR" >&2
+    exit 1
+  fi
+fi
+
 if declare -f _ae_identity_bind_config_dir >/dev/null; then
-  if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+  if [[ -n "$AE_CONFIG_DIR_EXPLICIT_REDIRECT" ]]; then
     _ae_identity_bind_config_dir "$AE_CONFIG_DIR" true
   else
     _ae_identity_bind_config_dir "$AE_CONFIG_DIR" false
   fi
 fi
 
-AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
-# Symlink guard: refuse to traverse through a symlinked config dir. mkdir -p
-# would silently follow the symlink and any subsequent writes land outside
-# the intended per-profile tree (CWE-59 directory-level).
-if [[ -L "$AE_CONFIG_DIR" ]]; then
-  echo "  ! refusing to install through symlinked config dir: $AE_CONFIG_DIR" >&2
-  exit 1
+# Activation config: pinned to the shared $HOME location unless an EXPLICIT
+# redirect was requested. See the "STAYS on the real $HOME" audit row above
+# for the four hardcoded readers that make this a correctness requirement
+# rather than a style choice. Matches .codex/install.sh:90-93.
+AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
+if [[ -n "$AE_CONFIG_DIR_EXPLICIT_REDIRECT" ]]; then
+  AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
 fi
+# The activation file itself may be a bridge symlink on a multi-profile host
+# (measured: ~/.claude-spacedinosaurs/agentic-engineering.json is a symlink
+# into ~/.claude). Resolve it to the real path so the islink refusals guarding
+# the two writes below see a real file rather than aborting the install.
+if [[ -L "$AE_CONFIG_PATH" ]]; then
+  if _ae_resolved_cfg_path="$(ae_resolve_write_target "$AE_CONFIG_PATH")"; then
+    AE_CONFIG_PATH="$_ae_resolved_cfg_path"
+    unset _ae_resolved_cfg_path
+  else
+    echo "  ! refusing to write activation config through symlink escaping \$HOME: $AE_CONFIG_PATH" >&2
+    exit 1
+  fi
+fi
+
 mkdir -p "$AE_CONFIG_DIR"
 
 # Safe JSON-key reader: path/key/default passed as argv (NOT interpolated into
@@ -296,6 +439,33 @@ AGENTS_DST="$AE_CONFIG_DIR/agents"
 COMMANDS_DST="$AE_CONFIG_DIR/commands"
 SKILLS_DST="$AE_CONFIG_DIR/skills/dinostack"
 SETTINGS="$AE_CONFIG_DIR/settings.json"
+# On a bridged multi-profile host the harness config dir holds per-entry
+# symlinks into another real config tree (measured: every entry of
+# ~/.claude-spacedinosaurs is a symlink into ~/.claude). Resolve settings.json
+# and CLAUDE.md to their real paths so the os.path.islink() write refusals
+# below see real files. Those refusals are unchanged and still fire on
+# anything that resolves outside $HOME - the resolver refuses that case here
+# first, before any write is attempted.
+if [[ -L "$SETTINGS" ]]; then
+  if _ae_resolved_settings="$(ae_resolve_write_target "$SETTINGS")"; then
+    SETTINGS="$_ae_resolved_settings"
+    unset _ae_resolved_settings
+  else
+    echo "  ! refusing to write settings.json through symlink escaping \$HOME: $SETTINGS" >&2
+    exit 1
+  fi
+fi
+
+AE_CLAUDE_MD_PATH="$AE_CONFIG_DIR/CLAUDE.md"
+if [[ -L "$AE_CLAUDE_MD_PATH" ]]; then
+  if _ae_resolved_claude_md="$(ae_resolve_write_target "$AE_CLAUDE_MD_PATH")"; then
+    AE_CLAUDE_MD_PATH="$_ae_resolved_claude_md"
+    unset _ae_resolved_claude_md
+  else
+    echo "  ! refusing to write CLAUDE.md through symlink escaping \$HOME: $AE_CLAUDE_MD_PATH" >&2
+    exit 1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1452,14 +1622,20 @@ fi
 # imports must never be stripped without a working skill symlink to fall
 # back on.
 if [[ "$AE_DRY_RUN" == "true" ]]; then
-  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
+  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CLAUDE_MD_PATH"
 else
-echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
+echo "Updating $AE_CLAUDE_MD_PATH..."
 
-AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" python3 - <<'PYEOF'
+AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_CLAUDE_MD_PATH="$AE_CLAUDE_MD_PATH" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" python3 - <<'PYEOF'
 import json, os, re, sys
 
-target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
+# Prefer the shell-resolved path: on a bridged host AE_CONFIG_DIR/CLAUDE.md is
+# a symlink, and ae_resolve_write_target has already resolved it to the real
+# file (or refused outright when it escaped $HOME). Falling back to the
+# derivation keeps this block working if the variable is ever absent.
+target = os.environ.get("AE_CLAUDE_MD_PATH") or os.path.join(
+    os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md"
+)
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
@@ -1583,7 +1759,7 @@ if begin_marker in existing and end_marker in existing:
     updated = pattern.sub(lambda _: managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
-    print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
+    print(f"  = Updated managed-by-agentic-engineering section in {target}")
 else:
     # Append to end of file
     if existing:
@@ -1594,9 +1770,9 @@ else:
     with open(target, "w") as f:
         f.write(updated)
     if existing:
-        print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
+        print(f"  + Appended managed-by-agentic-engineering section to {target}")
     else:
-        print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
+        print(f"  + Created {target} with managed-by-agentic-engineering section")
 PYEOF
 
 if [[ "$SKILL_LINK_OK" != "true" ]]; then

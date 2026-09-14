@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
 Purpose: Inspect global dinostack install health and (with --fix)
-         converge drift. Checks that managed symlinks under ~/.claude resolve
+         converge drift. Every ~/.claude path named below is really
+         <config_dir>, the ACTIVE harness config dir resolved by _config_dir()
+         through _lib.resolve_claude_config_dir()'s four-var chain
+         (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > CODEX_HOME >
+         PI_CODING_AGENT_DIR, default ~/.claude) - DS-231, so this tool and
+         .claude/install.sh agree on where artifacts live and --fix can never
+         write a second copy into a dir the harness does not read.
+         Checks that managed symlinks under <config_dir> resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
          each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
          ~/.local/bin symlink points at a since-removed repo_dir/bin script
@@ -106,8 +113,8 @@ Upstream deps: Python 3 stdlib (argparse, json, os, pathlib, re, shutil,
                <plugins_dir>/installed_plugins.json and each enabled
                plugin's own packaged hooks/hooks.json (resolved via
                installPath), plus a settings.json sibling of plugins_dir
-               (honors CLAUDE_CONFIG_DIR via _plugins_dir() - see its
-               docstring - normally ~/.claude/settings.json) but ONLY to
+               (resolved via _plugins_dir()/_config_dir()'s four-var
+               chain - see their docstrings - normally ~/.claude/settings.json) but ONLY to
                enumerate enabledPlugins; it never treats settings.json as a
                source of plugin-registered HOOK entries, which was measured
                to carry none at all (a plugin's own hooks.json is the sole
@@ -242,6 +249,16 @@ import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
+# bin/ itself, for `_lib`, which owns the ONE harness-config-dir resolver this
+# script shares with the installer's env chain. Resolved-path insert so a bare
+# PATH-symlink invocation (~/.local/bin/ds-doctor -> repo bin/ds-doctor) still
+# finds it, matching the pattern in bin/ds-branch-prune:256-261.
+# ---------------------------------------------------------------------------
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _lib import resolve_claude_config_dir  # noqa: E402
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
@@ -254,8 +271,25 @@ def _config_path() -> Path:
     return _home() / ".agentic" / "agentic-engineering-config.json"
 
 
+def _config_dir() -> Path:
+    """Active harness config dir - the SAME dir .claude/install.sh installs into.
+
+    Delegates to _lib.resolve_claude_config_dir(), which walks the canonical
+    four-var chain (AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > CODEX_HOME >
+    PI_CODING_AGENT_DIR) and falls back to ~/.claude. Re-evaluated each call so
+    tests can override the environment.
+
+    DS-231: before this existed, every check below hardcoded ~/.claude while
+    the installer (after DS-231) honors CLAUDE_CONFIG_DIR. That disagreement is
+    not merely cosmetic - `--fix` would write a SECOND copy of an artifact into
+    ~/.claude while the installed one lives in the active config dir, which is
+    exactly the divergent-copy state DS-231 exists to prevent.
+    """
+    return resolve_claude_config_dir()
+
+
 def _settings_path() -> Path:
-    return _home() / ".claude" / "settings.json"
+    return _config_dir() / "settings.json"
 
 
 def _local_bin() -> Path:
@@ -263,29 +297,24 @@ def _local_bin() -> Path:
 
 
 def _plugins_dir() -> Path:
-    """Claude Code plugins directory. Honors a CLAUDE_CONFIG_DIR override
-    directly (e.g. ~/.claude-spacedinosaurs) - checked BEFORE falling back
-    to _settings_path()'s sibling, so this function resolves correctly even
-    on a machine where CLAUDE_CONFIG_DIR points at a real, non-symlinked
-    directory tree. This is deliberately independent of _settings_path(),
-    which stays hardcoded to ~/.claude/settings.json for every OTHER check
-    in this module - changing that would widen this fix's blast radius
-    beyond check_foreign_agent_hooks.
+    """Claude Code plugins directory, under the active harness config dir.
 
-    CLAUDE_CONFIG_DIR is expanduser()'d the same way installPath already
-    is below - a literal "~/.claude" value (a real, observed shape for
-    this env var) must resolve to the same directory a shell would give
-    it, not to a literal "~" subdirectory relative to cwd. An empty-string
-    value is treated as unset (falls through to the ~/.claude sibling,
-    matching `if env:`'s existing falsy check). A relative value (e.g.
-    ".claude") is resolved relative to the current working directory,
-    which is the correct interpretation of a relative path and is left
-    as-is rather than errored on.
+    DS-231 replaced this function's own partial resolver (CLAUDE_CONFIG_DIR
+    only) with _config_dir(), so plugins, settings.json and the managed link
+    trees now all resolve through the SAME four-var chain. Before DS-231 this
+    function was deliberately independent of _settings_path(), which stayed
+    hardcoded to ~/.claude/settings.json for every other check in the module;
+    that asymmetry is gone - keeping it would leave `--fix` writing into a dir
+    the harness never reads.
+
+    Env values are expanduser()'d and abspath()'d by _lib's resolver: a literal
+    "~/.claude" value (a real, observed shape for this env var) must resolve to
+    the same directory a shell would give it, not to a literal "~" subdirectory
+    relative to cwd; an empty or whitespace-only value is treated as unset; a
+    relative value (e.g. ".claude") is absolutized against the current working
+    directory, which is the correct interpretation of a relative path.
     """
-    env = os.environ.get("CLAUDE_CONFIG_DIR")
-    if env:
-        return Path(os.path.expanduser(env)) / "plugins"
-    return _settings_path().parent / "plugins"
+    return _config_dir() / "plugins"
 
 
 _UNTRUSTED_VALUE_ECHO_LIMIT = 200
@@ -374,12 +403,13 @@ def _matcher_covers_spawn_tool(matcher: str) -> bool:
 
 
 def _managed_link_dirs() -> list[Path]:
-    """Managed symlink trees under ~/.claude. Re-evaluated each call."""
-    h = _home()
+    """Managed symlink trees under the active harness config dir (DS-231:
+    previously hardcoded to ~/.claude). Re-evaluated each call."""
+    c = _config_dir()
     return [
-        h / ".claude" / "agents",
-        h / ".claude" / "commands",
-        h / ".claude" / "skills" / "dinostack",
+        c / "agents",
+        c / "commands",
+        c / "skills" / "dinostack",
     ]
 
 # Recognized bin/ tool basename prefixes. Both are checked: ds-* is the
@@ -758,14 +788,19 @@ def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
 def _expected_target_in_repo(dst: Path, repo_dir: Path) -> Path | None:
     """Compute where dst should point within repo_dir.
 
-    Agents/commands: ~/.claude/agents/foo.md -> <repo_dir>/.claude/agents/foo.md
-    Skills dir:      ~/.claude/skills/dinostack ->
+    Agents/commands: <config_dir>/agents/foo.md -> <repo_dir>/.claude/agents/foo.md
+    Skills dir:      <config_dir>/skills/dinostack ->
                      <repo_dir>/.claude/skills/dinostack
 
     Uses parent-realpath to avoid following symlinks on dst itself (which would
     resolve to the broken/stale target, not the symlink's location).
+
+    DS-231: anchored on _config_dir(), not a hardcoded ~/.claude. It must track
+    _managed_link_dirs() exactly - anchoring on a different dir makes every
+    relative_to() below raise ValueError, and each managed link would then
+    report as unrecognized rather than being checked at all.
     """
-    claude_dir = _home() / ".claude"
+    claude_dir = _config_dir()
     # Build the realpath of dst's location (not its target) for comparison
     dst_resolved = Path(os.path.realpath(str(dst.parent))) / dst.name
     claude_dir_r = Path(os.path.realpath(str(claude_dir)))
@@ -1605,7 +1640,7 @@ def check_output_style_staleness(doc: Doctor) -> None:
     drift.
     """
     src = doc.repo_dir / ".claude" / "skills" / "dinostack" / "output-styles" / "dinostack.md"
-    dst = _home() / ".claude" / "output-styles" / "dinostack.md"
+    dst = _config_dir() / "output-styles" / "dinostack.md"
 
     if not src.is_file():
         doc.skip("output_style", src, "built output style not found in repo_dir")
@@ -1670,7 +1705,7 @@ def check_output_style_selection(doc: Doctor) -> None:
     absent or unparseable (the selection cannot be determined, and guessing
     would be a false WARN on a machine that may well be configured).
     """
-    installed = _home() / ".claude" / "output-styles" / "dinostack.md"
+    installed = _config_dir() / "output-styles" / "dinostack.md"
     settings = _settings_path()
 
     if not installed.is_file():

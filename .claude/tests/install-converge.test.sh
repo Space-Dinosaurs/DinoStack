@@ -174,7 +174,17 @@ _run_install() {
   # Ensure the fake HOME has the minimal ~/.agentic dir so repo-dir.sh works.
   mkdir -p "$fake_home/.agentic"
   # Run install.sh with fake HOME; stdin is /dev/null to skip TTY prompts.
-  HOME="$fake_home" bash "$INSTALL_SH" --mode=opt-out --profile=default "$@" \
+  #
+  # DS-231: unset all four harness config-dir vars. Faking $HOME alone is no
+  # longer sufficient - install.sh resolves AE_CONFIG_DIR through
+  # AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a developer
+  # session with CLAUDE_CONFIG_DIR set (the normal state on a multi-profile
+  # host) would aim every convergence case at that REAL directory instead of
+  # $fake_home/.claude. The installer's own $HOME-containment refusal keeps it
+  # from writing outside the sandbox, but the run then exits non-zero and each
+  # assertion below reads a tree the run never wrote.
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    HOME="$fake_home" bash "$INSTALL_SH" --mode=opt-out --profile=default "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
   return $?
 }
@@ -185,7 +195,10 @@ _run_install() {
 _run_uninstall() {
   local fake_home="$1"
   shift
-  HOME="$fake_home" bash "$UNINSTALL_SH" "$@" \
+  # Same four-var unset as _run_install above (DS-231): uninstall must target
+  # the same sandboxed config dir the paired install wrote into.
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    HOME="$fake_home" bash "$UNINSTALL_SH" "$@" \
     < /dev/null > "$fake_home/.uninstall_out" 2>&1
   return $?
 }

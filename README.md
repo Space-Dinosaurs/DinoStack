@@ -113,6 +113,15 @@ For other tools (Cursor, Codex, Gemini, Kimi Code CLI, OpenCode, Pi coding agent
 
 If you run several isolated tenant config dirs per tool (e.g. `~/.claude-projectA`, `~/.codex-projectB`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
 
+The Claude installer additionally honors `CLAUDE_CONFIG_DIR`, the variable Claude Code itself reads,
+so an install made on a host with that variable set is visible to the harness it was made for.
+Precedence is `--config-dir` > `AGENTIC_CONFIG_DIR` > `CLAUDE_CONFIG_DIR` > `~/.claude`. It ranks
+below the other two because it states where the harness *reads*, not a request to relocate
+DinoStack's own state: unlike the flag and `AGENTIC_CONFIG_DIR`, it does not move
+`agentic-engineering.json` out of `$HOME/.claude` and does not switch developer identity to profile
+scope. When the target config dir bridges to another tree by symlink, the installer writes through
+to the real file; a link resolving outside `$HOME` is refused.
+
 Codex has one activation-path exception for tenant isolation. Its default activation config is
 `$HOME/.claude/agentic-engineering.json`. For a redirected Codex config directory, activation
 moves into that selected directory as `agentic-engineering.json`; runtime precedence is

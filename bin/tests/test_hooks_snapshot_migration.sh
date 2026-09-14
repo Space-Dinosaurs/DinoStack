@@ -115,7 +115,16 @@ _run_install() {
   cat > "$fake_home/.claude/agentic-engineering.json" <<'EOF'
 {"skill_auto_load": false}
 EOF
-  HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
+  # Seed 2 (DS-231): unset all four harness config-dir vars. Faking $HOME is
+  # no longer sufficient - .claude/install.sh now resolves AE_CONFIG_DIR
+  # through AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a
+  # developer session with CLAUDE_CONFIG_DIR set (the normal state on a
+  # multi-profile host) would send the install at that REAL directory instead
+  # of $fake_home/.claude, and every settings.json assertion below would read
+  # a file the run never wrote. The installer's own $HOME-containment refusal
+  # stops it writing outside the sandbox, but the run still exits non-zero.
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
   local rc=$?
   if [[ $rc -ne 0 ]]; then

@@ -132,7 +132,16 @@ chmod +x "$FIXTURE_PATH"
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.agentic"
 
-HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
+# DS-231: unset all four harness config-dir vars. Faking $HOME alone is no
+# longer sufficient - .claude/install.sh resolves AE_CONFIG_DIR through
+# AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a developer
+# session with CLAUDE_CONFIG_DIR set (the normal state on a multi-profile
+# host) would aim the install at that REAL directory instead of
+# $FAKE_HOME/.claude. The installer's own $HOME-containment refusal keeps it
+# from writing outside the sandbox, but the run then exits non-zero and the
+# ~/.local/bin assertions below read a tree the run never populated.
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
   < /dev/null > "$FAKE_HOME/.install_out" 2>&1
 RC=$?
 

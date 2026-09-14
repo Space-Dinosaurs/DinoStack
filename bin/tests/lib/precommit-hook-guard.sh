@@ -43,7 +43,17 @@
 #   .claude/install.sh or .cursor/install.sh / .opencode/install.sh against
 #   the live checkout with only $HOME faked); bin/tests/test_local_bin_ds_prefix_install.sh
 #   (Test 2 invokes a real .claude/install.sh against the live checkout with
-#   only $HOME faked).
+#   only $HOME faked); bin/tests/test_install_profile_config_dir.sh (DS-231 -
+#   invokes every adapter's real install.sh against the live checkout with
+#   only $HOME faked; its manifest previously claimed full hermeticity, which
+#   was false for exactly the reason stated at the top of this file).
+#
+#   bin/tests/test_install_claude_config_dir.sh deliberately does NOT source
+#   this library: it copies the repo into a sandbox and re-inits it there, so
+#   the hooks dir resolves inside the sandbox and the live hook is
+#   structurally unreachable rather than saved-and-restored. That test
+#   asserts the resolved hooks path is under its own sandbox and hard-fails
+#   if it is not.
 #
 # Failure modes: if `git rev-parse --git-path hooks` fails to resolve (not
 #   a git repo, git missing), save/restore are no-ops - there is nothing to
