@@ -376,6 +376,27 @@ else
   _pass "Gate C: every matching file accounted for ($ACCOUNTED_N expected)"
 fi
 
+# ---------------------------------------------------------------------------
+# DS-232 r3 pin: ship-at-cap must stay expressed in EXISTING machinery.
+#
+# Two halves carry that decision, and both live on Phase 6 Step 3's
+# cap_reached bullet: the recorded round-cap `ship` decision IS the approval
+# Step 2 requires for deferring a Major, and the branch then rejoins the
+# ordinary clean exit rather than inventing a parallel one. Matching BOTH on
+# ONE line ties the pin to that bullet instead of to the file at large, so
+# splitting them apart also reddens.
+#
+# Reddening mutations: delete either phrase; reword either one; or move them
+# onto separate bullets. Any of the three drops the same-line match to 0.
+# ---------------------------------------------------------------------------
+SHIP_PIN="$(grep -F 'the recorded `decision: "ship"` is the explicit approval' "$FILE" \
+  | grep -cF 'take the clean-exit branch above' || true)"
+if [ "${SHIP_PIN:-0}" -ge 1 ]; then
+  _pass "ship-at-cap pin: cap_reached bullet defers via the recorded ship decision and rejoins the clean exit"
+else
+  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'the recorded \`decision: \"ship\"\` is the explicit approval' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit or a new termination_reason."
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed  (L2=$L2 LOOP_KEY=$KEYED markers=$MARKERS)"
 if [ "$FAIL" -gt 0 ]; then

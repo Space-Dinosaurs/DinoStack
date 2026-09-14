@@ -1961,7 +1961,7 @@ The following findings were raised in earlier iterations. For each:
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
 - Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
-- Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - the conductor escalates rather than accepting an Engineer's self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval.
+- Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - the conductor escalates rather than accepting an Engineer's self-declared deferral; the round-cap `ship` decision counts as that approval. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
 
 **Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
@@ -1974,17 +1974,13 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. **Then take the shared exit below.**
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
 **`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 2 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
-- If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits. An unresolved Critical forces escalate.
-  - **Ship:** set `termination_reason: cap_reached_shipped`. Leave the open findings `open`; Phase 9 lists them in the PR body under **Deferred at cap**. **Then take the shared exit below**: shipping defers findings, never a gate.
-  - **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then emit the Escalation format. Phase 6b does NOT run.
+- If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits; an unresolved Critical forces escalate. **Ship:** mark every remaining open or addressed `findings_log` entry `deferred` (the recorded `decision: "ship"` is the explicit approval Step 2 requires), set `termination_reason: clean`, and take the clean-exit branch above. **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the Batch-mode escalation routing subsection below, then emit the Escalation format. Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section's override note. One re-raise after a claimed fix suffices within the loop.)
 
-**Shared exit (`clean` and `cap_reached_shipped`).** Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context; see above). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit the loop and proceed to Phase 6b.
-
-**Learning extraction (shared exit only).** When Step 3 reaches the shared exit, the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
+**Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
 **Spawn:** `learning-extractor` (Tier 1, background, fire-and-forget).
 
@@ -1999,9 +1995,9 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 - On return (asynchronous): if `learning-extractor` returns with a valid JSON shape, the conductor stores the `learning_ids[]` for Phase 11b and prints `operator_summary` to the user at the next turn boundary. If `skipped_reason` is populated (zero-substance, etc.), the conductor notes it silently.
 - If `learning-extractor` does not return before Phase 11b, `wrap-ticket` reads whatever entries exist in `.agentic/learnings.md` (may be partial or empty). No warning needed.
 
-**Mandatory capture-sweep declaration (shared exit only).** After spawning `learning-extractor` (fire-and-forget) and BEFORE the calibration emit, the conductor MUST sweep for any mandatory-trigger event (per `content/references/conductor-operating-rules.md §learnings-agent`) that occurred during this task but was not yet evaluated. For each outstanding trigger, emit a `Capture: MUST/SKIP` declaration in the conductor's user-facing output. Apply guardrail-first precedence per `content/references/capture-classification.md` before writing any entry. A trigger with no declaration is a protocol gap. This sweep is the last-resort catch before the Stop-hook backstop fires.
+**Mandatory capture-sweep declaration (clean exit only).** After spawning `learning-extractor` (fire-and-forget) and BEFORE the calibration emit, the conductor MUST sweep for any mandatory-trigger event (per `content/references/conductor-operating-rules.md §learnings-agent`) that occurred during this task but was not yet evaluated. For each outstanding trigger, emit a `Capture: MUST/SKIP` declaration in the conductor's user-facing output. Apply guardrail-first precedence per `content/references/capture-classification.md` before writing any entry. A trigger with no declaration is a protocol gap. This sweep is the last-resort catch before the Stop-hook backstop fires.
 
-**Calibration emit + meta-Skeptic sampling (shared exit only).** When Step 3 reaches the shared exit, the conductor performs the following before declaring the unit complete:
+**Calibration emit + meta-Skeptic sampling (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor performs the following before declaring the unit complete:
 
 1. **Build the calibration data block.** Compute `diff_lines` from the reviewed diff (`git -C $REPO diff origin/$BASE_BRANCH..HEAD | wc -l`, or the unit-scoped equivalent for fan-out). Tally `findings_count` from the final Skeptic round's findings list (Critical / Major / Minor counts). Read `iteration` from the loop state.
 
@@ -2120,7 +2116,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Dry-run skip (open-goal only).** If `batch-state.json.open_goal.active == true` AND `batch-state.json.open_goal.dry_run == true`: skip Phase 6b entirely - no qa-engineer spawn, no dev-server boot. Proceed directly to Phase 12. Never fires for ordinary invocations (no `open_goal.dry_run` field to read).
 
-**Phase 6b runs when Phase 6 exits `clean` or `cap_reached_shipped`.** It is skipped on `cap_reached` (the escalate branch), `convergence_failure`, or `blocked`: running QA on a Skeptic-rejected implementation is wasteful and the escalation subsumes it. A ship is not a rejection - the QA gate is a floor and still runs.
+**Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
 **Cap independence:** the Phase 6 Skeptic cap (2 fix passes) and the Phase 6b QA cap (3) are separate budgets.
 
@@ -2128,7 +2124,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
 2. `qa_criteria.qa_skip == null`.
 3. `qa_criteria.scenarios[]` is non-empty.
-4. Phase 6 `termination_reason` is `clean` or `cap_reached_shipped`.
+4. Phase 6 `termination_reason == clean`.
 
 The Trivial path never enters Phase 6b (Trivial units bypass the entire Skeptic/QA loop per METHODOLOGY.md §Risk Classification).
 
