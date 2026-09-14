@@ -397,6 +397,33 @@ else
   _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'the recorded \`decision: \"ship\"\` is the explicit approval' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit or a new termination_reason."
 fi
 
+# ---------------------------------------------------------------------------
+# DS-232 U5 pin: the pre-fix-failure property survives in BOTH obligation
+# references.
+#
+# DS-232 reclassified regression-test-presence findings to Minor. The property
+# that gives a regression test its value - that it was observed FAILING against
+# the unfixed code - is carried by one sentence in each obligation file, and a
+# reclassification sweep is exactly the kind of edit that would delete the
+# sentence along with the severity word it sits near. Requiring EXACTLY one
+# occurrence in EACH file pins both copies independently: the Skeptic-finding
+# obligation and the QA-FAIL obligation each keep their own statement.
+#
+# Reddening mutations: delete the sentence from either file; reword the phrase
+# in either file; or collapse the two files' copies into one pointer. Any of
+# those drops that file's count from 1 and reddens.
+# ---------------------------------------------------------------------------
+PREFIX_PHRASE='post-fix execution alone does not establish it'
+for _obligation in content/references/regression-test-obligation.md \
+                   content/references/qa-regression-obligation.md; do
+  _n="$(grep -cF "$PREFIX_PHRASE" "$REPO_DIR/$_obligation" 2>/dev/null || true)"
+  if [ "${_n:-0}" -eq 1 ]; then
+    _pass "pre-fix-failure pin: $_obligation states the property exactly once"
+  else
+    _fail "PIN FAIL: $_obligation must contain '$PREFIX_PHRASE' exactly once (found ${_n:-0}) (DS-232 U5). A regression test's value is that it was seen failing BEFORE the fix; each obligation file keeps its own statement of that property."
+  fi
+done
+
 echo
 echo "Results: $PASS passed, $FAIL failed  (L2=$L2 LOOP_KEY=$KEYED markers=$MARKERS)"
 if [ "$FAIL" -gt 0 ]; then
