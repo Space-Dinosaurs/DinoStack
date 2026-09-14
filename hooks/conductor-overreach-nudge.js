@@ -53,7 +53,24 @@
  *                     fails, or no session_id is available to key it on, the
  *                     hook does NOT emit - an advisory or event emitted
  *                     without a persisted loop bound is exactly the
- *                     unbounded case Layer 2 exists to prevent.
+ *                     unbounded case Layer 2 exists to prevent. One
+ *                     zero-byte sentinel file accumulates per session
+ *                     forever otherwise (no other code path removes one,
+ *                     and hooks/lib/state-mark.js's own readdirSync of
+ *                     .agentic/ on every turn would see a monotonically
+ *                     growing entry list), so a successful write also runs
+ *                     a best-effort age-based prune (7-day retention,
+ *                     _pruneAgedSentinels) - never a single shared/
+ *                     most-recent-session file instead, since two
+ *                     concurrent sessions would then overwrite each
+ *                     other's marker and each could re-fire indefinitely,
+ *                     the exact failure this guard exists to prevent. The
+ *                     prune runs only AFTER the current session's own
+ *                     write already succeeded, so a prune failure can
+ *                     never affect whether the CURRENT advisory fires.
+ *                     _markFired also unlinks its own `.tmp.<pid>` staging
+ *                     file if writeFileSync succeeds but renameSync fails,
+ *                     rather than leaking it.
  *
  * Public API: none (CLI entry point only, invoked by the Claude Code Stop
  *             hook per .claude/settings.json). Not imported by other
@@ -179,9 +196,53 @@ function _appendEvent(cwd, sessionId, result) {
  * @param {string} sessionId
  * @returns {string}
  */
+const _SENTINEL_PREFIX = '.conductor-overreach-fired-';
+const _SENTINEL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 function _sentinelPath(cwd, sessionId) {
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
-  return path.join(resolveAgenticCwd(cwd), '.agentic', `.conductor-overreach-fired-${safeId}`);
+  return path.join(resolveAgenticCwd(cwd), '.agentic', `${_SENTINEL_PREFIX}${safeId}`);
+}
+
+/**
+ * Best-effort prune of sentinel files older than _SENTINEL_RETENTION_MS.
+ * One zero-byte sentinel accumulates per session forever otherwise (no
+ * other code path ever removes one) - hooks/lib/state-mark.js's
+ * readdirSync of .agentic/ on every turn would see a monotonically
+ * growing entry list. Never a single shared/most-recent-session file
+ * instead: two concurrent sessions would overwrite each other's marker
+ * and each could then re-fire indefinitely, exactly the failure this
+ * guard exists to prevent - one file per session is load-bearing, so
+ * this prunes by AGE, not by count or "most recent".
+ *
+ * Every failure mode here is silent and non-fatal: this function is
+ * called only AFTER the current session's own sentinel write has already
+ * succeeded, so a prune failure can never affect whether the CURRENT
+ * advisory fires - it only means old sentinels accumulate for one more
+ * cycle.
+ *
+ * @param {string} cwd
+ */
+function _pruneAgedSentinels(cwd) {
+  try {
+    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+    const now = Date.now();
+    for (const name of fs.readdirSync(agenticDir)) {
+      if (!name.startsWith(_SENTINEL_PREFIX)) continue;
+      const entryPath = path.join(agenticDir, name);
+      try {
+        const stat = fs.statSync(entryPath);
+        if (now - stat.mtimeMs > _SENTINEL_RETENTION_MS) {
+          fs.unlinkSync(entryPath);
+        }
+      } catch (_) {
+        // Per-entry best-effort: a stat/unlink race or permission error on
+        // one entry must not abort the sweep of the rest.
+      }
+    }
+  } catch (_) {
+    // .agentic/ unreadable, or any other error - silent, non-fatal.
+  }
 }
 
 /**
@@ -203,7 +264,11 @@ function _hasFired(cwd, sessionId) {
 /**
  * Persist the Layer 2 sentinel BEFORE the caller emits anything. Atomic
  * per-process tmp-file + rename, matching hooks/lib/loop_guard.py's
- * write_counter discipline.
+ * write_counter discipline. On a successful write, also runs the
+ * best-effort age-based prune (_pruneAgedSentinels) so the sentinel
+ * population stays bounded - a prune failure never flips this function's
+ * return value, since it only runs after the current session's own write
+ * has already succeeded.
  *
  * @param {string} cwd
  * @param {string} sessionId
@@ -211,13 +276,22 @@ function _hasFired(cwd, sessionId) {
  *   false as "do not emit" - see the module docstring's Layer 2 section.
  */
 function _markFired(cwd, sessionId) {
+  const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+  const sentinelPath = _sentinelPath(cwd, sessionId);
+  const tmp = `${sentinelPath}.tmp.${process.pid}`;
   try {
-    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
     fs.mkdirSync(agenticDir, { recursive: true });
-    const sentinelPath = _sentinelPath(cwd, sessionId);
-    const tmp = `${sentinelPath}.tmp.${process.pid}`;
     fs.writeFileSync(tmp, '');
-    fs.renameSync(tmp, sentinelPath);
+    try {
+      fs.renameSync(tmp, sentinelPath);
+    } catch (renameErr) {
+      // writeFileSync succeeded but renameSync failed: clean up the
+      // orphaned tmp file rather than leaking it, then propagate to the
+      // outer catch so this call still reports failure.
+      try { fs.unlinkSync(tmp); } catch (_) { /* best-effort */ }
+      throw renameErr;
+    }
+    _pruneAgedSentinels(cwd);
     return true;
   } catch (_) {
     return false;
@@ -297,3 +371,17 @@ async function run() {
 }
 
 run();
+
+// Test shim: appended at module load so test files can import internals
+// without executing run(). This hook has no production module.exports;
+// this shim is only reached when a test replaces the `run();` call above
+// before requiring the file, mirroring hooks/stop-context.js's identical
+// precedent (see that file's own trailing comment).
+if (typeof module !== 'undefined') {
+  module.exports = {
+    _sentinelPath,
+    _hasFired,
+    _markFired,
+    _pruneAgedSentinels,
+  };
+}

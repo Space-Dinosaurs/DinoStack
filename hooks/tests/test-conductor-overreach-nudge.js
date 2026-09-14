@@ -85,6 +85,32 @@
  *                                  mirroring hooks/lib/loop_guard.py's
  *                                  write_counter contract: an action whose
  *                                  loop-bound write fails must not emit).
+ *   15. prune-removes-aged-sentinel-keeps-fresh: a pre-existing
+ *                                  .conductor-overreach-fired-<id> sentinel
+ *                                  older than the 7-day retention window is
+ *                                  removed by the current session's
+ *                                  triggering stop, while a fresh
+ *                                  (same-age-bucket) sentinel for a
+ *                                  different session is left alone -
+ *                                  regression for the unbounded-
+ *                                  accumulation Minor (one zero-byte file
+ *                                  per session, forever, with no prune).
+ *   16. rename-failure-no-tmp-residue: unit-tests _markFired directly via
+ *                                  the shim-load pattern (same technique as
+ *                                  hooks/tests/test-stop-context-health.js),
+ *                                  since driving this through the real
+ *                                  hook subprocess is not viable - any
+ *                                  pre-existing entry at the sentinel's own
+ *                                  path (file OR directory) makes _hasFired
+ *                                  report "already fired" and exit before
+ *                                  _markFired is ever reached. fs.renameSync
+ *                                  is stubbed to throw for exactly this
+ *                                  sentinel's tmp path -> _markFired
+ *                                  returns false (same fail-toward-silence
+ *                                  contract as test 14) AND the orphaned
+ *                                  `.tmp.<pid>` staging file is not left
+ *                                  behind - regression for the tmp-file-
+ *                                  leak Minor.
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -97,6 +123,31 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const hookPath = path.resolve(__dirname, '..', 'conductor-overreach-nudge.js');
+
+// ---------------------------------------------------------------------------
+// Shim-load conductor-overreach-nudge.js (same technique as
+// hooks/tests/test-stop-context-health.js) - used only by Test 16, which
+// needs to call _markFired directly (see that test's comment for why the
+// real-hook-subprocess route cannot exercise the rename-failure path).
+// ---------------------------------------------------------------------------
+const { reanchorHookRequires } = require('./lib/hook-shim.js');
+
+let internals;
+{
+  const hookSource = fs.readFileSync(hookPath, 'utf8');
+  const shimmedSource = reanchorHookRequires(
+    hookSource.replace(/^run\(\);\s*$/m, '// test shim: run() suppressed'),
+    path.resolve(__dirname, '..', 'lib')
+  );
+  const tmpShimPath = path.join(os.tmpdir(), `overreach-nudge-shim-${Date.now()}.js`);
+  fs.writeFileSync(tmpShimPath, shimmedSource, 'utf8');
+  try {
+    internals = require(tmpShimPath);
+  } finally {
+    try { fs.unlinkSync(tmpShimPath); } catch (_) { /* ignore */ }
+  }
+}
+const { _markFired, _sentinelPath: _internalSentinelPath } = internals;
 
 let passed = 0;
 let failed = 0;
@@ -568,6 +619,96 @@ console.log('\nTest 14: sentinel-write-failure-no-emit');
   const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'exits 0 when the Layer 2 sentinel write fails');
   assert(stdout.trim() === '', 'no advisory when the sentinel cannot be persisted');
+  cleanup(cwd);
+}
+
+/** Mirrors the hook's own _sentinelPath sanitization for test-side setup. */
+function _testSentinelPath(cwd, sessionId) {
+  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(cwd, '.agentic', `.conductor-overreach-fired-${safeId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: prune-removes-aged-sentinel-keeps-fresh
+// ---------------------------------------------------------------------------
+console.log('\nTest 15: prune-removes-aged-sentinel-keeps-fresh');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+
+  // Pre-existing sentinel older than the 7-day retention window.
+  const oldSentinel = _testSentinelPath(cwd, 'old-session');
+  fs.writeFileSync(oldSentinel, '');
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+  fs.utimesSync(oldSentinel, eightDaysAgo, eightDaysAgo);
+
+  // Pre-existing sentinel well within the retention window.
+  const freshSentinel = _testSentinelPath(cwd, 'fresh-session');
+  fs.writeFileSync(freshSentinel, '');
+
+  const sessionId = 'overreach-session-015';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const { status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(status === 0, 'triggering stop exits 0');
+
+  assert(!fs.existsSync(oldSentinel), 'the aged (>7d) sentinel was pruned');
+  assert(fs.existsSync(freshSentinel), 'the fresh sentinel was left alone');
+  assert(fs.existsSync(_testSentinelPath(cwd, sessionId)), "the current session's own sentinel was written");
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: rename-failure-no-tmp-residue
+// ---------------------------------------------------------------------------
+console.log('\nTest 16: rename-failure-no-tmp-residue');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'overreach-session-016';
+  // MUST use the module's own _sentinelPath, not the local _testSentinelPath
+  // duplicate: resolveAgenticCwd realpath-normalizes cwd (e.g. macOS's
+  // /var -> /private/var symlink), so a locally-recomputed path from the
+  // raw (unnormalized) cwd silently diverges from what _markFired actually
+  // operates on - existsSync-based assertions in tests 12/13/15 don't
+  // notice this (the OS resolves the symlink transparently either way),
+  // but this test's stub match is a STRING comparison and needs the exact
+  // path _markFired will pass to fs.renameSync.
+  const sentinelPath = _internalSentinelPath(cwd, sessionId);
+
+  // Stub fs.renameSync to fail ONLY for this sentinel's own tmp path -
+  // real hooks/tests/test-stop-context-health.js precedent (M2). Since
+  // conductor-overreach-nudge.js does `const fs = require('fs');` at
+  // module scope, and the shimmed copy shares the SAME core 'fs' module
+  // object as this test file, patching the method here is visible inside
+  // _markFired too.
+  const originalRenameSync = fs.renameSync;
+  let stubHit = false;
+  fs.renameSync = function (oldPath, newPath, ...rest) {
+    if (typeof oldPath === 'string' && oldPath.startsWith(sentinelPath + '.tmp.')) {
+      stubHit = true;
+      const err = new Error('EISDIR: simulated rename failure');
+      err.code = 'EISDIR';
+      throw err;
+    }
+    return originalRenameSync.call(this, oldPath, newPath, ...rest);
+  };
+
+  let result;
+  try {
+    result = _markFired(cwd, sessionId);
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+
+  assert(stubHit === true, 'the renameSync stub was actually hit (test exercises the real failure path)');
+  assert(result === false, '_markFired returns false when renameSync fails');
+  assert(!fs.existsSync(sentinelPath), 'the sentinel itself was never created (rename never completed)');
+
+  const agenticDir = path.join(cwd, '.agentic');
+  const leaked = fs.readdirSync(agenticDir).filter((n) => n.includes('.tmp.'));
+  assert(leaked.length === 0, `no orphaned .tmp.<pid> file left behind (found: ${JSON.stringify(leaked)})`);
   cleanup(cwd);
 }
 
