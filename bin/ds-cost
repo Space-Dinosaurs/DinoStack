@@ -195,11 +195,13 @@ def _conductor_overreach_summary(events: list[dict]) -> str | None:
     """Render a trended rollup line for conductor_overreach events.
 
     Counts conductor_overreach events with data.ratio_trigger == true (the
-    warn-only Stop-hook detector in hooks/conductor-overreach-nudge.js),
-    grouped by ISO week (YYYY-Www) for a simple trend view. Returns None
-    when no conductor_overreach events with ratio_trigger true are present
-    (nothing to show - a rollup section with an empty trend is noise, not
-    signal).
+    advisory Stop-hook detector in hooks/conductor-overreach-nudge.js,
+    bounded to at most one such event per session by that hook's Layer 2
+    once-per-session sentinel - a week's count is a session count, not a
+    fire count), grouped by ISO week (YYYY-Www) for a simple trend view.
+    Returns None when no conductor_overreach events with ratio_trigger true
+    are present (nothing to show - a rollup section with an empty trend is
+    noise, not signal).
     """
     triggered = [
         e for e in events

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Unit tests: conductor-overreach-nudge.js Stop hook (warn-only detector).
+ * Unit tests: conductor-overreach-nudge.js Stop hook (advisory detector).
  *
  * The hook is a stdin-driven CLI script (run() reads fd 0 and process.exit(0)s),
  * so each behavioral case drives the REAL hook as a subprocess with a
@@ -48,6 +48,79 @@
  *                                  contains one spawn, asserts NO advisory
  *                                  fires (spawns !== 0 for the whole
  *                                  transcript).
+ *   10. no-refire-on-stop-hook-active: stop_hook_active:true with a
+ *                                  transcript that WOULD trigger -> no
+ *                                  advisory on stdout, no conductor_overreach
+ *                                  event appended, exit 0 (regression for the
+ *                                  unbreakable-loop bug: additionalContext
+ *                                  from a Stop hook is surfaced by the
+ *                                  harness as feedback that continues the
+ *                                  turn, so an unguarded re-entrant fire
+ *                                  never terminates).
+ *   11. fires-when-stop-hook-active-false: same triggering transcript with
+ *                                  stop_hook_active:false (and, separately,
+ *                                  the field omitted entirely) -> advisory
+ *                                  emitted and event appended, i.e. the
+ *                                  first-fire behavior from test 1 is
+ *                                  unaffected by the new guard.
+ *   12. no-refire-second-fresh-stop-same-session: Layer 2 regression. Two
+ *                                  independent (non-re-entrant,
+ *                                  stop_hook_active:false) Stop calls with
+ *                                  the SAME session_id and the same
+ *                                  triggering transcript -> the first fires
+ *                                  (advisory + event), the second does NOT
+ *                                  (no advisory, no additional event) -
+ *                                  backstops CC bug #54360, under which
+ *                                  Layer 1 (stop_hook_active) can fail to
+ *                                  propagate.
+ *   13. no-fire-without-session-id: ratio_trigger true but no session_id in
+ *                                  the payload -> no advisory, no event,
+ *                                  exit 0 (Layer 2 has no key to bind a
+ *                                  sentinel to, so it fails toward silence
+ *                                  rather than emit unbounded).
+ *   14. sentinel-write-failure-no-emit: the Layer 2 sentinel write is
+ *                                  sabotaged (`.agentic` is a plain file,
+ *                                  not a directory) -> no advisory, no
+ *                                  event, exit 0 (fail-toward-silence,
+ *                                  mirroring hooks/lib/loop_guard.py's
+ *                                  write_counter contract: an action whose
+ *                                  loop-bound write fails must not emit).
+ *   15. prune-removes-aged-sentinel-keeps-fresh: a pre-existing
+ *                                  .conductor-overreach-fired-<id> sentinel
+ *                                  older than the 7-day retention window is
+ *                                  removed by the current session's
+ *                                  triggering stop, while a fresh
+ *                                  (same-age-bucket) sentinel for a
+ *                                  different session is left alone -
+ *                                  regression for the unbounded-
+ *                                  accumulation Minor (one zero-byte file
+ *                                  per session, forever, with no prune).
+ *                                  ALSO asserts the prune's blast-radius
+ *                                  guard: two aged non-sentinel files
+ *                                  (tasks.jsonl, loop-state-x.json) planted
+ *                                  in the same .agentic/ dir both survive -
+ *                                  the prefix check is the only thing
+ *                                  standing between this sweep and every
+ *                                  other file in .agentic/, and was
+ *                                  otherwise unasserted (deleting the
+ *                                  `startsWith(_SENTINEL_PREFIX)` guard left
+ *                                  this suite green before this addition).
+ *   16. rename-failure-no-tmp-residue: unit-tests _markFired directly via
+ *                                  the shim-load pattern (same technique as
+ *                                  hooks/tests/test-stop-context-health.js),
+ *                                  since driving this through the real
+ *                                  hook subprocess is not viable - any
+ *                                  pre-existing entry at the sentinel's own
+ *                                  path (file OR directory) makes _hasFired
+ *                                  report "already fired" and exit before
+ *                                  _markFired is ever reached. fs.renameSync
+ *                                  is stubbed to throw for exactly this
+ *                                  sentinel's tmp path -> _markFired
+ *                                  returns false (same fail-toward-silence
+ *                                  contract as test 14) AND the orphaned
+ *                                  `.tmp.<pid>` staging file is not left
+ *                                  behind - regression for the tmp-file-
+ *                                  leak Minor.
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -60,6 +133,31 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const hookPath = path.resolve(__dirname, '..', 'conductor-overreach-nudge.js');
+
+// ---------------------------------------------------------------------------
+// Shim-load conductor-overreach-nudge.js (same technique as
+// hooks/tests/test-stop-context-health.js) - used only by Test 16, which
+// needs to call _markFired directly (see that test's comment for why the
+// real-hook-subprocess route cannot exercise the rename-failure path).
+// ---------------------------------------------------------------------------
+const { reanchorHookRequires } = require('./lib/hook-shim.js');
+
+let internals;
+{
+  const hookSource = fs.readFileSync(hookPath, 'utf8');
+  const shimmedSource = reanchorHookRequires(
+    hookSource.replace(/^run\(\);\s*$/m, '// test shim: run() suppressed'),
+    path.resolve(__dirname, '..', 'lib')
+  );
+  const tmpShimPath = path.join(os.tmpdir(), `overreach-nudge-shim-${Date.now()}.js`);
+  fs.writeFileSync(tmpShimPath, shimmedSource, 'utf8');
+  try {
+    internals = require(tmpShimPath);
+  } finally {
+    try { fs.unlinkSync(tmpShimPath); } catch (_) { /* ignore */ }
+  }
+}
+const { _markFired, _sentinelPath: _internalSentinelPath } = internals;
 
 let passed = 0;
 let failed = 0;
@@ -365,6 +463,269 @@ console.log('\nTest 9: interleaved-non-agent-results (shared fixture, via the re
   const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
   assert(status === 0, 'hook exits 0');
   assert(stdout.trim() === '', 'no advisory: the fixture contains one spawn, so ratio_trigger stays false');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: no-refire-on-stop-hook-active (regression for the unbreakable loop)
+// ---------------------------------------------------------------------------
+console.log('\nTest 10: no-refire-on-stop-hook-active');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-010';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = stopPayload(cwd, sessionId, transcriptPath);
+  payload.stop_hook_active = true;
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0 on re-entrant stop_hook_active:true');
+  assert(stdout.trim() === '', 'no advisory emitted when stop_hook_active is true');
+  const lines = eventLines(cwd);
+  assert(lines.find((e) => e.event === 'conductor_overreach') === undefined,
+    'no conductor_overreach event appended when stop_hook_active is true');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: fires-when-stop-hook-active-false (existing behavior intact)
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: fires-when-stop-hook-active-false');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-011a';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = stopPayload(cwd, sessionId, transcriptPath); // stop_hook_active: false
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0 with stop_hook_active:false');
+  let out = null;
+  try { out = JSON.parse(stdout); } catch (_) { /* leave null */ }
+  assert(
+    out && out.hookSpecificOutput
+    && out.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'advisory emitted when stop_hook_active is false'
+  );
+  const lines = eventLines(cwd);
+  assert(lines.find((e) => e.event === 'conductor_overreach') !== undefined,
+    'conductor_overreach event appended when stop_hook_active is false');
+  cleanup(cwd);
+
+  // Field omitted entirely (not every harness call is guaranteed to send it).
+  const cwd2 = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd2, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId2 = 'overreach-session-011b';
+  const transcriptPath2 = writeTranscript(cwd2, buildInvestigationOnlyTranscript(5));
+  const payload2 = {
+    session_id: sessionId2,
+    transcript_path: transcriptPath2,
+    cwd: cwd2,
+    hook_event_name: 'Stop',
+    // stop_hook_active intentionally omitted
+  };
+  const { stdout: stdout2, status: status2 } = runHook(payload2, cwd2);
+  assert(status2 === 0, 'hook exits 0 with stop_hook_active omitted');
+  let out2 = null;
+  try { out2 = JSON.parse(stdout2); } catch (_) { /* leave null */ }
+  assert(
+    out2 && out2.hookSpecificOutput
+    && out2.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'advisory emitted when stop_hook_active is omitted'
+  );
+  cleanup(cwd2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: no-refire-second-fresh-stop-same-session (Layer 2 regression)
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: no-refire-second-fresh-stop-same-session');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-012';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+
+  const first = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(first.status === 0, 'first (fresh) stop exits 0');
+  let out1 = null;
+  try { out1 = JSON.parse(first.stdout); } catch (_) { /* leave null */ }
+  assert(
+    out1 && out1.hookSpecificOutput
+    && out1.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'first stop fires the advisory'
+  );
+  assert(
+    eventLines(cwd).filter((e) => e.event === 'conductor_overreach').length === 1,
+    'exactly one conductor_overreach event after the first stop'
+  );
+
+  // A second, INDEPENDENT (non-re-entrant) Stop call - same session_id,
+  // same triggering transcript. Layer 1 alone would refire here since
+  // stop_hook_active is false; Layer 2 must still suppress it.
+  const second = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(second.status === 0, 'second (fresh) stop exits 0');
+  assert(second.stdout.trim() === '', 'second stop (same session) does not refire the advisory');
+  assert(
+    eventLines(cwd).filter((e) => e.event === 'conductor_overreach').length === 1,
+    'still exactly one conductor_overreach event after the second stop'
+  );
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: no-fire-without-session-id
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: no-fire-without-session-id');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = {
+    transcript_path: transcriptPath,
+    cwd,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+    // session_id intentionally omitted
+  };
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'exits 0 without session_id');
+  assert(stdout.trim() === '', 'no advisory without session_id (Layer 2 has no key to bind a sentinel to)');
+  assert(
+    eventLines(cwd).find((e) => e.event === 'conductor_overreach') === undefined,
+    'no event appended without session_id'
+  );
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: sentinel-write-failure-no-emit (Layer 2 fail-toward-silence)
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: sentinel-write-failure-no-emit');
+{
+  const cwd = makeTempProject();
+  // Sabotage the sentinel write: replace the .agentic DIRECTORY with a
+  // plain FILE, so _markFired's mkdirSync(agenticDir, {recursive:true})
+  // throws (EEXIST on a non-directory) and returns false. Use a threshold-
+  // free trigger (> DEFAULT_THRESHOLD=12) since config.json can no longer
+  // be written under a file-shaped .agentic.
+  fs.rmSync(path.join(cwd, '.agentic'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(cwd, '.agentic'), '', 'utf8');
+  const sessionId = 'overreach-session-014';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(15)); // 15 > 12
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(status === 0, 'exits 0 when the Layer 2 sentinel write fails');
+  assert(stdout.trim() === '', 'no advisory when the sentinel cannot be persisted');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 15: prune-removes-aged-sentinel-keeps-fresh
+// ---------------------------------------------------------------------------
+console.log('\nTest 15: prune-removes-aged-sentinel-keeps-fresh');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+
+  // Pre-existing sentinel older than the 7-day retention window.
+  const oldSentinel = _internalSentinelPath(cwd, 'old-session');
+  fs.writeFileSync(oldSentinel, '');
+  fs.utimesSync(oldSentinel, eightDaysAgo, eightDaysAgo);
+
+  // Pre-existing sentinel well within the retention window.
+  const freshSentinel = _internalSentinelPath(cwd, 'fresh-session');
+  fs.writeFileSync(freshSentinel, '');
+
+  // Blast-radius guard: aged NON-sentinel files in the same .agentic/ dir
+  // (real repo-root artifacts, not this hook's own file shape) must survive
+  // the sweep untouched. The `startsWith(_SENTINEL_PREFIX)` filter is the
+  // only thing standing between this prune and every other file in
+  // .agentic/ - deleting that one line left this suite green before this
+  // assertion existed. Deliberately NOT events.jsonl: this same triggering
+  // run's own _appendEvent unconditionally appendFileSync's events.jsonl
+  // moments later regardless of what prune did to it, which would recreate
+  // the file either way and make an events.jsonl-survives assertion pass
+  // vacuously whether or not the blast-radius guard exists. tasks.jsonl and
+  // loop-state-x.json are both real .agentic/ artifacts this hook never
+  // writes.
+  const otherAgedTasks = path.join(cwd, '.agentic', 'tasks.jsonl');
+  fs.writeFileSync(otherAgedTasks, '{"task":"unrelated"}\n');
+  fs.utimesSync(otherAgedTasks, eightDaysAgo, eightDaysAgo);
+  const otherAgedLoopState = path.join(cwd, '.agentic', 'loop-state-x.json');
+  fs.writeFileSync(otherAgedLoopState, '{}');
+  fs.utimesSync(otherAgedLoopState, eightDaysAgo, eightDaysAgo);
+
+  const sessionId = 'overreach-session-015';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const { status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(status === 0, 'triggering stop exits 0');
+
+  assert(!fs.existsSync(oldSentinel), 'the aged (>7d) sentinel was pruned');
+  assert(fs.existsSync(freshSentinel), 'the fresh sentinel was left alone');
+  assert(fs.existsSync(_internalSentinelPath(cwd, sessionId)), "the current session's own sentinel was written");
+  assert(fs.existsSync(otherAgedTasks), 'an aged tasks.jsonl in the same dir was NOT swept (blast-radius guard)');
+  assert(fs.existsSync(otherAgedLoopState), 'an aged loop-state-x.json in the same dir was NOT swept (blast-radius guard)');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 16: rename-failure-no-tmp-residue
+// ---------------------------------------------------------------------------
+console.log('\nTest 16: rename-failure-no-tmp-residue');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'overreach-session-016';
+  const sentinelPath = _internalSentinelPath(cwd, sessionId);
+
+  // Stub fs.renameSync to fail ONLY for this sentinel's own tmp path -
+  // real hooks/tests/test-stop-context-health.js precedent (M2). Since
+  // conductor-overreach-nudge.js does `const fs = require('fs');` at
+  // module scope, and the shimmed copy shares the SAME core 'fs' module
+  // object as this test file, patching the method here is visible inside
+  // _markFired too.
+  const originalRenameSync = fs.renameSync;
+  let stubHit = false;
+  fs.renameSync = function (oldPath, newPath, ...rest) {
+    if (typeof oldPath === 'string' && oldPath.startsWith(sentinelPath + '.tmp.')) {
+      stubHit = true;
+      const err = new Error('EISDIR: simulated rename failure');
+      err.code = 'EISDIR';
+      throw err;
+    }
+    return originalRenameSync.call(this, oldPath, newPath, ...rest);
+  };
+
+  let result;
+  try {
+    result = _markFired(cwd, sessionId);
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+
+  assert(stubHit === true, 'the renameSync stub was actually hit (test exercises the real failure path)');
+  assert(result === false, '_markFired returns false when renameSync fails');
+  assert(!fs.existsSync(sentinelPath), 'the sentinel itself was never created (rename never completed)');
+
+  const agenticDir = path.join(cwd, '.agentic');
+  const leaked = fs.readdirSync(agenticDir).filter((n) => n.includes('.tmp.'));
+  assert(leaked.length === 0, `no orphaned .tmp.<pid> file left behind (found: ${JSON.stringify(leaked)})`);
   cleanup(cwd);
 }
 

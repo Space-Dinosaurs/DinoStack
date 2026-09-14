@@ -82,7 +82,10 @@ bin/ds-wrap-release-lock::* hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')
 bin/ds-wrap-release-lock::const LOCK_SUFFIX = path.join('.agentic', 'wrap', 'lock');
 bin/ds-wrap-release-lock::let lockPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'wrap', 'lock');
 hooks/conductor-overreach-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+hooks/conductor-overreach-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');#2
+hooks/conductor-overreach-nudge.js::const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');#3
 hooks/conductor-overreach-nudge.js::const configPath = path.join(resolveAgenticCwd(cwd), '.agentic', 'config.json');
+hooks/conductor-overreach-nudge.js::return path.join(resolveAgenticCwd(cwd), '.agentic', `${_SENTINEL_PREFIX}${safeId}`);
 hooks/enforce-no-abdication.py::config_path = os.path.join(_REPO_ROOT.resolve_agentic_cwd(cwd), ".agentic", "config.json")
 hooks/enforce-planning-artifact-spawn.py::sentinel_path = os.path.join(sentinel_root, ".agentic", ".last-architect-spawn")
 hooks/enforce-skeptic-round-cap.py::return Path(diag["root"]) / ".agentic" / f"skeptic-round-{key}.json"

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Unregistered detection lib for the conductor_overreach warn-only
+ * Purpose: Unregistered detection lib for the conductor_overreach advisory
  *          Stop-hook nudge. Given the Stop payload's `transcript_path` (the
  *          REAL Claude Code Stop payload field - the payload is
  *          {session_id, transcript_path, cwd, hook_event_name,
