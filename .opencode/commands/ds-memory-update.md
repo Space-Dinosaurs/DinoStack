@@ -24,7 +24,7 @@ When spawning the Worker, substitute `$ARGUMENTS` with the actual decision conte
 
 ## Step 1 - Spawn a single Worker that verifies and writes
 
-Spawn a **background general-purpose Task** with this prompt (substitute `$ARGUMENTS` and `$MEMORY_PATH` with actual values):
+Spawn a **background general-purpose Task** with this prompt (substitute `$ARGUMENTS` and `$MEMORY_PATH` with actual values). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 ---
 You are a Memory Worker. Your job is to write an accurate, verified entry to MEMORY.md. You will draft, verify, and write in one pass. Do not return a draft for review - write directly to disk.

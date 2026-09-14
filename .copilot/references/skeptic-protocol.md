@@ -28,8 +28,9 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/agents/architect.md (plan Skeptic references Section 8),
                       content/references/subagent-protocol.md (references Section 7),
                       content/references/agent-team.md (references Section 7's
-                      Neutrality requirement for the pre-implementation and
-                      post-implementation Skeptic-on-plan spawn templates),
+                      Neutrality requirement and its Brief section slots for the
+                      pre-implementation and post-implementation Skeptic-on-plan
+                      spawn templates),
                       content/references/delegation-detail.md (points at Section 7's
                       Brief section slots from the Worker Preamble and Execution
                       Contract Template),

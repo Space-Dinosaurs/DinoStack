@@ -32,7 +32,7 @@ The conductor performs this step directly (no Worker) - it is a handful of reads
 
 ## Step 1 - Spawn the audit analyst
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 *"You are a Worker agent. Produce a representation audit proposal for the dinostack methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
