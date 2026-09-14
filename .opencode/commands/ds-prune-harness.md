@@ -50,7 +50,7 @@ If `last_run` is null (no prior run recorded), skip both nudges - there is nothi
 
 Before spawning, the **conductor** (not the Worker) runs `bin/ds-hook-fire-report --json --days 90` and captures the output. This feeds Signal 8 below. `--days 90` widens the fire-count window well past the tool's 14-day default, so a genuinely quiet hook actually has a chance to reach Signal 8's MEDIUM confidence tier - the default `--days` invocation could never do so (see Signal 8's confidence rule below for why `--days` and confidence are separate axes). The analyst Worker's `tool_scope` has no Bash - this ticket does not widen it - so the conductor runs the command and passes the JSON verbatim into the spawn prompt; the analyst never shells out to it itself. Also pass any carried-over candidates read from the ledger at Step 0.5, per that step's instruction.
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 *"You are a Worker agent. Produce a pruning proposal for the dinostack methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 

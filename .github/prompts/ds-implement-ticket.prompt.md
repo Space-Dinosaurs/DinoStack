@@ -1296,6 +1296,7 @@ Spawn `architect`. Provide:
 - Relevant code snippets
 - AGENTS.md conventions
 - Architectural decisions/rationale from MEMORY.md (or custom decision log)
+- Every section of the brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
@@ -1955,13 +1956,13 @@ ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id
 The following findings were raised in earlier iterations. For each:
 - If the current diff shows the finding was addressed: mark it CLOSED with a one-line confirmation.
 - If the current diff does NOT show the finding was addressed: re-raise it using [PREV: <id>] prefix in the finding title.
-- Do not re-raise findings that were resolved - do not invent new instances of a previously-closed finding without new evidence.
+- Do not invent new instances of a closed finding without new evidence.
 
-[paste findings_log entries with status=open or status=addressed]
+[paste the id and description of each open or addressed entry]
 ```
 
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
-- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `severity`, `first_raised: <iteration>`, `status: open`.
+- Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
 - Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.

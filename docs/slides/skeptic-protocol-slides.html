@@ -653,6 +653,7 @@ hr {
 <li>Mechanically enforced at spawn time (<code>enforce-skeptic-neutrality.py</code>): denies an untagged claim in field 7, or a conductor-composed-steer phrase in the brief</li>
 <li>The ban covers every field, every form, tagged or untagged - the hook checks only two bounded surfaces; the reviewing Skeptic's Step 3.9 Neutrality check is the control for the rest</li>
 <li>The underlying rule is general, not Skeptic-only - it binds every spawn brief, to any recipient role; see subagent-protocol.md Section 11 &quot;Spawn-brief provenance&quot;</li>
+<li>The three sections the conductor composes itself (attack surface, questions the review must answer explicitly, repo-specific hazards) are slots with a stated item form, defined once in subagent-protocol.md Section 11 &quot;Brief section form&quot; - the pasted template is not a slot</li>
 <li>Templates exist for: auth, API endpoints, crypto, DB migrations, data pipelines, smart contracts, architecture docs, general code review</li>
 </ul>
 <div class="callout">
@@ -1143,14 +1144,14 @@ hr {
 ;" data-marpit-pagination-total="13">
 <h2 id="the-resolved-issues-preflight--findings_log">The resolved issues preflight + findings_log</h2>
 
-<p>On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise already-fixed issues:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>The following issues were identified and resolved in prior rounds.
-Do not re-raise them unless the resolution is genuinely insufficient:
+<p>On round 2+, the primary agent prepends a preflight list to the brief so the fresh Skeptic doesn't re-raise a prior finding as a new one:</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>The following findings were raised in prior rounds and the Worker has
+since claimed a fix. Determine for yourself whether each is now resolved:
 
-[C1: Missing auth check on /admin endpoint → Added middleware guard]
-[M1: No error handling on payment callback → Added try/catch with rollback]
+[C1: Missing auth check on /admin endpoint]
+[M1: No error handling on payment callback]
 </code></pre>
-<p><strong>Inside the persistence loop:</strong> the preflight list is backed by <code>findings_log</code> - a structured in-context accumulator tracking every finding across all iterations (<code>id</code>, <code>severity</code>, <code>first_raised</code>, <code>status</code>, <code>claimed_fix</code>, <code>re_raised</code>). When the Skeptic re-raises a previously-addressed finding, it uses <code>[PREV: &lt;id&gt;]</code> so the conductor can mechanically detect it and update <code>re_raised: true</code>.</p>
+<p><strong>Inside the persistence loop:</strong> the preflight list is backed by <code>findings_log</code> - a structured in-context accumulator tracking every finding across all iterations (<code>id</code>, <code>description</code>, <code>severity</code>, <code>first_raised</code>, <code>status</code>, <code>re_raised</code>); the brief carries id and description only. When the Skeptic re-raises an addressed finding it uses <code>[PREV: &lt;id&gt;]</code> so the conductor can mechanically detect it and update <code>re_raised: true</code>.</p>
 <p><strong>Auto-close rule:</strong> when the Skeptic grants sign-off (zero new findings), ALL <code>findings_log</code> entries with <code>status: open</code> or <code>status: addressed</code> are automatically closed. The absence of re-raise is an implicit confirmation that all fixes were accepted.</p>
 <div class="callout">
 Fresh context for independence. Preflight list for efficiency. findings_log for accountability across iterations.

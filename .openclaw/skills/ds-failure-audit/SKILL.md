@@ -95,7 +95,7 @@ Spawn a single `investigator` Worker in background with the following execution 
 - completion_conditions: all available sources from the scoping note read; failure modes categorized per model/harness; every category carries a quantified frequency (count + relative share with an explicit denominator); coverage limits stated; report written using the template below; no telemetry file modified
 - output_paths: `docs/planning/failure-audit-YYYY-MM-DD.md`
 
-Pass the Audit brief below verbatim in the spawn prompt.
+Pass the Audit brief below verbatim in the spawn prompt. Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 ## Audit brief (verbatim - the binding contract)
 

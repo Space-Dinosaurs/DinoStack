@@ -17402,6 +17402,16 @@
       "source_token": "Agent"
     },
     {
+      "expected_target": "content/references/subagent-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "d2159d148364d7238592671ee941afe25a70d1cc0940e56753394f3abf991422",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/subagent-protocol.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "pr",
       "kind": "display-only",
@@ -23270,6 +23280,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "content/commands/ds-wrap.md"
+    },
+    {
+      "expected_target": "content/references/subagent-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "9179131c024c27e90a9d682d3caec6689dbd66aaf62f4fb96dc9d2dda79ca85c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/subagent-protocol.md"
     },
     {
       "expected_target": "content/references/wrap-context-format.md",

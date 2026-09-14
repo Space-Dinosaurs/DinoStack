@@ -349,6 +349,8 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 
 **Step 1 — Spawn a draft Worker** (background, general-purpose):
 
+Every section of this spawn prompt that the conductor composes is a slot per `$AE_REPO_DIR/content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
+
 **Read `$AE_PROJECT_DIR/.agentic/learnings.md` here, immediately before this spawn, if the Step 0 existence probe found it.** This is the sole point where its full content is read (see the note at Step 0's learnings.md bullet above) - deferred this far specifically because only a draft-Worker spawn consumes it, and this is the only place a draft Worker is spawned from the standard path. The zero-substance path's staging-drain exception (Step 0.5) also spawns a draft Worker from this same template and must perform this same read first when it does.
 
 ---
