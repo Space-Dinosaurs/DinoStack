@@ -396,7 +396,7 @@ failures? ──> update qa_failures_log ──> Engineer fix pass ──> loop 
 cap_reached (iteration == 3) or convergence_failure ──> ESCALATE to human
 ```
 
-- **3-pass cap is independent**: exhausting Phase 6 Skeptic cap does not consume Phase 6b QA budget
+- **The QA loop's 3-pass cap is independent**: exhausting the Phase 6 Skeptic cap (2 passes) does not consume Phase 6b QA budget
 - **Phase 6b only runs after Phase 6 clean exit** - if Phase 6 escalates (`cap_reached`, `convergence_failure`, `blocked`), Phase 6b is skipped entirely
 - **`qa_failures_log` schema**: each failure tracked with `id`, `description`, `first_raised`, `status`, `re_raised`
 - **QA convergence trigger**: same failure re-raised unchanged after a claimed fix - no severity qualifier (QA failures are not Critical/Major/Minor; any re-raised failure triggers `convergence_failure`)

@@ -1563,7 +1563,7 @@ Use the orchestration-planner's output to drive agent spawning decisions if Phas
 
 Read the orchestration-planner's output to make the routing determination below if Phase 3b ran; read the architect's output directly if Phase 3b was skipped.
 
-**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
+**Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` when non-trivial. Skeptic reports manifest gaps as Minor in Phase 6; a gap whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked `Blocking-minor:`. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
 **Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
 
@@ -1889,7 +1889,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "loop_state": {
     "phase": "skeptic",
     "iteration": 1,
-    "max_iterations": 3,
+    "max_iterations": 2,
     "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
@@ -1928,7 +1928,7 @@ The file is overwritten (not appended) on each iteration state update and at loo
 Emit the inline breadcrumb:
 
 ```
-[loop: skeptic | iteration 1/3 | open findings: -]
+[loop: skeptic | iteration 1/2 | open findings: -]
 ```
 
 **Loop entry (repeat until termination):**
@@ -1965,7 +1965,7 @@ The following findings were raised in earlier iterations. For each:
 **Step 2.** Receive Skeptic output. Classify findings. Update `findings_log`:
 - Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `description`, `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
-- Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
+- Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred on an Engineer's self-declared say-so; inside the loop, deferral requires either explicit human approval or the round-cap `ship` decision taken per Step 3 - the conductor escalates rather than accepting a self-declared deferral.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
 
 **Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
@@ -1980,9 +1980,9 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
-**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 clean exit - not read back later.** Phase 6b initializes its own loop state **overwriting the Phase 6 state** with `phase: qa, iteration: 1`, and Phase 6b fires for every Elevated unit with `qa_skip == null` - the common case. By the time Phase 9 runs, `loop_state.iteration` on disk is the QA iteration count, not the Skeptic round count: a ticket with 3 Skeptic rounds and a first-pass QA reads back as `1`. Capturing at clean exit is the same pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6, so it never sets `SKEPTIC_ROUNDS`, which is exactly why the ledger's `skeptic_rounds` is legitimately null there.
-- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
-- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 exit - not read back later.** Phase 6b **overwrites the Phase 6 state** with `phase: qa, iteration: 1`, and fires for every Elevated unit with `qa_skip == null` - the common case. By Phase 9, `loop_state.iteration` on disk is the QA count, not the Skeptic round count: 2 Skeptic rounds plus a first-pass QA reads back as `1`. This is the pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6 and never sets `SKEPTIC_ROUNDS`, which is why the ledger's `skeptic_rounds` is legitimately null there.
+- If `iteration == max_iterations` AND Critical or Major findings remain: take one of the two actions in `content/sections/05-qa-gate.md` §Re-route limits; an unresolved Critical forces escalate. **Ship:** mark every remaining open or addressed `findings_log` entry `deferred` (this ship decision at cap is the explicit approval Step 2 requires; it is recorded by the deferred entries and the PR body, never in the hook's state file), set `termination_reason: clean`, and take the clean-exit branch above. **Escalate:** set `termination_reason: cap_reached`, overwrite `.agentic/loop-state-$LOOP_KEY.json`, apply the Batch-mode escalation routing subsection below, then emit the Escalation format. Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below, then escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section's override note. One re-raise after a claimed fix suffices within the loop.)
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
@@ -2038,6 +2038,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)
 - The `last_engineer_summary` from the prior iteration
+- Third-or-later round: `skeptic-protocol.md` §Round budget item 7
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
 - Instruction: "Address only the findings listed below. Do not expand scope. Do not refactor, rename, or clean up code outside the finding scope. For each finding, confirm in your summary what you changed and why it addresses the finding."
 - The branch name and repo path
@@ -2055,7 +2056,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 
 ```
 LOOP STALLED - [reason: cap_reached | convergence_failure | blocked]
-Iteration: [N] of 3
+Iteration: [N] of [cap]
 
 Open findings that could not be resolved:
 [list findings_log entries with status=open]
@@ -2121,7 +2122,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 **Phase 6b only runs if Phase 6 exits cleanly (Skeptic sign-off granted, `termination_reason: clean`).** If Phase 6 exits via `cap_reached`, `convergence_failure`, or `blocked` escalation, Phase 6b is skipped entirely. Running QA on a Skeptic-rejected implementation is wasteful - the Phase 6 escalation subsumes Phase 6b for that session.
 
-**Cap independence:** Phase 6 and Phase 6b caps are independent - exhausting the Phase 6 Skeptic cap (3 fix passes) does not consume Phase 6b QA cap budget, and vice versa. Each phase gets its own 3-fix-pass budget evaluated separately.
+**Cap independence:** the Phase 6 Skeptic cap (2 fix passes) and the Phase 6b QA cap (3) are separate budgets.
 
 **Trigger:** Phase 6b QA fires for Elevated units IFF all of the following hold:
 1. The unit's `qa_criteria` block (from the Brief, or from the architect plan if no Brief) is present.
@@ -2234,7 +2235,7 @@ rm -f "${QA_REPORT_PATH:-}" 2>/dev/null || true
 
 Guard with `|| true` so this never blocks the loop. Do not delete `QA_REPORT_PATH` before the QA regressions curator step has had a chance to read it on a FAIL iteration - run this cleanup after that step (or immediately, on iterations/outcomes where the curator does not fire).
 
-**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Minor Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 

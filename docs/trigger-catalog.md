@@ -71,7 +71,7 @@ Example: `"zero open Critical findings in content/references/"`.
 
 **Hard stop**: the loop exits on whichever fires first:
 - `goal_condition` evaluates to true.
-- Re-route cap reached: 3 fix passes on a single Skeptic finding with it still
+- Re-route cap reached: 2 fix passes on a single Skeptic finding with it still
   open. Escalates to the operator per
   `content/references/skeptic-protocol.md`.
 - Convergence failure: the same Skeptic finding re-raised unchanged after the

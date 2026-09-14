@@ -13,6 +13,9 @@
 #            Gate W3 - the six Phase 7 referent-free write sites, which contain
 #                      ZERO occurrences of "loop-state" and are invisible to
 #                      both a path grep and a referent grep, name a keyed path.
+#            DS-232 prose pins - the ship-at-cap bullet keeps both halves on one
+#                      line, and both obligation files keep the pre-fix-failure
+#                      property.
 #
 #          FLOOR DESIGN - READ BEFORE TOUCHING A THRESHOLD.
 #          A floor must be placed on a quantity the change does NOT reduce.
@@ -375,6 +378,60 @@ else
   ACCOUNTED_N="$(grep -c . "$TMP/accounted" 2>/dev/null || true)"
   _pass "Gate C: every matching file accounted for ($ACCOUNTED_N expected)"
 fi
+
+# ---------------------------------------------------------------------------
+# DS-232 r3 pin: ship-at-cap must stay expressed in EXISTING machinery.
+#
+# Two halves carry that decision, and both live on Phase 6 Step 3's
+# cap_reached bullet: the ship decision at cap IS the explicit approval Step 2
+# requires for deferring a Major, and the branch then rejoins the ordinary
+# clean exit rather than inventing a parallel one. Matching BOTH on ONE line
+# ties the pin to that bullet instead of to the file at large, so splitting
+# them apart also reddens.
+#
+# The pin deliberately does NOT mention the hook's state file. Writing
+# `decision: "ship"` into `.agentic/skeptic-round-<unit-key>.json` leaves an
+# unconsumed bypass token there that ALLOWs a later third Skeptic spawn
+# (verified by runtime probe), so the decision is recorded by the deferred
+# findings_log entries and the PR body instead.
+#
+# Reddening mutations: delete either phrase; reword either one; or move them
+# onto separate bullets. Any of the three drops the same-line match to 0.
+# ---------------------------------------------------------------------------
+SHIP_PIN="$(grep -F 'this ship decision at cap is the explicit approval' "$FILE" \
+  | grep -cF 'take the clean-exit branch above' || true)"
+if [ "${SHIP_PIN:-0}" -ge 1 ]; then
+  _pass "ship-at-cap pin: cap_reached bullet defers on the ship decision itself and rejoins the clean exit"
+else
+  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'this ship decision at cap is the explicit approval' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit, a new termination_reason, or a write into the round-cap hook's state file."
+fi
+
+# ---------------------------------------------------------------------------
+# DS-232 U5 pin: the pre-fix-failure property survives in BOTH obligation
+# references.
+#
+# DS-232 reclassified regression-test-presence findings to Minor. The property
+# that gives a regression test its value - that it was observed FAILING against
+# the unfixed code - is carried by one sentence in each obligation file, and a
+# reclassification sweep is exactly the kind of edit that would delete the
+# sentence along with the severity word it sits near. Requiring EXACTLY one
+# occurrence in EACH file pins both copies independently: the Skeptic-finding
+# obligation and the QA-FAIL obligation each keep their own statement.
+#
+# Reddening mutations: delete the sentence from either file; reword the phrase
+# in either file; or collapse the two files' copies into one pointer. Any of
+# those drops that file's count from 1 and reddens.
+# ---------------------------------------------------------------------------
+PREFIX_PHRASE='post-fix execution alone does not establish it'
+for _obligation in content/references/regression-test-obligation.md \
+                   content/references/qa-regression-obligation.md; do
+  _n="$(grep -cF "$PREFIX_PHRASE" "$REPO_DIR/$_obligation" 2>/dev/null || true)"
+  if [ "${_n:-0}" -eq 1 ]; then
+    _pass "pre-fix-failure pin: $_obligation states the property exactly once"
+  else
+    _fail "PIN FAIL: $_obligation must contain '$PREFIX_PHRASE' exactly once (found ${_n:-0}) (DS-232 U5). A regression test's value is that it was seen failing BEFORE the fix; each obligation file keeps its own statement of that property."
+  fi
+done
 
 echo
 echo "Results: $PASS passed, $FAIL failed  (L2=$L2 LOOP_KEY=$KEYED markers=$MARKERS)"

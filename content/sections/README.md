@@ -15,7 +15,7 @@ Downstream consumers: scripts/build-methodology.sh, scripts/check-methodology-dr
                       authoring methodology content.
 
 Failure modes: This file does not execute. Drift between this contract and the
-               actual section files is a Major Skeptic finding (stale manifest).
+               actual section files is a Minor Skeptic finding (stale manifest).
 
 Performance: N/A.
 -->

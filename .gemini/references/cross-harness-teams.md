@@ -375,8 +375,8 @@ standard Skeptic and QA gates unchanged:
   adversarial brief and findings classification are unchanged.
 - The QA gate fires on the same `qa_criteria` trigger logic as any other Worker
   unit (see `content/sections/05-qa-gate.md`).
-- Re-route limits (max 3 fix passes), convergence-failure escalation, and
-  per-ticket QA flow are all applied identically.
+- Re-route limits (max 2 fix passes in a Skeptic loop, 3 in a QA loop),
+  convergence-failure escalation, and per-ticket QA flow all apply identically.
 
 No new gate, no bypass, no special case for cross-harness origin. The harness
 boundary is transparent to the Skeptic/QA layer.
