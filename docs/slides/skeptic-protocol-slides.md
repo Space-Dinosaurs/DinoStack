@@ -268,6 +268,10 @@ Never blocks sign-off. Applied automatically by a background agent after sign-of
 Every finding must be classified. Unclassified findings default to Major. The Skeptic cannot wave something through without saying what it is.
 </div>
 
+<div class="callout">
+<strong>Behavior class determines severity.</strong> Only a behavior finding is eligible for Critical or Major: a defect in the shipped code or its runtime, an unmet acceptance criterion or <code>qa_criteria</code> scenario, a security/data-boundary issue, fabricated evidence, or a code-quality defect in the diff itself. A defect in the methodology's own paperwork about the code - doc-sync, count-sync, module manifest, attestation wording, plan prose, test strength - is <strong>Minor</strong>. Every check still runs; only the tier changed.
+</div>
+
 ---
 
 ## Escalation and round limits
@@ -279,7 +283,7 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
   .callout { font-size: 0.78em; padding: 0.35em 1em; margin-top: 0.3em; }
 </style>
 
-- **Max 3 fix passes (hard cap)**: within any Skeptic or QA loop (Phase 6/6b and any ad-hoc loop), the conductor applies a maximum of **3 fix passes**. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. The round count is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` (denies a 4th Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller, when the spawn prompt's "Diff under review" line is present and unambiguous (fails open with no state written otherwise); known residual: two units both expressed as a bare `git diff <same-base>..<head>` SHA range share one counter; a second, separate known residual: a first pipe-separated path lacking a file-extension-shaped suffix (e.g. `LICENSE | a.py`) still passes the stable-key shape gate and becomes a wrong-but-stable key shared across units. The Critical-never-ships rule inside it is conductor-attested, not independently verified. Phase 6's own step text does not yet describe the ship branch.
+- **Max 2 fix passes in a Skeptic loop, 3 in a QA loop (hard cap)**: the conductor applies a maximum of **2 fix passes** in a Skeptic loop (Phase 6 and any ad-hoc Skeptic loop) and **3** in the Phase 6b QA loop. At the cap, the conductor ships (accepted debt in the PR body) or escalates to the human - never silent continuation. An unresolved Critical always blocks; the cap never ships a Critical. The round count is mechanically enforced by `hooks/enforce-skeptic-round-cap.py` (denies a 3rd Skeptic spawn per unit unless ship/escalate is recorded) regardless of caller, when the spawn prompt's "Diff under review" line is present and unambiguous (fails open with no state written otherwise); the counter also increments on a spawn rejected at the PreToolUse boundary by another guard, so a cap fire the conductor cannot match to that many returned reviews is spurious and is always `escalate`, never `ship`; known residual: two units both expressed as a bare `git diff <same-base>..<head>` SHA range share one counter; a second, separate known residual: a first pipe-separated path lacking a file-extension-shaped suffix (e.g. `LICENSE | a.py`) still passes the stable-key shape gate and becomes a wrong-but-stable key shared across units. The Critical-never-ships rule inside it is conductor-attested, not independently verified.
 - **2 re-route limit (per finding)**: same finding contested across 2+ rounds without resolution - escalate with both positions
 - **Simple changes**: capped at **1 round** - Critical/Major findings escalate directly
 - **Standard Elevated changes**: the 2-re-route rule applies
@@ -287,12 +291,12 @@ Every finding must be classified. Unclassified findings default to Major. The Sk
 
 **Loop-context override (inside `/ds-implement-ticket` Phase 6):** the 2-re-route rule is replaced by a stricter contract - **1 re-raise of a Critical finding after a claimed fix** triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.
 
-**Prose-scoped re-check:** when every unresolved finding is prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing manifest/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
+**Prose-scoped re-check:** when the round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing manifest/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the `sha1..sha2` fix range at spawn; sign-off carries a mandatory `Scope:` line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.
 
-**Round budget and value-per-round gate:** the 3-round cap decides when a loop must stop; the value-per-round gate decides whether round N+1 is worth spawning at all. Before spawning it, the conductor states one line of what shipped value that round buys (`[round-value: ...]`). If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, defer the remaining findings to a follow-up instead. A unit whose sole output is enforcement must not block the change it enforces - ship behavior-changing units first, enforcement-only units in a later PR.
+**Round budget and value-per-round gate:** the 2-round Skeptic cap decides when a loop must stop; the value-per-round gate decides whether round N+1 is worth spawning at all. Before spawning it, the conductor states one line of what shipped value that round buys (`[round-value: ...]`). If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, defer the remaining findings to a follow-up instead. A unit whose sole output is enforcement must not block the change it enforces - ship behavior-changing units first, enforcement-only units in a later PR.
 
 <div class="callout">
-The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
+The 2-pass Skeptic cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>
 
 ---
@@ -338,12 +342,12 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 <div class="card">
 <strong>Module manifest check</strong><br/>
 On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file. The result is output-required via a fixed <code>Manifest check:</code> sign-off line.<br/><br/>
-Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <strong>Major</strong> (blocks sign-off); stale-on-correctness/security path = <strong>Critical</strong>.
+All gaps are <strong>Minor</strong>: missing and stale alike, non-blocking. A stale manifest that could mislead a caller on a correctness or security path stays Minor and is routed through the <code>Blocking-minor:</code> sign-off line.
 </div>
 <div class="card">
 <strong>Regression test verification</strong><br/>
 Before granting sign-off on any round where a Critical or Major finding was fixed: verify a regression test was added - a test that would have failed without the fix.<br/><br/>
-Missing test without a documented exception = <strong>Major</strong> finding.
+Missing test without a documented exception = <strong>Minor</strong> finding.
 </div>
 </div>
 
@@ -371,7 +375,7 @@ Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/ds-cost</code>
 <div class="card">
 <strong>New-test-CI-wiring check</strong><br/>
 For each new test file in the diff: verify a matching reference exists in a CI workflow (an exact file reference, a covering glob, or an auto-discovering runner). The result is output-required via a fixed <code>Test-CI-wiring check:</code> sign-off line.<br/><br/>
-No matching CI invocation = <strong>Major</strong> finding - a test that never runs provides no regression protection.
+No matching CI invocation = <strong>Minor</strong> finding - a test that never runs provides no regression protection.
 </div>
 </div>
 

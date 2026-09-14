@@ -289,7 +289,7 @@ Plans get reviewed before code. Code gets reviewed before QA. Each stage hands o
 - A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.
 - Fresh context = adversarial teeth.
 - Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major blocks sign-off until resolved.
-- **Five standing checks:** (1) module manifest - tiered enforcement on non-trivial files (missing = Minor, stale = Major, stale-on-correctness/security path = Critical); (2) regression test - verifies a regression test exists for any Critical/Major fix before sign-off; (3) doc-sync - standing every round, docs stay consistent with the diff; (4) smoke-test gate - `smoke_test: not_run` on a runtime-capable diff is a Major; (5) new-test-CI-wiring - every new test file must be wired into a CI workflow.
+- **Five standing checks:** (1) module manifest - every gap on a non-trivial file is Minor, missing and stale alike; (2) regression test - verifies a regression test exists for any Critical/Major fix before sign-off, Minor when absent; (3) doc-sync - standing every round, docs stay consistent with the diff, Minor when stale; (4) smoke-test gate - `smoke_test: not_run` on a runtime-capable diff is a Major; (5) new-test-CI-wiring - every new test file must be wired into a CI workflow, Minor when it is not.
 - **Domain fit comes from the adversarial brief**, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.
 
 <div class="callout">
