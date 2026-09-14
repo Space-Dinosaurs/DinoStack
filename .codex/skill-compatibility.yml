@@ -4872,6 +4872,16 @@
       "source_token": "tail"
     },
     {
+      "expected_target": "content/references/subagent-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "1d1d99a283ec6d3776241c6edf6796955aa14d633ef97f3fe33a0ae82b227400",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/subagent-protocol.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",

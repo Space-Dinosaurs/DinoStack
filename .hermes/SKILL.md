@@ -1200,7 +1200,7 @@ When spawning `engineer`, include:
 - Acceptance criteria
 - Session context (`.agentic/context.md` content, supplied verbatim by the main agent - a worktree-isolated Worker cannot read this path directly, since its worktree branches from `origin/main`, where `.agentic/` is untracked)
 - `SESSION_KEY: <value>` - the session's learnings-shard key, supplied verbatim by the main agent on every spawn. Derive it once per session and reuse the same value; a brief that omits the line makes the Worker skip shard capture silently, with no error anywhere. Derivation rule and rationale: `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**"
-- Every section of the brief itself composed as a slot, not as free prose: each item is a bare noun phrase naming an artifact, a mechanism, a property, or a finding identifier. Item form and the strip test: `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**". The obligation is wider than this list - it binds every brief the main agent composes, to any recipient role
+- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**". The obligation is wider than this list - it binds every brief the main agent composes, to any recipient role
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
@@ -3960,7 +3960,7 @@ The `verification` field is **mandatory**. Its purpose is to force the conductor
 
 The `SESSION_KEY` field is **mandatory and never omitted**. It is the one line in this template whose obligation is wider than the template itself: it belongs in **every** Worker's spawn prompt, including Trivial-path solo spawns and the non-`engineer` roles this contract does not otherwise cover. Omitting it raises no error - the Worker simply skips shard capture in silence, so the learning is lost with no signal. Derive the value once per session and pass that same value every time; the derivation rule, the harness caveats, and the reason the scope is blanket rather than per-role live in `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**".
 
-Every section of the brief this template accompanies is a slot with a stated item form, not a free-prose region: each item is a bare noun phrase naming an artifact, a mechanism, a property, or a finding identifier. The form, and the strip test that decides whether an item still carries a steer, live in `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"; the Skeptic's three named slots are enumerated at `content/references/skeptic-protocol.md` §7 "Brief section slots".
+Every section of the brief this template accompanies is composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"; the Skeptic's three named slots are enumerated at `content/references/skeptic-protocol.md` §7 "Brief section slots".
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
@@ -6913,7 +6913,7 @@ raise one as a new finding without saying which prior finding it is.
 
 The preflight list exists so that a fresh Skeptic does not re-raise an already-addressed finding as a new Critical or Major item. It carries each prior finding's identifier and description and nothing more: whether a finding is actually resolved is the reviewer's own determination, made from the diff, never a fact the brief supplies. Re-raising a listed finding is legitimate whenever the diff does not resolve it, provided the Skeptic says which prior finding it is.
 
-**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` and `claimed_fix` are the conductor's own bookkeeping and stay out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
+**Loop context extension:** When the Skeptic is invoked inside the `/ds-implement-ticket` persistence loop, the conductor draws the preflight list from the findings_log entries whose status is open or addressed, and passes each entry's id and description only - `status` is the conductor's own bookkeeping and stays out of the brief, exactly as the standard Section 4 bracket carries no disposition. The findings_log id field is used as the finding identifier for `[PREV: <id>]` tagging. The preflight list format is identical to the standard Section 4 format; the findings_log schema is the structured backing store.
 
 ---
 
@@ -18321,6 +18321,7 @@ Spawn `architect`. Provide:
 - Relevant code snippets
 - AGENTS.md conventions
 - Architectural decisions/rationale from MEMORY.md (or custom decision log)
+- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`

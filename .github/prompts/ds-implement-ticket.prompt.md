@@ -1296,6 +1296,7 @@ Spawn `architect`. Provide:
 - Relevant code snippets
 - AGENTS.md conventions
 - Architectural decisions/rationale from MEMORY.md (or custom decision log)
+- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
