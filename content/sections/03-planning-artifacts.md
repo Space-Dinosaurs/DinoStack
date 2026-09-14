@@ -34,7 +34,7 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
-               cross-references above is a Major Skeptic finding (stale
+               cross-references above is a Minor Skeptic finding (stale
                manifest or stale cross-reference). Operator failure mode this
                section exists to prevent: multi-unit Elevated work proceeding
                without a committed problem statement, success criteria,
@@ -49,7 +49,7 @@ The promotion gate that sits between orchestration-planner output and the first 
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
-- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
+- Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 2 fix passes).
 - Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
