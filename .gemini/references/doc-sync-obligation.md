@@ -47,7 +47,7 @@ This is a **standing every-round check**, not a fix-round-only check. Apply the 
 - Not tripped -> no finding.
 - Tripped + correctly updated -> no finding.
 - Tripped + missing/incomplete -> **Minor**, whatever its shape: a non-misleading omission, a now-stale or false count/list/path/convention/behavior assertion, or a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system (e.g. README install steps, documented command/agent surface, canonical path). Minor does not block sign-off; the misleading-public-doc case stays Minor and is routed through the `Blocking-minor:` sign-off line.
-- When every unresolved finding in the round is prose-only (this class, module-manifest staleness, or comment/count wording) with no code/test/behavior change in the diff, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
+- When a round's only unresolved finding is a `Blocking-minor:`-routed prose-only finding (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check.
 
 Finding string format:
 

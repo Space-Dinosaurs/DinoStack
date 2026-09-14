@@ -186,7 +186,7 @@ The conductor maintains an exchange log across Skeptic rounds to enforce the 2-r
    - For each finding that was escalated or re-routed, the round number(s) in which it appeared
    - The total re-route count for each finding
 
-4. **When to compress:** The conductor SHOULD apply compression after Round 3 sign-off, or earlier if the compressed log would exceed a single screenful or the preflight list can no longer fit in a single spawn prompt.
+4. **When to compress:** The conductor SHOULD apply compression after Round 2 sign-off, or earlier if the compressed log would exceed a single screenful or the preflight list can no longer fit in a single spawn prompt.
 
 5. **Fresh Skeptic invariant:** Compression affects ONLY the conductor's internal exchange log. The Skeptic remains a fresh invocation for every round. The Skeptic never sees the compressed log — it receives only the current round's adversarial brief, preflight list, and artifact.
 
@@ -306,7 +306,7 @@ No review content follows the BLOCKED line. The Skeptic does NOT produce finding
 
 - the ticket's own `loop-state-<LOOP_KEY>.json` (legacy: `loop-state.json`) has its `last_phase_action` set to `skeptic_blocked_input`.
 - Resume re-spawns the Skeptic with corrected inputs; iteration counter does NOT advance.
-- Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 3-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
+- Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 2-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
 - The CONDUCTOR fixes the spawn brief, NOT the Engineer.
 
 **Per-unit-slug counter files (Q-C=C1):**
