@@ -156,7 +156,7 @@ If `HOOK_CHANGES` is empty, skip silently.
 
 ## Step 1 - Spawn a Worker
 
-Spawn a Worker subagent with instructions:
+Spawn a Worker subagent with instructions (every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"):
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
 3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/dinostack/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other ten adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.

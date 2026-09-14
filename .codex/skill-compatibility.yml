@@ -23282,6 +23282,16 @@
       "source_token": "content/commands/ds-wrap.md"
     },
     {
+      "expected_target": "content/references/subagent-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/subagent-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "9179131c024c27e90a9d682d3caec6689dbd66aaf62f4fb96dc9d2dda79ca85c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/subagent-protocol.md"
+    },
+    {
       "expected_target": "content/references/wrap-context-format.md",
       "generated_token": "$AE_REPO_DIR/content/references/wrap-context-format.md",
       "kind": "operational",

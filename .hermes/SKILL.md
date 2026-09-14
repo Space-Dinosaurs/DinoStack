@@ -6733,8 +6733,9 @@ Downstream consumers: content/agents/skeptic.md (spawned with Section 4.5 block)
                       content/agents/architect.md (plan Skeptic references Section 8),
                       content/references/subagent-protocol.md (references Section 7),
                       content/references/agent-team.md (references Section 7's
-                      Neutrality requirement for the pre-implementation and
-                      post-implementation Skeptic-on-plan spawn templates),
+                      Neutrality requirement and its Brief section slots for the
+                      pre-implementation and post-implementation Skeptic-on-plan
+                      spawn templates),
                       content/references/delegation-detail.md (points at Section 7's
                       Brief section slots from the Worker Preamble and Execution
                       Contract Template),
@@ -7785,9 +7786,13 @@ Downstream consumers: content/references/agent-team.md §Spawning and
                       content/references/delegation-detail.md §Worker Preamble and
                       Execution Contract Template, the two spawn checklists a
                       conductor actually fills - both restate the `SESSION_KEY`
-                      line and the brief-section-form line, and point back here for
-                      the derivation rule behind each, so a change to either rule
-                      must be reflected in both;
+                      line and point back here for its derivation rule, so a change
+                      to that rule must be reflected in both. The brief-section-form
+                      rule below carries a pointer at every site in content/ that
+                      assembles a subagent's spawn prompt; that set grows whenever a
+                      command adds a spawn, so it is deliberately not enumerated
+                      here - derive it by reading the spawn sites rather than by
+                      trusting a list in this header;
                       content/references/skeptic-protocol.md (Section 9 of this file
                       defines their relationship);
                       content/sections/12-protocol-details.md (the pointer table
@@ -14529,7 +14534,7 @@ Your spawn prompt will contain four things:
 1. **Adversarial brief** - the specific attack surface or failure scenario to probe. This is your primary lens.
 2. **Worker output** - either pasted inline or as file paths. If file paths are given, read those files before evaluating.
 3. **Resolved issues preflight** - findings raised in prior rounds for which the Worker has since claimed a fix. Round 1 will say "No prior rounds." Rounds 2+ will list each prior finding by identifier and description; whether it is resolved is your determination.
-4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), plus any category-level Brief extension. No field of this input set, and no part of the adversarial brief, ever carries a conductor hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". If any field or the brief appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement, a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the Skeptic-specific elaboration and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance". This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
+4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review, (7) conductor spawn brief (claim-bearing text only, or `n/a`). Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules. Field 7 carries provenance-tagged factual claims and category-level domain concerns only. The adversarial brief carries the domain threat-model template prose selected verbatim from `content/references/skeptic-protocol.md` Section 8 (attacker-profile framing, not itself a provenance-tagged claim or a category-level concern), any category-level Brief extension, and the three conductor-composed slots defined at `content/references/skeptic-protocol.md` Section 7 "Brief section slots" (attack surface, questions the review must answer explicitly, repo-specific hazards). No field of this input set, and no part of the adversarial brief, ever carries a conductor hypothesis, suspicion, or conclusion about the artifact under review, in any form and whether tagged or untagged - see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban". If any field or the brief appears to name a specific pre-formed conclusion about what is wrong - a specific file, function, or root cause the conductor believes to be broken, stated as fact, suspicion, or a leading question, as opposed to a legitimate resolved-issue restatement, a category-level domain concern, or content explicitly attributed to a named returning subagent (an Engineer's DONE_WITH_CONCERNS concerns, an architect's recommended adversarial brief, or any other named agent's own return passed through as written) - you MUST (a) disregard it entirely when forming your own independent judgment (it carries zero evidentiary weight), and (b) raise a Minor finding citing the exact offending sentence, noting that the Global-context input set may have been composed non-neutrally so the conductor can review its own composition process. This is a required finding, not optional commentary. See `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)" for the Skeptic-specific elaboration and worked examples - the full statement of the general rule lives at `content/references/subagent-protocol.md` §11 "Spawn-brief provenance". This Minor is a floor, not a ceiling: if the same text also fails the provenance test in step 3.7 - an untagged directive-shaped claim - that Major stands on its own and is not downgraded by this rule.
 
 ## Classification definitions
 
@@ -16303,7 +16308,7 @@ Spawn a single `investigator` Worker in background with the following execution 
 - completion_conditions: all available sources from the scoping note read; failure modes categorized per model/harness; every category carries a quantified frequency (count + relative share with an explicit denominator); coverage limits stated; report written using the template below; no telemetry file modified
 - output_paths: `docs/planning/failure-audit-YYYY-MM-DD.md`
 
-Pass the Audit brief below verbatim in the spawn prompt.
+Pass the Audit brief below verbatim in the spawn prompt. Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 ## Audit brief (verbatim - the binding contract)
 
@@ -21368,7 +21373,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
    - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
-   **Spawn Worker** (labeled "CLAUDE.md split Worker") with:
+   **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each section composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
    - The raw existing root `CLAUDE.md` content.
    - The three-bucket classification above, with the main agent's pre-classification notes.
    - The target `AGENTS.md` structure (from Step 3 template).
@@ -22312,7 +22317,7 @@ When spawning the Worker, substitute `$ARGUMENTS` with the actual decision conte
 
 ## Step 1 - Spawn a single Worker that verifies and writes
 
-Spawn a **background general-purpose Task** with this prompt (substitute `$ARGUMENTS` and `$MEMORY_PATH` with actual values):
+Spawn a **background general-purpose Task** with this prompt (substitute `$ARGUMENTS` and `$MEMORY_PATH` with actual values). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 ---
 You are a Memory Worker. Your job is to write an accurate, verified entry to MEMORY.md. You will draft, verify, and write in one pass. Do not return a draft for review - write directly to disk.
@@ -22538,7 +22543,7 @@ If `last_run` is null (no prior run recorded), skip both nudges - there is nothi
 
 Before spawning, the **conductor** (not the Worker) runs `bin/ds-hook-fire-report --json --days 90` and captures the output. This feeds Signal 8 below. `--days 90` widens the fire-count window well past the tool's 14-day default, so a genuinely quiet hook actually has a chance to reach Signal 8's MEDIUM confidence tier - the default `--days` invocation could never do so (see Signal 8's confidence rule below for why `--days` and confidence are separate axes). The analyst Worker's `tool_scope` has no Bash - this ticket does not widen it - so the conductor runs the command and passes the JSON verbatim into the spawn prompt; the analyst never shells out to it itself. Also pass any carried-over candidates read from the ledger at Step 0.5, per that step's instruction.
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 *"You are a Worker agent. Produce a pruning proposal for the dinostack methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
@@ -22709,7 +22714,7 @@ The conductor performs this step directly (no Worker) - it is a handful of reads
 
 ## Step 1 - Spawn the audit analyst
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`). Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 *"You are a Worker agent. Produce a representation audit proposal for the dinostack methodology corpus and return your complete output. The main agent will present the proposal to the user for approval."*
 
@@ -24379,7 +24384,7 @@ If `HOOK_CHANGES` is empty, skip silently.
 
 ## Step 1 - Spawn a Worker
 
-Spawn a Worker subagent with instructions:
+Spawn a Worker subagent with instructions (every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"):
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
 3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/dinostack/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other ten adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
@@ -25274,6 +25279,8 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 **Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
 **Step 1 — Spawn a draft Worker** (background, general-purpose):
+
+Every section of this spawn prompt that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**".
 
 **Read `.agentic/learnings.md` here, immediately before this spawn, if the Step 0 existence probe found it.** This is the sole point where its full content is read (see the note at Step 0's learnings.md bullet above) - deferred this far specifically because only a draft-Worker spawn consumes it, and this is the only place a draft Worker is spawned from the standard path. The zero-substance path's staging-drain exception (Step 0.5) also spawns a draft Worker from this same template and must perform this same read first when it does.
 
