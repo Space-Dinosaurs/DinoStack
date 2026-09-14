@@ -156,7 +156,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
-| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: skeptic \| iteration N/2 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
 | `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
