@@ -128,7 +128,15 @@ EOF
     _pass "T2: simulated pre-existing install seeded with ${#OLD_NAMES[@]} old agentic-* names, zero ds-* names"
   fi
 
-  OUT="$(HOME="$FAKE_HOME" PATH="$FAKE_HOME/.local/bin:$PATH" bash "$INSTALL_SH" \
+  # DS-231: unset all four harness config-dir vars. Faking $HOME alone is no
+  # longer sufficient - install.sh resolves AE_CONFIG_DIR through
+  # AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a developer
+  # session with CLAUDE_CONFIG_DIR set (the normal state on a multi-profile
+  # host) would aim the run at that REAL directory. The installer's own
+  # $HOME-containment refusal then aborts it, and the ~/.local/bin and
+  # identity-block assertions below read a tree the run never populated.
+  OUT="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    HOME="$FAKE_HOME" PATH="$FAKE_HOME/.local/bin:$PATH" bash "$INSTALL_SH" \
     --mode=opt-out --profile=default < /dev/null 2>&1)"
   RC=$?
 

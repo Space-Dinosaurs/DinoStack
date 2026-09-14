@@ -294,6 +294,13 @@ if [[ -L "$AE_CONFIG_PATH" ]]; then
 fi
 
 mkdir -p "$AE_CONFIG_DIR"
+# AE_CONFIG_PATH's directory, separately: when CLAUDE_CONFIG_DIR redirects
+# AE_CONFIG_DIR but the activation config stays pinned to $HOME/.claude (the
+# normal DS-231 case), those are two DIFFERENT directories and the mkdir above
+# only creates the first. On a host that uses an alternate config dir and has
+# no $HOME/.claude at all, every writer of AE_CONFIG_PATH below would then die
+# with FileNotFoundError. Harmless no-op whenever the two paths coincide.
+mkdir -p "$(dirname "$AE_CONFIG_PATH")"
 
 # Safe JSON-key reader: path/key/default passed as argv (NOT interpolated into
 # the Python source), so a config dir containing quotes or other shell/Python

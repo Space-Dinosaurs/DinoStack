@@ -287,6 +287,32 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# T9: CLAUDE_CONFIG_DIR set on a host with NO $HOME/.claude at all - the shape
+# of a machine that only ever used an alternate config dir. AE_CONFIG_DIR and
+# the pinned AE_CONFIG_PATH are two different directories here, so creating
+# only the former leaves every activation-config write failing with
+# FileNotFoundError. Deliberately does NOT call seed_home(), which would create
+# $HOME/.claude and hide the defect.
+# ---------------------------------------------------------------------------
+H6="$SB/home/h6"; ALT6="$H6/altcfg"
+mkdir -p "$ALT6"
+printf '%s\n' '{"skill_auto_load": false, "mode": "opt-out", "profile": "default"}' \
+  > "$ALT6/agentic-engineering.json"
+OUT6="$(run_install "$H6" "$ALT6")"
+RC6="$(last_rc)"
+if grep -Fq "FileNotFoundError" <<<"$OUT6"; then
+  fail "T9 install crashed with FileNotFoundError when \$HOME/.claude did not exist"
+  grep -F -A2 "FileNotFoundError" <<<"$OUT6" | head -5 >&2
+else
+  pass "T9 no FileNotFoundError with no pre-existing \$HOME/.claude"
+fi
+if [[ -f "$H6/.claude/agentic-engineering.json" ]]; then
+  pass "T9 activation config created under a \$HOME/.claude the run had to mkdir (rc=$RC6)"
+else
+  fail "T9 activation config NOT created under \$HOME/.claude (rc=$RC6)"
+fi
+
+# ---------------------------------------------------------------------------
 # Containment re-assertion: the live checkout must be untouched.
 # ---------------------------------------------------------------------------
 assert_sandbox_hooks_dir

@@ -391,7 +391,8 @@ for harness in claude codex omp pi; do
   # Deliberately deep + nonexistent: neither the leaf nor its parent exist yet.
   target="$NX/fresh-$harness/nested/agent"
   rc=0
-  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
   if [[ "$rc" -eq 0 && -f "$target/agentic-engineering.json" ]]; then
     pass "$harness: created config in not-yet-existing --config-dir (no crash)"
   else
