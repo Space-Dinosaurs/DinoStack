@@ -7372,6 +7372,16 @@
       "source_token": "/dev"
     },
     {
+      "expected_target": "content/sections/05-qa-gate.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/05-qa-gate.md",
+      "kind": "operational",
+      "occurrence_hash": "40d6a228023cd04f27fc3c06fb795f15064f415bfe066504710d27176b5dc162",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/sections/05-qa-gate.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",
@@ -8560,6 +8570,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/qa-regressions.md"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "54b0d1e6b91fc20c05a1e1d7f61ca2c63a4c9fab0b20e9d1bfc56035457d728c",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": ".agentic/loop-state.json",
@@ -12700,16 +12720,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": "content/sections/05-qa-gate.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/05-qa-gate.md",
-      "kind": "operational",
-      "occurrence_hash": "92eb864bd27154a15b1f5abf1bac9f2ad941fd1c068de445c989cc51e47af03e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/sections/05-qa-gate.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -16992,16 +17002,6 @@
       "source_token": "KC_RESET_FAILED"
     },
     {
-      "expected_target": "hooks/enforce-skeptic-round-cap.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-skeptic-round-cap.py",
-      "kind": "operational",
-      "occurrence_hash": "cb7202a3fc6000e9e3d37650b706562fd3cc98f0eca9bb2e54a9e84e56a47fc6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/enforce-skeptic-round-cap.py"
-    },
-    {
       "expected_target": "print",
       "generated_token": "print",
       "kind": "operational",
@@ -19122,16 +19122,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": ".agentic/skeptic-round-<unit-key>.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/skeptic-round-<unit-key>.json",
-      "kind": "operational",
-      "occurrence_hash": "e91ba2ae8ae14c3efa4c19d40f269bdb07fca22567d8d1ca6305f2973a28756e",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/skeptic-round-<unit-key>.json"
-    },
-    {
       "expected_target": "hooks/session-end-wrap.js",
       "generated_token": "$AE_REPO_DIR/hooks/session-end-wrap.js",
       "kind": "operational",
@@ -20190,16 +20180,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "cut"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "f77225f910cf0f0b06a6e5c51bbccde740740194f00c0daed1f2947ad1ba5128",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": "true",
