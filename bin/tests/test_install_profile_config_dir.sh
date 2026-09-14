@@ -14,11 +14,33 @@
 # Upstream deps: bash, python3, mktemp. Runs the installer with a sandboxed
 #                HOME so the real user config is never touched.
 #
-# Failure modes: any failing assertion prints and exits 1. Fully hermetic:
-#                all writes land under a throwaway HOME.
+# Failure modes: any failing assertion prints and exits 1.
+#
+#   NOT fully hermetic (corrected DS-231 - the previous "Fully hermetic: all
+#   writes land under a throwaway HOME" claim was false). $HOME is sandboxed,
+#   but REPO_DIR is the LIVE checkout, and .claude/install.sh calls
+#   install_precommit_hook "$REPO_DIR"; scripts/lib/precommit.sh resolves the
+#   hooks dir via rev-parse --git-path hooks, which is independent of $HOME.
+#   This file therefore uses bin/tests/lib/precommit-hook-guard.sh to snapshot
+#   and unconditionally restore the real checkout's pre-commit hook.
+#
+#   Every installer invocation also runs under `env -u` for all four
+#   config-dir vars (AGENTIC_CONFIG_DIR, CLAUDE_CONFIG_DIR, CODEX_HOME,
+#   PI_CODING_AGENT_DIR). DS-231 made CLAUDE_CONFIG_DIR part of
+#   .claude/install.sh's resolution chain, so a developer session with it set
+#   (the normal state on a multi-profile host) would otherwise redden Test 3's
+#   "default install targets $HOME/.claude" assertion locally while it passed
+#   in CI.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+# See the "NOT fully hermetic" note above: the installer writes the LIVE
+# checkout's pre-commit hook. Snapshot it now, restore it in the EXIT trap.
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
+
 FAILS=0
 pass() { echo "  ok: $1"; }
 fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
@@ -27,13 +49,14 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # Test 1: --config-dir redirects the harness config; shared state stays in HOME
 # ---------------------------------------------------------------------------
 SANDBOX="$(mktemp -d)"
-trap 'rm -rf "$SANDBOX"' EXIT
+trap 'precommit_hook_guard_restore; rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
 PROFILE="$SANDBOX/profile"     # stand-in for ~/.claude-<tenant>
 mkdir -p "$PROFILE"
 
-INSTALL_OUT="$(bash "$REPO_DIR/.claude/install.sh" \
+INSTALL_OUT="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  bash "$REPO_DIR/.claude/install.sh" \
   --config-dir="$PROFILE" --no-identity --mode=opt-out --profile=default \
   2>&1 || true)"
 
@@ -72,7 +95,8 @@ fi
 SANDBOX2="$(mktemp -d)"
 export HOME="$SANDBOX2/home"; mkdir -p "$HOME"
 PROFILE2="$SANDBOX2/prof2"; mkdir -p "$PROFILE2"
-AGENTIC_CONFIG_DIR="$PROFILE2" bash "$REPO_DIR/.claude/install.sh" \
+env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  AGENTIC_CONFIG_DIR="$PROFILE2" bash "$REPO_DIR/.claude/install.sh" \
   --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
 [[ -f "$PROFILE2/settings.json" ]] \
   && pass "AGENTIC_CONFIG_DIR env redirects settings.json" \
@@ -84,7 +108,8 @@ rm -rf "$SANDBOX2"
 # ---------------------------------------------------------------------------
 SANDBOX3="$(mktemp -d)"
 export HOME="$SANDBOX3/home"; mkdir -p "$HOME"
-DEFAULT_OUT="$(bash "$REPO_DIR/.claude/install.sh" \
+DEFAULT_OUT="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  bash "$REPO_DIR/.claude/install.sh" \
   --no-identity --mode=opt-out --profile=default 2>&1 || true)"
 [[ -f "$HOME/.claude/settings.json" ]] \
   && pass "default install targets \$HOME/.claude" \
@@ -118,8 +143,8 @@ PROF_TENANT_B="$SX/.harness-b"
 for harness in claude codex omp pi; do
   tenant_a="$PROF_TENANT_A/$harness"
   tenant_b="$PROF_TENANT_B/$harness"
-  tenant_out="$(bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_a" --no-identity --mode=opt-out --profile=default 2>&1 || true)"
-  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_b" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
+  tenant_out="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_a" --no-identity --mode=opt-out --profile=default 2>&1 || true)"
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR bash "$REPO_DIR/.$harness/install.sh" --config-dir="$tenant_b" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || true
   if [[ -f "$tenant_a/agentic-engineering.json" && -f "$tenant_b/agentic-engineering.json" ]]; then
     pass "$harness: both tenants wrote agentic-engineering.json"
   else
@@ -366,7 +391,8 @@ for harness in claude codex omp pi; do
   # Deliberately deep + nonexistent: neither the leaf nor its parent exist yet.
   target="$NX/fresh-$harness/nested/agent"
   rc=0
-  bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    bash "$REPO_DIR/.$harness/install.sh" --config-dir="$target" --no-identity --mode=opt-out --profile=default >/dev/null 2>&1 || rc=$?
   if [[ "$rc" -eq 0 && -f "$target/agentic-engineering.json" ]]; then
     pass "$harness: created config in not-yet-existing --config-dir (no crash)"
   else

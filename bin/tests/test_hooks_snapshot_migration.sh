@@ -115,7 +115,16 @@ _run_install() {
   cat > "$fake_home/.claude/agentic-engineering.json" <<'EOF'
 {"skill_auto_load": false}
 EOF
-  HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
+  # Seed 2 (DS-231): unset all four harness config-dir vars. Faking $HOME is
+  # no longer sufficient - .claude/install.sh now resolves AE_CONFIG_DIR
+  # through AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a
+  # developer session with CLAUDE_CONFIG_DIR set (the normal state on a
+  # multi-profile host) would send the install at that REAL directory instead
+  # of $fake_home/.claude, and every settings.json assertion below would read
+  # a file the run never wrote. The installer's own $HOME-containment refusal
+  # stops it writing outside the sandbox, but the run still exits non-zero.
+  env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+    HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
   local rc=$?
   if [[ $rc -ne 0 ]]; then
@@ -245,7 +254,15 @@ EOF
 # pre-commit hook around this one call (see header and
 # bin/tests/lib/precommit-hook-guard.sh).
 precommit_hook_guard_save "$REPO_DIR"
-if HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
+# DS-231: unset the four config-dir vars. .claude/uninstall.sh now resolves the
+# same chain install.sh does, so a session with CLAUDE_CONFIG_DIR set would send
+# this uninstall at the developer's REAL config dir and strip DinoStack hook
+# entries from their live settings.json. Measured during DS-231 round 2 before
+# this guard existed - it removed the risk-reminder hook from the author's own
+# ~/.claude/settings.json. Unlike the install side there is no $HOME-containment
+# refusal to catch it, because uninstall only ever deletes.
+if env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
   precommit_hook_guard_restore
   _pass "claude: uninstall.sh run succeeds"
 else
@@ -415,7 +432,8 @@ else
   _fail "codex: hooks.json symlink target changed on re-run (not idempotent)"
 fi
 
-if HOME="$HOME_CODEX" bash "$REPO_DIR/.codex/uninstall.sh" > "$HOME_CODEX/.uninstall_out" 2>&1; then
+if env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$HOME_CODEX" bash "$REPO_DIR/.codex/uninstall.sh" > "$HOME_CODEX/.uninstall_out" 2>&1; then
   _pass "codex: uninstall.sh run succeeds"
 else
   _fail "codex: uninstall.sh exited non-zero"

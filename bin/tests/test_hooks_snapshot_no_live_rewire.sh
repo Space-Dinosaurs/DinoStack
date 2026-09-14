@@ -61,7 +61,14 @@ mkdir -p "$FAKE_HOME/.claude"
 echo ""
 echo "=== 1. Install ==="
 
-HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
+# DS-231: unset all four harness config-dir vars. Faking $HOME alone is no
+# longer sufficient - .claude/install.sh resolves AE_CONFIG_DIR through
+# AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a developer
+# session with CLAUDE_CONFIG_DIR set (the normal state on a multi-profile
+# host) would aim the install at that REAL directory instead of the fake
+# HOME, and the assertions below would read a tree the run never wrote.
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
   < /dev/null > "$FAKE_HOME/.install_out" 2>&1
 INSTALL_RC=$?
 
@@ -175,7 +182,14 @@ fi
 echo ""
 echo "=== 3. Re-running install.sh refreshes the snapshot in place ==="
 
-HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
+# DS-231: unset all four harness config-dir vars. Faking $HOME alone is no
+# longer sufficient - .claude/install.sh resolves AE_CONFIG_DIR through
+# AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR > $HOME/.claude, so a developer
+# session with CLAUDE_CONFIG_DIR set (the normal state on a multi-profile
+# host) would aim the install at that REAL directory instead of the fake
+# HOME, and the assertions below would read a tree the run never wrote.
+env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
+  HOME="$FAKE_HOME" bash "$REPO_DIR/.claude/install.sh" --mode=opt-out --profile=default \
   < /dev/null > "$FAKE_HOME/.install_out2" 2>&1 || true
 
 SNAP_CONTENT_REFRESHED="$(cat "$SNAP_SCRIPT" 2>/dev/null)"

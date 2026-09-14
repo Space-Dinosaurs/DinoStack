@@ -109,14 +109,18 @@ EOF
 
 invoke_doctor() {
   # Run agentic-doctor with HOME and FAKE_REPO via config; capture output + exit.
-  # unset CLAUDE_CONFIG_DIR: a real value set in the invoking session (e.g.
-  # ~/.claude-spacedinosaurs) would make _plugins_dir() resolve OUTSIDE
-  # TEMP_HOME and silently scan the real machine's plugins instead of these
-  # HOME-relative fixtures (DS-198 round 3, Skeptic Major 2).
+  # unset all four config-dir vars: a real value set in the invoking session
+  # (e.g. CLAUDE_CONFIG_DIR=~/.claude-spacedinosaurs) would make _config_dir()
+  # resolve OUTSIDE TEMP_HOME and silently check the real machine's install
+  # instead of these HOME-relative fixtures (DS-198 round 3, Skeptic Major 2).
+  # DS-231 widened this from CLAUDE_CONFIG_DIR alone to the whole four-var
+  # chain _lib.resolve_claude_config_dir() walks: since _settings_path(),
+  # _managed_link_dirs() and both output-style checks now route through it too,
+  # a session with only CODEX_HOME set would redden this suite.
   (
     HOME="$TEMP_HOME"
     export HOME
-    unset CLAUDE_CONFIG_DIR
+    unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
     python3 "$DOCTOR" "$@"
   ) > "$TEMP_HOME/.out" 2>&1
   echo $? > "$TEMP_HOME/.exit"
@@ -1097,12 +1101,12 @@ cat > "$T20_HOME/.agentic/agentic-engineering-config.json" <<EOF
 EOF
 
 t20_invoke() {
-  # unset CLAUDE_CONFIG_DIR: see invoke_doctor()'s comment above (DS-198
+  # unset the four config-dir vars: see invoke_doctor()'s comment above (DS-198
   # round 3, Skeptic Major 2) - same leak, different fixture family.
   (
     HOME="$T20_HOME"
     export HOME
-    unset CLAUDE_CONFIG_DIR
+    unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
     python3 "$DOCTOR" "$@"
   ) > "$T20_HOME/.out" 2>&1
   echo $? > "$T20_HOME/.exit"
@@ -1164,7 +1168,7 @@ EOF
 (
   HOME="$T20E_HOME"
   export HOME
-  unset CLAUDE_CONFIG_DIR
+  unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
   python3 "$DOCTOR"
 ) > "$T20E_HOME/.out" 2>&1
 
@@ -1201,7 +1205,7 @@ EOF
   (
     HOME="$T20F_HOME"
     export HOME
-    unset CLAUDE_CONFIG_DIR
+    unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
     python3 "$DOCTOR"
   ) > "$T20F_HOME/.out" 2>&1
 
@@ -1239,9 +1243,10 @@ t21_invoke() {
     export HOME
     # T21 fixtures are HOME-relative; a real CLAUDE_CONFIG_DIR set in the
     # invoking session (e.g. ~/.claude-spacedinosaurs) would make
-    # _plugins_dir() resolve OUTSIDE T21_HOME and silently scan the real
-    # machine's plugins instead of the fixture - unset it here.
-    unset CLAUDE_CONFIG_DIR
+    # _config_dir() resolve OUTSIDE T21_HOME and silently scan the real
+    # machine's plugins instead of the fixture - unset them here. DS-231: all
+    # four chain vars, not CLAUDE_CONFIG_DIR alone.
+    unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
     python3 "$DOCTOR" "$@"
   ) > "$T21_HOME/.out" 2>&1
   echo $? > "$T21_HOME/.exit"
@@ -2808,12 +2813,12 @@ cat > "$T23_HOME/.agentic/agentic-engineering-config.json" <<EOF
 EOF
 
 t23_invoke() {
-  # unset CLAUDE_CONFIG_DIR: same leak invoke_doctor()/t20_invoke() guard
+  # unset the four config-dir vars: same leak invoke_doctor()/t20_invoke() guard
   # against (DS-198 round 3, Skeptic Major 2).
   (
     HOME="$T23_HOME"
     export HOME
-    unset CLAUDE_CONFIG_DIR
+    unset AGENTIC_CONFIG_DIR CLAUDE_CONFIG_DIR CODEX_HOME PI_CODING_AGENT_DIR
     python3 "$DOCTOR" "$@"
   ) > "$T23_HOME/.out" 2>&1
   echo $? > "$T23_HOME/.exit"

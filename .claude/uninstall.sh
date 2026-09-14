@@ -4,10 +4,25 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export REPO_DIR
 
-AGENTS_DST="$HOME/.claude/agents"
-COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/dinostack"
-SETTINGS="$HOME/.claude/settings.json"
+# Harness config directory, resolved EXACTLY as .claude/install.sh does
+# (DS-231): --config-dir flag > AGENTIC_CONFIG_DIR > CLAUDE_CONFIG_DIR >
+# ~/.claude. Keep this expansion byte-identical to install.sh's AE_CONFIG_DIR
+# line - if uninstall resolves a different dir than install wrote to, every
+# removal below prints "[skip] ... directory not found" and the run still ends
+# "Uninstall complete.", silently leaving the managed symlinks, the hook
+# entries in settings.json, and the CLAUDE.md managed block in place.
+AE_CONFIG_DIR_FLAG=""
+for arg in "$@"; do
+  case "$arg" in
+    --config-dir=*) AE_CONFIG_DIR_FLAG="${arg#--config-dir=}" ;;
+  esac
+done
+AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}}"
+
+AGENTS_DST="$AE_CONFIG_DIR/agents"
+COMMANDS_DST="$AE_CONFIG_DIR/commands"
+SKILLS_DST="$AE_CONFIG_DIR/skills/dinostack"
+SETTINGS="$AE_CONFIG_DIR/settings.json"
 
 
 
@@ -133,12 +148,14 @@ fi
 # Update settings.json
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/settings.json..."
+echo "Updating $SETTINGS..."
 
-python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" python3 - <<'PYEOF'
 import json, os
 
-settings_path = os.path.expanduser("~/.claude/settings.json")
+# Resolved config dir (DS-231), not a hardcoded ~/.claude: this must strip hook
+# entries from the SAME settings.json install.sh wrote them into.
+settings_path = os.environ.get("AE_SETTINGS_PATH") or os.path.expanduser("~/.claude/settings.json")
 repo_dir = os.environ.get("REPO_DIR", "")
 
 if not os.path.exists(settings_path):
@@ -330,27 +347,30 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Remove managed section from ~/.claude/CLAUDE.md
+# Remove managed section from <config-dir>/CLAUDE.md
 # ---------------------------------------------------------------------------
 
-echo "Updating ~/.claude/CLAUDE.md..."
+AE_CLAUDE_MD_PATH="$AE_CONFIG_DIR/CLAUDE.md"
+echo "Updating $AE_CLAUDE_MD_PATH..."
 
-python3 - <<'PYEOF'
+AE_CLAUDE_MD_PATH="$AE_CLAUDE_MD_PATH" python3 - <<'PYEOF'
 import os, re
 
-target = os.path.expanduser("~/.claude/CLAUDE.md")
+# Same resolved path the shell computed (DS-231); the ~/.claude fallback keeps
+# this block working if the variable is ever absent.
+target = os.environ.get("AE_CLAUDE_MD_PATH") or os.path.expanduser("~/.claude/CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
 if not os.path.exists(target):
-    print("  - ~/.claude/CLAUDE.md not found, skipping")
+    print(f"  - {target} not found, skipping")
     raise SystemExit(0)
 
 with open(target, "r") as f:
     existing = f.read()
 
 if begin_marker not in existing or end_marker not in existing:
-    print("  - ~/.claude/CLAUDE.md has no managed-by-agentic-engineering section, skipping")
+    print(f"  - {target} has no managed-by-agentic-engineering section, skipping")
     raise SystemExit(0)
 
 pattern = re.compile(
@@ -361,11 +381,11 @@ updated = pattern.sub("", existing)
 updated = updated.strip("\n")
 if not updated:
     os.remove(target)
-    print("  - Removed ~/.claude/CLAUDE.md (was only managed content)")
+    print(f"  - Removed {target} (was only managed content)")
 else:
     with open(target, "w") as f:
         f.write(updated + "\n")
-    print("  - Removed managed-by-agentic-engineering section from ~/.claude/CLAUDE.md")
+    print(f"  - Removed managed-by-agentic-engineering section from {target}")
 PYEOF
 
 # ---------------------------------------------------------------------------
