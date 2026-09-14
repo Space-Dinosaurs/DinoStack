@@ -3,17 +3,19 @@
 Regression tests for hooks/enforce-skeptic-round-cap.py.
 
 Test groups:
-  1. test_round_1_2_3_allowed                        - rounds 1-3 all ALLOW, round_count advances
+  0. test_round_cap_constant_is_two                   - DS-232: pins `_ROUND_CAP == 2` literally, so the
+                                                         cap is guarded by something other than itself.
+  1. test_round_1_2_allowed                          - rounds 1-2 all ALLOW, round_count advances
                                                          (each round carries DIFFERENT "What to
                                                          review" content, matching the real
                                                          sequential-rounds shape - a fresh Worker
                                                          output every round).
-  2. test_round_4_denied_no_decision                 - 4th round with no recorded decision -> DENY,
+  2. test_round_3_denied_no_decision                 - 3rd round with no recorded decision -> DENY,
                                                          message names round count and both permitted actions.
-  3. test_round_4_allowed_with_escalate_decision      - decision:"escalate" recorded -> ALLOW, consumed
+  3. test_round_3_allowed_with_escalate_decision      - decision:"escalate" recorded -> ALLOW, consumed
                                                          (decision reset to null after use).
-  4. test_round_4_allowed_with_ship_decision_no_critical - decision:"ship", unresolved_critical:false -> ALLOW.
-  5. test_round_4_denied_ship_with_unresolved_critical   - decision:"ship" AND unresolved_critical:true
+  4. test_round_3_allowed_with_ship_decision_no_critical - decision:"ship", unresolved_critical:false -> ALLOW.
+  5. test_round_3_denied_ship_with_unresolved_critical   - decision:"ship" AND unresolved_critical:true
                                                          -> DENY always, regardless of round/decision.
   6. test_ship_decision_is_consumed_on_use            - MAJOR 1 regression: after a `ship` decision is
                                                          consumed by one spawn, the NEXT spawn (a genuinely
@@ -165,9 +167,9 @@ Test groups:
                                                          citing a `<base>~N..HEAD` range must not collide onto a
                                                          shared round-cap counter, even though both forms
                                                          previously normalized to the bare literal token "HEAD".
- 39. test_caret_suffixed_range_does_not_reach_round_4_cap_via_shared_head_key - round-6 (M1/M3) regression: a
+ 39. test_caret_suffixed_range_does_not_reach_round_3_cap_via_shared_head_key - round-6 (M1/M3) regression: a
                                                          unit using the caret form (`<base>^..HEAD`) run to its
-                                                         round-3 cap must never share a state file with an
+                                                         round-2 cap must never share a state file with an
                                                          unrelated unit using the tilde form - both forms
                                                          previously collided onto the same literal "HEAD" key.
 
@@ -178,6 +180,7 @@ Run with: python3 -m pytest bin/tests/test_enforce_skeptic_round_cap.py -x
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import re
 import stat
@@ -355,13 +358,30 @@ def _read_state(cwd: str, unit: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# 1. Rounds 1-3 permitted (each round has different Worker output, the real
+# 0. The cap CONSTANT itself, pinned independently of the behavioral tests
+# --------------------------------------------------------------------------- #
+def test_round_cap_constant_is_two():
+    """DS-232 moved the default Skeptic round cap from 3 to 2. Every other
+    test in this file derives its round boundaries from the hook's OWN
+    behavior, so all of them would stay green if `_ROUND_CAP` silently
+    drifted back to 3 and the boundaries were shifted to match. This test
+    pins the literal value, so the cap is guarded by something other than
+    itself. Change it only alongside a deliberate policy change to
+    `content/sections/05-qa-gate.md` §Re-route limits."""
+    spec = importlib.util.spec_from_file_location("_round_cap_hook", _HOOK_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module._ROUND_CAP == 2
+
+
+# --------------------------------------------------------------------------- #
+# 1. Rounds 1-2 permitted (each round has different Worker output, the real
 #    sequential-rounds shape)
 # --------------------------------------------------------------------------- #
-def test_round_1_2_3_allowed():
+def test_round_1_2_allowed():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for expected_round in (1, 2, 3):
+        for expected_round in (1, 2):
             rc, parsed = _run_hook(
                 _skeptic_payload(tmp, unit, what_to_review=f"worker output round {expected_round}")
             )
@@ -372,38 +392,38 @@ def test_round_1_2_3_allowed():
 
 
 # --------------------------------------------------------------------------- #
-# 2. 4th round denied with no decision recorded
+# 2. 3rd round denied with no decision recorded
 # --------------------------------------------------------------------------- #
-def test_round_4_denied_no_decision():
+def test_round_3_denied_no_decision():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for i in range(3):
+        for i in range(2):
             rc, parsed = _run_hook(
                 _skeptic_payload(tmp, unit, what_to_review=f"worker output round {i + 1}")
             )
             assert not _is_denied(parsed)
 
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 3")
         )
         assert rc == 0
-        assert _is_denied(parsed), "4th round with no decision must be denied"
+        assert _is_denied(parsed), "3rd round with no decision must be denied"
         reason = _deny_reason(parsed)
-        assert "3 rounds" in reason
+        assert "2 rounds" in reason
         assert '"ship"' in reason
         assert '"escalate"' in reason
         # round_count on disk must NOT have advanced past the cap.
         state = _read_state(tmp, unit)
-        assert state["round_count"] == 3
+        assert state["round_count"] == 2
 
 
 # --------------------------------------------------------------------------- #
-# 3. escalate decision unblocks the 4th round, then is consumed
+# 3. escalate decision unblocks the 3rd round, then is consumed
 # --------------------------------------------------------------------------- #
-def test_round_4_allowed_with_escalate_decision():
+def test_round_3_allowed_with_escalate_decision():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for i in range(3):
+        for i in range(2):
             _run_hook(_skeptic_payload(tmp, unit, what_to_review=f"worker output round {i + 1}"))
 
         path = _state_path(tmp, unit)
@@ -412,28 +432,28 @@ def test_round_4_allowed_with_escalate_decision():
         path.write_text(json.dumps(state))
 
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 3")
         )
         assert rc == 0
-        assert not _is_denied(parsed), f"escalate-authorized round 4 was denied: {parsed}"
+        assert not _is_denied(parsed), f"escalate-authorized round 3 was denied: {parsed}"
         new_state = _read_state(tmp, unit)
-        assert new_state["round_count"] == 4
+        assert new_state["round_count"] == 3
         assert new_state["decision"] is None, "escalate must be consumed (single-use)"
 
-        # A subsequent 5th-round attempt with no fresh escalate must deny again.
+        # A subsequent 4th-round attempt with no fresh escalate must deny again.
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 5")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
         )
-        assert _is_denied(parsed), "round 5 without a fresh escalate must deny"
+        assert _is_denied(parsed), "round 4 without a fresh escalate must deny"
 
 
 # --------------------------------------------------------------------------- #
-# 4. ship decision (no unresolved critical) unblocks the 4th round
+# 4. ship decision (no unresolved critical) unblocks the 3rd round
 # --------------------------------------------------------------------------- #
-def test_round_4_allowed_with_ship_decision_no_critical():
+def test_round_3_allowed_with_ship_decision_no_critical():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for i in range(3):
+        for i in range(2):
             _run_hook(_skeptic_payload(tmp, unit, what_to_review=f"worker output round {i + 1}"))
 
         path = _state_path(tmp, unit)
@@ -443,7 +463,7 @@ def test_round_4_allowed_with_ship_decision_no_critical():
         path.write_text(json.dumps(state))
 
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 3")
         )
         assert rc == 0
         assert not _is_denied(parsed), f"ship decision with no Critical was denied: {parsed}"
@@ -452,10 +472,10 @@ def test_round_4_allowed_with_ship_decision_no_critical():
 # --------------------------------------------------------------------------- #
 # 5. Critical always blocks - ship + unresolved_critical -> DENY regardless
 # --------------------------------------------------------------------------- #
-def test_round_4_denied_ship_with_unresolved_critical():
+def test_round_3_denied_ship_with_unresolved_critical():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for i in range(3):
+        for i in range(2):
             _run_hook(_skeptic_payload(tmp, unit, what_to_review=f"worker output round {i + 1}"))
 
         path = _state_path(tmp, unit)
@@ -465,7 +485,7 @@ def test_round_4_denied_ship_with_unresolved_critical():
         path.write_text(json.dumps(state))
 
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 3")
         )
         assert rc == 0
         assert _is_denied(parsed), "ship must never bypass an unresolved Critical"
@@ -474,7 +494,7 @@ def test_round_4_denied_ship_with_unresolved_critical():
         # A denied ship-with-Critical must not be consumed either.
         state_after = _read_state(tmp, unit)
         assert state_after["decision"] == "ship"
-        assert state_after["round_count"] == 3
+        assert state_after["round_count"] == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -483,7 +503,7 @@ def test_round_4_denied_ship_with_unresolved_critical():
 def test_ship_decision_is_consumed_on_use():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
-        for i in range(3):
+        for i in range(2):
             _run_hook(_skeptic_payload(tmp, unit, what_to_review=f"worker output round {i + 1}"))
 
         path = _state_path(tmp, unit)
@@ -492,21 +512,21 @@ def test_ship_decision_is_consumed_on_use():
         state["unresolved_critical"] = False
         path.write_text(json.dumps(state))
 
-        # 4th spawn: ship consumed, round_count advances to 4.
+        # 3rd spawn: ship consumed, round_count advances to 3.
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 3")
         )
         assert not _is_denied(parsed)
         state_after_ship = _read_state(tmp, unit)
-        assert state_after_ship["round_count"] == 4
+        assert state_after_ship["round_count"] == 3
         assert state_after_ship["decision"] is None, "ship must be consumed (single-use), matching escalate"
 
-        # 5th spawn: no fresh decision recorded - must NOT be unconditionally
+        # 4th spawn: no fresh decision recorded - must NOT be unconditionally
         # allowed. Before the Major 1 fix, `ship` never advanced state, so
         # every later spawn kept re-reading decision:"ship" and allowed
         # forever.
         rc, parsed = _run_hook(
-            _skeptic_payload(tmp, unit, what_to_review="worker output round 5")
+            _skeptic_payload(tmp, unit, what_to_review="worker output round 4")
         )
         assert _is_denied(parsed), "a spent ship decision must not unconditionally allow a later round"
 
@@ -553,7 +573,7 @@ def test_sequential_rounds_are_not_coalesced():
     with tempfile.TemporaryDirectory() as tmp:
         unit = "feature/round-cap-test"
         for expected_round, output in enumerate(
-            ("first fix attempt", "second fix attempt", "third fix attempt"), start=1
+            ("first fix attempt", "second fix attempt"), start=1
         ):
             rc, parsed = _run_hook(_skeptic_payload(tmp, unit, what_to_review=output))
             assert not _is_denied(parsed)
@@ -576,10 +596,10 @@ def test_two_different_units_get_independent_round_budgets():
         # Unit A burns its whole budget from this cwd (which stays on
         # whatever branch the conductor happens to be on - no git repo
         # even exists at `tmp`).
-        for i in range(3):
+        for i in range(2):
             _run_hook(_skeptic_payload(tmp, unit_a, what_to_review=f"unit-a fix {i + 1}"))
-        rc, parsed = _run_hook(_skeptic_payload(tmp, unit_a, what_to_review="unit-a fix 4"))
-        assert _is_denied(parsed), "unit A must be denied its 4th round"
+        rc, parsed = _run_hook(_skeptic_payload(tmp, unit_a, what_to_review="unit-a fix 3"))
+        assert _is_denied(parsed), "unit A must be denied its 3rd round"
 
         # Unit B's first spawn, from the SAME cwd, must still be allowed -
         # this is the exact bug: before the fix, both units shared one
@@ -590,7 +610,7 @@ def test_two_different_units_get_independent_round_budgets():
         state_b = _read_state(tmp, unit_b)
         assert state_b["round_count"] == 1
         state_a = _read_state(tmp, unit_a)
-        assert state_a["round_count"] == 3
+        assert state_a["round_count"] == 2
         assert _state_path(tmp, unit_a) != _state_path(tmp, unit_b)
 
 
@@ -969,21 +989,21 @@ def test_round_stability_across_sha_range_rounds():
     (FIX 5): a `git diff <base-sha>..<changing-head-sha>` identity (the
     form the Skeptic sign-off contract's own `Reviewed: <base-sha>..
     <head-sha>` shape mirrors) must resolve to ONE key across sequential
-    rework rounds and actually DENY at round 4, in EVERY real spawn-line
+    rework rounds and actually DENY at round 3, in EVERY real spawn-line
     shape - not just the numbered non-bold form the round-3 regression
     test happened to cover, which never exercised the backticked form
     FIX 2 fixes."""
     for label, template in _SHA_RANGE_LINE_FORMS.items():
         with tempfile.TemporaryDirectory() as tmp:
             base_sha = "a" * 40
-            heads = ["b" * 40, "c" * 40, "d" * 40, "e" * 40]
+            heads = ["b" * 40, "c" * 40, "d" * 40]
             expected_path = (
                 Path(tmp)
                 / ".agentic"
                 / f"skeptic-round-{_unit_key_for_raw_identity(base_sha)}.json"
             )
 
-            for i, head in enumerate(heads[:3], start=1):
+            for i, head in enumerate(heads[:2], start=1):
                 diff_line = template.format(base=base_sha, head=head)
                 rc, parsed = _run_hook(
                     _raw_payload(tmp, diff_line, what_to_review=f"worker output round {i}")
@@ -999,17 +1019,17 @@ def test_round_stability_across_sha_range_rounds():
                     f"key across rounds - got round_count={state['round_count']} at round {i}"
                 )
 
-            # 4th round (yet another new head SHA) must DENY - proves the cap
+            # 3rd round (yet another new head SHA) must DENY - proves the cap
             # actually engages instead of minting a fresh key every round.
-            diff_line = template.format(base=base_sha, head=heads[3])
+            diff_line = template.format(base=base_sha, head=heads[2])
             rc, parsed = _run_hook(
-                _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+                _raw_payload(tmp, diff_line, what_to_review="worker output round 3")
             )
-            assert _is_denied(parsed), f"{label}: round 4 of a SHA-range-keyed unit must be denied at the cap"
+            assert _is_denied(parsed), f"{label}: round 3 of a SHA-range-keyed unit must be denied at the cap"
 
             state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
             assert len(state_files) == 1, (
-                f"{label}: expected exactly ONE state file across all 4 rounds, "
+                f"{label}: expected exactly ONE state file across all 3 rounds, "
                 f"got {[p.name for p in state_files]}"
             )
 
@@ -1074,9 +1094,9 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
     the fingerprinted body down to a constant prefix across rounds. Using
     the real `ds-skeptic.md` template shape (Worker output immediately
     followed by a fixed "**Resolved issues preflight:**" section), rounds
-    1-3 each carrying genuinely different Worker output must produce 3
+    1-2 each carrying genuinely different Worker output must produce 2
     DISTINCT fingerprints and round_count must advance every round
-    (1, 2, 3), and a 4th round with yet another distinct Worker output
+    (1, 2), and a 3rd round with yet another distinct Worker output
     must DENY at the cap. Pre-fix (bounded `_WHAT_TO_REVIEW_RE`), the
     lookahead matched the first internal bold line and every round's
     captured body reduced to the same short prefix, coalescing every
@@ -1085,7 +1105,7 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
     diff_line = "6. Diff under review: git diff origin/main...feature/round-cap-test"
     with tempfile.TemporaryDirectory() as tmp:
         _ensure_git_marker(tmp)
-        for i in range(1, 4):
+        for i in range(1, 3):
             # The constant intro line ("Worker output below.") before the
             # varying content is deliberate - it reproduces the exact
             # measured shape of the round-3 defect: a bounded regex
@@ -1117,10 +1137,10 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
                 f"(coalesced with a prior round's fingerprint)"
             )
 
-        # Round 4's genuinely new Worker output must be denied at the cap -
-        # proves round_count actually advanced past 3 rather than
+        # Round 3's genuinely new Worker output must be denied at the cap -
+        # proves round_count actually advanced past 2 rather than
         # coalescing forever on round 1's cached ALLOW.
-        worker_output = "Worker output below.\n**Summary:** round 4 final cleanup."
+        worker_output = "Worker output below.\n**Summary:** round 3 final cleanup."
         prompt = _realistic_skeptic_prompt(diff_line, worker_output)
         payload = {
             "tool_name": "Agent",
@@ -1132,7 +1152,7 @@ def test_realistic_worker_output_with_internal_bold_headers_not_coalesced():
             },
         }
         rc, parsed = _run_hook(payload)
-        assert _is_denied(parsed), "round 4 of a genuinely-advancing unit must be denied at the cap"
+        assert _is_denied(parsed), "round 3 of a genuinely-advancing unit must be denied at the cap"
 
 
 # DS-181 (M1/M2 correction): a plain `for label, prompt_text in
@@ -1195,14 +1215,14 @@ def test_stable_key_survives_rolling_sha_ranges():
     range) with a narrative prefix. Pre-DS-180 this produced N distinct
     state files and the cap never engaged. With the conductor supplying
     the new `<key> | <diff>` form, round count must accumulate on ONE
-    counter and round 4 must DENY."""
+    counter and round 3 must DENY."""
     key = "DS-177"
-    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40]
+    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40]
     with tempfile.TemporaryDirectory() as tmp:
         expected_path = (
             Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
         )
-        for i in range(1, 4):
+        for i in range(1, 3):
             base, head = shas[i - 1], shas[i]
             diff_line = f"- **Diff under review:** {key} | git diff {base}..{head}"
             rc, parsed = _run_hook(
@@ -1213,11 +1233,11 @@ def test_stable_key_survives_rolling_sha_ranges():
             state = json.loads(expected_path.read_text())
             assert state["round_count"] == i
 
-        diff_line = f"- **Diff under review:** {key} | git diff {shas[3]}..{shas[4]}"
+        diff_line = f"- **Diff under review:** {key} | git diff {shas[2]}..{shas[3]}"
         rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 3")
         )
-        assert _is_denied(parsed), "round 4 of a stable-keyed unit must deny at the cap"
+        assert _is_denied(parsed), "round 3 of a stable-keyed unit must deny at the cap"
 
         state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
         assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
@@ -1228,7 +1248,7 @@ def test_stable_key_two_distinct_units_no_collision():
     range shape, must get INDEPENDENT round budgets."""
     with tempfile.TemporaryDirectory() as tmp:
         for key in ("DS-180", "DS-181"):
-            for i in range(1, 4):
+            for i in range(1, 3):
                 diff_line = f"- **Diff under review:** {key} | git diff {'a'*40}..{'b'*40}"
                 rc, parsed = _run_hook(
                     _raw_payload(tmp, diff_line, what_to_review=f"{key} worker output round {i}")
@@ -1319,7 +1339,7 @@ def test_stable_key_two_units_of_one_ticket_get_independent_budgets():
     own independent round budget."""
     with tempfile.TemporaryDirectory() as tmp:
         for key in ("DS-180-u1", "DS-180-u2"):
-            for i in range(1, 4):
+            for i in range(1, 3):
                 diff_line = f"- **Diff under review:** {key} | git diff {'a'*40}..{'b'*40}"
                 rc, parsed = _run_hook(
                     _raw_payload(tmp, diff_line, what_to_review=f"{key} worker output round {i}")
@@ -1347,12 +1367,12 @@ def test_stable_key_backticked_whole_value_accepts():
     state FILENAME directly (not just round_count), so a silent
     fall-through to the legacy path cannot pass by accident."""
     key = "DS-180"
-    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40, "e" * 40]
+    shas = ["a" * 40, "b" * 40, "c" * 40, "d" * 40]
     with tempfile.TemporaryDirectory() as tmp:
         expected_path = (
             Path(tmp) / ".agentic" / f"skeptic-round-{_unit_key_for_raw_identity(key)}.json"
         )
-        for i in range(1, 4):
+        for i in range(1, 3):
             base, head = shas[i - 1], shas[i]
             diff_line = f"- **Diff under review:** `{key} | git diff {base}..{head}`"
             rc, parsed = _run_hook(
@@ -1366,11 +1386,11 @@ def test_stable_key_backticked_whole_value_accepts():
             state = json.loads(expected_path.read_text())
             assert state["round_count"] == i
 
-        diff_line = f"- **Diff under review:** `{key} | git diff {shas[3]}..{shas[4]}`"
+        diff_line = f"- **Diff under review:** `{key} | git diff {shas[2]}..{shas[3]}`"
         rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="worker output round 4")
+            _raw_payload(tmp, diff_line, what_to_review="worker output round 3")
         )
-        assert _is_denied(parsed), "round 4 must deny at the cap"
+        assert _is_denied(parsed), "round 3 must deny at the cap"
 
         state_files = list((Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
         assert len(state_files) == 1, f"expected ONE state file, got {[p.name for p in state_files]}"
@@ -1406,7 +1426,7 @@ def test_pipe_separated_file_paths_no_key_no_collision():
         assert path_a != path_b, "test setup bug: the two fallback identities must differ"
 
         # Unit A burns its whole budget.
-        for i in range(1, 4):
+        for i in range(1, 3):
             diff_line = f"- **Diff under review:** {value_a}"
             rc, parsed = _run_hook(
                 _raw_payload(tmp, diff_line, what_to_review=f"unit-a fix {i}")
@@ -1414,9 +1434,9 @@ def test_pipe_separated_file_paths_no_key_no_collision():
             assert not _is_denied(parsed), f"unit A round {i} unexpectedly denied: {parsed}"
         diff_line = f"- **Diff under review:** {value_a}"
         rc, parsed = _run_hook(
-            _raw_payload(tmp, diff_line, what_to_review="unit-a fix 4")
+            _raw_payload(tmp, diff_line, what_to_review="unit-a fix 3")
         )
-        assert _is_denied(parsed), "unit A must be denied its 4th round"
+        assert _is_denied(parsed), "unit A must be denied its 3rd round"
 
         # Unit B's first round, from the SAME cwd, sharing unit A's first
         # pipe-segment, must still be allowed - the exact collision this
@@ -1432,7 +1452,7 @@ def test_pipe_separated_file_paths_no_key_no_collision():
         assert path_a.exists() and path_b.exists()
         state_a = json.loads(path_a.read_text())
         state_b = json.loads(path_b.read_text())
-        assert state_a["round_count"] == 3
+        assert state_a["round_count"] == 2
         assert state_b["round_count"] == 1
 
         state_files = sorted(p.name for p in (Path(tmp) / ".agentic").glob("skeptic-round-*.json"))
@@ -1704,7 +1724,7 @@ def test_tilde_suffixed_ranges_do_not_collide_across_units():
     this unrecognized shape, but never collidable across units, which is
     the property this test asserts."""
     with tempfile.TemporaryDirectory() as tmp:
-        for i in range(1, 4):
+        for i in range(1, 3):
             line = f"6. Diff under review: git diff 1232779c~{i}..HEAD"
             rc, parsed = _run_hook(
                 _raw_payload(tmp, line, what_to_review=f"unit A worker output round {i}")
@@ -1728,16 +1748,16 @@ def test_tilde_suffixed_ranges_do_not_collide_across_units():
         )
 
 
-def test_caret_suffixed_range_does_not_reach_round_4_cap_via_shared_head_key():
+def test_caret_suffixed_range_does_not_reach_round_3_cap_via_shared_head_key():
     """A single unit using the caret form (`<base>^..HEAD`) across several
     rounds must never be silently coalesced onto the SAME state file as an
     unrelated unit using the tilde form (`<other-base>~1..HEAD`) - both
     forms previously normalized to the bare "HEAD" token regardless of
-    which base SHA was cited. Runs unit A (caret) to its round-3 cap, then
+    which base SHA was cited. Runs unit A (caret) to its round-2 cap, then
     proves unit B (tilde) still gets an independent, un-denied first
     round rather than inheriting unit A's spent budget."""
     with tempfile.TemporaryDirectory() as tmp:
-        for i in range(1, 4):
+        for i in range(1, 3):
             line = f"6. Diff under review: git diff aaaaaaa^{i}..HEAD"
             rc, parsed = _run_hook(
                 _raw_payload(tmp, line, what_to_review=f"unit A (caret) worker output round {i}")
