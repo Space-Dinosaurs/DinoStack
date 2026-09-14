@@ -75,7 +75,7 @@ Extract the North Star pillar list from `docs/overview/vision.md` (the "North St
 - the pillar's verbatim text (from the live vision.md read in this invocation - never from memory)
 - the signal JSON rollup verbatim
 - the compact verdict contract below
-- every section of that brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
+- every section of that brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 Prefer a non-dominant model for at least one lens (self-report bias mitigation, mirroring `/ds-failure-audit` Step 2). If the operator has only one model, run all lenses under it and note the bias in the report.
 

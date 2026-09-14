@@ -28,11 +28,11 @@ Downstream consumers: content/references/agent-team.md §Spawning and
                       conductor actually fills - both restate the `SESSION_KEY`
                       line and point back here for its derivation rule, so a change
                       to that rule must be reflected in both. The brief-section-form
-                      rule below carries a pointer at every site in content/ that
-                      assembles a subagent's spawn prompt; that set grows whenever a
-                      command adds a spawn, so it is deliberately not enumerated
-                      here - derive it by reading the spawn sites rather than by
-                      trusting a list in this header;
+                      rule below is canonical in Section 11 and binds every spawn
+                      brief to any recipient role. Some spawn sites carry a
+                      point-of-use pointer to it and many do not; a site without one
+                      is bound exactly the same, and this header makes no claim
+                      about which sites carry one;
                       content/references/skeptic-protocol.md (Section 9 of this file
                       defines their relationship);
                       content/sections/12-protocol-details.md (the pointer table

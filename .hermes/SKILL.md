@@ -1200,7 +1200,7 @@ When spawning `engineer`, include:
 - Acceptance criteria
 - Session context (`.agentic/context.md` content, supplied verbatim by the main agent - a worktree-isolated Worker cannot read this path directly, since its worktree branches from `origin/main`, where `.agentic/` is untracked)
 - `SESSION_KEY: <value>` - the session's learnings-shard key, supplied verbatim by the main agent on every spawn. Derive it once per session and reuse the same value; a brief that omits the line makes the Worker skip shard capture silently, with no error anywhere. Derivation rule and rationale: `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**"
-- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**". The obligation is wider than this list - it binds every brief the main agent composes, to any recipient role
+- Every section of the brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**". The obligation is wider than this list - it binds every brief the main agent composes, to any recipient role
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
@@ -1210,13 +1210,13 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
 **HUD file writes (P1 fan-out).** When fan-out Workers are active (P1), each Worker writes phase transition updates to `.agentic/hud/<worker-id>.json`. The `worker_id` is provided in the spawn prompt alongside `task_id`. The conductor reads all HUD files on demand to produce an aggregate status display. The Stop hook (or conductor post-completion cleanup) removes the Worker's HUD file on normal exit. HUD files not updated within 5 minutes should be treated as stale (`[stale]`) when the conductor reads them.
 
 When spawning `skeptic` for architect plan review, include:
-- The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?" (subject to the neutrality requirement - see `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)"), with the brief's own sections composed as slots per Section 7 "Brief section slots"
+- The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?" (subject to the neutrality requirement - see `content/references/skeptic-protocol.md` Section 7 "Neutrality requirement (independent of completeness)"), plus the three conductor-composed sections - attack surface, questions the review must answer explicitly, repo-specific hazards - each composed as a slot per `content/references/skeptic-protocol.md` Section 7 "Brief section slots"; the pasted template prose itself is never reshaped into slot items
 - The architect's complete plan output
 - Any established architectural constraints or prior decisions the Skeptic should check against
 - The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) leads with the unit's stable key (§4.5) followed by " | " and the file paths the plan proposes to modify rather than a git diff, field 1 (architect plan) is the plan itself under review, field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet, and field 7 (conductor spawn brief, claim-bearing text only) carries the provenance-tagged claims or `n/a` per the canonical reasons - never a conductor hypothesis or suspicion about the artifact under review, in this or any other field; the ban is not limited to field 7 or the brief (see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban: every field, every form, tagged or untagged").
 
 When spawning `skeptic` for engineer output review, include:
-- The adversarial brief (run `/ds-skeptic` for templates) (subject to the same neutrality requirement, and with its sections composed as slots per `content/references/skeptic-protocol.md` Section 7 "Brief section slots")
+- The adversarial brief (run `/ds-skeptic` for templates) (subject to the same neutrality requirement), plus the three conductor-composed sections - attack surface, questions the review must answer explicitly, repo-specific hazards - each composed as a slot per `content/references/skeptic-protocol.md` Section 7 "Brief section slots"; the pasted template prose itself is never reshaped into slot items
 - The engineer's output (file paths or inline)
 - Resolved issues preflight from prior rounds
 - The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - field 6 (diff under review) leads with the unit's stable key (its worktree branch, or the ticket id for a single-unit spawn - never a bare multi-unit ticket id, per §4.5) followed by " | " and the git diff command or file paths for the engineer's change; fields 1-5 map to the architect plan, Brief/Plan artifact, `qa_criteria` block, per-consumer impact table, and related files; field 7 (conductor spawn brief, claim-bearing text only) carries the provenance-tagged claims written into this spawn prompt, or `n/a - <reason>`, using the enumerated `n/a - <reason>` rationale where one genuinely applies - never a conductor hypothesis or suspicion about the artifact under review, in this or any other field; the ban is not limited to field 7 or the brief (see `content/references/skeptic-protocol.md` Section 7 "Scope of the ban: every field, every form, tagged or untagged").
@@ -1255,7 +1255,7 @@ When spawning `dependency-auditor`, include:
 
 When spawning `qa-engineer`, include:
 - The unit's acceptance criteria as the test plan
-- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
+- Every section of the brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 - The qa.md config (dev server command, port, URLs) — resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback
 - Which pages/features to verify based on the files changed
 - The qa-engineer uses `agent-browser` for all browser interaction
@@ -3960,7 +3960,7 @@ The `verification` field is **mandatory**. Its purpose is to force the conductor
 
 The `SESSION_KEY` field is **mandatory and never omitted**. It is the one line in this template whose obligation is wider than the template itself: it belongs in **every** Worker's spawn prompt, including Trivial-path solo spawns and the non-`engineer` roles this contract does not otherwise cover. Omitting it raises no error - the Worker simply skips shard capture in silence, so the learning is lost with no signal. Derive the value once per session and pass that same value every time; the derivation rule, the harness caveats, and the reason the scope is blanket rather than per-role live in `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**".
 
-Every section of the brief this template accompanies is composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"; the Skeptic's three named slots are enumerated at `content/references/skeptic-protocol.md` §7 "Brief section slots".
+Every section of the brief this template accompanies that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"; the Skeptic's three named slots are enumerated at `content/references/skeptic-protocol.md` §7 "Brief section slots".
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 
@@ -7788,11 +7788,11 @@ Downstream consumers: content/references/agent-team.md §Spawning and
                       conductor actually fills - both restate the `SESSION_KEY`
                       line and point back here for its derivation rule, so a change
                       to that rule must be reflected in both. The brief-section-form
-                      rule below carries a pointer at every site in content/ that
-                      assembles a subagent's spawn prompt; that set grows whenever a
-                      command adds a spawn, so it is deliberately not enumerated
-                      here - derive it by reading the spawn sites rather than by
-                      trusting a list in this header;
+                      rule below is canonical in Section 11 and binds every spawn
+                      brief to any recipient role. Some spawn sites carry a
+                      point-of-use pointer to it and many do not; a site without one
+                      is bound exactly the same, and this header makes no claim
+                      about which sites carry one;
                       content/references/skeptic-protocol.md (Section 9 of this file
                       defines their relationship);
                       content/sections/12-protocol-details.md (the pointer table
@@ -16152,7 +16152,7 @@ Extract the North Star pillar list from `docs/overview/vision.md` (the "North St
 - the pillar's verbatim text (from the live vision.md read in this invocation - never from memory)
 - the signal JSON rollup verbatim
 - the compact verdict contract below
-- every section of that brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
+- every section of that brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 Prefer a non-dominant model for at least one lens (self-report bias mitigation, mirroring `/ds-failure-audit` Step 2). If the operator has only one model, run all lenses under it and note the bias in the report.
 
@@ -18327,7 +18327,7 @@ Spawn `architect`. Provide:
 - Relevant code snippets
 - AGENTS.md conventions
 - Architectural decisions/rationale from MEMORY.md (or custom decision log)
-- Every section of the brief composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
+- Every section of the brief that the conductor composes is a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**"
 
 **Pre-authored Brief injection (only when `operator_brief_injectionable` was set in Phase 0b).** Check this flag before proceeding. When set, read the Brief file at `brief_path` and prepend the following to the architect spawn brief:
 - The Brief's **Problem** section, labeled: `"Committed problem statement (from operator Brief — do not redefine):"`
@@ -21373,7 +21373,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
    - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
-   **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each section composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
+   **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each conductor-composed section a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
    - The raw existing root `CLAUDE.md` content.
    - The three-bucket classification above, with the main agent's pre-classification notes.
    - The target `AGENTS.md` structure (from Step 3 template).

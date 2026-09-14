@@ -335,7 +335,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
    - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
-   **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each section composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
+   **Spawn Worker** (labeled "CLAUDE.md split Worker") with the following, each conductor-composed section a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
    - The raw existing root `CLAUDE.md` content.
    - The three-bucket classification above, with the main agent's pre-classification notes.
    - The target `AGENTS.md` structure (from Step 3 template).
