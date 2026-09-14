@@ -257,7 +257,7 @@ From the `blocks` / `is-blocked-by` link fields, build a directed acyclic graph 
 - A top-level directory listing of the repo.
 - The title and description of each ticket in the set.
 
-The investigator brief MUST include the following two tasks:
+The investigator brief MUST include the following two tasks, each composed as a slot per `content/references/subagent-protocol.md` §11 Output Expectations, "**Brief section form**":
 
 1. **Conflict analysis.** Return `{ticket_id -> affected_areas[]}`. Two tickets conflict if their `affected_areas[]` overlap OR they share a Level 1 conflict group.
 
