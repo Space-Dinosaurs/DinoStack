@@ -253,7 +253,7 @@ the detach. A freshly-spawned isolation worktree is clean by
 construction, so this check costs nothing on the normal path; it exists
 only to catch the abnormal one.
 
-[verified-by-execution, own worktree, git 2.55.0]: `git checkout --detach
+`git checkout --detach
 origin/main` succeeds; `git symbolic-ref -q HEAD` afterward exits nonzero
 (genuinely detached); the engineer's own harness branch ref
 (`worktree-agent-<id>`) survives the detach untouched, confirmed via
@@ -271,7 +271,7 @@ explicit refspec**:
 git push origin "HEAD:refs/heads/chore/tweak-<key>"
 ```
 
-[verified-by-execution, own worktree, git 2.55.0]: committed on the
+Measured: committed on the
 detached HEAD, pushed by this exact refspec form to a scratch branch,
 confirmed landed via `git ls-remote`, then deleted the scratch ref -
 clean round trip. **Binding constraint - braced variables always, and
@@ -349,7 +349,7 @@ and no orphaned-nested-entry case to reason about separately. It is
 reaped (or not) by the same harness/session-start machinery that governs
 any other crashed spawn.
 
-[verified-by-read]: `classify_entry` (`bin/tests/worktree_model.py:443-447`)
+`classify_entry` (`bin/tests/worktree_model.py:443-447`)
 is path-prefix-only and never reads `entry.branch` - a detached harness
 worktree at `.claude/worktrees/agent-<id>` classifies ISOLATION exactly
 like a branched one. `disposition_for`'s detached-HEAD branch
@@ -482,8 +482,7 @@ window. Read empty stdout, never exit status.
 
 ### Draft-PR rationale and the un-draft corollary
 
-The PR opens `--draft`. [verified-by-execution, live probe PR #815, this
-repo, 2026-08-25]: both `gh pr merge --squash` and
+The PR opens `--draft`. Both `gh pr merge --squash` and
 `gh pr merge --squash --admin` on a draft PR exit 1 with
 `GraphQL: Pull Request is still a draft (mergePullRequest)`; draft
 enforcement is at the GraphQL mutation layer, upstream of `--admin`'s

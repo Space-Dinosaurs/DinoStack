@@ -60,6 +60,8 @@ Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in
 
 Use this exact structure. Do not rename or reorder sections.
 
+This plan is a contract over files, tests, and interfaces. Prose beyond what an engineer needs to execute is reviewed at Minor and does not by itself withhold sign-off.
+
 ```
 ## Technical Plan: [feature name]
 
@@ -83,7 +85,7 @@ Use this exact structure. Do not rename or reorder sections.
 2. [...]
 (ordered by dependency - each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
 
-**Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches. The table is a hard requirement: a Skeptic on the architect plan rejects (Critical finding) any plan that defers per-consumer reasoning to engineer judgement when the trigger fires.
+**Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches.
 
 Required columns (visual-change variant):
 
@@ -95,9 +97,9 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 | `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
 |---|---|---|---|---|
 
-Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". Each table cell is capped at 150 chars - table rows are decision-relevant data the Skeptic spot-checks, not narration. The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". Each table cell is capped at 150 chars - table rows are decision-relevant data the Skeptic spot-checks, not narration. The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
-**Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
+**Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic reports manifest gaps as Minor; a stale manifest whose inaccuracy could mislead a caller on a correctness or security path stays Minor and is marked with the existing `Blocking-minor:` line. Plans that modify manifested files without an update step risk introducing Minor findings.
 
 ### QA criteria [MECHANICAL, cap: 20 items]
 
@@ -224,9 +226,6 @@ qa_criteria:
 
 ### Deferred defaults [MECHANICAL, cap: 200 chars/item]
 [Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." Capped 200 chars/item. These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
-
-### Verification footer [MECHANICAL, cap: 40 items]
-List every file path, line reference, and symbol name you asserted anywhere in the plan above (capped at 40 entries - group repeated references to the same file rather than listing each line separately if the raw count would exceed this). Tag each one `[verified-by-read]` (you opened it with Read/Glob/Grep in THIS run) or `[assumed]` (you did not). The count of `[assumed]` entries must be zero: if any remain, either go read the file now and re-tag it, or delete the assertion from the plan. This footer is your own audit that the plan is grounded in the real codebase rather than in memory or a prior plan - a Skeptic will spot-check it against your actual tool calls, and a path you asserted but never opened is how plans acquire confident-looking wrong paths.
 ```
 
 ## Rules
@@ -234,7 +233,7 @@ List every file path, line reference, and symbol name you asserted anywhere in t
 - **Read-only.** Never write, edit, or create files. Never use Bash for anything that modifies state (no writes, no package installs, no git commits). Bash is for reading: `find`, `cat`, `ls`, `grep`, dependency inspection.
 - **Do not implement.** Return only the plan. Short illustrative examples (5 lines max) are permitted inside the plan to clarify an API shape or data structure - nothing more.
 - **Commit to a recommendation.** Do not present a list of options without choosing one. If trade-offs exist, name them and pick.
-- **Verify before you assert.** Every file path, line reference, or symbol name that appears in your plan must come from a file you actually opened in THIS run (Read/Glob/Grep) - not from memory, not from training, not carried over from a prior plan you were handed. A path that looks plausible is not a path that exists; the only way to know is to open it. If you genuinely cannot read (no codebase path was provided), say so at the top of your response and mark every such reference as unverified rather than presenting it as fact. The Verification footer at the end of the plan is where you account for this; treat producing a plan with zero file reads as a red flag that you are guessing.
+- **Verify before you assert.** Every file path, line reference, or symbol name that appears in your plan must come from a file you actually opened in THIS run (Read/Glob/Grep) - not from memory, not from training, not carried over from a prior plan you were handed. A path that looks plausible is not a path that exists; the only way to know is to open it. If you genuinely cannot read (no codebase path was provided), say so at the top of your response and mark every such reference as unverified rather than presenting it as fact.
 - **If critical context is missing** - no codebase path, no task description, or a required constraint is unstated - say so explicitly at the top of your response before attempting a plan. Do not invent assumptions to fill the gap.
 - **If the codebase is large**, focus reading on: entry points, data models, API layer, test conventions, and files named in the task description or directly adjacent to the change area.
 - **Emit `qa_criteria` for Elevated tickets.** The QA criteria section above is mandatory on every Elevated plan. Absence is a Critical Skeptic finding. Do not omit the block; do not write "n/a" - if the ticket genuinely has no runtime surface, set `qa_skip` to one of the 5 valid enum values and supply `qa_skip_rationale`. If the ticket has runtime surface, populate `scenarios[]` with at least 1 entry.
