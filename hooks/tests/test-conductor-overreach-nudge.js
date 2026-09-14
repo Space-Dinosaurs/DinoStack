@@ -48,6 +48,21 @@
  *                                  contains one spawn, asserts NO advisory
  *                                  fires (spawns !== 0 for the whole
  *                                  transcript).
+ *   10. no-refire-on-stop-hook-active: stop_hook_active:true with a
+ *                                  transcript that WOULD trigger -> no
+ *                                  advisory on stdout, no conductor_overreach
+ *                                  event appended, exit 0 (regression for the
+ *                                  unbreakable-loop bug: additionalContext
+ *                                  from a Stop hook is surfaced by the
+ *                                  harness as feedback that continues the
+ *                                  turn, so an unguarded re-entrant fire
+ *                                  never terminates).
+ *   11. fires-when-stop-hook-active-false: same triggering transcript with
+ *                                  stop_hook_active:false (and, separately,
+ *                                  the field omitted entirely) -> advisory
+ *                                  emitted and event appended, i.e. the
+ *                                  first-fire behavior from test 1 is
+ *                                  unaffected by the new guard.
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -366,6 +381,83 @@ console.log('\nTest 9: interleaved-non-agent-results (shared fixture, via the re
   assert(status === 0, 'hook exits 0');
   assert(stdout.trim() === '', 'no advisory: the fixture contains one spawn, so ratio_trigger stays false');
   cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 10: no-refire-on-stop-hook-active (regression for the unbreakable loop)
+// ---------------------------------------------------------------------------
+console.log('\nTest 10: no-refire-on-stop-hook-active');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-010';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = stopPayload(cwd, sessionId, transcriptPath);
+  payload.stop_hook_active = true;
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0 on re-entrant stop_hook_active:true');
+  assert(stdout.trim() === '', 'no advisory emitted when stop_hook_active is true');
+  const lines = eventLines(cwd);
+  assert(lines.find((e) => e.event === 'conductor_overreach') === undefined,
+    'no conductor_overreach event appended when stop_hook_active is true');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: fires-when-stop-hook-active-false (existing behavior intact)
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: fires-when-stop-hook-active-false');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-011a';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = stopPayload(cwd, sessionId, transcriptPath); // stop_hook_active: false
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0 with stop_hook_active:false');
+  let out = null;
+  try { out = JSON.parse(stdout); } catch (_) { /* leave null */ }
+  assert(
+    out && out.hookSpecificOutput
+    && out.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'advisory emitted when stop_hook_active is false'
+  );
+  const lines = eventLines(cwd);
+  assert(lines.find((e) => e.event === 'conductor_overreach') !== undefined,
+    'conductor_overreach event appended when stop_hook_active is false');
+  cleanup(cwd);
+
+  // Field omitted entirely (not every harness call is guaranteed to send it).
+  const cwd2 = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd2, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId2 = 'overreach-session-011b';
+  const transcriptPath2 = writeTranscript(cwd2, buildInvestigationOnlyTranscript(5));
+  const payload2 = {
+    session_id: sessionId2,
+    transcript_path: transcriptPath2,
+    cwd: cwd2,
+    hook_event_name: 'Stop',
+    // stop_hook_active intentionally omitted
+  };
+  const { stdout: stdout2, status: status2 } = runHook(payload2, cwd2);
+  assert(status2 === 0, 'hook exits 0 with stop_hook_active omitted');
+  let out2 = null;
+  try { out2 = JSON.parse(stdout2); } catch (_) { /* leave null */ }
+  assert(
+    out2 && out2.hookSpecificOutput
+    && out2.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'advisory emitted when stop_hook_active is omitted'
+  );
+  cleanup(cwd2);
 }
 
 // ---------------------------------------------------------------------------

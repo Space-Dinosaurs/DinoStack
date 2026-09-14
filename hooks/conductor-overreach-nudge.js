@@ -10,8 +10,20 @@
  *          inert in production), resolves the configured (or calibrated
  *          default) threshold, and on ratio_trigger appends a
  *          conductor_overreach event to .agentic/events.jsonl and emits an
- *          advisory additionalContext line. WARN-ONLY - never blocks the
- *          stop; every path exits 0.
+ *          advisory additionalContext line. Every path exits 0, but this is
+ *          NOT the same as "never blocks the stop": the Claude Code harness
+ *          surfaces a Stop hook's `additionalContext` as "Stop hook
+ *          feedback" and CONTINUES the turn rather than letting it end. On a
+ *          re-entrant Stop call (`payload.stop_hook_active === true`, i.e.
+ *          this is the harness re-invoking Stop after a prior Stop hook's
+ *          own output kept the turn open) the trigger condition
+ *          (conductor_tool_calls > threshold && spawns === 0, computed
+ *          cumulatively over the whole transcript) is invariant across a
+ *          text-only continuation reply, so an unguarded advisory would
+ *          refire forever. The `stop_hook_active` check below exits 0
+ *          immediately, before computing overreach or appending the event,
+ *          specifically to break that loop - it is load-bearing, not
+ *          cosmetic.
  *
  * Public API: none (CLI entry point only, invoked by the Claude Code Stop
  *             hook per .claude/settings.json). Not imported by other
@@ -134,6 +146,15 @@ async function run() {
       ? payload.cwd.trim()
       : null;
     if (!cwd) process.exit(0);
+
+    // Re-entrant Stop call: the harness re-invokes Stop after a prior Stop
+    // hook's additionalContext kept the turn open. The overreach trigger is
+    // computed cumulatively over the whole transcript, so it is invariant
+    // across a text-only continuation reply - without this guard the
+    // advisory would refire on every re-entry forever. Exit before
+    // computing overreach or appending the event: a single event per stop,
+    // not one per re-entry.
+    if (payload.stop_hook_active === true) process.exit(0);
 
     const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
       ? payload.session_id.trim()

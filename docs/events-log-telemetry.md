@@ -77,7 +77,8 @@ DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
 both fire while the conductor's turn is still in progress. A fifth writer,
 `hooks/conductor-overreach-nudge.js` (also a Stop hook), appends a
 `conductor_overreach` event, but only when its `ratio_trigger` condition
-fires - see below.
+fires - see below. It also guards against re-firing when the harness
+re-invokes Stop after its own `additionalContext` (see below).
 
 Subagent agents never emit events themselves; hooks firing on their spawns
 and completions do.
@@ -204,8 +205,8 @@ not a spawn-bracketing one.
 ### conductor_overreach
 
 Emitted by the registered Stop hook `hooks/conductor-overreach-nudge.js`
-(warn-only; never blocks the stop) when the conductor made more than the
-configured `conductor_overreach_threshold` (default 12; config-reversible
+when the conductor made more than the configured
+`conductor_overreach_threshold` (default 12; config-reversible
 via `.agentic/config.json`) investigation-shaped tool calls
 (`Read`/`Grep`/`Glob`, plus read-shaped `Bash`) with zero subagent spawns,
 cumulatively across the ENTIRE session transcript - not a per-turn count.
@@ -218,6 +219,16 @@ payload), parsed as JSONL with a size ceiling and malformed-line tolerance,
 after subtracting a mandated-preflight whitelist (including a post-spawn
 spot-check window bound specifically to an Agent-tool spawn's own
 `tool_result` - any other tool's result must not open or extend it).
+
+**Re-entry guard.** The hook's exit code is always 0, but that does not mean
+it never affects the stop: the Claude Code harness surfaces a Stop hook's
+`additionalContext` as "Stop hook feedback" and continues the turn instead
+of letting it end. Since `ratio_trigger` is computed cumulatively over the
+whole transcript, it stays true across a text-only continuation reply, so
+an unguarded advisory would refire on every re-entrant Stop call forever.
+The hook exits 0 immediately - before computing overreach or appending the
+event - whenever `payload.stop_hook_active === true`, so the advisory and
+the event both fire at most once per stop.
 
 **Calibration.** `bin/ds-measure-conductor-tool-calls` measures this exact
 cumulative whole-transcript statistic (not a per-turn or run-length proxy)

@@ -12,6 +12,16 @@
       "source_token": ".codex/skills/**"
     },
     {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, the warn-only conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
+      "kind": "operational",
+      "occurrence_hash": "01a7b3732adb2422383a15e6337e4ffe32d59708de1f9e9da0cf92bb2884f684",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**Writer scope: `.agentic/events.jsonl` has six writers** - the conductor (appends per orchestration boundary), the Stop hook (`hooks/stop-context.js`, `session_total` per turn), two mid-turn spawn hooks (`hooks/pre-tool-use-spawn-emit.js`: `spawn_start`; `hooks/subagent-stop-spawn-emit.js`: `spawn_complete`, DS-160), the advisory Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, only on `ratio_trigger`; guards against re-firing on the harness's own re-entrant Stop calls), and `bin/ds-agentic-repair --fix` (operator-invoked, not a hook - dedup-appends a phantom tree's events.jsonl, order-preserving). Append-only writes (not turn timing) give safety; only these hooks write on subagents' behalf. Other `.agentic/` files: qa.md, tasks.jsonl by conductor; `loop-state-<LOOP_KEY>.json`/legacy `loop-state.json` by conductor + Stop hook (liveness refresh) + SessionEnd hook (interrupted-mark)."
+    },
+    {
       "expected_target": "dinostack-codex-implement-ticket",
       "generated_token": "$dinostack-codex-implement-ticket",
       "kind": "operational",
@@ -2040,16 +2050,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "bin/ds-branch-prune"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the conductor, the Stop hook, two spawn-telemetry hooks, the warn-only conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair --fix` repair tool), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The conductor-overreach detector is not ported here either, but NOT because the Codex Stop payload lacks a transcript - it genuinely carries a `transcript_path` pointing at a real structured rollout file (confirmed against the installed Codex CLI binary's own JSON schema strings); the gap is that the rollout format is Codex's own schema (`tool_invocation`/`tool_result` as a `RawPayloadKind`), not Claude Code's `tool_use`/`tool_result` content-block shape the detector parses, so a port needs a Codex-rollout-specific block parser that does not exist yet. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
-      "kind": "operational",
-      "occurrence_hash": "daa6649d8f5570ce6e9e578e56c832027a935481d7d2ba1b30598a2dd75ae91f",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Writer scope: `.agentic/events.jsonl` has six writers** - the conductor (appends per orchestration boundary), the Stop hook (`hooks/stop-context.js`, `session_total` per turn), two mid-turn spawn hooks (`hooks/pre-tool-use-spawn-emit.js`: `spawn_start`; `hooks/subagent-stop-spawn-emit.js`: `spawn_complete`, DS-160), the warn-only Stop hook `hooks/conductor-overreach-nudge.js` (`conductor_overreach`, only on `ratio_trigger`), and `bin/ds-agentic-repair --fix` (operator-invoked, not a hook - dedup-appends a phantom tree's events.jsonl, order-preserving). Append-only writes (not turn timing) give safety; only these hooks write on subagents' behalf. Other `.agentic/` files: qa.md, tasks.jsonl by conductor; `loop-state-<LOOP_KEY>.json`/legacy `loop-state.json` by conductor + Stop hook (liveness refresh) + SessionEnd hook (interrupted-mark)."
     },
     {
       "expected_target": "content/references/delegation-detail.md",
