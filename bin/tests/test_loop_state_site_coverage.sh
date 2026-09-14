@@ -13,6 +13,9 @@
 #            Gate W3 - the six Phase 7 referent-free write sites, which contain
 #                      ZERO occurrences of "loop-state" and are invisible to
 #                      both a path grep and a referent grep, name a keyed path.
+#            DS-232 prose pins - the ship-at-cap bullet keeps both halves on one
+#                      line, and both obligation files keep the pre-fix-failure
+#                      property.
 #
 #          FLOOR DESIGN - READ BEFORE TOUCHING A THRESHOLD.
 #          A floor must be placed on a quantity the change does NOT reduce.
@@ -380,7 +383,7 @@ fi
 # DS-232 r3 pin: ship-at-cap must stay expressed in EXISTING machinery.
 #
 # Two halves carry that decision, and both live on Phase 6 Step 3's
-# cap_reached bullet: the recorded round-cap `ship` decision IS the approval
+# cap_reached bullet: the conductor RECORDS the round-cap `ship` decision that
 # Step 2 requires for deferring a Major, and the branch then rejoins the
 # ordinary clean exit rather than inventing a parallel one. Matching BOTH on
 # ONE line ties the pin to that bullet instead of to the file at large, so
@@ -389,12 +392,12 @@ fi
 # Reddening mutations: delete either phrase; reword either one; or move them
 # onto separate bullets. Any of the three drops the same-line match to 0.
 # ---------------------------------------------------------------------------
-SHIP_PIN="$(grep -F 'the recorded `decision: "ship"` is the explicit approval' "$FILE" \
+SHIP_PIN="$(grep -F 'record `decision: "ship"`' "$FILE" \
   | grep -cF 'take the clean-exit branch above' || true)"
 if [ "${SHIP_PIN:-0}" -ge 1 ]; then
   _pass "ship-at-cap pin: cap_reached bullet defers via the recorded ship decision and rejoins the clean exit"
 else
-  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'the recorded \`decision: \"ship\"\` is the explicit approval' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit or a new termination_reason."
+  _fail "PIN FAIL: Phase 6 Step 3's cap_reached bullet must carry BOTH 'record \`decision: \"ship\"\`' AND 'take the clean-exit branch above' on the SAME line (DS-232 r3). Ship-at-cap is expressed with existing machinery - do not reintroduce a parallel exit or a new termination_reason."
 fi
 
 # ---------------------------------------------------------------------------
