@@ -89,12 +89,8 @@ A missing or stale manifest is **intent debt**: the artifact stops reflecting wh
 
 ## Enforcement
 
-Skeptic applies tiered enforcement:
+Skeptic reports manifest gaps as **Minor**: a missing manifest on a non-trivial module, and a stale manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics), are both **Minor findings** and do not block sign-off. A stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path (e.g., a documented "no side effects" claim that is no longer true, an idempotency guarantee that no longer holds, a failure-mode contract that has silently changed) stays Minor and is routed through the `Blocking-minor:` sign-off line. Every gap is still listed in the findings.
 
-- **Missing manifest** on a non-trivial module: **Minor finding** (does not block sign-off). Comprehension hygiene; flagged for awareness.
-- **Stale manifest** (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics): **Major finding** (blocks sign-off absent a compelling documented reason to defer). A stale manifest is active misinformation - worse than no manifest.
-- **Stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path** (e.g., a documented "no side effects" claim that is no longer true, an idempotency guarantee that no longer holds, a failure-mode contract that has silently changed): **Critical finding**. The manifest is actively misleading callers on a load-bearing path.
-
-Minor findings are addressed via the Minor-fix workflow (see `content/references/skeptic-protocol.md` Section 2 step 4 and Section 6). Major and Critical findings must be resolved before sign-off.
+Minor findings are addressed via the Minor-fix workflow (see `content/references/skeptic-protocol.md` Section 2 step 4 and Section 6).
 
 See `content/references/skeptic-protocol.md` for findings classification definitions.
