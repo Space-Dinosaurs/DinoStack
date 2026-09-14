@@ -220,15 +220,24 @@ after subtracting a mandated-preflight whitelist (including a post-spawn
 spot-check window bound specifically to an Agent-tool spawn's own
 `tool_result` - any other tool's result must not open or extend it).
 
-**Re-entry guard.** The hook's exit code is always 0, but that does not mean
-it never affects the stop: the Claude Code harness surfaces a Stop hook's
-`additionalContext` as "Stop hook feedback" and continues the turn instead
-of letting it end. Since `ratio_trigger` is computed cumulatively over the
-whole transcript, it stays true across a text-only continuation reply, so
-an unguarded advisory would refire on every re-entrant Stop call forever.
-The hook exits 0 immediately - before computing overreach or appending the
-event - whenever `payload.stop_hook_active === true`, so the advisory and
-the event both fire at most once per stop.
+**Re-entry guard (two layers).** The hook's exit code is always 0, but that
+does not mean it never affects the stop: the Claude Code harness surfaces a
+Stop hook's `additionalContext` as "Stop hook feedback" and continues the
+turn instead of letting it end. Since `ratio_trigger` is computed
+cumulatively over the whole transcript, it is monotonic - only a spawn can
+clear it, and that clears it permanently for the rest of the session - so
+an unguarded advisory would refire on every subsequent Stop call for the
+rest of the session, re-entrant or not. Layer 1: the hook exits 0
+immediately - before computing overreach or appending the event - whenever
+`payload.stop_hook_active === true`. Layer 2: a once-per-session sentinel
+file (`.agentic/.conductor-overreach-fired-<session_id>`) backstops Claude
+Code bug #54360, under which `stop_hook_active` can fail to propagate when
+a UserPromptSubmit hook interleaves system reminders. The sentinel is
+written before anything is emitted, and needs no reset (unlike the
+cap-2/reset-on-user-turn pattern used by the sibling `hooks/lib/loop_guard.py`
+Python hooks), since a genuine new user turn cannot make the monotonic
+trigger any less true. A missing `session_id`, or a failed sentinel write,
+also results in no emission - fail toward silence.
 
 **Calibration.** `bin/ds-measure-conductor-tool-calls` measures this exact
 cumulative whole-transcript statistic (not a per-turn or run-length proxy)
@@ -252,6 +261,13 @@ happens and carry no denominator for a spawn-free session;
 volume for a session with zero spawns. `ds-cost session`/`ds-cost project`
 render a trended (by ISO week) rollup line of `ratio_trigger:true` counts
 when present.
+
+**Telemetry trend discontinuity.** Before the Layer 2 sentinel, a single
+looping session could contribute many `ratio_trigger:true` events to one
+ISO week (one per re-entrant Stop call). After it, a session contributes at
+most one. A week's count in the rollup is therefore a session count, not a
+fire count, and weeks either side of this change are not directly
+comparable.
 
 ## ds-cost
 

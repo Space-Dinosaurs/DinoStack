@@ -327,7 +327,7 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
             (
                 "**Writer scope (Codex runtime boundary).** "
                 "`$AE_PROJECT_DIR/.agentic/events.jsonl` has six writers on Claude Code (the "
-                "conductor, the Stop hook, two spawn-telemetry hooks, the warn-only "
+                "conductor, the Stop hook, two spawn-telemetry hooks, the advisory "
                 "conductor-overreach Stop hook, and the operator-invoked `bin/ds-agentic-repair "
                 "--fix` repair tool), but the current Codex "
                 f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "

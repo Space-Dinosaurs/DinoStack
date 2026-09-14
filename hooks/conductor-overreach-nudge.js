@@ -13,17 +13,47 @@
  *          advisory additionalContext line. Every path exits 0, but this is
  *          NOT the same as "never blocks the stop": the Claude Code harness
  *          surfaces a Stop hook's `additionalContext` as "Stop hook
- *          feedback" and CONTINUES the turn rather than letting it end. On a
- *          re-entrant Stop call (`payload.stop_hook_active === true`, i.e.
- *          this is the harness re-invoking Stop after a prior Stop hook's
- *          own output kept the turn open) the trigger condition
- *          (conductor_tool_calls > threshold && spawns === 0, computed
- *          cumulatively over the whole transcript) is invariant across a
- *          text-only continuation reply, so an unguarded advisory would
- *          refire forever. The `stop_hook_active` check below exits 0
- *          immediately, before computing overreach or appending the event,
- *          specifically to break that loop - it is load-bearing, not
- *          cosmetic.
+ *          feedback" and CONTINUES the turn rather than letting it end.
+ *          Since `ratio_trigger` is computed cumulatively over the whole
+ *          transcript and is monotonic (only a spawn can clear it, and it
+ *          clears it permanently for the rest of the session), an unguarded
+ *          fire would refire on every subsequent Stop call for the rest of
+ *          the session - re-entrant or not.
+ *
+ *          TWO layers bound that loop, matching the two-layer pattern
+ *          hooks/lib/loop_guard.py documents for the sibling Python Stop
+ *          hooks (enforce-no-abdication.py, enforce-turn-shape.py), ported
+ *          to this hook's own JS runtime and its own (weaker, monotonic
+ *          rather than reset-per-turn) trigger shape:
+ *            Layer 1: `payload.stop_hook_active === true` - the primary
+ *                     re-entrancy guard. Exits 0 immediately, before
+ *                     computing overreach or appending the event, on any
+ *                     Stop call the harness itself re-invoked after a prior
+ *                     Stop hook's output kept the turn open.
+ *            Layer 2: a once-per-session sentinel file at
+ *                     [resolved root]/.agentic/.conductor-overreach-fired-
+ *                     <sanitized session_id> - backstops Claude Code bug
+ *                     #54360, under which `stop_hook_active` can fail to
+ *                     propagate when a UserPromptSubmit hook interleaves
+ *                     system reminders (this repo has such hooks). A
+ *                     once-per-session sentinel was chosen over a JS port of
+ *                     loop_guard's counter-cap (cap 2, reset-on-genuine-
+ *                     user-turn) shape because this trigger, unlike the
+ *                     abdication/turn-shape ones, is monotonic within a
+ *                     session: it can never go from true back to false
+ *                     except via a spawn, which clears it permanently. A
+ *                     cap-2 counter would still allow the loop to run twice
+ *                     before backstopping; a sentinel bounds it at exactly 1
+ *                     and needs no reset logic, since a genuine new user
+ *                     turn cannot make the measured condition any less
+ *                     true. The sentinel is checked and (on a successful
+ *                     write) set BEFORE the event is appended or the
+ *                     advisory is emitted, and mirrors loop_guard's
+ *                     fail-toward-silence discipline: if the sentinel write
+ *                     fails, or no session_id is available to key it on, the
+ *                     hook does NOT emit - an advisory or event emitted
+ *                     without a persisted loop bound is exactly the
+ *                     unbounded case Layer 2 exists to prevent.
  *
  * Public API: none (CLI entry point only, invoked by the Claude Code Stop
  *             hook per .claude/settings.json). Not imported by other
@@ -37,11 +67,16 @@
  *                anchors both reads/writes below to the repo root instead
  *                of the raw payload cwd). Reads
  *                [resolved root]/.agentic/config.json (optional,
- *                conductor_overreach_threshold key; config-reversible).
+ *                conductor_overreach_threshold key; config-reversible) and,
+ *                for the Layer 2 sentinel, checks for the existence of
+ *                [resolved root]/.agentic/.conductor-overreach-fired-<id>.
  *
  * Downstream consumers: none - terminal hook. Appends to
  *                        [cwd]/.agentic/events.jsonl, read by bin/ds-cost
  *                        and content/references/events-log.md consumers.
+ *                        Also writes the Layer 2 sentinel file (see above),
+ *                        consumed only by this hook's own future
+ *                        invocations within the same session.
  *
  * Failure modes: fail-open on any error - missing/malformed stdin, missing
  *                fields, unreadable/malformed config, an unavailable or
@@ -50,18 +85,23 @@
  *                treated the same as ratio_trigger:false here, i.e. no
  *                event, no advisory; never a fabricated zero-call
  *                measurement mistaken for a real one), or a write failure
- *                on events.jsonl all result in a silent exit 0. No
- *                suppression-mute logic exists anywhere in this hook by
- *                design (a prior design that grepped the transcript for an
- *                injected harness-suppression phrase and muted the advisory
- *                was removed by Skeptic Critical finding - do not
- *                re-derive it, and do not grep the transcript for
- *                injected-prompt phrases). The advisory fires
- *                unconditionally whenever ratio_trigger is true, regardless
- *                of transcript content.
+ *                on events.jsonl all result in a silent exit 0. A missing
+ *                session_id, or a failed Layer 2 sentinel write, also
+ *                results in a silent exit 0 with NO event and NO advisory
+ *                (fail toward silence, not toward an unbounded fire - see
+ *                the Layer 2 note above). No suppression-mute logic exists
+ *                anywhere in this hook by design (a prior design that
+ *                grepped the transcript for an injected harness-suppression
+ *                phrase and muted the advisory was removed by Skeptic
+ *                Critical finding - do not re-derive it, and do not grep
+ *                the transcript for injected-prompt phrases). Given a
+ *                fresh (non-re-entrant, not-yet-fired-this-session) Stop
+ *                call, the advisory fires unconditionally whenever
+ *                ratio_trigger is true, regardless of transcript content.
  *
  * Performance: single stdin read + single bounded transcript file read/pass
- *              (see overreach-detector.js) + one best-effort file append.
+ *              (see overreach-detector.js) + one best-effort sentinel
+ *              existence check/write + one best-effort events.jsonl append.
  *              No subprocess calls.
  */
 
@@ -130,6 +170,60 @@ function _appendEvent(cwd, sessionId, result) {
   }
 }
 
+/**
+ * Layer 2 loop-guard sentinel path: one file per session_id. Sanitizes the
+ * id to a filesystem-safe token (session_id is expected to be a UUID, but
+ * this does not trust that assumption).
+ *
+ * @param {string} cwd
+ * @param {string} sessionId
+ * @returns {string}
+ */
+function _sentinelPath(cwd, sessionId) {
+  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(resolveAgenticCwd(cwd), '.agentic', `.conductor-overreach-fired-${safeId}`);
+}
+
+/**
+ * @param {string} cwd
+ * @param {string} sessionId
+ * @returns {boolean} true iff the sentinel already exists (this session has
+ *   already fired the advisory once). Fails closed to false (not-yet-fired)
+ *   on any read error - a stat failure must never itself block the fire,
+ *   since _markFired below is the actual loop-bound enforcement point.
+ */
+function _hasFired(cwd, sessionId) {
+  try {
+    return fs.existsSync(_sentinelPath(cwd, sessionId));
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Persist the Layer 2 sentinel BEFORE the caller emits anything. Atomic
+ * per-process tmp-file + rename, matching hooks/lib/loop_guard.py's
+ * write_counter discipline.
+ *
+ * @param {string} cwd
+ * @param {string} sessionId
+ * @returns {boolean} true on a successful write. The caller MUST treat
+ *   false as "do not emit" - see the module docstring's Layer 2 section.
+ */
+function _markFired(cwd, sessionId) {
+  try {
+    const agenticDir = path.join(resolveAgenticCwd(cwd), '.agentic');
+    fs.mkdirSync(agenticDir, { recursive: true });
+    const sentinelPath = _sentinelPath(cwd, sessionId);
+    const tmp = `${sentinelPath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, '');
+    fs.renameSync(tmp, sentinelPath);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function run() {
   try {
     const raw = await readStdinGuarded();
@@ -173,6 +267,15 @@ async function run() {
     // unavailable case and the genuine below-threshold case.
     if (!result.ratio_trigger) process.exit(0);
 
+    // Layer 2 backstop (CC bug #54360: stop_hook_active can fail to
+    // propagate). Without a session_id there is no key to bound the loop
+    // on, so fail toward silence rather than emit unbounded. Likewise, if
+    // this session has already fired once, or the sentinel write itself
+    // fails, do not emit - see the module docstring's Layer 2 section.
+    if (!sessionId) process.exit(0);
+    if (_hasFired(cwd, sessionId)) process.exit(0);
+    if (!_markFired(cwd, sessionId)) process.exit(0);
+
     _appendEvent(cwd, sessionId, result);
 
     const advisory =
@@ -188,7 +291,7 @@ async function run() {
     }));
     process.exit(0);
   } catch (_) {
-    // Fail-open: never block the stop.
+    // Fail-open: exit 0 without emitting anything on any unexpected error.
     process.exit(0);
   }
 }

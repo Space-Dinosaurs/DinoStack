@@ -871,12 +871,15 @@ upsert_hook(
     "Stop hook enforce-turn-shape.py",
 )
 
-# conductor_overreach warn-only advisory nudge (DS unit DE). Registered AFTER
-# enforce-turn-shape.py. WARN-ONLY - never blocks the stop; a missing script
-# must not silently block every stop, so this uses the same GUARDED command
-# form as enforce-turn-shape.py above (`test -f ... && ... || exit 0`), not
-# a bare `node {path}` (see rationale at enforce-turn-shape.py's comment
-# above, and .claude/install.sh:779).
+# conductor_overreach advisory nudge (DS unit DE). Registered AFTER
+# enforce-turn-shape.py. Its exit code is always 0, but its
+# additionalContext output is surfaced by the harness as feedback that
+# continues the turn (see the hook's own module docstring for the
+# stop_hook_active/sentinel loop-guard this makes load-bearing) - a missing
+# script must not silently block every stop either, so this uses the same
+# GUARDED command form as enforce-turn-shape.py above
+# (`test -f ... && ... || exit 0`), not a bare `node {path}` (see rationale
+# at enforce-turn-shape.py's comment above, and .claude/install.sh:779).
 CONDUCTOR_OVERREACH_CMD = (
     f"test -f {hooks_root}/hooks/conductor-overreach-nudge.js && "
     f"node {hooks_root}/hooks/conductor-overreach-nudge.js || exit 0"

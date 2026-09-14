@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Unit tests: conductor-overreach-nudge.js Stop hook (warn-only detector).
+ * Unit tests: conductor-overreach-nudge.js Stop hook (advisory detector).
  *
  * The hook is a stdin-driven CLI script (run() reads fd 0 and process.exit(0)s),
  * so each behavioral case drives the REAL hook as a subprocess with a
@@ -63,6 +63,28 @@
  *                                  emitted and event appended, i.e. the
  *                                  first-fire behavior from test 1 is
  *                                  unaffected by the new guard.
+ *   12. no-refire-second-fresh-stop-same-session: Layer 2 regression. Two
+ *                                  independent (non-re-entrant,
+ *                                  stop_hook_active:false) Stop calls with
+ *                                  the SAME session_id and the same
+ *                                  triggering transcript -> the first fires
+ *                                  (advisory + event), the second does NOT
+ *                                  (no advisory, no additional event) -
+ *                                  backstops CC bug #54360, under which
+ *                                  Layer 1 (stop_hook_active) can fail to
+ *                                  propagate.
+ *   13. no-fire-without-session-id: ratio_trigger true but no session_id in
+ *                                  the payload -> no advisory, no event,
+ *                                  exit 0 (Layer 2 has no key to bind a
+ *                                  sentinel to, so it fails toward silence
+ *                                  rather than emit unbounded).
+ *   14. sentinel-write-failure-no-emit: the Layer 2 sentinel write is
+ *                                  sabotaged (`.agentic` is a plain file,
+ *                                  not a directory) -> no advisory, no
+ *                                  event, exit 0 (fail-toward-silence,
+ *                                  mirroring hooks/lib/loop_guard.py's
+ *                                  write_counter contract: an action whose
+ *                                  loop-bound write fails must not emit).
  *
  * Run with: node hooks/tests/test-conductor-overreach-nudge.js
  */
@@ -458,6 +480,95 @@ console.log('\nTest 11: fires-when-stop-hook-active-false');
     'advisory emitted when stop_hook_active is omitted'
   );
   cleanup(cwd2);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: no-refire-second-fresh-stop-same-session (Layer 2 regression)
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: no-refire-second-fresh-stop-same-session');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const sessionId = 'overreach-session-012';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+
+  const first = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(first.status === 0, 'first (fresh) stop exits 0');
+  let out1 = null;
+  try { out1 = JSON.parse(first.stdout); } catch (_) { /* leave null */ }
+  assert(
+    out1 && out1.hookSpecificOutput
+    && out1.hookSpecificOutput.additionalContext.includes('Advisory:'),
+    'first stop fires the advisory'
+  );
+  assert(
+    eventLines(cwd).filter((e) => e.event === 'conductor_overreach').length === 1,
+    'exactly one conductor_overreach event after the first stop'
+  );
+
+  // A second, INDEPENDENT (non-re-entrant) Stop call - same session_id,
+  // same triggering transcript. Layer 1 alone would refire here since
+  // stop_hook_active is false; Layer 2 must still suppress it.
+  const second = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(second.status === 0, 'second (fresh) stop exits 0');
+  assert(second.stdout.trim() === '', 'second stop (same session) does not refire the advisory');
+  assert(
+    eventLines(cwd).filter((e) => e.event === 'conductor_overreach').length === 1,
+    'still exactly one conductor_overreach event after the second stop'
+  );
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 13: no-fire-without-session-id
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: no-fire-without-session-id');
+{
+  const cwd = makeTempProject();
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'config.json'),
+    JSON.stringify({ conductor_overreach_threshold: 3 }), 'utf8'
+  );
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(5)); // 5 > 3
+  const payload = {
+    transcript_path: transcriptPath,
+    cwd,
+    hook_event_name: 'Stop',
+    stop_hook_active: false,
+    // session_id intentionally omitted
+  };
+  const { stdout, status } = runHook(payload, cwd);
+  assert(status === 0, 'exits 0 without session_id');
+  assert(stdout.trim() === '', 'no advisory without session_id (Layer 2 has no key to bind a sentinel to)');
+  assert(
+    eventLines(cwd).find((e) => e.event === 'conductor_overreach') === undefined,
+    'no event appended without session_id'
+  );
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+// Test 14: sentinel-write-failure-no-emit (Layer 2 fail-toward-silence)
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: sentinel-write-failure-no-emit');
+{
+  const cwd = makeTempProject();
+  // Sabotage the sentinel write: replace the .agentic DIRECTORY with a
+  // plain FILE, so _markFired's mkdirSync(agenticDir, {recursive:true})
+  // throws (EEXIST on a non-directory) and returns false. Use a threshold-
+  // free trigger (> DEFAULT_THRESHOLD=12) since config.json can no longer
+  // be written under a file-shaped .agentic.
+  fs.rmSync(path.join(cwd, '.agentic'), { recursive: true, force: true });
+  fs.writeFileSync(path.join(cwd, '.agentic'), '', 'utf8');
+  const sessionId = 'overreach-session-014';
+  const transcriptPath = writeTranscript(cwd, buildInvestigationOnlyTranscript(15)); // 15 > 12
+  const { stdout, status } = runHook(stopPayload(cwd, sessionId, transcriptPath), cwd);
+  assert(status === 0, 'exits 0 when the Layer 2 sentinel write fails');
+  assert(stdout.trim() === '', 'no advisory when the sentinel cannot be persisted');
+  cleanup(cwd);
 }
 
 // ---------------------------------------------------------------------------
