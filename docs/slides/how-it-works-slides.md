@@ -398,7 +398,7 @@ The draft state is a mechanical merge gate - <code>gh pr merge</code> refuses a 
 </style>
 
 ```
-Phase 6: Skeptic loop (max 3 fix passes)          Phase 6b: QA loop (max 3 fix passes)
+Phase 6: Skeptic loop (max 2 fix passes)          Phase 6b: QA loop (max 3 fix passes)
 ─────────────────────────────────────────         ─────────────────────────────────────
 Engineer implements                               (only runs if Phase 6 exits cleanly)
     │
@@ -408,13 +408,13 @@ Skeptic reviews ──> sign-off? ──> Phase 6b ──>  QA verifies ──> 
     │ cap_reached / convergence? ──> ESCALATE        │ cap / convergence? ──> ESCALATE
 ```
 
-- **3 fix passes per phase** - caps are independent (Skeptic cap and QA cap are separate budgets)
+- **2 fix passes in the Skeptic loop, 3 in the QA loop** - caps are independent (Skeptic cap and QA cap are separate budgets)
 - **`findings_log` carries forward** - prior findings tracked by ID; closed findings are not re-litigated
 - **Convergence failure** - one re-raise of a **Critical** finding after a claimed fix triggers immediate escalation (does not wait for a second attempt)
 - **Escalation reasons**: `cap_reached`, `convergence_failure`, `blocked`
 
 <div class="callout">
-The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
+The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/2 | open findings: 1 Critical]</code>
 </div>
 
 <div class="callout">
@@ -436,7 +436,7 @@ The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration 
 <div class="columns">
 <div class="card">
 <strong>cap_reached</strong><br/>
-3 fix passes ran. An unresolved Critical always escalates - the cap never ships a Critical. Otherwise the conductor ships (accepted debt in the PR body) or escalates, per operator approval inside Phase 6 today.
+The loop's fix passes ran out (2 in a Skeptic loop, 3 in a QA loop). An unresolved Critical always escalates - the cap never ships a Critical. Otherwise the conductor ships (accepted debt in the PR body) or escalates.
 </div>
 <div class="card">
 <strong>convergence_failure</strong><br/>
