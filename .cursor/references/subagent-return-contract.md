@@ -1,13 +1,19 @@
 <!--
 Manifest
-Purpose: Canonical, single-sourced definition of the attention test that
+Purpose: Canonical, single-sourced definition of (a) the attention test that
          classifies every subagent return field as MECHANICAL or ADVISORY,
-         replacing per-agent-file restatement of "never omit any section."
+         replacing per-agent-file restatement of "never omit any section,"
+         and (b) the general rule that a Confidence-bearing return field's
+         Low value couples to its paired action-guiding field's own wording.
 Public API: the attention test text below (quoted from docs/overview/vision.md
-            Goal 1), the MECHANICAL/ADVISORY tagging convention, and the
-            KEEP-as-MECHANICAL justification rule. content/agents/*.md Output
-            format sections reference this file with a one-line pointer
-            rather than restating the test.
+            Goal 1), the MECHANICAL/ADVISORY tagging convention, the
+            KEEP-as-MECHANICAL justification rule, and the Confidence-bearing
+            fields rule (§Confidence-bearing fields). content/agents/*.md
+            Output format sections reference this file with a one-line
+            pointer rather than restating the attention test itself; a
+            Confidence field may carry a one-line restatement of the
+            Confidence-bearing-fields rule alongside its pointer, per
+            Pillar 8's restatement-plus-pointer carve-out.
 Upstream dependencies: docs/overview/vision.md (Goal 1 - quoted verbatim,
             never paraphrased independently, so the two copies cannot drift).
 Downstream consumers: content/agents/*.md return-contract section preambles
@@ -15,12 +21,19 @@ Downstream consumers: content/agents/*.md return-contract section preambles
             SHAPE_ASSIGNMENTS, NOT_YET_MIGRATED, and EXEMPT_FILE_ARTIFACT
             for the current per-file shape and migration status);
             bin/tests/test_agent_return_contract_spec.py (the spec gate
-            enforcing the per-shape compliance obligations).
+            enforcing the per-shape compliance obligations);
+            content/agents/investigator.md and content/agents/debugger.md
+            (each points to §Confidence-bearing fields from its Confidence
+            field).
 Failure modes: prose-only file, no runtime failure mode. Staleness risk: if
             docs/overview/vision.md Goal 1's wording changes, the quoted
             block below must be updated in the same change or the citation
             becomes inaccurate - grep this file's quoted block against
-            vision.md when editing either.
+            vision.md when editing either. Renaming or removing the
+            "§Confidence-bearing fields" heading breaks the pointer
+            sentences in content/agents/investigator.md and
+            content/agents/debugger.md - grep for the exact heading text
+            across content/agents/*.md before renaming it.
 Performance: n/a (reference doc, read on trigger).
 -->
 
@@ -250,6 +263,27 @@ is the spec gate that checks for these obligations per shape, mechanically
 - it verifies structural presence, not classification correctness (whether
 a field was assigned the right shape or the right MECHANICAL/ADVISORY
 verdict is a human judgment the gate cannot make).
+
+## Confidence-bearing fields
+
+Any subagent return field reporting a Confidence: High | Medium | Low
+judgment is coupled to whichever field carries the agent's recommended
+next action (a fix brief, a hotspot fix_brief, an answer the conductor
+hands to the next agent). This is a field-authoring obligation, not a
+downstream-routing rule: whenever Confidence is Low, the paired action
+field's own wording must name what specific evidence or investigation
+would raise confidence, in place of a confident recommendation to
+proceed. A caller-side consumption rule for a specific agent - for
+example content/references/agent-team.md's bug-fix-flow instruction not
+to proceed to engineer on a Low debugger diagnosis - is a separate,
+compatible obligation on the conductor, not a restatement of this one.
+perf-analyst.md's fix_brief escalation rule is the shipped precedent;
+investigator.md's Confidence field and debugger.md's Confidence field
+each carry a one-line restatement of this rule plus a pointer back to
+it. investigator.md's Answer field carries only an operational
+instruction derived from the rule, not a second restatement. Retire
+this rule if a future measurement shows the wording change never
+alters conductor behavior downstream.
 
 ## Migration status
 

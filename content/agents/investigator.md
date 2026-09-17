@@ -85,7 +85,7 @@ Use this exact structure:
 ## Investigation: [one-line description of what was investigated]
 
 ### Answer [MECHANICAL, cap: 400 chars]
-[Direct, specific answer to the investigation question. Lead with the most important finding.]
+[Direct, specific answer to the investigation question. Lead with the most important finding. If Confidence is Low, lead with what remains unclear and what would resolve it, not a settled finding.]
 
 ### Coverage [MECHANICAL, enum]
 complete | partial | blocked
@@ -96,7 +96,7 @@ complete | partial | blocked
 Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
 
 ### Confidence [MECHANICAL, enum]
-[High / Medium / Low] - [brief reason, capped 150 chars: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
+[High / Medium / Low] - [brief reason, capped 150 chars: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X". If Confidence is Low, the Answer field above must name what would raise confidence before the answer is acted on - general rule: content/references/subagent-return-contract.md §Confidence-bearing fields.]
 
 ### Learnings candidates [MECHANICAL, cap: 5 items]
 [Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]

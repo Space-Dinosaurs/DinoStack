@@ -81,7 +81,7 @@ Use this exact structure:
 [Concrete instructions for the Worker to fix this. Specific enough that a Worker can implement without further investigation. Include: what to change, where, and any gotchas to watch for. If Confidence is Low: state "Insufficient evidence to write a fix brief." Describe what was investigated and eliminated, and what information would allow a fix brief to be written.]
 
 ### Confidence [MECHANICAL, enum]
-[High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
+[High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce". If Confidence is Low, the Fix brief above must name what would raise confidence before a fix is attempted - general rule: content/references/subagent-return-contract.md §Confidence-bearing fields.]
 
 ### Learnings candidates [MECHANICAL, cap: 5 items]
 [Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
