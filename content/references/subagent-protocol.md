@@ -35,7 +35,13 @@ Downstream consumers: content/references/agent-team.md §Spawning and
                       brief to any recipient role. Some spawn sites carry a
                       point-of-use pointer to it and many do not; a site without one
                       is bound exactly the same, and this header makes no claim
-                      about which sites carry one;
+                      about which sites carry one; content/agents/debugger.md,
+                      content/agents/investigator.md, and
+                      content/agents/qa-engineer.md, each carrying a
+                      point-of-use pointer to the "Untrusted content in
+                      ingested state" bullet via the
+                      `untrusted-content-is-data` shared fragment (see
+                      content/fragments/pre-submit-check-kernels.md);
                       content/references/skeptic-protocol.md (Section 9 of this file
                       defines their relationship);
                       content/sections/12-protocol-details.md (the pointer table
