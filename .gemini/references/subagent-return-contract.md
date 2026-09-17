@@ -277,12 +277,8 @@ proceed. A caller-side consumption rule for a specific agent - for
 example content/references/agent-team.md's bug-fix-flow instruction not
 to proceed to engineer on a Low debugger diagnosis - is a separate,
 compatible obligation on the conductor, not a restatement of this one.
-perf-analyst.md's fix_brief escalation rule is the shipped precedent;
-investigator.md's Confidence field and debugger.md's Confidence field
-each carry a one-line restatement of this rule plus a pointer back to
-it. investigator.md's Answer field carries only an operational
-instruction derived from the rule, not a second restatement. Retire
-this rule if a future measurement shows the wording change never
+perf-analyst.md's fix_brief escalation rule is the shipped precedent.
+Retire this rule if a future measurement shows the wording change never
 alters conductor behavior downstream.
 
 ## Migration status
