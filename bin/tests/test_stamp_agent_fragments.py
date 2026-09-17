@@ -226,7 +226,7 @@ class TestLiveTreeIsStamped(unittest.TestCase):
                 else:
                     seen[frag_id] = (path, interior)
 
-    def _assert_span_file_set(self, span_id, expected_files):
+    def _assert_span_file_set(self, span_id, expected_files, detail=""):
         """Globs ALL of content/agents/*.md rather than iterating
         EXPECTED_SPAN_IDS's keys, so a span stamped into an agent file that
         is absent from that dict still reds a test. Both sibling glob-based
@@ -242,16 +242,19 @@ class TestLiveTreeIsStamped(unittest.TestCase):
             found,
             set(expected_files),
             f"the set of content/agents/*.md files carrying a {span_id} "
-            f"span must be exactly {sorted(expected_files)}. If this is a "
-            "deliberate change, update the corresponding *_FILES constant "
-            "and EXPECTED_SPAN_IDS in the same commit.",
+            f"span must be exactly {sorted(expected_files)}."
+            + (f" {detail}" if detail else "")
+            + " If this is a deliberate change, update the corresponding "
+            "*_FILES constant and EXPECTED_SPAN_IDS in the same commit.",
         )
 
     def test_learnings_retrieval_span_file_set_over_full_glob(self):
-        self._assert_span_file_set("learnings-retrieval", LEARNINGS_RETRIEVAL_FILES)
-        # skeptic.md in particular must never carry a learnings-retrieval
-        # span (DS-223 hard constraint 2) - covered by the equality check
-        # above since it is absent from LEARNINGS_RETRIEVAL_FILES.
+        self._assert_span_file_set(
+            "learnings-retrieval",
+            LEARNINGS_RETRIEVAL_FILES,
+            detail="skeptic.md in particular must never carry one "
+            "(DS-223 hard constraint 2).",
+        )
 
     def test_untrusted_content_span_file_set_over_full_glob(self):
         self._assert_span_file_set("untrusted-content-is-data", UNTRUSTED_CONTENT_FILES)
