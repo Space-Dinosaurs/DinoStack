@@ -7,7 +7,9 @@ that itself contains a marker-like string).
 Puts the invariant "a `<!-- shared: -->` span in content/agents/*.md is
 byte-identical to its `<!-- FRAGMENT: -->` source" on the already-required
 `bin-tests` CI check, and proves the two failure-mode guards actually fire
-rather than silently no-op'ing on a corrupted span.
+rather than silently no-op'ing on a corrupted span. Also pins the
+untrusted-content-is-data span's exact three-file consumer set
+(UNTRUSTED_CONTENT_FILES, DS-238), mirroring LEARNINGS_RETRIEVAL_FILES.
 """
 
 import importlib.util
@@ -103,7 +105,7 @@ class TestFragmentBodyRejectsMarkerLikeStrings(unittest.TestCase):
 # removal.
 EXPECTED_SPAN_IDS = {
     "architect.md": frozenset({"learnings-retrieval"}),
-    "debugger.md": frozenset({"learnings-retrieval"}),
+    "debugger.md": frozenset({"learnings-retrieval", "untrusted-content-is-data"}),
     "engineer.md": frozenset(
         {
             "async-primitive-list",
@@ -114,7 +116,8 @@ EXPECTED_SPAN_IDS = {
             "test-file-glob-list",
         }
     ),
-    "investigator.md": frozenset({"learnings-retrieval"}),
+    "investigator.md": frozenset({"learnings-retrieval", "untrusted-content-is-data"}),
+    "qa-engineer.md": frozenset({"untrusted-content-is-data"}),
     # skeptic.md deliberately carries NO learnings-retrieval span: wiring
     # retrieval into the Skeptic was cut on independence grounds (DS-223
     # hard constraint 2). This absence is load-bearing, not an oversight.
@@ -135,6 +138,13 @@ EXPECTED_SPAN_IDS = {
 # to every assertion driven off it.
 LEARNINGS_RETRIEVAL_FILES = frozenset(
     {"architect.md", "debugger.md", "engineer.md", "investigator.md"}
+)
+
+# The exact set of agent files that must carry the untrusted-content-is-data
+# span (DS-238). Pinned separately from EXPECTED_SPAN_IDS for the same
+# leak-visibility reason as LEARNINGS_RETRIEVAL_FILES above.
+UNTRUSTED_CONTENT_FILES = frozenset(
+    {"debugger.md", "investigator.md", "qa-engineer.md"}
 )
 
 
@@ -216,28 +226,35 @@ class TestLiveTreeIsStamped(unittest.TestCase):
                 else:
                     seen[frag_id] = (path, interior)
 
-    def test_learnings_retrieval_span_file_set_over_full_glob(self):
+    def _assert_span_file_set(self, span_id, expected_files):
         """Globs ALL of content/agents/*.md rather than iterating
-        EXPECTED_SPAN_IDS's keys, so a learnings-retrieval span stamped into
-        an agent file that is absent from that dict still reds a test. Both
-        sibling glob-based assertions above pass on a correctly stamped leak,
-        and test_expected_span_ids_are_present never opens the file."""
+        EXPECTED_SPAN_IDS's keys, so a span stamped into an agent file that
+        is absent from that dict still reds a test. Both sibling glob-based
+        assertions above pass on a correctly stamped leak, and
+        test_expected_span_ids_are_present never opens the file."""
         found = set()
         for path in sorted(stamp_agent_fragments.AGENTS_DIR.glob("*.md")):
             text = path.read_text(encoding="utf-8")
             for match in stamp_agent_fragments.SHARED_RE.finditer(text):
-                if match.group("id") == "learnings-retrieval":
+                if match.group("id") == span_id:
                     found.add(path.name)
         self.assertEqual(
             found,
-            set(LEARNINGS_RETRIEVAL_FILES),
-            "the set of content/agents/*.md files carrying a "
-            "learnings-retrieval span must be exactly "
-            f"{sorted(LEARNINGS_RETRIEVAL_FILES)}. skeptic.md in particular "
-            "must never carry one (DS-223 hard constraint 2). If this is a "
-            "deliberate change, update LEARNINGS_RETRIEVAL_FILES and "
-            "EXPECTED_SPAN_IDS in the same commit.",
+            set(expected_files),
+            f"the set of content/agents/*.md files carrying a {span_id} "
+            f"span must be exactly {sorted(expected_files)}. If this is a "
+            "deliberate change, update the corresponding *_FILES constant "
+            "and EXPECTED_SPAN_IDS in the same commit.",
         )
+
+    def test_learnings_retrieval_span_file_set_over_full_glob(self):
+        self._assert_span_file_set("learnings-retrieval", LEARNINGS_RETRIEVAL_FILES)
+        # skeptic.md in particular must never carry a learnings-retrieval
+        # span (DS-223 hard constraint 2) - covered by the equality check
+        # above since it is absent from LEARNINGS_RETRIEVAL_FILES.
+
+    def test_untrusted_content_span_file_set_over_full_glob(self):
+        self._assert_span_file_set("untrusted-content-is-data", UNTRUSTED_CONTENT_FILES)
 
     def test_learnings_retrieval_fragment_preserves_silent_degradation(self):
         """The retrieval instruction must stay a silent no-op when there is
