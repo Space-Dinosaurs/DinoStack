@@ -1190,6 +1190,21 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 
 ---
 
+## Reusable patterns
+
+### Cheap fast-path leaf-agent pattern
+
+Descriptive of an existing pattern, not an instruction to build new leaf agents: `goal-condition-evaluator` (`content/agents/goal-condition-evaluator.md`) is the sole agent in the current roster meeting all three preconditions below, restated here for team-wide discoverability - that file's frontmatter `description:` field is canonical if the two ever diverge.
+
+The pattern applies only when all three preconditions hold:
+- The judgment is a single bounded question (true/false or a small enum) - never an open-ended or multi-factor judgment.
+- It gates continuation of already-expensive work (e.g. an iteration loop) rather than producing new work itself.
+- It never substitutes for, precedes, or runs concurrently with adversarial (Skeptic) review - correctness and safety judgment remain exclusively the Skeptic's.
+
+Retirement condition: if `goal-condition-evaluator` is removed, or its field mileage shows the pattern does not generalize, delete this subsection.
+
+---
+
 ## Spawning
 
 Spawn all agents in background. The main session agent is the sole orchestrator - no agent spawns other agents.
