@@ -30,8 +30,8 @@ longer opens its own rule at line-start (e.g. reflowed onto one line, or
 changed to a `.table-scroll table { ... }` compound selector as the page's
 own prose loosely implies elsewhere). That is a known, accepted coupling:
 if the CSS selector shape changes, this test's helper must be re-pointed in
-the same PR as that CSS change. `col_count` and `body_row_td_counts` raise
-neither on a genuinely malformed table: `extract_table_html` raises
+the same PR as that CSS change. Neither `col_count` nor `body_row_td_counts`
+raises on a genuinely malformed table: `extract_table_html` raises
 AssertionError if a table cannot be located at all, but a missing
 `<thead>`/`<tbody>` tag inside an otherwise-located table degrades to a
 named violation string via `shape_violations` rather than raising (see
@@ -197,14 +197,6 @@ def test_live_page_has_no_shape_violations(full_html: str) -> None:
     guards production - see the DS-240 Skeptic Major on duplicated
     invariant logic in an earlier version of this file."""
     violations = shape_violations(full_html)
-    assert violations == [], violations
-
-
-@pytest.mark.parametrize("label", TABLE_LABELS)
-def test_live_page_per_table_has_no_shape_violations(full_html: str, label: str) -> None:
-    """Per-table detail derived from the same `shape_violations` call above
-    (filtered by label prefix), not a second copy of the comparison logic."""
-    violations = [v for v in shape_violations(full_html) if v.startswith(f"Table {label}")]
     assert violations == [], violations
 
 
