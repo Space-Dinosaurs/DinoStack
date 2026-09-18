@@ -15,6 +15,14 @@ Public API: `extract_table_html`, `col_count`, `body_row_td_counts`,
 `table_rule_min_width`, `shape_violations` (pure functions operating on
 in-memory HTML text, no fixture files) plus pytest test functions.
 
+Upstream dependencies: `docs/agentic-engineering-comparison.html` (consumed,
+not owned, by this module - a hand-maintained public HTML artifact); stdlib
+`re` and `pathlib`; `pytest`.
+
+Downstream consumers: the `bin-tests` CI job (`.github/workflows/bin-tests.yml`,
+plain pytest discovery over `bin/tests/`); no in-repo importers of the
+module's functions.
+
 Failure modes: `table_rule_min_width`'s CSS-rule regex is anchored to a line
 that starts with `table {` (only whitespace before `table`) - it will not
 match if the stylesheet is ever reformatted so the `table` selector no
@@ -183,35 +191,21 @@ def full_html() -> str:
     return COMPARISON_HTML_PATH.read_text(encoding="utf-8")
 
 
-@pytest.fixture(scope="module")
-def reference_n(full_html: str) -> int:
-    table_a = extract_table_html(full_html, "A")
-    n = col_count(table_a)
-    assert n is not None, "Table A: live page has no <thead>, cannot derive reference N"
-    return n
-
-
-def test_live_page_has_matching_column_counts(full_html: str, reference_n: int) -> None:
-    for label in TABLE_LABELS:
-        table_html = extract_table_html(full_html, label)
-        n = col_count(table_html)
-        assert n == reference_n, f"Table {label} has {n} <th scope=\"col\"> columns, expected {reference_n}"
+def test_live_page_has_no_shape_violations(full_html: str) -> None:
+    """Single enforcing path: routes through `shape_violations`, the exact
+    function the mutation tests below exercise. This is the check that
+    guards production - see the DS-240 Skeptic Major on duplicated
+    invariant logic in an earlier version of this file."""
+    violations = shape_violations(full_html)
+    assert violations == [], violations
 
 
 @pytest.mark.parametrize("label", TABLE_LABELS)
-def test_live_page_body_rows_match_column_count(full_html: str, reference_n: int, label: str) -> None:
-    table_html = extract_table_html(full_html, label)
-    row_counts = body_row_td_counts(table_html)
-    assert row_counts is not None, f"Table {label}: no <tbody> found"
-    expected = reference_n - 1
-    for idx, count in enumerate(row_counts):
-        assert count == expected, f"Table {label} row {idx} has {count} <td>, expected {expected}"
-
-
-def test_live_page_min_width_matches_formula(full_html: str, reference_n: int) -> None:
-    actual = table_rule_min_width(full_html)
-    expected = 240 + 200 * (reference_n - 1)
-    assert actual == expected, f"table {{ }} min-width is {actual}px, expected {expected}px for N={reference_n}"
+def test_live_page_per_table_has_no_shape_violations(full_html: str, label: str) -> None:
+    """Per-table detail derived from the same `shape_violations` call above
+    (filtered by label prefix), not a second copy of the comparison logic."""
+    violations = [v for v in shape_violations(full_html) if v.startswith(f"Table {label}")]
+    assert violations == [], violations
 
 
 def test_removed_td_reddens_check(full_html: str) -> None:
@@ -248,7 +242,12 @@ def test_extra_thead_th_reddens_check(full_html: str) -> None:
 
     violations = shape_violations(mutated_html)
     assert violations, "expected shape_violations to report a violation after adding a <th scope=\"col\">"
-    assert any("Table A" in v for v in violations), violations
+    assert any(v.startswith("Table A") and "row-length mismatch" in v for v in violations), violations
+    # Mutating Table A's own <thead> shifts the pinned reference N, so the
+    # column-count comparison fires against Table B/C instead of Table A -
+    # asserted here so the comparison itself (not only the row-length
+    # side-effect above) is exercised by a mutation test.
+    assert any(v.startswith("Table B") and "column-count mismatch" in v for v in violations), violations
 
 
 def test_min_width_off_by_200_reddens_check(full_html: str) -> None:
