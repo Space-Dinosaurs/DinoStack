@@ -1,0 +1,956 @@
+#!/usr/bin/env python3
+"""
+Purpose: DS-241 one-shot before/after telemetry delta tool. Resolves a
+         methodology-change "cut point" (a git commit SHA or an ISO8601
+         date) into a UTC instant, computes two equal-length windows
+         bracketing it, and re-derives session/spawn/hook-deny/token/
+         wall-time/PR-history metrics for each side from the SAME live
+         telemetry stores `ds-cost`, `ds-evaluate`, `ds-hook-fire-report`,
+         and `ds-branch-prune` already read - reusing their established
+         parsing conventions (duplicated, not imported: see those
+         modules' own docstrings for the originals) rather than
+         inventing new ones. Lets an operator answer "did this specific
+         commit help or hurt" without hand-running two separate
+         `ds-evaluate`/`ds-cost` invocations and reconciling window
+         boundaries and coverage caveats by hand.
+
+Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
+            [--window-days N] --repo PATH [--repo PATH ...] [--json]
+            Default output: a fixed-width table. --json emits the full
+            {"meta":..., "metrics":..., "pr_history":...} object (see
+            main() / build_delta()'s docstring for the exact shape - this
+            is the binding contract the regression test asserts against).
+            Exit 0 on any well-formed run, even one where every metric
+            reports a non-OK status (an absent or short-of-window store
+            is informative output, not a CLI failure). Exit 1 when --cut
+            cannot be resolved, or no --repo points at a directory
+            carrying `.agentic/` or `.git`. Exit 2 on argparse usage
+            errors (including a --cut value matching neither a SHA nor
+            an ISO8601 date).
+
+Read-only guarantee (AC7): every filesystem open() call in this module is
+            read-mode; every subprocess call routes through the single
+            _run() wrapper and is one of `git show`, `gh repo view`, or
+            `gh api graphql` - all read-only commands. No new persistent
+            file is written by this tool, and no existing telemetry file,
+            git ref, or index entry is ever mutated. See
+            bin/tests/test_ds_change_delta.py's R5 test for the enforced
+            argv allowlist (which also permits `git rev-parse`/`git
+            remote` for a future subprocess call site without needing a
+            test change) and the fixture-repo
+            HEAD/status byte-identity assertion.
+
+Multi-repo aggregation: session-log and fires-log rows from every --repo
+            are merged into ONE combined row set BEFORE any status
+            classification runs (see _collect_session_log/_collect_fires
+            and _side_status) - not computed per-repo and then combined.
+            PR history remains genuinely per-repo (gh auth/resolution is
+            per-repo) and is reported as a separate pr_history[repo] map.
+
+Status precedence (per side, first match wins): ABSENT (zero rows across
+            the union of both windows) > NOT_YET_ELAPSED (after-side
+            only, checked before coverage) > INSUFFICIENT_COVERAGE (the
+            store's own recorded extent does not bracket this window) >
+            ZERO_SESSIONS (session-derived ratio metrics only, coverage
+            fine but zero session_total rows in this window) > OK.
+            hook_denies_per_session combines two independent per-side
+            statuses (fires log, session-log) via the severity order
+            ABSENT > INSUFFICIENT_COVERAGE > NOT_YET_ELAPSED >
+            ZERO_SESSIONS > OK. tokens_per_session/wall_seconds_per_session
+            additionally carry a metric-level, orthogonal data_quality
+            flag ("zero-filled" when both sides sum to exactly 0,
+            "zero-filled-before"/"zero-filled-after" when exactly one
+            side does) that forces delta to null even when both sides
+            report status OK, to avoid reporting a large numeric delta
+            that is actually measuring an instrumentation gap rather than
+            a real methodology-change effect.
+
+Upstream deps: git, gh (optional - PR-history metrics degrade to
+            NOT_A_GIT_REPO/GH_UNAVAILABLE without it), Python 3 stdlib
+            only (argparse, json, re, subprocess, pathlib, datetime).
+            Reads `<repo>/.agentic/session-log/*.jsonl`,
+            `<repo>/.agentic/.enforcement-fires.jsonl` plus its three
+            known stranded-copy locations (see _stranded_fire_log_paths),
+            and (per repo with a resolvable gh remote) the GitHub GraphQL
+            `search` connection for merged PRs.
+
+Downstream consumers: operator-invoked directly (content/commands/
+            ds-change-delta.md); not called by any other DinoStack tool.
+
+Failure modes: never raises out of main() - a resolution failure for
+            --cut, a missing repo, or a gh/git error all degrade into a
+            status field and/or a nonzero-but-documented exit code, never
+            a traceback. Idempotent and safe to re-run any number of
+            times; makes no state changes anywhere.
+
+Performance: one `git show` per --cut-repo, one `gh api graphql` page
+            fetch per PR-history --repo per side (paginated, bounded),
+            and a full read of every matching session-log/fires-log file
+            per --repo. No caching; a wide --window-days against a busy
+            repo's PR history can approach GitHub search's documented
+            1,000-result cap (see content/commands/ds-change-delta.md).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+GH_CALL_TIMEOUT_SECONDS = 30.0
+PR_PAGE_SIZE = 100
+PR_MAX_PAGES = 50
+
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+_STATUS_SEVERITY = {
+    "ABSENT": 4,
+    "INSUFFICIENT_COVERAGE": 3,
+    "NOT_YET_ELAPSED": 2,
+    "ZERO_SESSIONS": 1,
+    "OK": 0,
+}
+
+_MERGED_PR_QUERY = """
+query($q:String!,$pageSize:Int!,$endCursor:String){
+  search(query:$q, type: ISSUE, first:$pageSize, after:$endCursor){
+    issueCount
+    pageInfo{ hasNextPage endCursor }
+    nodes{ ... on PullRequest { number mergedAt commits { totalCount } } }
+  }
+}
+"""
+
+
+class CutResolutionError(Exception):
+    """Raised by _resolve_cut when --cut cannot be resolved to an instant."""
+
+
+# ---------------------------------------------------------------------------
+# Subprocess wrapper (SOLE call site for git/gh; R5's read-only guarantee
+# depends on every invocation routing through here).
+# ---------------------------------------------------------------------------
+
+
+def _run(args: list[str], cwd: str | None = None, timeout: float | None = None):
+    """Read-only subprocess wrapper. Every caller passes a read-only git/gh
+    command (see the module docstring's Read-only guarantee section)."""
+    return subprocess.run(
+        args, cwd=cwd, capture_output=True, text=True, timeout=timeout
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cut-point resolution and window computation
+# ---------------------------------------------------------------------------
+
+
+def _parse_ts(value) -> datetime | None:
+    """Parse an ISO8601 UTC timestamp, tolerating a trailing 'Z'. Mirrors
+    bin/ds-hook-fire-report's _parse_ts (duplicated, not imported)."""
+    if not value:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _resolve_cut(cut_arg: str, cut_repo: str) -> tuple[datetime, str]:
+    """Resolve --cut into (utc_datetime, source_label).
+
+    A SHA-shaped argument is resolved via `git -C cut_repo show -s
+    --format=%cI <sha>` (the COMMITTER date, deliberate for a
+    squash-merge repo - see module docstring), parsed and converted to
+    UTC. An ISO8601 date/datetime argument is used directly (a bare date
+    is treated as 00:00:00Z). Raises CutResolutionError (never
+    sys.exit) on an unresolvable SHA or an argument matching neither
+    shape - the caller decides the exit code."""
+    if _SHA_RE.match(cut_arg):
+        try:
+            proc = _run(
+                ["git", "show", "-s", "--format=%cI", cut_arg],
+                cwd=cut_repo,
+                timeout=GH_CALL_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001 - any git failure is unresolvable
+            raise CutResolutionError(f"git show failed: {exc}") from exc
+        if proc.returncode != 0:
+            raise CutResolutionError(
+                f"could not resolve SHA {cut_arg!r} in {cut_repo!r}: "
+                f"{proc.stderr.strip()}"
+            )
+        raw = proc.stdout.strip()
+        dt = _parse_ts(raw)
+        if dt is None:
+            raise CutResolutionError(f"git show returned unparseable date: {raw!r}")
+        return dt.astimezone(timezone.utc), f"sha:{cut_arg}"
+
+    dt = _parse_ts(cut_arg)
+    if dt is not None:
+        return dt.astimezone(timezone.utc), f"date:{cut_arg}"
+
+    raise CutResolutionError(
+        f"--cut value {cut_arg!r} matches neither a git SHA "
+        "(7-40 hex chars) nor an ISO8601 date/datetime"
+    )
+
+
+def _windows(
+    cut_dt: datetime, window_days: int
+) -> tuple[datetime, datetime, datetime, datetime]:
+    """(before_start, before_end, after_start, after_end), all UTC-aware.
+    before_end == after_start == cut_dt exactly; both windows are always
+    genuinely equal-length (never truncated to "now")."""
+    delta = timedelta(days=window_days)
+    before_start = cut_dt - delta
+    after_end = cut_dt + delta
+    return before_start, cut_dt, cut_dt, after_end
+
+
+# ---------------------------------------------------------------------------
+# Session-log signal (multi-repo merged)
+# ---------------------------------------------------------------------------
+
+
+def _load_jsonl_rows(path: Path) -> list[dict]:
+    """Parse a JSONL file into dicts, skipping blank/malformed lines.
+    Read-only; returns [] on any OSError (missing file, permission)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    rows: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(rec, dict):
+            rows.append(rec)
+    return rows
+
+
+def _collect_session_log(repos: list[Path]) -> dict:
+    """Merge every repo's .agentic/session-log/*.jsonl session_total rows
+    into ONE combined row list, tracking combined earliest_ts/latest_ts/
+    rows_total and which source file(s) actually contributed a row - see
+    module docstring's Multi-repo aggregation. Returns:
+      {"rows": [(ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, source_path)],
+       "earliest_ts": datetime|None, "latest_ts": datetime|None,
+       "rows_total": int, "sources": [str, ...]}
+    `tokens_fields` is a per-row {"input":int,"output":int,"cache_creation":int,
+    "cache_read":int} breakdown, carried alongside the aggregate `tokens_sum`
+    so a caller can distinguish "the aggregate is zero" from "one component
+    field is zero" (see _tokens_field_sums_all_zero, mutation C's target).
+    A repo with no .agentic/session-log/ directory contributes nothing
+    and is silently absent from "sources" (visible via omission, not an
+    error - matching bin/ds-hook-fire-report's stranded-copy precedent)."""
+    rows: list[tuple[datetime, int, int, int, dict, str]] = []
+    earliest: datetime | None = None
+    latest: datetime | None = None
+    sources: list[str] = []
+    for repo in repos:
+        log_dir = repo / ".agentic" / "session-log"
+        if not log_dir.is_dir():
+            continue
+        for path in sorted(log_dir.glob("*.jsonl")):
+            file_contributed = False
+            for rec in _load_jsonl_rows(path):
+                if rec.get("event") != "session_total":
+                    continue
+                ts = _parse_ts(rec.get("ts"))
+                if ts is None:
+                    continue
+                data = rec.get("data") or {}
+                try:
+                    spawn_count = int(data.get("spawn_count") or 0)
+                except (TypeError, ValueError):
+                    spawn_count = 0
+                try:
+                    wall_seconds = int(data.get("wall_seconds") or 0)
+                except (TypeError, ValueError):
+                    wall_seconds = 0
+                tok = data.get("tokens")
+                tokens_sum = 0
+                tokens_fields = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+                if isinstance(tok, dict):
+                    for key in ("input", "output", "cache_creation", "cache_read"):
+                        try:
+                            val = int(tok.get(key) or 0)
+                        except (TypeError, ValueError):
+                            val = 0
+                        tokens_fields[key] = val
+                        tokens_sum += val
+                elif isinstance(tok, (int, float)):
+                    tokens_sum = int(tok)
+                    tokens_fields["input"] = tokens_sum
+                rows.append((ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, str(path)))
+                file_contributed = True
+                if earliest is None or ts < earliest:
+                    earliest = ts
+                if latest is None or ts > latest:
+                    latest = ts
+            if file_contributed:
+                sources.append(str(path))
+    return {
+        "rows": rows,
+        "earliest_ts": earliest,
+        "latest_ts": latest,
+        "rows_total": len(rows),
+        "sources": sources,
+    }
+
+
+def _window_slice(
+    rows: list[tuple[datetime, int, int, int, dict, str]], start: datetime, end: datetime
+) -> dict:
+    """Half-open [start, end) membership filter - the ONE shared function
+    both window calls use (mutation A's target). Returns aggregate counts
+    over the matching rows plus which source files they came from."""
+    matched = [r for r in rows if start <= r[0] < end]
+    sessions = len(matched)
+    spawn_count_sum = sum(r[1] for r in matched)
+    wall_seconds_sum = sum(r[2] for r in matched)
+    tokens_sum = sum(r[3] for r in matched)
+    tokens_field_sums = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+    for r in matched:
+        for key in tokens_field_sums:
+            tokens_field_sums[key] += r[4].get(key, 0)
+    sources = sorted({r[5] for r in matched})
+    return {
+        "sessions": sessions,
+        "spawn_count_sum": spawn_count_sum,
+        "wall_seconds_sum": wall_seconds_sum,
+        "tokens_sum": tokens_sum,
+        "tokens_field_sums": tokens_field_sums,
+        "sources": sources,
+        "rows_consumed": sessions,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fires-log signal (multi-repo merged, stranded-copy aware)
+# ---------------------------------------------------------------------------
+
+
+def _stranded_fire_log_paths(repo_root: Path) -> list[Path]:
+    """Duplicated from bin/ds-hook-fire-report's
+    _stranded_worktree_fire_log_paths (not imported - see that module's
+    docstring for the full rationale of the three stranding locations)."""
+    globs = (
+        (repo_root / ".claude" / "worktrees", "*/.agentic/.enforcement-fires.jsonl"),
+        (repo_root / ".agentic" / "worktrees", "*/.agentic/.enforcement-fires.jsonl"),
+        (
+            repo_root / ".agentic" / "stray-agentic-archive",
+            "*/.enforcement-fires.jsonl",
+        ),
+    )
+    found: list[Path] = []
+    for base_dir, pattern in globs:
+        try:
+            if not base_dir.is_dir():
+                continue
+            found.extend(base_dir.glob(pattern))
+        except OSError:
+            continue
+    return sorted(found)
+
+
+def _load_fire_lines(
+    path: Path, seen: set[str], dedupe: bool
+) -> list[tuple[datetime, dict]]:
+    """Parse one fires-log file into (ts, record) tuples, applying the
+    same dedupe-by-exact-line-text rule as bin/ds-hook-fire-report's
+    _load_jsonl (duplicated, not imported): dedupe=False (the primary log
+    per repo) counts every line and populates `seen`; dedupe=True (every
+    stranded copy) skips a line whose exact text is already in `seen`,
+    including a repeat within the same file."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    out: list[tuple[datetime, dict]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if dedupe and line in seen:
+            continue
+        seen.add(line)
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict):
+            continue
+        ts = _parse_ts(rec.get("ts"))
+        if ts is None:
+            continue
+        out.append((ts, rec))
+    return out
+
+
+def _collect_fires(repos: list[Path]) -> dict:
+    """Merge every repo's primary + stranded .enforcement-fires.jsonl
+    deny-decision rows into ONE combined row list. Two different repos'
+    fires logs are never deduped against each other (each repo gets its
+    own `seen` scope) since they are legitimately different physical
+    logs, not copies of the same one - see module docstring."""
+    rows: list[tuple[datetime, str]] = []
+    earliest: datetime | None = None
+    latest: datetime | None = None
+    sources: list[str] = []
+    for repo in repos:
+        seen: set[str] = set()
+        primary = repo / ".agentic" / ".enforcement-fires.jsonl"
+        primary_contributed = False
+        for ts, rec in _load_fire_lines(primary, seen, dedupe=False):
+            rows.append((ts, str(primary)))
+            primary_contributed = True
+            if earliest is None or ts < earliest:
+                earliest = ts
+            if latest is None or ts > latest:
+                latest = ts
+        if primary_contributed:
+            sources.append(str(primary))
+        for stranded_path in _stranded_fire_log_paths(repo):
+            stranded_contributed = False
+            for ts, rec in _load_fire_lines(stranded_path, seen, dedupe=True):
+                rows.append((ts, str(stranded_path)))
+                stranded_contributed = True
+                if earliest is None or ts < earliest:
+                    earliest = ts
+                if latest is None or ts > latest:
+                    latest = ts
+            if stranded_contributed:
+                sources.append(str(stranded_path))
+    return {
+        "rows": rows,
+        "earliest_ts": earliest,
+        "latest_ts": latest,
+        "rows_total": len(rows),
+        "sources": sources,
+    }
+
+
+def _fires_window_slice(rows: list[tuple[datetime, str]], start: datetime, end: datetime) -> dict:
+    """Half-open [start, end) filter for fires rows (all rows passed in
+    are already decision=="deny" - see build_delta())."""
+    matched = [r for r in rows if start <= r[0] < end]
+    sources = sorted({r[1] for r in matched})
+    return {"deny_count": len(matched), "sources": sources, "rows_consumed": len(matched)}
+
+
+# ---------------------------------------------------------------------------
+# Status precedence engine
+# ---------------------------------------------------------------------------
+
+
+def _side_status(
+    *,
+    window_rows_count: int,
+    total_rows_count: int,
+    earliest_ts: datetime | None,
+    latest_ts: datetime | None,
+    window_start: datetime,
+    window_end: datetime,
+    now: datetime,
+    is_after_side: bool,
+    is_session_ratio: bool,
+) -> tuple[str, str | None]:
+    """5-case first-match-wins precedence (see module docstring):
+      1. ABSENT       - the merged store contributes zero rows at all.
+      2. NOT_YET_ELAPSED (after-side only) - window_end > now.
+      3. INSUFFICIENT_COVERAGE - the store's own recorded extent does not
+         bracket this window (before: earliest_ts > window_start; after:
+         latest_ts < window_end).
+      4. ZERO_SESSIONS (session-ratio metrics only) - coverage fine but
+         zero rows fall inside this specific window.
+      5. OK - otherwise.
+    Returns (status, note)."""
+    if total_rows_count == 0:
+        return "ABSENT", "store contributes zero rows"
+    if is_after_side and window_end > now:
+        return "NOT_YET_ELAPSED", "after-window end is in the future"
+    if is_after_side:
+        if latest_ts is None or latest_ts < window_end:
+            return (
+                "INSUFFICIENT_COVERAGE",
+                "store's recorded extent does not reach the end of this window",
+            )
+    else:
+        if earliest_ts is None or earliest_ts > window_start:
+            return (
+                "INSUFFICIENT_COVERAGE",
+                "store's recorded extent does not reach the start of this window",
+            )
+    if is_session_ratio and window_rows_count == 0:
+        return "ZERO_SESSIONS", "zero session_total rows in this window"
+    return "OK", None
+
+
+def _combine_status(status_a: str, note_a: str | None, label_a: str,
+                     status_b: str, note_b: str | None, label_b: str) -> tuple[str, str | None]:
+    """Combine two independent per-side statuses (fires store, session-log
+    store) by taking the more severe result per the explicit total order
+    ABSENT > INSUFFICIENT_COVERAGE > NOT_YET_ELAPSED > ZERO_SESSIONS > OK.
+    The note names which store produced the reported status."""
+    sev_a = _STATUS_SEVERITY[status_a]
+    sev_b = _STATUS_SEVERITY[status_b]
+    if sev_a == 0 and sev_b == 0:
+        return "OK", None
+    if sev_a >= sev_b:
+        winner_status, winner_note, winner_label = status_a, note_a, label_a
+        loser_status, loser_label = status_b, label_b
+    else:
+        winner_status, winner_note, winner_label = status_b, note_b, label_b
+        loser_status, loser_label = status_a, label_a
+    note = f"{winner_label} has {winner_note or winner_status} ({winner_status})"
+    if loser_status == "OK":
+        note += f"; {loser_label} OK"
+    return winner_status, note
+
+
+# ---------------------------------------------------------------------------
+# PR-history signal (per repo)
+# ---------------------------------------------------------------------------
+
+
+def _gh_repo_slug(repo: str) -> tuple[str, str] | None:
+    """(owner, name) for repo's checkout, or None when gh cannot say.
+    Duplicated from bin/ds-branch-prune's _gh_repo_slug (not imported)."""
+    try:
+        proc = _run(
+            ["gh", "repo", "view", "--json", "nameWithOwner"],
+            cwd=repo,
+            timeout=GH_CALL_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - any gh failure degrades
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    slug = payload.get("nameWithOwner") if isinstance(payload, dict) else None
+    if not isinstance(slug, str) or "/" not in slug:
+        return None
+    owner, name = slug.split("/", 1)
+    if not owner or not name:
+        return None
+    return owner, name
+
+
+def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: datetime, now: datetime) -> dict:
+    """Fetch merged-PR count and total commits for one repo/window via
+    paginated `gh api graphql` `search`, asserting len(nodes)==issueCount
+    for completeness (see bin/ds-branch-prune's identical pagination
+    shape, duplicated not imported). Returns a side-object per the
+    binding JSON contract."""
+    start_date = start.date().isoformat()
+    end_date = end.date().isoformat()
+    q = f"repo:{owner}/{name} is:pr is:merged merged:{start_date}..{end_date}"
+    source_desc = f"gh api graphql search:{q}"
+
+    if end > now:
+        return {
+            "status": "NOT_YET_ELAPSED",
+            "merged_prs": None,
+            "commits": None,
+            "commits_per_pr": None,
+            "source": source_desc,
+            "rows_consumed": 0,
+        }
+
+    nodes: list[dict] = []
+    total_count: int | None = None
+    cursor: str | None = None
+    saw_last_page = False
+    for _page in range(PR_MAX_PAGES):
+        cmd = [
+            "gh", "api", "graphql",
+            "-f", f"query={_MERGED_PR_QUERY}",
+            "-f", f"q={q}",
+            "-F", f"pageSize={PR_PAGE_SIZE}",
+        ]
+        if cursor is not None:
+            cmd += ["-f", f"endCursor={cursor}"]
+        try:
+            proc = _run(cmd, cwd=repo, timeout=GH_CALL_TIMEOUT_SECONDS)
+        except Exception:  # noqa: BLE001 - any gh failure degrades
+            return {
+                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+            }
+        if proc.returncode != 0:
+            return {
+                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+            }
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return {
+                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+            }
+        conn = ((payload or {}).get("data") or {}).get("search")
+        if not isinstance(conn, dict):
+            return {
+                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+            }
+        page_total = conn.get("issueCount")
+        if isinstance(page_total, int) and not isinstance(page_total, bool):
+            total_count = page_total
+        page_nodes = conn.get("nodes")
+        if not isinstance(page_nodes, list):
+            return {
+                "status": "GH_UNAVAILABLE", "merged_prs": None, "commits": None,
+                "commits_per_pr": None, "source": source_desc, "rows_consumed": len(nodes),
+            }
+        nodes.extend(n for n in page_nodes if isinstance(n, dict))
+        page_info = conn.get("pageInfo")
+        if not isinstance(page_info, dict):
+            return {
+                "status": "INCOMPLETE_WINDOW", "merged_prs": len(nodes),
+                "commits": None, "commits_per_pr": None,
+                "source": source_desc, "rows_consumed": len(nodes),
+            }
+        if not page_info.get("hasNextPage"):
+            saw_last_page = True
+            break
+        next_cursor = page_info.get("endCursor")
+        if not isinstance(next_cursor, str) or not next_cursor:
+            return {
+                "status": "INCOMPLETE_WINDOW", "merged_prs": len(nodes),
+                "commits": None, "commits_per_pr": None,
+                "source": source_desc, "rows_consumed": len(nodes),
+            }
+        cursor = next_cursor
+
+    if not saw_last_page or total_count is None or len(nodes) != total_count:
+        return {
+            "status": "INCOMPLETE_WINDOW",
+            "merged_prs": len(nodes),
+            "commits": None,
+            "commits_per_pr": None,
+            "source": source_desc,
+            "rows_consumed": len(nodes),
+        }
+
+    commits = 0
+    for n in nodes:
+        c = n.get("commits") or {}
+        try:
+            commits += int(c.get("totalCount") or 0)
+        except (TypeError, ValueError):
+            pass
+    merged_prs = len(nodes)
+    commits_per_pr = (commits / merged_prs) if merged_prs else None
+    return {
+        "status": "OK",
+        "merged_prs": merged_prs,
+        "commits": commits,
+        "commits_per_pr": commits_per_pr,
+        "source": source_desc,
+        "rows_consumed": merged_prs,
+    }
+
+
+def _pr_history_for_repo(
+    repo: str, before_start: datetime, before_end: datetime,
+    after_start: datetime, after_end: datetime, now: datetime,
+) -> dict:
+    slug = _gh_repo_slug(repo)
+    if slug is None:
+        na = {
+            "status": "NOT_A_GIT_REPO", "merged_prs": None, "commits": None,
+            "commits_per_pr": None, "source": None, "rows_consumed": 0,
+        }
+        return {"before": dict(na), "after": dict(na), "delta": None, "note": None}
+    owner, name = slug
+    before = _fetch_pr_window(repo, owner, name, before_start, before_end, now)
+    after = _fetch_pr_window(repo, owner, name, after_start, after_end, now)
+    delta = None
+    if before["status"] == "OK" and after["status"] == "OK":
+        if before["commits_per_pr"] is not None and after["commits_per_pr"] is not None:
+            delta = after["commits_per_pr"] - before["commits_per_pr"]
+    return {"before": before, "after": after, "delta": delta, "note": None}
+
+
+# ---------------------------------------------------------------------------
+# Metric assembly
+# ---------------------------------------------------------------------------
+
+
+def _side_obj(status: str, value, source: list[str], rows_consumed: int, note: str | None = None) -> dict:
+    """Every side-object always carries `note` (None on a clean OK side) -
+    always present, never conditionally omitted, so a caller can rely on
+    the key existing regardless of status."""
+    return {"status": status, "value": value, "source": source, "rows_consumed": rows_consumed, "note": note}
+
+
+def _raw_sum_is_zero(key_sum: str, window: dict) -> bool:
+    """ZERO_FILLED_DATA's "raw sum is exactly 0" test (mutation C's
+    target): the AGGREGATE value for this metric is 0, never a per-
+    component check - a widened "any sub-field is 0" version would
+    wrongly flag tokens_per_session as zero-filled whenever
+    cache_creation/cache_read happen to be 0 (this checkout's own
+    majority-zero-filled shape) even though input/output are real and
+    nonzero. `wall_seconds_sum` has no sub-components and is unaffected
+    by mutation C either way."""
+    return window[key_sum] == 0
+
+
+def build_delta(
+    repos: list[Path], cut_dt: datetime, window_days: int, now: datetime | None = None,
+    cut_source: str | None = None,
+) -> dict:
+    """Compute the full delta report. `now` is injectable for tests
+    (defaults to real wall-clock UTC at call time)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    before_start, before_end, after_start, after_end = _windows(cut_dt, window_days)
+
+    session_data = _collect_session_log(repos)
+    fires_data = _collect_fires(repos)
+
+    session_rows = session_data["rows"]
+    fires_rows = fires_data["rows"]
+
+    before_sess = _window_slice(session_rows, before_start, before_end)
+    after_sess = _window_slice(session_rows, after_start, after_end)
+    before_fires = _fires_window_slice(fires_rows, before_start, before_end)
+    after_fires = _fires_window_slice(fires_rows, after_start, after_end)
+
+    def sess_status(window_count, window_end, is_after, is_ratio):
+        return _side_status(
+            window_rows_count=window_count,
+            total_rows_count=session_data["rows_total"],
+            earliest_ts=session_data["earliest_ts"],
+            latest_ts=session_data["latest_ts"],
+            window_start=before_start if not is_after else after_start,
+            window_end=window_end,
+            now=now,
+            is_after_side=is_after,
+            is_session_ratio=is_ratio,
+        )
+
+    def fires_status(window_count, window_end, is_after):
+        return _side_status(
+            window_rows_count=window_count,
+            total_rows_count=fires_data["rows_total"],
+            earliest_ts=fires_data["earliest_ts"],
+            latest_ts=fires_data["latest_ts"],
+            window_start=before_start if not is_after else after_start,
+            window_end=window_end,
+            now=now,
+            is_after_side=is_after,
+            is_session_ratio=False,
+        )
+
+    metrics: dict = {}
+
+    # -- sessions (raw count, no ZERO_SESSIONS state) --------------------
+    b_status, b_note = sess_status(before_sess["sessions"], before_end, False, False)
+    a_status, a_note = sess_status(after_sess["sessions"], after_end, True, False)
+    b_side = _side_obj(b_status, before_sess["sessions"] if b_status != "ABSENT" else None,
+                        before_sess["sources"], before_sess["rows_consumed"], b_note)
+    a_side = _side_obj(a_status, after_sess["sessions"] if a_status != "ABSENT" else None,
+                        after_sess["sources"], after_sess["rows_consumed"], a_note)
+    delta = (after_sess["sessions"] - before_sess["sessions"]) if (b_status == "OK" and a_status == "OK") else None
+    metrics["sessions"] = {"before": b_side, "after": a_side, "delta": delta, "note": None}
+
+    # -- spawns_per_session ----------------------------------------------
+    def ratio_metric(key_sum, before_win, after_win):
+        b_status, b_note = sess_status(before_win["sessions"], before_end, False, True)
+        a_status, a_note = sess_status(after_win["sessions"], after_end, True, True)
+        b_val = (before_win[key_sum] / before_win["sessions"]) if b_status == "OK" else None
+        a_val = (after_win[key_sum] / after_win["sessions"]) if a_status == "OK" else None
+        b_side = _side_obj(b_status, b_val, before_win["sources"], before_win["rows_consumed"], b_note)
+        a_side = _side_obj(a_status, a_val, after_win["sources"], after_win["rows_consumed"], a_note)
+        delta = (a_val - b_val) if (b_status == "OK" and a_status == "OK") else None
+        return b_side, a_side, delta, b_status, a_status
+
+    b_side, a_side, delta, _, _ = ratio_metric("spawn_count_sum", before_sess, after_sess)
+    metrics["spawns_per_session"] = {"before": b_side, "after": a_side, "delta": delta, "note": None}
+
+    # -- hook_denies_per_session (composite of fires store + session store)
+    b_fires_status, b_fires_note = fires_status(before_fires["deny_count"], before_end, False)
+    a_fires_status, a_fires_note = fires_status(after_fires["deny_count"], after_end, True)
+    b_sess_status, b_sess_note = sess_status(before_sess["sessions"], before_end, False, True)
+    a_sess_status, a_sess_note = sess_status(after_sess["sessions"], after_end, True, True)
+
+    b_combined, b_combined_note = _combine_status(
+        b_fires_status, b_fires_note, "fires log", b_sess_status, b_sess_note, "session-log"
+    )
+    a_combined, a_combined_note = _combine_status(
+        a_fires_status, a_fires_note, "fires log", a_sess_status, a_sess_note, "session-log"
+    )
+    b_val = (before_fires["deny_count"] / before_sess["sessions"]) if b_combined == "OK" else None
+    a_val = (after_fires["deny_count"] / after_sess["sessions"]) if a_combined == "OK" else None
+    b_side = _side_obj(b_combined, b_val,
+                        sorted(set(before_fires["sources"]) | set(before_sess["sources"])),
+                        before_fires["rows_consumed"], b_combined_note)
+    a_side = _side_obj(a_combined, a_val,
+                        sorted(set(after_fires["sources"]) | set(after_sess["sources"])),
+                        after_fires["rows_consumed"], a_combined_note)
+    hd_delta = (a_val - b_val) if (b_combined == "OK" and a_combined == "OK") else None
+    metrics["hook_denies_per_session"] = {"before": b_side, "after": a_side, "delta": hd_delta, "note": None}
+
+    # -- tokens_per_session / wall_seconds_per_session (with data_quality) --
+    for metric_name, key_sum in (
+        ("tokens_per_session", "tokens_sum"),
+        ("wall_seconds_per_session", "wall_seconds_sum"),
+    ):
+        b_side, a_side, delta, b_status, a_status = ratio_metric(key_sum, before_sess, after_sess)
+        data_quality = None
+        if b_status == "OK" and a_status == "OK":
+            b_raw_is_zero = _raw_sum_is_zero(key_sum, before_sess)
+            a_raw_is_zero = _raw_sum_is_zero(key_sum, after_sess)
+            if b_raw_is_zero and a_raw_is_zero:
+                data_quality = "zero-filled"
+                delta = None
+            elif b_raw_is_zero:
+                data_quality = "zero-filled-before"
+                delta = None
+            elif a_raw_is_zero:
+                data_quality = "zero-filled-after"
+                delta = None
+        metrics[metric_name] = {
+            "before": b_side, "after": a_side, "delta": delta,
+            "data_quality": data_quality, "note": None,
+        }
+
+    # -- PR history (per repo) -------------------------------------------
+    pr_history: dict = {}
+    for repo in repos:
+        pr_history[str(repo)] = _pr_history_for_repo(
+            str(repo), before_start, before_end, after_start, after_end, now
+        )
+
+    meta = {
+        "cut_point_iso": cut_dt.isoformat(),
+        "cut_source": cut_source,
+        "window_days": window_days,
+        "before_window": [before_start.isoformat(), before_end.isoformat()],
+        "after_window": [after_start.isoformat(), after_end.isoformat()],
+        "generated_at": now.isoformat(),
+        "repos": [str(r) for r in repos],
+    }
+    return {"meta": meta, "metrics": metrics, "pr_history": pr_history}
+
+
+# ---------------------------------------------------------------------------
+# Output rendering
+# ---------------------------------------------------------------------------
+
+
+def _fmt_val(v) -> str:
+    if v is None:
+        return "n/a"
+    if isinstance(v, float):
+        return f"{v:.2f}"
+    return str(v)
+
+
+def _print_table(report: dict) -> None:
+    meta = report["meta"]
+    print(f"cut: {meta['cut_point_iso']}  window_days: {meta['window_days']}")
+    print(f"before: {meta['before_window'][0]} .. {meta['before_window'][1]}")
+    print(f"after:  {meta['after_window'][0]} .. {meta['after_window'][1]}")
+    print(f"repos: {', '.join(meta['repos'])}")
+    print()
+    print(f"{'metric':<26}{'before':<16}{'after':<16}{'delta':<14}status")
+    for name, m in report["metrics"].items():
+        b = m["before"]
+        a = m["after"]
+        delta = m.get("delta")
+        dq = m.get("data_quality")
+        status_str = f"{b['status']}/{a['status']}"
+        if dq:
+            status_str += f" ({dq})"
+        print(
+            f"{name:<26}{_fmt_val(b['value']):<16}{_fmt_val(a['value']):<16}"
+            f"{_fmt_val(delta):<14}{status_str}"
+        )
+    print()
+    print("pr_history:")
+    for repo, entry in report["pr_history"].items():
+        b, a = entry["before"], entry["after"]
+        print(
+            f"  {repo}: before={_fmt_val(b['merged_prs'])}({b['status']}) "
+            f"after={_fmt_val(a['merged_prs'])}({a['status']}) "
+            f"commits_per_pr_delta={_fmt_val(entry['delta'])}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# CLI wiring
+# ---------------------------------------------------------------------------
+
+
+def _looks_like_repo(path: Path) -> bool:
+    return (path / ".agentic").is_dir() or (path / ".git").exists()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-change-delta",
+        description="Before/after telemetry delta bracketing a methodology-change cut point.",
+    )
+    parser.add_argument("--cut", required=True, help="git SHA or ISO8601 date/datetime")
+    parser.add_argument("--cut-repo", default=None, help="repo to resolve --cut SHA against (default: first --repo)")
+    parser.add_argument("--window-days", type=int, default=14)
+    parser.add_argument("--repo", action="append", required=True, dest="repos")
+    parser.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.window_days <= 0:
+        print("error: --window-days must be positive", file=sys.stderr)
+        return 2
+
+    repo_paths = [Path(r).expanduser() for r in args.repos]
+    valid_repos = [p for p in repo_paths if _looks_like_repo(p)]
+    if not valid_repos:
+        print(
+            "error: no --repo points at a directory with .agentic/ or .git",
+            file=sys.stderr,
+        )
+        return 1
+
+    cut_repo = args.cut_repo or str(repo_paths[0])
+    try:
+        cut_dt, cut_source = _resolve_cut(args.cut, cut_repo)
+    except CutResolutionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = build_delta(valid_repos, cut_dt, args.window_days, cut_source=cut_source)
+
+    if args.json:
+        print(json.dumps(report, indent=2, default=str))
+    else:
+        _print_table(report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
