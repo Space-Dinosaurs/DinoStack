@@ -128,7 +128,14 @@ REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 # which had gone stale twice across separate rounds - to anchor-text
 # citations). Measured post-edit size is 387,197 B; 387197 * 1.02 =
 # 394,940.94, rounded to 395,000, following the same ~2% convention.
-THRESHOLD_BYTES=395000
+# Raised again for DS-241 (Tracker Writeback Helper human-override and
+# reverted-PR guards, the `transitions: manual` kill switch,
+# the per-call-site expected_source_state/merged_pr_number binding table,
+# and their supporting prose across the 7 W1-W7 sites and Phase 11 -
+# deliberate, triaged growth, not un-triaged drift). Measured post-edit
+# size is 397,376 B; 397376 * 1.02 = 405,323.52, rounded up to 406,000 to
+# preserve the ~2% headroom convention.
+THRESHOLD_BYTES=406000
 
 # Per-PR delta limit, re-derived (not hand-rounded) from git history:
 # ceil(max_observed_delta * 1.1) where max_observed_delta = 29941 B, the

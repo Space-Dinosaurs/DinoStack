@@ -29,8 +29,12 @@ Data model: `<repo>/.agentic/tracker.yml` - project-local, gitignored,
   pure data (never executes). Closed key allowlist (ALLOWED_KEYS): tracker,
   prefix, base_url, workspace, qa_assignee, jira_qa_transition,
   state_in_progress, state_in_review, state_qa, state_dev_complete,
-  state_blocked, state_done, pipeline_order, created_at. Unlike
-  `.agentic/phase0-classifiers.yml`
+  state_blocked, state_done, pipeline_order, transitions, created_at.
+  `transitions` (automated-transition kill switch: `auto` | `manual`, case-insensitive,
+  default `auto`) is not tracker-specific and resolves to
+  TRACKER_TRANSITIONS_MODE regardless of which tracker is configured; an
+  invalid value warns and falls back to the default, same discipline as
+  `pipeline_order`. Unlike `.agentic/phase0-classifiers.yml`
   (which runs with full conductor privileges), this file is data-only.
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, subprocess,
@@ -139,8 +143,11 @@ ALLOWED_KEYS: set[str] = {
     "state_blocked",
     "state_done",
     "pipeline_order",
+    "transitions",
     "created_at",
 }
+
+TRANSITIONS_MODE_TOKENS = ("auto", "manual")
 
 REQUIRED_KEYS: dict[str, set[str]] = {
     "jira": {"prefix", "base_url"},
@@ -387,6 +394,17 @@ def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -
         else:
             resolved["TRACKER_PIPELINE_ORDER"] = normalized
 
+    if "transitions" in fields:
+        normalized_mode = fields["transitions"].strip().lower()
+        if normalized_mode not in TRANSITIONS_MODE_TOKENS:
+            _append_warning(
+                warnings,
+                f"WARNING: transitions '{fields['transitions']}' is not one of "
+                f"{'/'.join(TRANSITIONS_MODE_TOKENS)} - using the default 'auto'.",
+            )
+        else:
+            resolved["TRACKER_TRANSITIONS_MODE"] = normalized_mode
+
     return resolved
 
 
@@ -546,6 +564,7 @@ def _defaults_for(tracker: str | None) -> dict:
         "TRACKER_STATE_DONE": done,
         "TRACKER_DEV_COMPLETE_DECLARED": "false",
         "TRACKER_PIPELINE_ORDER": "IN_PROGRESS, IN_REVIEW, QA",
+        "TRACKER_TRANSITIONS_MODE": "auto",
     }
 
 

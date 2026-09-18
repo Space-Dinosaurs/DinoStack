@@ -1074,6 +1074,74 @@ def test_tracked_overlay_emits_read_side_warning():
         print("PASS test_tracked_overlay_emits_read_side_warning")
 
 
+# ---------------------------------------------------------------------------
+# AA1-AA4: `transitions:` automated-transition kill switch key
+# ---------------------------------------------------------------------------
+
+def test_AA1_transitions_defaults_to_auto():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "auto"
+        print("PASS test_AA1_transitions_defaults_to_auto")
+
+
+def test_AA2_transitions_manual_accepted_case_insensitive():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "transitions: MANUAL\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok"
+        assert fields["TRACKER_TRANSITIONS_MODE"] == "manual"
+        assert warnings == []
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AA2_transitions_manual_accepted_case_insensitive")
+
+
+def test_AA3_transitions_invalid_value_warns_and_defaults():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "transitions: sometimes\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok"
+        assert "TRACKER_TRANSITIONS_MODE" not in fields
+        assert any("transitions" in w and "auto" in w for w in warnings), warnings
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "auto"
+        print("PASS test_AA3_transitions_invalid_value_warns_and_defaults")
+
+
+def test_AA4_ds_tracker_set_transitions_round_trip():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        r_init = _run_cli(
+            ["init", "--tracker", "jira", "--prefix", "DS", "--base-url", "https://x.atlassian.net"],
+            repo,
+            env,
+        )
+        assert r_init.returncode == 0, r_init.stderr
+
+        r_set = _run_cli(["set", "transitions", "manual"], repo, env)
+        assert r_set.returncode == 0, r_set.stderr
+
+        result = _resolve_tracker(repo)
+        assert result["TRACKER_TRANSITIONS_MODE"] == "manual"
+        print("PASS test_AA4_ds_tracker_set_transitions_round_trip")
+
+
 if __name__ == "__main__":
     test_A_no_overlay_jira_agents_md_byte_identical()
     test_A2_no_overlay_linear_agents_md()
@@ -1116,3 +1184,7 @@ if __name__ == "__main__":
     test_S_d_unknown_git_state_fails_closed()
     test_no_repo_state_allows_and_warns()
     test_tracked_overlay_emits_read_side_warning()
+    test_AA1_transitions_defaults_to_auto()
+    test_AA2_transitions_manual_accepted_case_insensitive()
+    test_AA3_transitions_invalid_value_warns_and_defaults()
+    test_AA4_ds_tracker_set_transitions_round_trip()

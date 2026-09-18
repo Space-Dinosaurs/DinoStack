@@ -3532,6 +3532,16 @@
       "source_token": "QA_EVIDENCE_URLS"
     },
     {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "0717ac2c7ef3a2e4459703d75c3846a78c576424fcb63fedfa2ea985be47033f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -5792,6 +5802,16 @@
       "source_token": "content/agents/engineer.md"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`, `expected_source_state: null`, `merged_pr_number: null`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
+      "kind": "operational",
+      "occurrence_hash": "2aedc934784baa64ec9d2ae4d90fefbd8843eafb513f46d9cf0563fcc94867a2",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`, `expected_source_state: null`, `merged_pr_number: null`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "add",
       "kind": "display-only",
@@ -7922,6 +7942,16 @@
       "source_token": "KC_SHA"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "48c4146c9a9fe4fc2acaaf147cfe32e6fe7d94b8cecda6dca31fd90771f8ddda",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "--title",
       "kind": "display-only",
@@ -9212,6 +9242,16 @@
       "source_token": "W1_FETCH_FAILED"
     },
     {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "5f20a86a0ecba4e791e4f0479a493f8769ffd82915fc178abf639ee70590a475",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "`/ds-ticket-status-sync`"
+    },
+    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -10332,6 +10372,16 @@
       "source_token": "KC_JSON_IGN"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "6d5219c5b6c7bf8465ebf61ab3c356b987a2d0f37517a20c99d95dc0b58f7842",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -10672,6 +10722,16 @@
       "source_token": ".agentic/"
     },
     {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "73b9158c3237bf9ae763adbcb84d9ab23881388914e60f007bd6928effd7b328",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -10720,6 +10780,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "74d87567b449b66006d556ec8f2f7d6b20f26e028468abbdf4227e20979b36cc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": "if",
@@ -12292,6 +12362,16 @@
       "source_token": "python3"
     },
     {
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
+      "kind": "operational",
+      "occurrence_hash": "8ce57f6b34817e1a265754415ef857a1c6764af73e028953c6772e79721bf5cc",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": "content/references/qa-gate.md",
       "generated_token": "$AE_REPO_DIR/content/references/qa-gate.md",
       "kind": "operational",
@@ -13032,6 +13112,16 @@
       "source_token": ".agentic/context.md"
     },
     {
+      "expected_target": "spawn_agent",
+      "generated_token": "spawn_agent",
+      "kind": "operational",
+      "occurrence_hash": "97de2164bc7c50b796ae2b665ec397f41e0c58a0e1289571d6358b0f9e13d9f6",
+      "resolution_mode": "codex-tool",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Agent"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -13450,16 +13540,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "spawn_agent",
-      "generated_token": "spawn_agent",
-      "kind": "operational",
-      "occurrence_hash": "9e120b6abf8abb4e25171030b40915efa42fa29c4ba6725ae8350fd7de4cf601",
-      "resolution_mode": "codex-tool",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Agent"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -14670,16 +14750,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "abc5e3222e768b7595961ab74b34ef64a357eff22c511ab1e705e8fac47ae3cd",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -16100,16 +16170,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Write"
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
-      "kind": "operational",
-      "occurrence_hash": "c00e79ea0e5f6ba501172bc159a943eee565a9e246a8d59f75a082212bf2afee",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
     },
     {
       "expected_target": ".agentic/qa.md",
@@ -19682,6 +19742,16 @@
       "source_token": "git"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "f0023fb3c042d2c6b4d3372c91a4c6a8c71abd9ec81a4fa05c39d2b0e322fb78",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "print",
       "generated_token": "print",
       "kind": "operational",
@@ -19720,16 +19790,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".author_model"
-    },
-    {
-      "expected_target": "content/references/tracker-writeback.md",
-      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
-      "kind": "operational",
-      "occurrence_hash": "f0902afc03368f778e7e7574897b0d5df4bccb783bdbe284b58e2f3460d4eb0e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": ".agentic/",
@@ -20985,16 +21045,6 @@
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
-      "occurrence_hash": "0d24cf39fcd53cfc57cba1678d9cd12df8af07b09f1707dd14c067ac82d96ca0",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "dinostack-codex-wrap",
-      "generated_token": "$dinostack-codex-wrap",
-      "kind": "operational",
       "occurrence_hash": "0e0e946b3d4085af7628d99bb9efdf224dbe4e2565f31118fc2094fcf5a7be8c",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
@@ -21222,6 +21272,16 @@
       "source_token": "<cwd>/.agentic/wrap"
     },
     {
+      "expected_target": "dinostack-codex-wrap",
+      "generated_token": "$dinostack-codex-wrap",
+      "kind": "operational",
+      "occurrence_hash": "1e9b865a105a15d11a328d12b2635dbfcba768bb4a17557b11fdd97f822d3d7d",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/wrap/last-wrap",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/last-wrap",
       "kind": "operational",
@@ -21432,6 +21492,16 @@
       "source_token": "cwd"
     },
     {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "2754a3a814e24996dba8aa22ee66b68ab84bdc5a1344881c8390d394df546045",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/tracker.yml"
+    },
+    {
       "expected_target": ".agentic/learnings.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
       "kind": "operational",
@@ -21530,6 +21600,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "2bc7fc31e73c2eacbaee314a5a105e049a3d416e269c174fbe96519968a7c968",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": ".agentic/",
@@ -22032,6 +22112,16 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "46aa2d853c901bdc7b544a81178e801ae8b90439dc9871f3a5863540d6d9ac1f",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-ticket-status-sync`"
+    },
+    {
       "expected_target": "dinostack-codex-wrap",
       "generated_token": "$dinostack-codex-wrap",
       "kind": "operational",
@@ -22440,6 +22530,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "5c33aa5ccddf4b4dbb81e79dec7fe9b21bb1edfea2224deece1c590b526f1220",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": ".agentic/memory.md",
@@ -23062,26 +23162,6 @@
       "source_token": "- Do NOT write `_wrap.md` (the Stop hook already writes a raw activity shard after every turn, and the rollup already carries it - running /ds-wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "807d1a8f763ac310b5ae50c73456927ed484a4f4412254258c03652edcc8fa8d",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
-      "expected_target": "content/references/tracker-writeback.md",
-      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
-      "kind": "operational",
-      "occurrence_hash": "80a6cb5e84f615467f0de076502f84b5689c4ea6a7431fb563f7b2c45fa213b4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/tracker-writeback.md"
-    },
-    {
       "expected_target": ".agentic/learnings.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
       "kind": "operational",
@@ -23120,6 +23200,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-ticket-status-sync.md",
+      "kind": "operational",
+      "occurrence_hash": "81cb60341641e0b53e44b4def5bb67b09617c0c4d00448cf876c52e8667269dc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/commands/ds-ticket-status-sync.md"
     },
     {
       "expected_target": "$HOME/.claude",
@@ -23442,16 +23532,6 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-ticket-status-sync.md",
-      "kind": "operational",
-      "occurrence_hash": "9b8e66ee281fc328f236032417d9191b448fb053180e1abba8a92ae06765aaf8",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/commands/ds-ticket-status-sync.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "2",
       "kind": "display-only",
@@ -23560,16 +23640,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "a251e3f257bdbb60bfa4e3db302b62ffc5acae797cf6bce0bde244cae775b944",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": "apply_patch",
@@ -23820,6 +23890,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/pending-<session_id>.json"
+    },
+    {
+      "expected_target": "dinostack-codex-implement-ticket",
+      "generated_token": "$dinostack-codex-implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "b54cf29dc84d1c205e37d357f23dee8f378e2360e22a37c8b529d34c173e55f4",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "dinostack-codex-wrap",
@@ -24290,6 +24370,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "`/ds-wrap-deferred`"
+    },
+    {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "cbfa028807af3a3cd54b81d45e01cdc656f2400a0db38941fde4bb9df56c1a2f",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": ".agentic/_wrap.md",

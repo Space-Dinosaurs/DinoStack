@@ -1097,6 +1097,8 @@ Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If
 
 Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `ds-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
+**Automated tracker writeback kill switch (4.5).** The `.agentic/tracker.yml` overlay's `transitions:` key (`auto` | `manual`, default `auto`) is a separate, always-available control that does NOT require answering `l` above - it can be set on any project regardless of which of the two AGENTS.md/overlay tracker-config paths was chosen. Do not prompt for it during this step. Mention it once in the closing summary: *"To stop /ds-implement-ticket and related commands from automatically transitioning this tracker's tickets, run `ds-tracker set transitions manual` at any time. Run `ds-tracker set transitions auto` to re-enable."* See `content/references/tracker-writeback.md` `## Tracker Writeback Helper` for the full kill-switch semantics.
+
 **11a. Linear setup** (run if tracker = Linear)
 
 Check if `linearctl` is installed: `which lc`. If not installed:

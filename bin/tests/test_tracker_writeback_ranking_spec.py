@@ -791,7 +791,11 @@ def test_pending_merge_sweep_g_preserves_closed_unmerged_and_adds_three_way_rule
     text = path.read_text(encoding="utf-8")
     anchor = "**g. Record the determination.**"
     idx = text.index(anchor)
-    window = text[idx:idx + 1600]
+    # The human-override (4.5) and reverted-PR (4.6) guards inserted the
+    # guard_skipped_human_override / guard_skipped_reverted_pr mapping prose
+    # ahead of the skipped_unconfigured_state sentence, widening this window
+    # from the pre-guard 1600.
+    window = text[idx:idx + 3200]
 
     # closed_unmerged from (c) must still be present, unchanged.
     assert "`closed_unmerged` from (c)" in window, (
@@ -808,14 +812,41 @@ def test_pending_merge_sweep_g_preserves_closed_unmerged_and_adds_three_way_rule
     assert "retryable misconfiguration" in mapping_window
     assert "terminalizes via the same `attempts`/`abandoned` rule as any other `failing` entry" in mapping_window
 
-    # The state enum sentence itself must be unchanged: still exactly 5
-    # values, guard_skipped still listed as terminal (not silently dropped
-    # or redefined as non-terminal to "fix" this some other way).
+    # The state enum sentence now carries 7 values (the human-override and
+    # reverted-PR guards added guard_skipped_human_override and
+    # guard_skipped_reverted_pr); the first six are terminal,
+    # closed_unmerged/guard_skipped remain present.
     assert (
-        "`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. "
-        "The first four are **terminal**"
+        "`state` enum: `done` | `guard_skipped` | `guard_skipped_human_override` | "
+        "`guard_skipped_reverted_pr` | `closed_unmerged` | `abandoned` | `failing`. "
+        "The first six are **terminal**"
         in text
     )
+
+
+def test_pending_merge_guard_skipped_reverted_pr_report_once_rule():
+    """The reverted-PR guard (4.6): guard_skipped_reverted_pr must print its operator-visible
+    line only on the FIRST sweep that detects the revert - not on every
+    re-observation of an already-recorded revert. guard_skipped_human_override
+    must never use the attempts/abandoned escalation."""
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = "**g. Record the determination.**"
+    idx = text.index(anchor)
+    window = text[idx:idx + 3200]
+
+    assert "guard_skipped_human_override" in window
+    assert "guard_skipped_reverted_pr" in window
+    assert "never re-enters the candidate set" in window
+    assert "prints its operator-visible line only on the FIRST sweep" in window
+    assert "must never use the `attempts`/`abandoned` escalation" in window
+    assert "does not use the `attempts`/`abandoned` escalation" in window
+
+    j_idx = text.index("**j. Output.**")
+    j_window = text[j_idx:j_idx + 900]
+    assert "guard_skipped_human_override" in j_window
+    assert "guard_skipped_reverted_pr" in j_window
+    assert "never repeats on a later sweep" in j_window
 
 
 def test_setup_has_tracker_state_diagnostic_toggle():

@@ -893,6 +893,103 @@ def test_config_cmd_out_of_scope_names_agentic_tracker():
     )
 
 
+# ---------------------------------------------------------------------------
+# Human-override (4.5) / reverted-PR (4.6) guards: per-call-site expected_source_state / merged_pr_number bindings
+# ---------------------------------------------------------------------------
+
+# Each entry: (site marker substring, expected `expected_source_state`
+# literal, expected `merged_pr_number` literal). Uses the same scoped-window
+# technique as the pre-existing forward_only_guard: true assertions - the
+# window is bounded after the site's own invocation sentence, never a
+# whole-file substring search.
+SITE_BINDINGS = [
+    ("target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`",
+     "expected_source_state: null", "merged_pr_number: null"),
+    ("target_state: $TRACKER_STATE_IN_REVIEW`, `forward_only_guard: true`",
+     "expected_source_state: $TRACKER_STATE_IN_PROGRESS", "merged_pr_number: null"),
+    ("target_state: $TRACKER_STATE_QA`, `forward_only_guard: true`",
+     "expected_source_state: $TRACKER_STATE_IN_REVIEW", "merged_pr_number: null"),
+]
+
+
+def test_w1_w2_w3_carry_expected_source_state_and_merged_pr_number(implement_ticket_text):
+    for anchor, expected_src, expected_pr in SITE_BINDINGS:
+        idx = implement_ticket_text.index(anchor)
+        window = implement_ticket_text[idx:idx + 300]
+        assert f"`{expected_src}`" in window, f"{anchor!r} missing {expected_src!r}"
+        assert f"`{expected_pr}`" in window, f"{anchor!r} missing {expected_pr!r}"
+
+
+def test_w4_w5_w6a_w6b_blocked_sites_pass_null_bindings(implement_ticket_text):
+    anchor = "target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`"
+    occurrences = [
+        m.start() for m in re.finditer(re.escape(anchor), implement_ticket_text)
+    ]
+    assert len(occurrences) == 4, f"expected 4 BLOCKED writeback sites (W4/W5/W6a/W6b), found {len(occurrences)}"
+    for idx in occurrences:
+        window = implement_ticket_text[idx:idx + 300]
+        assert "`expected_source_state: null`" in window
+        assert "`merged_pr_number: null`" in window
+
+
+def test_w7_passes_qa_predecessor_and_pr_number(implement_ticket_text):
+    anchor = "target_state: $TRACKER_STATE_DEV_COMPLETE`, `forward_only_guard: true`"
+    idx = implement_ticket_text.index(anchor)
+    window = implement_ticket_text[idx:idx + 300]
+    assert "`expected_source_state: $TRACKER_STATE_QA`" in window
+    assert "`merged_pr_number: $PR_NUMBER`" in window
+
+
+def test_phase_11_passes_in_review_predecessor_and_null_pr(implement_ticket_text):
+    idx = implement_ticket_text.index("`dev_complete_declared`: boolean, resolved once in Setup")
+    window = implement_ticket_text[idx:idx + 500]
+    assert "`expected_source_state`: `$TRACKER_STATE_IN_REVIEW`" in window
+    assert "`merged_pr_number`: `null`" in window
+
+
+def test_kernel_binding_table_has_all_ten_rows(implement_ticket_text):
+    idx = implement_ticket_text.index(
+        "**`expected_source_state` / `merged_pr_number` binding table"
+    )
+    window = implement_ticket_text[idx:idx + 2000]
+    for row in (
+        "| W1 |",
+        "| W2 |",
+        "| W3 |",
+        "| W4 / W5 / W6a / W6b (all target Blocked) |",
+        "| W7 |",
+        "| Phase 11 |",
+        "| Merge-time tracker writeback rule |",
+        "| `--pending-merge` sweep (f) |",
+        "| `/ds-ticket-status-sync` single / `--all` Tier 1 |",
+        "| `/ds-wrap` Part F |",
+    ):
+        assert row in window, f"binding table missing row {row!r}"
+
+
+def test_status_sync_awaiting_callers_pass_transitions_mode_and_bindings(status_sync_text):
+    assert "`transitions_mode` (`$TRACKER_TRANSITIONS_MODE` resolved in Preflight)" in status_sync_text
+    assert "expected_source_state: <current>" in status_sync_text
+    assert "never a new `gh` call" in status_sync_text
+    assert "an additional per-ticket `gh pr list` call solely to populate this field" in status_sync_text
+
+
+def test_pending_merge_sweep_f_binds_qa_predecessor_and_ledger_pr_number(pending_merge_section):
+    assert "expected_source_state: $TRACKER_STATE_QA" in pending_merge_section
+    assert "merged_pr_number: <pr_number>" in pending_merge_section
+    assert "the SAME `pr_number` already read from the ledger record in (b)" in pending_merge_section
+
+
+def test_wrap_part_f_binds_current_state_and_conditional_pr_number():
+    text = WRAP_PATH.read_text(encoding="utf-8")
+    idx = text.index("**Reconcile each detected key.**")
+    window = text[idx:idx + 1400]
+    assert "`transitions_mode`" in window
+    assert "`expected_source_state: <current>`" in window
+    assert "`merged_pr_number`" in window
+    assert "never a new call" in window
+
+
 def test_no_duplicate_top_level_test_function_names():
     # DS-163 round-3 rework: no F811 lint runs on bin/tests/, so a second
     # `def test_foo` in this module silently shadows the first (Python

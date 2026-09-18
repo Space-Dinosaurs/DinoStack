@@ -6,7 +6,10 @@ Purpose: Full reference for the Tracker Writeback Helper - the reusable
          in ds-ticket-status-sync.md and ds-wrap.md Part F) shares: the
          invocation contract, the forward-only guard's category-rank and
          same-category pipeline sub-rank algorithm, the diagnostic-
-         enrichment sub-step, and failure/skip logging formats.
+         enrichment sub-step, the human-override (4.5) and reverted-PR
+         (4.6) guards and the `transitions: manual` kill switch, the
+         `.agentic/tracker-transitions.jsonl` ledger write, and
+         failure/skip logging formats.
 
 Public API: Read-only reference document, addressed by its retained
             `## Tracker Writeback Helper` heading. Cross-referenced from:
@@ -31,10 +34,11 @@ Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       content/commands/ds-init-project.md.
 
 Failure modes: Prose reference; does not auto-execute. A stale copy would
-               misdescribe the forward-only guard's permit/skip outcomes or
-               the diagnostic-enrichment contract for every call site at
-               once - keep in sync with the live call sites listed above
-               whenever the algorithm changes.
+               misdescribe the forward-only guard's permit/skip outcomes,
+               the diagnostic-enrichment contract, the 4.5/4.6 guard
+               outcomes, or the kill switch for every call site at once -
+               keep in sync with the live call sites listed above whenever
+               the algorithm changes.
 
 Performance: n/a (static reference document).
 -->
@@ -43,7 +47,7 @@ Performance: n/a (static reference document).
 
 Reusable subagent invocation pattern. Used by Phase 11 (existing), the 7 W1-W7 sites in `content/commands/ds-implement-ticket.md`, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
-> Note: five statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, and the "never reads `.agentic/tracker-states.json`" ranking rule - are duplicated verbatim in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all five - if the two ever disagree, the kernel block governs.
+> Note: six statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, the "never reads `.agentic/tracker-states.json`" ranking rule, and the per-call-site `expected_source_state`/`merged_pr_number` binding table - are duplicated verbatim in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all six - if the two ever disagree, the kernel block governs.
 
 **Invocation contract:**
 
@@ -54,15 +58,20 @@ When the conductor reaches a writeback boundary:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
+   - `transitions_mode`: `$TRACKER_TRANSITIONS_MODE`, resolved once in `content/commands/ds-implement-ticket.md` Setup from the `.agentic/tracker.yml` overlay's `transitions:` key (`auto` | `manual`, default `auto`). Gates the kill switch below - checked before any other subagent responsibility.
    - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 6 values resolved once in `content/commands/ds-implement-ticket.md` Setup; required by the forward-only guard's same-category pipeline sub-rank
    - `diagnostic_enabled`: `$TRACKER_STATE_DIAGNOSTIC` (boolean, resolved once in `content/commands/ds-implement-ticket.md` Setup; gates the diagnostic-enrichment sub-step of step 5 below)
    - `linear_team_key`: `$TICKET_PREFIX` (Linear only; the team key already resolved in `content/commands/ds-implement-ticket.md` Setup from the `## Linear` `Team:` field - scopes the live `list_workflow_states` call in step 5's diagnostic-enrichment sub-step to the correct team, exactly as Phase 2c's own Fetch step already does for its advisory-only call)
    - `pipeline_order`: the ordered list of pipeline tokens resolved once in `content/commands/ds-implement-ticket.md` Setup as `TRACKER_PIPELINE_ORDER`, defaulting to `["IN_PROGRESS","IN_REVIEW","QA"]`; a declared order may omit `DEV_COMPLETE`, in which case `DEV_COMPLETE` is appended at the trailing position, so the effective list consumed by the guard is always the 4 tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE`. Rank = index within that effective list, consumed by step 4.d.iv's pipeline sub-rank.
    - `dev_complete_declared`: boolean, resolved once in `content/commands/ds-implement-ticket.md` Setup as `TRACKER_DEV_COMPLETE_DECLARED`. `true` when the project declared a dev-complete field (`JIRA_STATE_DEV_COMPLETE`, `State Dev Complete:`, or the overlay's `state_dev_complete`); `false` when `TRACKER_STATE_DEV_COMPLETE` was inherited from the resolved `TRACKER_STATE_DONE`. Consumed by step 4.d.iv: `DEV_COMPLETE` participates in the pipeline sub-rank only when this is `true`. Absent or unparseable is treated as `false` (fail-safe: an inherited value carries no rank, which is the pre-DS-117 behavior).
+   - `expected_source_state`: string|null - the single resolved `TRACKER_STATE_*` name the caller's own evidence assumed as predecessor, or `null` when no single predecessor exists (e.g. a Blocked-target call site, which must fire from any stage). Consumed by guard 4.5 below. Binding value per call site: see the "Caller enumeration" table in `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper" - not Worker discretion.
+   - `merged_pr_number`: integer|null - the PR number whose merge is being treated as evidence that a QA (or later) target is warranted, or `null` when the call site has no PR evidence at hand. Consumed by guard 4.6 below. **Cost discipline is binding**: no caller may add a new API call solely to populate this field - it is populated only from a `gh pr view`/`gh pr list` response the caller was already going to fetch for its own purposes; when the data isn't already in hand, the caller passes `null` and guard 4.6 no-ops. Binding value per call site: see the same table.
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
 **Subagent responsibilities (extended for `forward_only_guard`):**
+
+**Kill switch (checked FIRST, before step 1 - costs zero round trips).** Check the `transitions_mode` input (see the invocation contract above; resolved once by the conductor from the `.agentic/tracker.yml` overlay's `transitions:` key via `bin/ds-tracker`, default `auto`). When `manual`, perform NO transition and make NO pre-read call: return immediately with `status: "skipped_transitions_manual"` and no other side effect. This is a report-only suggestion, not a soft-fail - the conductor surfaces it exactly like any other skip status (see "Caller enumeration" for the fire-and-forget vs. awaiting-caller split). When `auto` (the default), proceed to step 1.
 
 1. **Pre-read current state:**
    - Linear: call `mcp__linear__get_issue` to read the ticket's current state, capturing both `state.type` and `state.name` (e.g. `"In Review"`) from the response.
@@ -88,6 +97,28 @@ When the conductor reaches a writeback boundary:
         - **Name collision.** The lookup is a name-to-rank lookup over the pipeline tokens only, so a name that matches a pipeline token resolves to that token's rank regardless of also matching a non-pipeline key such as `DONE`. This rule applies only to a DECLARED `DEV_COMPLETE`; an inherited one has no rank to collide with (see the preceding bullet). When a DECLARED name matches more than one PIPELINE token - for example an operator pointing both `State QA:` and `State Dev Complete:` at the same lane on a short board - it resolves to the HIGHEST such rank.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
         - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 6 known `tracker_state_values` at all, or because it matches one of the 6 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 6 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+4.5. **Human-override guard.** Runs only when step 4 would otherwise permit the transition. Purpose: a human deliberately moving a ticket backward (e.g. reverting an earlier forward move to a prior state) must never be silently re-applied by automation writing under the operator's own tracker identity, because author identity can never discriminate a human edit from an automated one.
+   - If `expected_source_state` (see the invocation contract above) is `null`: this guard is not applicable at this call site - proceed to 4.6.
+   - Else if the current state's resolved name case-insensitive-exact-matches `expected_source_state`: **permit** - proceed to 4.6.
+   - Else consult `.agentic/tracker-transitions.jsonl` (see "The transitions ledger" below) for a record with this `ticket_id`, a `to_state` case-insensitive-exact-matching `target_state`, and a `ts` within **15 minutes** of now.
+     - Record found: **permit** - proceed to 4.6. This was AE's own recent write (e.g. Phase 11 and W3 both landing on QA in the same session), not a human override.
+     - Not found: **skip.** Return `status: "skipped_human_override"` with payload fields `current_state` (string), `last_changed_by` (string|null), `last_changed_at` (ISO8601|null). Do not proceed to 4.6 or attempt any transition.
+   - **Why 15 minutes.** Long enough to cover a same-session near-simultaneous second call site targeting the same state (Phase 11 and W3 both landing on QA within one ticket's implementation run), far shorter than any realistic human reversion window - a stale entry from an earlier session must never authorize a fresh push.
+   - **Enrichment (best-effort, never affects the permit/skip decision above).** On Jira, request `expand: "changelog"` on the step-1 pre-read (same call, no new round trip) whenever `forward_only_guard: true`, and parse `changelog.histories[]` for the most recent entry whose `items[]` contains a `field: "status"` change - parse only when this guard actually needs it (i.e. only on the "not found" branch above), never eagerly. **Unverified**: whether `mcp__mcp-atlassian__jira_get_issue` actually surfaces `changelog.histories[]` when `expand: "changelog"` is requested could not be confirmed from this repo (no live Jira call available). Implementers MUST treat this as unverified rather than assumed - if it does not surface, the Jira path degrades to `null` enrichment exactly like Linear below. On Linear, no MCP tool in this repo exposes issue or status history, so `last_changed_by`/`last_changed_at` always resolve to `null` - this is a known parity gap with Jira, not an oversight.
+
+4.6. **Reverted-PR guard.** Runs only when 4.5 permitted (or was not applicable). No-op unless `merged_pr_number` (see the invocation contract above) is non-null.
+   - Revert detected when ANY of: a merged PR whose title matches `^Revert "` and references the target PR's title or number; a merged PR whose body references `#<merged_pr_number>` alongside revert language; a merged PR whose `headRefName` matches `revert/<ticket_id>` (case-insensitive).
+   - On detection: **skip.** Return `status: "skipped_reverted_pr"` with payload fields `merged_pr_number` (int), `revert_pr_number` (int|null), `revert_evidence` (one of `title_reference` / `revert_branch` / `body_reference`). Never a backward move, never a transition.
+   - **Cost discipline is binding: this guard adds ZERO new API calls.** It rides on `gh pr view`/`gh pr list` data the calling site already fetched for its own purposes (see the `merged_pr_number` field description above and the "Caller enumeration" table's binding values). If the `gh` data available to the guard is genuinely inconclusive, or a read the guard attempts on already-fetched data errors: proceed to the transition as normal. Soft-fail must never block a legitimate transition, and the result of an inconclusive check is never "assume reverted."
+
+**The transitions ledger.** `.agentic/tracker-transitions.jsonl` is machine-local and append-only. Immediately after step 4 (and 4.5/4.6) PERMIT a transition and the attempt in step 5 below SUCCEEDS - before the subagent returns success - append one line:
+
+```json
+{"ticket_id":"DS-42","from_state":"In Review","to_state":"QA","ts":"2026-09-18T12:03:11Z","call_site":"W3","session_id":"<id>"}
+```
+
+Read with the same `fromjson? // empty` malformed-line discipline as `.agentic/ticket-ledger.jsonl` (a malformed line is skipped, never aborts the read). A missing file means an empty candidate set for guard 4.5's lookback: on a fresh machine, guard 4.5 falls back to the `expected_source_state` branch alone, which is strictly safer (more skips, never more writes) - never a hard failure. This ledger is written ONLY for a transition the Helper actually performs; a skip at 4.5, 4.6, the kill switch, or the forward-only guard writes nothing.
+
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
 
    **Diagnostic enrichment (new, gated on `diagnostic_enabled`; runs strictly AFTER a transition attempt, never before, and can never change whether the write happens).** When step 4 permits a transition, the subagent attempts it using the EXISTING mechanism, completely unchanged from today - Linear: a single `mcp__linear__save_issue` call with `state: target_state`; Jira: discover available transitions via `mcp__mcp-atlassian__jira_get_transitions` on this ticket, then call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id. **Nothing runs before this attempt - there is no new round-trip on the happy path on either tracker.** (Jira's discovery call is not new API surface introduced by this plan - it is already required to obtain a transition id before any Jira transition can be attempted at all; Linear's `save_issue` remains the single direct call it is today.)
@@ -105,5 +136,12 @@ When the conductor reaches a writeback boundary:
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 6 `tracker_state_values` strings resolved once in `content/commands/ds-implement-ticket.md` Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
 
 **Failure logging:** subagent stderr is captured by the conductor's `ds-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
+
+**Full return-status set:** `ok | partial | failed | skipped_unconfigured_state | skipped_human_override | skipped_reverted_pr | skipped_transitions_manual`. Fire-and-forget call sites (W1-W7, Phase 11) never read the return, so each of the three new statuses emits ONE bounded stderr line per fire, matching the `SKIPPED:` line format above:
+- `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED (human override): current state '<current_state>', last changed by <last_changed_by|"unknown"> at <last_changed_at|"unknown time">.`
+- `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED (reverted PR #<merged_pr_number>): evidence <revert_evidence>, revert PR #<revert_pr_number|"unknown">.`
+- `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED (transitions: manual).`
+
+Awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - read the payload and format per their own operator-visible-line conventions instead of these three lines.
 
 For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block in `content/commands/ds-implement-ticket.md` - the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, and `pipeline_order` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" in that Phase 11 block - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed; this plan does not change what Phase 11 writes or when, only what it reports when it does not write.
