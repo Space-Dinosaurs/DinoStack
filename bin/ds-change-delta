@@ -23,10 +23,14 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             Exit 0 on any well-formed run, even one where every metric
             reports a non-OK status (an absent or short-of-window store
             is informative output, not a CLI failure). Exit 1 when --cut
-            cannot be resolved, or no --repo points at a directory
-            carrying `.agentic/` or `.git`. Exit 2 on argparse usage
-            errors (including a --cut value matching neither a SHA nor
-            an ISO8601 date).
+            cannot be resolved - including a value matching neither a
+            SHA (7-40 hex chars) nor an ISO8601 date/datetime, which is
+            a CutResolutionError like any other unresolvable --cut, NOT
+            a distinct exit code - or when no --repo points at a
+            directory carrying `.agentic/` or `.git`. Exit 2 is reserved
+            for argparse's own usage errors (a missing required flag,
+            an unparseable --window-days), which argparse raises before
+            this module's own logic runs at all.
 
 Read-only guarantee (AC7): every filesystem open() call in this module is
             read-mode; every subprocess call routes through the single
@@ -47,8 +51,10 @@ Multi-repo aggregation: session-log and fires-log rows from every --repo
             PR history remains genuinely per-repo (gh auth/resolution is
             per-repo) and is reported as a separate pr_history[repo] map.
 
-Status precedence (per side, first match wins): ABSENT (zero rows across
-            the union of both windows) > NOT_YET_ELAPSED (after-side
+Status precedence (per side, first match wins): ABSENT (the merged
+            store contributes zero rows at all, checked against the
+            store's WHOLE row count, not just the two windows) >
+            NOT_YET_ELAPSED (after-side
             only, checked before coverage) > INSUFFICIENT_COVERAGE (the
             store's own recorded extent does not bracket this window) >
             ZERO_SESSIONS (session-derived ratio metrics only, coverage
@@ -420,6 +426,8 @@ def _collect_fires(repos: list[Path]) -> dict:
         primary = repo / ".agentic" / ".enforcement-fires.jsonl"
         primary_contributed = False
         for ts, rec in _load_fire_lines(primary, seen, dedupe=False):
+            if rec.get("decision") != "deny":
+                continue
             rows.append((ts, str(primary)))
             primary_contributed = True
             if earliest is None or ts < earliest:
@@ -431,6 +439,8 @@ def _collect_fires(repos: list[Path]) -> dict:
         for stranded_path in _stranded_fire_log_paths(repo):
             stranded_contributed = False
             for ts, rec in _load_fire_lines(stranded_path, seen, dedupe=True):
+                if rec.get("decision") != "deny":
+                    continue
                 rows.append((ts, str(stranded_path)))
                 stranded_contributed = True
                 if earliest is None or ts < earliest:
@@ -557,15 +567,36 @@ def _gh_repo_slug(repo: str) -> tuple[str, str] | None:
     return owner, name
 
 
+def _gh_search_datetime(dt: datetime) -> str:
+    """Format a UTC-aware datetime as a GitHub search-qualifier datetime
+    literal (`YYYY-MM-DDTHH:MM:SSZ`), live-verified against the GitHub
+    GraphQL `search` connection's `merged:` qualifier to accept full
+    ISO8601 datetimes, not just bare dates (second precision - GitHub's
+    range is inclusive on both ends, so half-open windows are built by
+    subtracting one second from the end instant, see _fetch_pr_window)."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _fetch_pr_window(repo: str, owner: str, name: str, start: datetime, end: datetime, now: datetime) -> dict:
     """Fetch merged-PR count and total commits for one repo/window via
     paginated `gh api graphql` `search`, asserting len(nodes)==issueCount
     for completeness (see bin/ds-branch-prune's identical pagination
     shape, duplicated not imported). Returns a side-object per the
-    binding JSON contract."""
-    start_date = start.date().isoformat()
-    end_date = end.date().isoformat()
-    q = f"repo:{owner}/{name} is:pr is:merged merged:{start_date}..{end_date}"
+    binding JSON contract.
+
+    Half-open window (fixes a PR merged exactly on the shared cut boundary
+    being double-counted in both the before and after windows): GitHub's
+    `merged:A..B` range is inclusive on BOTH ends, so the query's end
+    instant is `end` minus one second, at second precision - live-verified
+    the `merged:` qualifier accepts full ISO8601 datetimes, not just bare
+    dates (see _gh_search_datetime). Residual granularity: a PR merged in
+    the same second as a window boundary is still ambiguous, and GitHub's
+    `mergedAt` has no sub-second precision to resolve it further - not a
+    practical concern at the tool's day-to-week scale of `--window-days`.
+    """
+    start_str = _gh_search_datetime(start)
+    end_str = _gh_search_datetime(end - timedelta(seconds=1))
+    q = f"repo:{owner}/{name} is:pr is:merged merged:{start_str}..{end_str}"
     source_desc = f"gh api graphql search:{q}"
 
     if end > now:
@@ -771,9 +802,9 @@ def build_delta(
     # -- sessions (raw count, no ZERO_SESSIONS state) --------------------
     b_status, b_note = sess_status(before_sess["sessions"], before_end, False, False)
     a_status, a_note = sess_status(after_sess["sessions"], after_end, True, False)
-    b_side = _side_obj(b_status, before_sess["sessions"] if b_status != "ABSENT" else None,
+    b_side = _side_obj(b_status, before_sess["sessions"] if b_status == "OK" else None,
                         before_sess["sources"], before_sess["rows_consumed"], b_note)
-    a_side = _side_obj(a_status, after_sess["sessions"] if a_status != "ABSENT" else None,
+    a_side = _side_obj(a_status, after_sess["sessions"] if a_status == "OK" else None,
                         after_sess["sources"], after_sess["rows_consumed"], a_note)
     delta = (after_sess["sessions"] - before_sess["sessions"]) if (b_status == "OK" and a_status == "OK") else None
     metrics["sessions"] = {"before": b_side, "after": a_side, "delta": delta, "note": None}
@@ -917,7 +948,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Before/after telemetry delta bracketing a methodology-change cut point.",
     )
     parser.add_argument("--cut", required=True, help="git SHA or ISO8601 date/datetime")
-    parser.add_argument("--cut-repo", default=None, help="repo to resolve --cut SHA against (default: first --repo)")
+    parser.add_argument("--cut-repo", default=None, help="repo to resolve --cut SHA against (default: first valid --repo)")
     parser.add_argument("--window-days", type=int, default=14)
     parser.add_argument("--repo", action="append", required=True, dest="repos")
     parser.add_argument("--json", action="store_true")
@@ -936,7 +967,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    cut_repo = args.cut_repo or str(repo_paths[0])
+    cut_repo = args.cut_repo or str(valid_repos[0])
     try:
         cut_dt, cut_source = _resolve_cut(args.cut, cut_repo)
     except CutResolutionError as exc:

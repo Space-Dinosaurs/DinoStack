@@ -12,6 +12,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime, timezone
@@ -78,14 +79,16 @@ def _build_primary_fixture(tmp: Path) -> Path:
     _write_jsonl(repo / ".agentic" / "session-log" / "dev.jsonl", session_rows)
 
     primary_fires = [
-        _fire_row("2026-08-11T00:00:00+00:00"),  # before
-        _fire_row("2026-08-20T00:00:00+00:00"),  # before
-        _fire_row("2026-08-26T00:00:00+00:00"),  # after (1)
-        _fire_row("2026-08-27T00:00:00+00:00"),  # after (2)
-        _fire_row("2026-08-28T00:00:00+00:00"),  # after (3)
-        _fire_row("2026-08-29T00:00:00+00:00"),  # after (4)
-        _fire_row("2026-08-30T00:00:00+00:00"),  # after (5)
-        _fire_row("2026-09-07T23:00:00+00:00"),  # after (6)
+        _fire_row("2026-08-11T00:00:00+00:00"),  # before, deny (1)
+        _fire_row("2026-08-15T00:00:00+00:00", decision="allow_advisory"),  # before, NON-deny - must not count
+        _fire_row("2026-08-20T00:00:00+00:00"),  # before, deny (2)
+        _fire_row("2026-08-26T00:00:00+00:00"),  # after, deny (1)
+        _fire_row("2026-08-27T00:00:00+00:00"),  # after, deny (2)
+        _fire_row("2026-08-27T12:00:00+00:00", decision="allow"),  # after, NON-deny - must not count
+        _fire_row("2026-08-28T00:00:00+00:00"),  # after, deny (3)
+        _fire_row("2026-08-29T00:00:00+00:00"),  # after, deny (4)
+        _fire_row("2026-08-30T00:00:00+00:00"),  # after, deny (5)
+        _fire_row("2026-09-07T23:00:00+00:00"),  # after, deny (6)
         _fire_row("2026-09-08T00:00:00+00:00"),  # coverage-only, = after_end
     ]
     _write_jsonl(repo / ".agentic" / ".enforcement-fires.jsonl", primary_fires)
@@ -160,6 +163,33 @@ def run_tests() -> None:
         except _mod.CutResolutionError:
             pass
         print("_resolve_cut (SHA / date / malformed): PASS")
+
+        # ------------------------------------------------------------
+        # CLI exit-code pin (finding 4): a --cut matching neither shape
+        # is a CutResolutionError like any other unresolvable --cut, and
+        # exits 1 - never a distinct exit 2 (exit 2 is reserved for
+        # argparse's own usage errors, which never reach main()'s body).
+        # ------------------------------------------------------------
+        rc_malformed = _mod.main(
+            ["--cut", "not-a-sha-or-date!!", "--repo", str(git_repo)]
+        )
+        assert rc_malformed == 1, f"malformed --cut: expected exit 1, got {rc_malformed}"
+        print("CLI exit code (malformed --cut -> exit 1): PASS")
+
+        # ------------------------------------------------------------
+        # --cut-repo default (finding 6): with no --cut-repo, the SHA must
+        # be resolved against the first VALID --repo, not the first
+        # positional --repo argument - a nonexistent first --repo must not
+        # make cut resolution fail.
+        # ------------------------------------------------------------
+        rc_default_cut_repo = _mod.main(
+            ["--cut", sha, "--repo", str(tmp / "does-not-exist"), "--repo", str(git_repo), "--json"]
+        )
+        assert rc_default_cut_repo == 0, (
+            f"--cut-repo default should resolve against the first VALID --repo "
+            f"(skipping a nonexistent one), got exit {rc_default_cut_repo}"
+        )
+        print("--cut-repo default (skips a nonexistent first --repo): PASS")
 
         # ------------------------------------------------------------
         # Primary fixture + assertions 1, 2, 3, 4a, 4b
@@ -255,8 +285,33 @@ def run_tests() -> None:
         report_cov = _mod.build_delta([cov_repo], CUT_DT, 14, now=NOW)
         sessions_cov = report_cov["metrics"]["sessions"]
         assert sessions_cov["before"]["status"] == "INSUFFICIENT_COVERAGE", sessions_cov["before"]
+        assert sessions_cov["before"]["value"] is None, (
+            "sessions.before.value must be null under INSUFFICIENT_COVERAGE, "
+            f"not a bare numeric count: {sessions_cov['before']}"
+        )
         assert sessions_cov["after"]["status"] == "OK", sessions_cov["after"]
-        print("Assertion 6 (before INSUFFICIENT_COVERAGE, after OK): PASS")
+        print("Assertion 6 (before INSUFFICIENT_COVERAGE -> value=None, after OK): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 6b [NEW]: after-side INSUFFICIENT_COVERAGE (finding 7) -
+        # the after side's latest row sits STRICTLY INSIDE the after window
+        # (never at/after after_window_end), so the after side's own
+        # coverage check must independently fail. Every other fixture's
+        # latest row sits exactly at after_end, which never exercises this
+        # branch - flipping `latest_ts < window_end` to `>` would survive
+        # the suite without this fixture.
+        # ------------------------------------------------------------
+        after_cov_repo = tmp / "after_coverage"
+        after_cov_rows = [
+            _session_row("2026-08-11T00:00:00+00:00", 2, 100, 10, 5),  # before, covers before_start
+            _session_row("2026-08-26T00:00:00+00:00", 3, 100, 10, 5),  # after, strictly inside - latest row
+        ]
+        _write_jsonl(after_cov_repo / ".agentic" / "session-log" / "dev.jsonl", after_cov_rows)
+        report_after_cov = _mod.build_delta([after_cov_repo], CUT_DT, 14, now=NOW)
+        sessions_after_cov = report_after_cov["metrics"]["sessions"]
+        assert sessions_after_cov["after"]["status"] == "INSUFFICIENT_COVERAGE", sessions_after_cov["after"]
+        assert sessions_after_cov["after"]["value"] is None, sessions_after_cov["after"]
+        print("Assertion 6b (after-side INSUFFICIENT_COVERAGE when latest row is strictly inside the window): PASS")
 
         # ------------------------------------------------------------
         # Assertion 7: cut = today -> NOT_YET_ELAPSED
@@ -406,6 +461,60 @@ def run_tests() -> None:
             _mod._run = orig_run
         assert dropped["status"] == "INCOMPLETE_WINDOW", dropped
         print("Assertion 9b (PR history dropped-page: status=INCOMPLETE_WINDOW): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 9c [NEW - finding 2]: half-open PR windows - a PR merged
+        # exactly at the cut instant must be reachable by the after
+        # window's query and NOT by the before window's query. GitHub's
+        # `merged:A..B` range is inclusive on both ends, so the two
+        # queries' boundary instants must differ by one second, never
+        # share the literal cut instant.
+        # ------------------------------------------------------------
+        captured_queries: list[str] = []
+
+        def _mock_run_capture_query(args, cwd=None, timeout=None):
+            if args[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=json.dumps({"nameWithOwner": "acme/widgets"}), stderr=""
+                )
+            if args[:2] == ["gh", "api"]:
+                # The search-string arg is "q=...", distinct from the
+                # GraphQL query-text arg "query=..." (which contains no
+                # "merged:" literal at all - matching on "query=" here
+                # would silently find nothing).
+                q_arg = next((a for a in args if a.startswith("q=")), "")
+                q_match = re.search(r"merged:(\S+)\.\.(\S+)", q_arg)
+                captured_queries.append(
+                    (q_match.group(1), q_match.group(2)) if q_match else (None, None)
+                )
+                payload = _page([], False, None, 0)
+                return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+            raise AssertionError(f"unexpected command: {args}")
+
+        _mod._run = _mock_run_capture_query
+        try:
+            _mod._pr_history_for_repo(
+                str(tmp), CUT_DT - _mod.timedelta(days=14), CUT_DT,
+                CUT_DT, CUT_DT + _mod.timedelta(days=14), NOW,
+            )
+        finally:
+            _mod._run = orig_run
+        assert len(captured_queries) == 2, captured_queries
+        before_start_q, before_end_q = captured_queries[0]
+        after_start_q, after_end_q = captured_queries[1]
+        cut_str = _mod._gh_search_datetime(CUT_DT)
+        assert before_end_q != cut_str, (
+            f"before window's end must NOT be the literal cut instant "
+            f"(that double-counts a PR merged exactly at the cut): {before_end_q}"
+        )
+        assert after_start_q == cut_str, (
+            f"after window's start must be the literal cut instant: {after_start_q}"
+        )
+        before_end_dt = datetime.strptime(before_end_q, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        assert before_end_dt == CUT_DT - _mod.timedelta(seconds=1), (
+            f"before window's end must be exactly one second before the cut: {before_end_q}"
+        )
+        print("Assertion 9c (half-open PR windows: before-end = cut-1s, after-start = cut): PASS")
 
         # ------------------------------------------------------------
         # R5: read-only guarantee - argv allowlist + HEAD/status byte-identity

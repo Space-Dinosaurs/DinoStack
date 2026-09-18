@@ -19,9 +19,10 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] --repo P
 
 - `--cut` (required): a git SHA (resolved to its **committer** date on
   `--cut-repo`, deliberate for a squash-merge repo) or an ISO8601
-  date/datetime. An argument matching neither shape exits 2 with a usage
-  message - it is never silently treated as a date.
-- `--cut-repo` (optional, default: the first `--repo`).
+  date/datetime. An argument matching neither shape exits 1 with an
+  error message - it is never silently treated as a date.
+- `--cut-repo` (optional, default: the first `--repo` that resolves to
+  a real directory with `.agentic/` or `.git`).
 - `--window-days N` (optional, default 14). Before window
   `[cut - N days, cut)`, after window `[cut, cut + N days)` - always
   genuinely equal-length, never truncated to "now".
@@ -69,6 +70,17 @@ state. Every subprocess call is one of `git show`, `gh repo view`, or
 `gh api graphql` (all read-only). See
 `bin/tests/test_ds_change_delta.py`'s R5 test for the enforced argv
 allowlist and a fixture-repo HEAD/status byte-identity assertion.
+
+## Known limitation: PR-history window granularity
+
+PR-history windows are built as GitHub search `merged:` datetime ranges
+(second precision), with the end instant one second before the window's
+own end - a PR merged exactly on the shared boundary between the before
+and after windows lands in exactly one of them, never both. The residual
+granularity is one second: a PR merged in the same second as a window
+boundary cannot be resolved further, since `mergedAt` carries no
+sub-second precision. Not a practical concern at any realistic
+`--window-days`.
 
 ## Known limitation: GitHub search's 1,000-result ceiling
 
