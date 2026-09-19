@@ -189,6 +189,10 @@ def run_tests() -> None:
         orig_run_sha_order = _mod._run
 
         def _mock_run_all_digit_sha(args, cwd=None, timeout=None):
+            if args[:2] == ["git", "rev-parse"]:
+                # round-5 finding 2: _resolve_cut verifies the object is a
+                # commit before calling git show.
+                return subprocess.CompletedProcess(args, 0, stdout="68267374\n", stderr="")
             if args[:2] == ["git", "show"]:
                 return subprocess.CompletedProcess(args, 0, stdout=CUT_ISO, stderr="")
             raise AssertionError(f"unexpected command: {args}")
@@ -201,6 +205,49 @@ def run_tests() -> None:
         assert resolved_src4 == "sha:68267374", resolved_src4
         assert resolved_dt4 == CUT_DT, resolved_dt4
         print("_resolve_cut (SHA / date / malformed / compact-digit-date / real-all-digit-sha): PASS")
+
+        # ------------------------------------------------------------
+        # round-5 finding 2: `git show -s --format=%cI <blob-sha>` exits 0
+        # and prints the raw object CONTENTS (not a date) for a non-commit
+        # object - a blob SHA must fall through to date parsing (it has no
+        # ISO form, so it ultimately fails with a SHORT error message, not
+        # one containing the blob's contents), and `git show` must never
+        # even be INVOKED on a confirmed non-commit object (the
+        # `git rev-parse --verify --quiet <sha>^{commit}` gate runs first).
+        # mutation: reverting the gate to trust git show's rc==0 alone
+        # (`is_commit = True` unconditionally) reddens the call-count
+        # assertion below - git show gets called on the blob when it
+        # should not be.
+        # ------------------------------------------------------------
+        blob_sha = subprocess.run(
+            ["git", "rev-parse", f"{sha}:README.md"],
+            cwd=git_repo, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        try:
+            _mod._resolve_cut(blob_sha, str(git_repo))
+            assert False, "expected CutResolutionError for a blob SHA"
+        except _mod.CutResolutionError as exc:
+            assert len(str(exc)) < 200, f"error message too long (blob contents leaked?): {len(str(exc))} chars"
+
+        blob_call_log: list[tuple[str, ...]] = []
+        orig_run_blob_gate = _mod._run
+
+        def _tracking_run(args, cwd=None, timeout=None):
+            blob_call_log.append(tuple(args[:2]))
+            return orig_run_blob_gate(args, cwd=cwd, timeout=timeout)
+
+        _mod._run = _tracking_run
+        try:
+            try:
+                _mod._resolve_cut(blob_sha, str(git_repo))
+            except _mod.CutResolutionError:
+                pass
+        finally:
+            _mod._run = orig_run_blob_gate
+        assert ("git", "show") not in blob_call_log, (
+            f"git show must never be called on a confirmed non-commit object: {blob_call_log}"
+        )
+        print("_resolve_cut (blob SHA falls through to date parsing, git show never invoked): PASS")
 
         # ------------------------------------------------------------
         # CLI exit-code pin (finding 4, round 2): a --cut matching neither
@@ -468,13 +515,19 @@ def run_tests() -> None:
         print("Assertion 11 (multi-repo merge: source omits non-contributing repo, status OK): PASS")
 
         # ------------------------------------------------------------
-        # Assertion 11b [NEW - round-4 finding 2]: passing the SAME repo
-        # twice via --repo (once as-given, once as its resolved absolute
-        # form) must contribute its rows ONCE, not twice - dedup happens
-        # in main(), so this drives the CLI layer directly rather than
-        # build_delta(). mutation: dropping the dict.fromkeys(...) dedup
-        # (or the .resolve() call feeding it) reddens this - sessions
-        # would double from 3 to 6.
+        # Assertion 11b [NEW - round-4 finding 2, comment corrected -
+        # round-5 finding 4]: passing the SAME repo twice via --repo
+        # (once as-given with a trailing "/.", once plain) must
+        # contribute its rows ONCE, not twice - dedup happens in main(),
+        # so this drives the CLI layer directly rather than build_delta().
+        # mutation: dropping the dict.fromkeys(...) dedup reddens this -
+        # sessions would double from 3 to 6. NOTE: dropping the .resolve()
+        # call feeding it does NOT redden this specific case - pathlib
+        # already normalizes a trailing "/." at Path() construction time
+        # (Path("/a/b") == Path("/a/b/.") with no .resolve() involved,
+        # verified live) - see the SEPARATE case directly below, which
+        # passes literal "." with cwd set to the fixture repo, for the
+        # case that actually requires .resolve().
         # ------------------------------------------------------------
         dedup_repo = tmp / "dedup_repo"
         dedup_rows = [
@@ -502,6 +555,78 @@ def run_tests() -> None:
             f"{dedup_report['metrics']['sessions']['before']}"
         )
         print("Assertion 11b (same --repo passed twice is deduped, not double-counted): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 11c [NEW - round-5 finding 4]: the REAL case that
+        # requires .resolve() - a literal "." (relative to cwd) and the
+        # same repo's absolute path must dedupe to one contributor.
+        # mutation: dropping the .resolve() call (keeping dict.fromkeys)
+        # reddens this specifically - "." and the absolute path are
+        # different, unequal Path objects until resolved, so sessions
+        # would double from 3 to 6.
+        # ------------------------------------------------------------
+        buf_dot = StringIO()
+        orig_stdout_dot = sys.stdout
+        orig_cwd = os.getcwd()
+        sys.stdout = buf_dot
+        try:
+            os.chdir(dedup_repo)
+            rc_dedup_dot = _mod.main([
+                "--cut", CUT_ISO,
+                "--repo", ".",
+                "--repo", str(dedup_repo),
+                "--json",
+            ])
+        finally:
+            os.chdir(orig_cwd)
+            sys.stdout = orig_stdout_dot
+        assert rc_dedup_dot == 0, rc_dedup_dot
+        dedup_dot_report = json.loads(buf_dot.getvalue())
+        assert dedup_dot_report["metrics"]["sessions"]["before"]["value"] == 3, (
+            f"'.' (cwd) and the same repo's absolute path must dedupe: "
+            f"{dedup_dot_report['metrics']['sessions']['before']}"
+        )
+        print("Assertion 11c ('.' with cwd set to the fixture repo dedupes against its absolute path): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 12 [NEW - round-5 finding 1]: multi-repo-union-extent-
+        # masks-coverage. Repo A brackets both windows (truth: sessions
+        # 2 -> 1). Repo B's telemetry only starts AFTER the cut (as if
+        # newly onboarded) but reaches the same after_end coverage
+        # anchor as A. A UNION extent would let A's early start mask B's
+        # late start, reporting OK/OK with before=2, after=5 (2 from A's
+        # own after-window row plus B's 4) - the exact reviewer
+        # reproduction. The INTERSECTION extent must instead report
+        # INSUFFICIENT_COVERAGE on the before side (B's own extent never
+        # reaches before_start) with delta null, and name repo B in the
+        # note. mutation: reverting _intersect_repo_extents to a plain
+        # min(earliest)/max(latest) union reddens this - before.status
+        # goes back to OK and delta becomes a real (masked) number.
+        # ------------------------------------------------------------
+        union_mask_a = tmp / "union_mask_repo_a"
+        union_mask_a_rows = [
+            _session_row("2026-08-11T00:00:00+00:00", 1, 100, 10, 5),  # before, brackets before_start
+            _session_row("2026-08-24T00:00:00+00:00", 1, 100, 10, 5),  # before
+            _session_row("2026-08-26T00:00:00+00:00", 1, 100, 10, 5),  # after
+            _session_row("2026-09-08T00:00:00+00:00", 0, 0, 0, 0),     # coverage-only, = after_end
+        ]
+        _write_jsonl(union_mask_a / ".agentic" / "session-log" / "dev.jsonl", union_mask_a_rows)
+        union_mask_b = tmp / "union_mask_repo_b"
+        union_mask_b_rows = [
+            _session_row("2026-08-27T00:00:00+00:00", 1, 100, 10, 5),  # after - B's OWN earliest, post-cut
+            _session_row("2026-08-28T00:00:00+00:00", 1, 100, 10, 5),  # after
+            _session_row("2026-08-30T00:00:00+00:00", 1, 100, 10, 5),  # after
+            _session_row("2026-09-01T00:00:00+00:00", 1, 100, 10, 5),  # after
+            _session_row("2026-09-08T00:00:00+00:00", 0, 0, 0, 0),     # coverage-only, = after_end (matches A)
+        ]
+        _write_jsonl(union_mask_b / ".agentic" / "session-log" / "dev.jsonl", union_mask_b_rows)
+        report_union_mask = _mod.build_delta([union_mask_a, union_mask_b], CUT_DT, 14, now=NOW)
+        sessions_union_mask = report_union_mask["metrics"]["sessions"]
+        assert sessions_union_mask["before"]["status"] == "INSUFFICIENT_COVERAGE", sessions_union_mask["before"]
+        assert sessions_union_mask["before"]["value"] is None, sessions_union_mask["before"]
+        assert sessions_union_mask["delta"] is None, sessions_union_mask["delta"]
+        assert str(union_mask_b) in (sessions_union_mask["before"]["note"] or ""), sessions_union_mask["before"]["note"]
+        print("Assertion 12 (multi-repo intersection extent: late-starting repo B degrades before-side coverage): PASS")
 
         # ------------------------------------------------------------
         # Assertion 9: PR history via mocked gh

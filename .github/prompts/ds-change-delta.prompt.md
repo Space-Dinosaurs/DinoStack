@@ -62,6 +62,14 @@ is a genuine zero and the other side is any non-`OK` status, the zero
 side's real value is shown as-is (never flagged `zero-filled`) and
 `delta` stays `null` because a non-`OK` opposite side already forces it.
 
+With multiple `--repo` arguments, a metric's before/after VALUE always
+sums across every repo's rows, but coverage is judged per store as the
+INTERSECTION of each contributing repo's own recorded extent, not the
+union of the merged rows - a repo whose telemetry only starts after the
+cut (e.g. newly onboarded) cannot be masked by a sibling repo that alone
+brackets the whole window. When one repo's extent is the limiting one,
+the `note` field names it.
+
 ## What this tool does NOT measure
 
 - **Skeptic-loop yield per round** - this repo's telemetry cannot support
@@ -81,10 +89,11 @@ input to a human judgment, not the judgment itself.
 ## Read-only guarantee
 
 The tool never writes to any telemetry file and never mutates git or gh
-state. Every subprocess call is one of `git show`, `gh repo view`, or
-`gh api graphql` (all read-only). See
-`bin/tests/test_ds_change_delta.py`'s R5 test for the enforced argv
-allowlist and a fixture-repo HEAD/status byte-identity assertion.
+state. Every subprocess call is one of `git rev-parse --verify`,
+`git show`, `git remote get-url`, `gh repo view`, or `gh api graphql`
+(all read-only). See `bin/tests/test_ds_change_delta.py`'s R5 test for
+the enforced argv allowlist and a fixture-repo HEAD/status
+byte-identity assertion.
 
 ## Known limitation: PR-history window granularity
 
