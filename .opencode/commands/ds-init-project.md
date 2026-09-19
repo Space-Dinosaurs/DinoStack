@@ -270,7 +270,7 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
-- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines.
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively when no `CLAUDE.md` is present; this scaffold creates a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines so `MEMORY.md` (not natively loaded) is also picked up.
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
