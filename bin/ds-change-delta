@@ -103,11 +103,23 @@ Upstream deps: git, gh (optional - PR-history metrics degrade to
 Downstream consumers: operator-invoked directly (content/commands/
             ds-change-delta.md); not called by any other DinoStack tool.
 
-Failure modes: never raises out of main() - a resolution failure for
-            --cut, a missing repo, or a gh/git error all degrade into a
+Failure modes: main() never raises on a resolution failure for --cut,
+            a missing repo, or a gh/git error - those degrade into a
             status field and/or a nonzero-but-documented exit code, never
-            a traceback. Idempotent and safe to re-run any number of
-            times; makes no state changes anywhere.
+            a traceback. An out-of-range --window-days (see MAX_WINDOW_DAYS
+            above) is rejected with exit 2 before it can reach the
+            overflow-prone date arithmetic, so main() still never raises.
+            Idempotent and safe to re-run any number of times; makes no
+            state changes anywhere.
+
+Known limitation: passing a repo root AND one of that repo's own
+            .claude/worktrees/* checkouts as separate --repo arguments
+            double-counts fires rows - the parent repo's stranded-copy
+            glob (see _stranded_fire_log_paths) already reads the
+            child worktree's own .agentic/.enforcement-fires.jsonl, and
+            passing the child again as its own --repo reads it a second
+            time. Avoid passing a repo and its own nested worktree
+            checkouts together.
 
 Performance: one `git show` per --cut-repo, one `gh api graphql` page
             fetch per PR-history --repo per side (paginated, bounded),
@@ -131,6 +143,11 @@ from _lib import _run, iter_jsonl_dict_records, rate_or_none  # noqa: E402
 GH_CALL_TIMEOUT_SECONDS = 30.0
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 50
+# 100 years - generously above any realistic --window-days, but small
+# enough that cut_dt +/- MAX_WINDOW_DAYS never overflows Python's
+# datetime range (which is what an unbounded --window-days does: see
+# main()'s usage-error check and the module docstring's Failure modes).
+MAX_WINDOW_DAYS = 36500
 
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
@@ -1075,6 +1092,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.window_days <= 0:
         print("error: --window-days must be positive", file=sys.stderr)
+        return 2
+    if args.window_days > MAX_WINDOW_DAYS:
+        print(
+            f"error: --window-days must be <= {MAX_WINDOW_DAYS} "
+            "(cut_dt +/- --window-days would overflow datetime's range)",
+            file=sys.stderr,
+        )
         return 2
 
     repo_paths = [Path(r).expanduser() for r in args.repos]

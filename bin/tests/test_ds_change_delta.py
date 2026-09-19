@@ -266,6 +266,21 @@ def run_tests() -> None:
         print("CLI exit code (malformed --cut -> exit 1): PASS")
 
         # ------------------------------------------------------------
+        # round-6 finding 2: an oversized --window-days must exit 2 with a
+        # usage message, never let cut_dt +/- window_days overflow
+        # datetime's range as an uncaught OverflowError (contradicting the
+        # manifest's "never a traceback" claim). mutation: raising
+        # MAX_WINDOW_DAYS above what cut_dt +/- it can represent (or
+        # deleting the check) reddens this - main() would instead crash
+        # with an uncaught OverflowError instead of returning 2.
+        # ------------------------------------------------------------
+        rc_overflow = _mod.main(
+            ["--cut", "2026-01-01", "--window-days", "99999999", "--repo", str(git_repo)]
+        )
+        assert rc_overflow == 2, f"oversized --window-days: expected exit 2, got {rc_overflow}"
+        print("CLI exit code (--window-days 99999999 -> exit 2, no OverflowError): PASS")
+
+        # ------------------------------------------------------------
         # --cut-repo default (finding 6, round 2): with no --cut-repo, the
         # SHA must be resolved against the first VALID --repo, not the
         # first positional --repo argument - a nonexistent first --repo

@@ -15572,7 +15572,18 @@ INTERSECTION of each contributing repo's own recorded extent, not the
 union of the merged rows - a repo whose telemetry only starts after the
 cut (e.g. newly onboarded) cannot be masked by a sibling repo that alone
 brackets the whole window. When one repo's extent is the limiting one,
-the `note` field names it.
+the `note` field names it. That `note` (including which repo limited
+coverage) is reachable only via `--json` - the default table does not
+surface it.
+
+## Known limitation
+
+Passing a repo root AND one of that repo's own `.claude/worktrees/*`
+checkouts as separate `--repo` arguments double-counts fires rows: the
+parent repo's stranded-copy glob already reads the child worktree's own
+`.agentic/.enforcement-fires.jsonl`, and passing the child again as its
+own `--repo` reads it a second time. Avoid passing a repo and its own
+nested worktree checkouts together.
 
 ## What this tool does NOT measure
 
