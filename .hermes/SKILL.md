@@ -748,7 +748,7 @@ Operator attention is the scarce resource this methodology protects and the prim
 
 ## Project Structure Convention
 
-`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines. Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
+`AGENTS.md` is the canonical project-instructions file across Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present - a project `CLAUDE.md` supersedes it unless that file imports it (DinoStack's own scaffold does, via `@AGENTS.md`/`@MEMORY.md` lines, since MEMORY.md is not loaded natively). Always structure projects with a lean root `AGENTS.md` and deeper context in subdirectory `AGENTS.md` files co-located with the code they describe.
 
 - **Root `AGENTS.md`** - one-paragraph summary, resolved architecture decisions, cross-cutting conventions, repo structure map. Keep it under ~40 lines. This limit applies to project root AGENTS.md files. The global `~/.claude/CLAUDE.md` is exempt.
 - **Subdirectory `AGENTS.md`** (e.g. `backend/AGENTS.md`, `contracts/AGENTS.md`) - loaded only when working in that directory. Can be as detailed as needed without polluting other contexts. Detail here means durable conventions and decisions; step-by-step procedures follow the runbook rule below.
@@ -21506,7 +21506,7 @@ Wait for tracker confirmation before proceeding. A "no" / "neither" / "skip" / e
 
 Before writing any files, check which files already exist. The full set of files this command would create:
 
-- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it via a `CLAUDE.md` containing `@AGENTS.md` and `@MEMORY.md` import lines.
+- `AGENTS.md` (root) - the canonical project-instructions file, read by Claude Code, Codex, Cursor, and other tools. Claude Code reads it natively (not yet on Bedrock/Vertex/Foundry; toggle under Project instructions in `/config`) when no project-level `CLAUDE.md` is present; this scaffold creates a `CLAUDE.md` with `@AGENTS.md`/`@MEMORY.md` import lines so `MEMORY.md` (not natively loaded) is also picked up.
 - `[track]/AGENTS.md` for each track the user named (omit if no tracks were named)
 - `.claude/settings.json`
 - `.claude/settings.local.json`
