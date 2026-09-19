@@ -218,7 +218,7 @@ The hierarchy gives agents the right context at the right time - broad rules glo
   .columns .card { padding: 0.7em 0.9em; font-size: 0.85em; }
 </style>
 
-**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI, and, since Claude Code 2.1.277, natively by Claude Code too when no `CLAUDE.md` is present, or importable into a `CLAUDE.md` via `@`-import lines.
+**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI, and natively by Claude Code too (not yet on Bedrock/Vertex/Foundry; toggle in `/config`) when no project-level `CLAUDE.md` is present, or importable into a `CLAUDE.md` via `@`-import lines.
 
 <div class="columns">
 <div class="card" style="border-left-color: #4ea3ff;">
