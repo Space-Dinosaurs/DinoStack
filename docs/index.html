@@ -1217,7 +1217,7 @@
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and natively by Claude Code too (not yet on Bedrock, Vertex, or Foundry; toggle under Project instructions in <code>/config</code>) when no project-level <code>CLAUDE.md</code> is present - or importable into a <code>CLAUDE.md</code> via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
-    <strong>Claude Code users:</strong> reads it natively when no project-level <code>CLAUDE.md</code> exists; to also load <code>MEMORY.md</code>, create a <code>CLAUDE.md</code> with two import lines - <code>@AGENTS.md</code> and <code>@MEMORY.md</code>.<br>
+    <strong>Claude Code users:</strong> Claude Code reads it natively when no project-level <code>CLAUDE.md</code> exists; to also load <code>MEMORY.md</code>, create a <code>CLAUDE.md</code> with two import lines - <code>@AGENTS.md</code> and <code>@MEMORY.md</code>.<br>
     <strong>Codex CLI users:</strong> Codex reads <code>AGENTS.md</code> natively with no extra setup.<br>
     <strong>Result:</strong> one content source drives all adapters. No duplication.
   </div>
