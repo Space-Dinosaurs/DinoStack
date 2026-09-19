@@ -560,14 +560,12 @@ code {
 ;" data-marpit-pagination-total="9">
 <h2 id="agentsmd-the-cross-tool-standard">AGENTS.md: the cross-tool standard</h2>
 
-<p><strong><code>AGENTS.md</code> is the single source of project instructions</strong> - the cross-tool standard supported natively by OpenAI Codex CLI, and natively by Claude Code too (not yet on Bedrock/Vertex/Foundry; toggle in <code>/config</code>) when no project-level <code>CLAUDE.md</code> is present, or importable into a <code>CLAUDE.md</code> via <code>@</code>-import lines.</p>
+<p><strong><code>AGENTS.md</code> is the single source of project instructions</strong> - the cross-tool standard, read natively by both OpenAI Codex CLI and Claude Code.</p>
 <div class="columns">
 <div class="card">
 <strong>Claude Code users</strong><br /><br />
-Create <code>CLAUDE.md</code> at the repo root containing two import lines:<br />
-<code>@AGENTS.md</code><br />
-<code>@MEMORY.md</code><br /><br />
-Claude Code imports both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently. No duplication needed.
+Native when no project <code>CLAUDE.md</code> exists (not yet on Bedrock/Vertex/Foundry; toggle in <code>/config</code>).<br /><br />
+To also load <code>MEMORY.md</code>, create <code>CLAUDE.md</code> with <code>@AGENTS.md</code> + <code>@MEMORY.md</code> import lines.
 </div>
 <div class="card">
 <strong>Codex CLI users</strong><br /><br />

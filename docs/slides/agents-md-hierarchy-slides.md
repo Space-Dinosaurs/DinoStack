@@ -218,15 +218,13 @@ The hierarchy gives agents the right context at the right time - broad rules glo
   .columns .card { padding: 0.7em 0.9em; font-size: 0.85em; }
 </style>
 
-**`AGENTS.md` is the single source of project instructions** - the cross-tool standard supported natively by OpenAI Codex CLI, and natively by Claude Code too (not yet on Bedrock/Vertex/Foundry; toggle in `/config`) when no project-level `CLAUDE.md` is present, or importable into a `CLAUDE.md` via `@`-import lines.
+**`AGENTS.md` is the single source of project instructions** - the cross-tool standard, read natively by both OpenAI Codex CLI and Claude Code.
 
 <div class="columns">
 <div class="card" style="border-left-color: #4ea3ff;">
 <strong>Claude Code users</strong><br/><br/>
-Create <code>CLAUDE.md</code> at the repo root containing two import lines:<br/>
-<code>@AGENTS.md</code><br/>
-<code>@MEMORY.md</code><br/><br/>
-Claude Code imports both <code>AGENTS.md</code> and <code>MEMORY.md</code> transparently. No duplication needed.
+Native when no project <code>CLAUDE.md</code> exists (not yet on Bedrock/Vertex/Foundry; toggle in <code>/config</code>).<br/><br/>
+To also load <code>MEMORY.md</code>, create <code>CLAUDE.md</code> with <code>@AGENTS.md</code> + <code>@MEMORY.md</code> import lines.
 </div>
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Codex CLI users</strong><br/><br/>
