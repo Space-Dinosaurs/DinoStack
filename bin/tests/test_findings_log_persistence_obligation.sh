@@ -45,6 +45,22 @@
 #                so a real miss cannot silently report "0 failed".
 #
 # Performance: < 1 s wall time (a handful of grep passes, no network).
+#
+# Retirement: this suite pins PROSE, not runtime behavior - it would have
+#             caught the exact regression it was written against (a stale
+#             review, doc edit, or slide-deck restatement silently
+#             reintroducing the "status:'complete' or deleted" data-loss
+#             license, or softening Phase 12's read-modify-write MUST back
+#             to a bare description) before it reached a merged PR. It
+#             retires only if Phase 12's `findings_log` persistence becomes
+#             mechanically enforced at write time (e.g. a hook or script
+#             that rejects a non-read-modify-write `loop_state` write) so
+#             this prose pin becomes redundant with a stronger runtime
+#             check, or if Phase 12's completion write is redesigned away
+#             from the `status: "complete"` shape this suite keys on. Absent
+#             either, this is a permanent floor - the underlying failure
+#             (silent prose drift with no other gate watching it) does not
+#             go away on its own.
 
 set -uo pipefail
 
@@ -109,19 +125,23 @@ fi
 
 # The pattern deliberately requires "or deleted/dropped/removed" to
 # IMMEDIATELY follow the status:"complete" literal (with only optional
-# whitespace or a trailing </code> tag between them) - not merely to
-# co-occur anywhere before the next period. A looser co-occurrence pattern
-# (tried first while writing this test) false-positived on the fix's own
-# correct replacement wording ("...preserved, never cleared or deleted"),
-# because "never" and "deleted" both appear before the same sentence-ending
-# period as "complete". Requiring immediate adjacency to "or" is what
-# distinguishes the license from a negation of it.
-LICENSE_PATTERN='status: "complete"(</code>)?[[:space:]]+(or|OR)[[:space:]]+(deleted|dropped|removed)'
-LICENSE_HITS=$(grep -rlE "$LICENSE_PATTERN" content/ docs/slides/*.md README.md CONTRIBUTING.md 2>/dev/null | wc -l | tr -d ' ')
+# whitespace, a trailing </code> tag, or a closing markdown backtick between
+# them) - not merely to co-occur anywhere before the next period. A looser
+# co-occurrence pattern (tried first while writing this test) false-positived
+# on the fix's own correct replacement wording ("...preserved, never cleared
+# or deleted"), because "never" and "deleted" both appear before the same
+# sentence-ending period as "complete". Requiring immediate adjacency to "or"
+# is what distinguishes the license from a negation of it. The closing-
+# backtick alternative is required because the exact license this fix
+# removed was phrased as inline markdown code (`` `status: "complete"` or
+# deleted ``, content/references/cross-session-loop-resume.md:79 pre-fix) -
+# a pattern covering only the HTML <code> form is blind to that shape.
+LICENSE_PATTERN='status: "complete"(</code>|`)?[[:space:]]+(or|OR)[[:space:]]+(deleted|dropped|removed)'
+LICENSE_HITS=$(grep -rlE "$LICENSE_PATTERN" content/ docs/*.md docs/slides/*.md README.md CONTRIBUTING.md 2>/dev/null | wc -l | tr -d ' ')
 if [ "$LICENSE_HITS" -eq 0 ]; then
   _pass "no tracked prose licenses deleting/dropping/removing a loop-state file as an alternative to the status:complete write (count=0)"
 else
-  _fail "$LICENSE_HITS file(s) still license deleting/dropping/removing a loop-state file as an alternative to the status:complete write - the data-loss license this fix removed has resurfaced. Run: grep -rlE '$LICENSE_PATTERN' content/ docs/slides/*.md README.md CONTRIBUTING.md"
+  _fail "$LICENSE_HITS file(s) still license deleting/dropping/removing a loop-state file as an alternative to the status:complete write - the data-loss license this fix removed has resurfaced. Run: grep -rlE '$LICENSE_PATTERN' content/ docs/*.md docs/slides/*.md README.md CONTRIBUTING.md"
 fi
 
 echo ""
