@@ -25,8 +25,11 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] --repo P
 
 - `--cut` (required): a git SHA (resolved to its **committer** date on
   `--cut-repo`, deliberate for a squash-merge repo) or an ISO8601
-  date/datetime. An argument matching neither shape exits 1 with an
-  error message - it is never silently treated as a date.
+  date/datetime. A 7-40 hex-char argument is tried as a SHA FIRST
+  (real all-digit abbreviated SHAs exist and are also valid compact ISO
+  dates, so SHA resolution is never skipped based on digit/letter
+  composition); if that fails, it falls through to ISO date parsing.
+  An argument that resolves neither way exits 1 with an error message.
 - `--cut-repo` (optional, default: the first `--repo` that resolves to
   a real directory with `.agentic/` or `.git`).
 - `--window-days N` (optional, default 14). Before window
@@ -56,7 +59,11 @@ and wall-time metrics additionally carry a `data_quality` flag
 forces `delta` to `null` even when both sides otherwise report `OK` -
 this checkout's own session-log is majority zero-filled for
 tokens/wall_seconds, and without this check a real instrumentation gap
-would print as a large numeric methodology-change effect.
+would print as a large numeric methodology-change effect. The
+`data_quality` check only runs when both sides report `OK`: if one side
+is a genuine zero and the other side is any non-`OK` status, the zero
+side's real value is shown as-is (never flagged `zero-filled`) and
+`delta` stays `null` because a non-`OK` opposite side already forces it.
 
 ## What this tool does NOT measure
 

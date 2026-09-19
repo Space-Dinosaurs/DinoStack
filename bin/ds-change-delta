@@ -112,7 +112,7 @@ GH_CALL_TIMEOUT_SECONDS = 30.0
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 50
 
-_SHA_RE = re.compile(r"^(?=[0-9a-fA-F]{7,40}$)(?!\d+$)[0-9a-fA-F]+$")
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 _STATUS_SEVERITY = {
     "ABSENT": 4,
@@ -178,16 +178,19 @@ def _parse_ts(value) -> datetime | None:
 def _resolve_cut(cut_arg: str, cut_repo: str) -> tuple[datetime, str]:
     """Resolve --cut into (utc_datetime, source_label).
 
-    A SHA-shaped argument is resolved via `git -C cut_repo show -s
-    --format=%cI <sha>` (the COMMITTER date, deliberate for a
-    squash-merge repo - see module docstring), parsed and converted to
-    UTC. An ISO8601 date/datetime argument is used directly (a bare date
-    is treated as 00:00:00Z). `_SHA_RE` requires at least one non-digit
-    hex character, so a purely-numeric compact ISO date like "20260825"
-    (valid hex, 7-40 chars, and a real SHA shape) is never misread as a
-    SHA - it falls through to ISO parsing instead. Raises
-    CutResolutionError (never sys.exit) on an unresolvable SHA or an
-    argument matching neither shape - the caller decides the exit code."""
+    A 7-40 hex-char argument (SHA-shaped, per `_SHA_RE`) is tried as a
+    git SHA FIRST via `git -C cut_repo show -s --format=%cI <sha>` (the
+    COMMITTER date, deliberate for a squash-merge repo - see module
+    docstring). Real all-digit abbreviated SHAs exist (measured: 28 of
+    1163 commits on this repo's own history have all-digit 8-char
+    abbreviations) and are also valid compact ISO dates, so SHA
+    resolution is attempted before date parsing, never gated on the
+    argument's digit/letter composition - a value that fails `git show`
+    falls through to ISO date parsing rather than being rejected
+    outright. A non-hex-shaped or non-SHA-length argument skips the git
+    attempt and goes straight to date parsing. A bare date is treated as
+    00:00:00Z. Raises CutResolutionError (never sys.exit) when neither
+    resolution succeeds - the caller decides the exit code."""
     if _SHA_RE.match(cut_arg):
         try:
             proc = _run(
@@ -195,26 +198,22 @@ def _resolve_cut(cut_arg: str, cut_repo: str) -> tuple[datetime, str]:
                 cwd=cut_repo,
                 timeout=GH_CALL_TIMEOUT_SECONDS,
             )
-        except Exception as exc:  # noqa: BLE001 - any git failure is unresolvable
-            raise CutResolutionError(f"git show failed: {exc}") from exc
-        if proc.returncode != 0:
-            raise CutResolutionError(
-                f"could not resolve SHA {cut_arg!r} in {cut_repo!r}: "
-                f"{proc.stderr.strip()}"
-            )
-        raw = proc.stdout.strip()
-        dt = _parse_ts(raw)
-        if dt is None:
-            raise CutResolutionError(f"git show returned unparseable date: {raw!r}")
-        return dt.astimezone(timezone.utc), f"sha:{cut_arg}"
+        except Exception:  # noqa: BLE001 - any git failure falls through to date parsing
+            proc = None
+        if proc is not None and proc.returncode == 0:
+            raw = proc.stdout.strip()
+            dt = _parse_ts(raw)
+            if dt is None:
+                raise CutResolutionError(f"git show returned unparseable date: {raw!r}")
+            return dt.astimezone(timezone.utc), f"sha:{cut_arg}"
 
     dt = _parse_ts(cut_arg)
     if dt is not None:
         return dt.astimezone(timezone.utc), f"date:{cut_arg}"
 
     raise CutResolutionError(
-        f"--cut value {cut_arg!r} matches neither a git SHA "
-        "(7-40 hex chars) nor an ISO8601 date/datetime"
+        f"--cut value {cut_arg!r} could not be resolved as a git SHA "
+        "in the given repo, nor parsed as an ISO8601 date/datetime"
     )
 
 
@@ -259,28 +258,25 @@ def _load_jsonl_rows(path: Path) -> list[dict]:
 def _collect_session_log(repos: list[Path]) -> dict:
     """Merge every repo's .agentic/session-log/*.jsonl session_total rows
     into ONE combined row list, tracking combined earliest_ts/latest_ts/
-    rows_total and which source file(s) actually contributed a row - see
-    module docstring's Multi-repo aggregation. Returns:
+    rows_total - see module docstring's Multi-repo aggregation. Returns:
       {"rows": [(ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, source_path)],
        "earliest_ts": datetime|None, "latest_ts": datetime|None,
-       "rows_total": int, "sources": [str, ...]}
+       "rows_total": int}
+    Per-window source attribution is computed downstream by
+    _window_slice (each row already carries its own source_path); this
+    function tracks no top-level source list of its own.
     `tokens_fields` is a per-row {"input":int,"output":int,"cache_creation":int,
     "cache_read":int} breakdown, carried alongside the aggregate `tokens_sum`
     so a caller can distinguish "the aggregate is zero" from "one component
-    field is zero" (see _tokens_field_sums_all_zero, mutation C's target).
-    A repo with no .agentic/session-log/ directory contributes nothing
-    and is silently absent from "sources" (visible via omission, not an
-    error - matching bin/ds-hook-fire-report's stranded-copy precedent)."""
+    field is zero" (see _tokens_field_sums_all_zero, mutation C's target)."""
     rows: list[tuple[datetime, int, int, int, dict, str]] = []
     earliest: datetime | None = None
     latest: datetime | None = None
-    sources: list[str] = []
     for repo in repos:
         log_dir = repo / ".agentic" / "session-log"
         if not log_dir.is_dir():
             continue
         for path in sorted(log_dir.glob("*.jsonl")):
-            file_contributed = False
             for rec in _load_jsonl_rows(path):
                 if rec.get("event") != "session_total":
                     continue
@@ -311,19 +307,15 @@ def _collect_session_log(repos: list[Path]) -> dict:
                     tokens_sum = int(tok)
                     tokens_fields["input"] = tokens_sum
                 rows.append((ts, spawn_count, wall_seconds, tokens_sum, tokens_fields, str(path)))
-                file_contributed = True
                 if earliest is None or ts < earliest:
                     earliest = ts
                 if latest is None or ts > latest:
                     latest = ts
-            if file_contributed:
-                sources.append(str(path))
     return {
         "rows": rows,
         "earliest_ts": earliest,
         "latest_ts": latest,
         "rows_total": len(rows),
-        "sources": sources,
     }
 
 
@@ -423,26 +415,26 @@ def _collect_fires(repos: list[Path]) -> dict:
     scope) since they are legitimately different physical logs, not
     copies of the same one - see module docstring.
 
-    Store extent (`earliest_ts`/`latest_ts`/`rows_total`/`sources`) is
-    tracked over EVERY parsed record regardless of decision - a fires
-    log that covers both windows but happens to hold few or no deny
-    rows in a given window is still a covered store, not an absent or
+    Store extent (`earliest_ts`/`latest_ts`/`rows_total`) is tracked
+    over EVERY parsed record regardless of decision - a fires log that
+    covers both windows but happens to hold few or no deny rows in a
+    given window is still a covered store, not an absent or
     insufficiently-covered one. The deny filter applies ONLY to `rows`
     (the numerator `_fires_window_slice` counts) - fixes a defect where
     coverage was computed from the deny-only subset, so a covered store
     with zero post-cut denies wrongly reported INSUFFICIENT_COVERAGE
-    (or ABSENT if it held no denies at all)."""
+    (or ABSENT if it held no denies at all). Per-window source
+    attribution is computed downstream by _fires_window_slice (each row
+    already carries its own source_path); this function tracks no
+    top-level source list of its own."""
     rows: list[tuple[datetime, str]] = []
     earliest: datetime | None = None
     latest: datetime | None = None
-    sources: list[str] = []
     total_records = 0
     for repo in repos:
         seen: set[str] = set()
         primary = repo / ".agentic" / ".enforcement-fires.jsonl"
-        primary_contributed = False
         for ts, rec in _load_fire_lines(primary, seen, dedupe=False):
-            primary_contributed = True
             total_records += 1
             if earliest is None or ts < earliest:
                 earliest = ts
@@ -450,12 +442,8 @@ def _collect_fires(repos: list[Path]) -> dict:
                 latest = ts
             if rec.get("decision") == "deny":
                 rows.append((ts, str(primary)))
-        if primary_contributed:
-            sources.append(str(primary))
         for stranded_path in _stranded_fire_log_paths(repo):
-            stranded_contributed = False
             for ts, rec in _load_fire_lines(stranded_path, seen, dedupe=True):
-                stranded_contributed = True
                 total_records += 1
                 if earliest is None or ts < earliest:
                     earliest = ts
@@ -463,14 +451,11 @@ def _collect_fires(repos: list[Path]) -> dict:
                     latest = ts
                 if rec.get("decision") == "deny":
                     rows.append((ts, str(stranded_path)))
-            if stranded_contributed:
-                sources.append(str(stranded_path))
     return {
         "rows": rows,
         "earliest_ts": earliest,
         "latest_ts": latest,
         "rows_total": total_records,
-        "sources": sources,
     }
 
 
@@ -1007,7 +992,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     repo_paths = [Path(r).expanduser() for r in args.repos]
-    valid_repos = [p for p in repo_paths if _looks_like_repo(p)]
+    # dict.fromkeys(...) dedups by resolved path while preserving first-seen
+    # order - two --repo arguments naming the same directory (e.g. "." and
+    # its absolute form) must contribute rows once, not twice.
+    valid_repos = list(dict.fromkeys(
+        p.resolve() for p in repo_paths if _looks_like_repo(p)
+    ))
     if not valid_repos:
         print(
             "error: no --repo points at a directory with .agentic/ or .git",

@@ -14,8 +14,10 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 
 _MOD_PATH = Path(__file__).parent.parent / "ds-change-delta"
@@ -168,19 +170,47 @@ def run_tests() -> None:
             assert False, "expected CutResolutionError for malformed --cut"
         except _mod.CutResolutionError:
             pass
-        # finding 8: a compact all-digit ISO date (valid hex, 7-40 chars,
-        # a real SHA shape) must resolve as a DATE, never be misread as
-        # an unresolvable SHA.
+        # round-4 finding 1: a value that is SHA-shaped (7-40 hex chars)
+        # but has no such commit, and is ALSO a valid compact ISO date,
+        # must fall through to date parsing rather than being rejected -
+        # git show is attempted first regardless of digit/letter shape,
+        # and only a git-show FAILURE triggers the date-parsing fallback.
+        # mutation: reintroducing the round-3 `(?!\d+$)` lookahead in
+        # _SHA_RE, or swapping the try-git-then-date order, reddens this.
         resolved_dt3, resolved_src3 = _mod._resolve_cut("20260825", str(git_repo))
         assert resolved_src3 == "date:20260825", resolved_src3
         assert resolved_dt3 == CUT_DT.replace(hour=0, minute=0, second=0), resolved_dt3
-        print("_resolve_cut (SHA / date / malformed / compact-digit-date): PASS")
+        # round-4 finding 1: a REAL all-digit SHA (git show succeeds) must
+        # resolve as `sha:`, never be diverted to date parsing just
+        # because it is all-digit - 28 of 1163 commits on this repo's own
+        # history have all-digit 8-char abbreviations. mutation: gating
+        # the git-show attempt on "contains a non-digit character"
+        # reddens this (the round-3 lookahead did exactly that).
+        orig_run_sha_order = _mod._run
+
+        def _mock_run_all_digit_sha(args, cwd=None, timeout=None):
+            if args[:2] == ["git", "show"]:
+                return subprocess.CompletedProcess(args, 0, stdout=CUT_ISO, stderr="")
+            raise AssertionError(f"unexpected command: {args}")
+
+        _mod._run = _mock_run_all_digit_sha
+        try:
+            resolved_dt4, resolved_src4 = _mod._resolve_cut("68267374", str(git_repo))
+        finally:
+            _mod._run = orig_run_sha_order
+        assert resolved_src4 == "sha:68267374", resolved_src4
+        assert resolved_dt4 == CUT_DT, resolved_dt4
+        print("_resolve_cut (SHA / date / malformed / compact-digit-date / real-all-digit-sha): PASS")
 
         # ------------------------------------------------------------
-        # CLI exit-code pin (finding 4): a --cut matching neither shape
-        # is a CutResolutionError like any other unresolvable --cut, and
-        # exits 1 - never a distinct exit 2 (exit 2 is reserved for
-        # argparse's own usage errors, which never reach main()'s body).
+        # CLI exit-code pin (finding 4, round 2): a --cut matching neither
+        # shape is a CutResolutionError like any other unresolvable
+        # --cut, and exits 1 - never a distinct exit 2 (exit 2 is
+        # reserved for argparse's own usage errors, which never reach
+        # main()'s body). No dedicated reddening mutation: this exercises
+        # the same CutResolutionError path already mutation-tested above
+        # via _resolve_cut directly, one layer up through main()'s
+        # exception-to-exit-code mapping.
         # ------------------------------------------------------------
         rc_malformed = _mod.main(
             ["--cut", "not-a-sha-or-date!!", "--repo", str(git_repo)]
@@ -189,10 +219,12 @@ def run_tests() -> None:
         print("CLI exit code (malformed --cut -> exit 1): PASS")
 
         # ------------------------------------------------------------
-        # --cut-repo default (finding 6): with no --cut-repo, the SHA must
-        # be resolved against the first VALID --repo, not the first
-        # positional --repo argument - a nonexistent first --repo must not
-        # make cut resolution fail.
+        # --cut-repo default (finding 6, round 2): with no --cut-repo, the
+        # SHA must be resolved against the first VALID --repo, not the
+        # first positional --repo argument - a nonexistent first --repo
+        # must not make cut resolution fail. mutation M: reverting
+        # `cut_repo = args.cut_repo or str(valid_repos[0])` back to
+        # `str(repo_paths[0])` reddens this (exit 1 instead of 0).
         # ------------------------------------------------------------
         rc_default_cut_repo = _mod.main(
             ["--cut", sha, "--repo", str(tmp / "does-not-exist"), "--repo", str(git_repo), "--json"]
@@ -434,6 +466,42 @@ def run_tests() -> None:
         assert sessions_mr["before"]["source"] == expected_source, sessions_mr["before"]["source"]
         assert sessions_mr["before"]["rows_consumed"] == 1, sessions_mr["before"]
         print("Assertion 11 (multi-repo merge: source omits non-contributing repo, status OK): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 11b [NEW - round-4 finding 2]: passing the SAME repo
+        # twice via --repo (once as-given, once as its resolved absolute
+        # form) must contribute its rows ONCE, not twice - dedup happens
+        # in main(), so this drives the CLI layer directly rather than
+        # build_delta(). mutation: dropping the dict.fromkeys(...) dedup
+        # (or the .resolve() call feeding it) reddens this - sessions
+        # would double from 3 to 6.
+        # ------------------------------------------------------------
+        dedup_repo = tmp / "dedup_repo"
+        dedup_rows = [
+            _session_row("2026-08-11T00:00:00+00:00", 2, 100, 10, 5),
+            _session_row("2026-08-18T00:00:00+00:00", 3, 100, 10, 5),
+            _session_row("2026-08-24T00:00:00+00:00", 4, 100, 10, 5),
+        ]
+        _write_jsonl(dedup_repo / ".agentic" / "session-log" / "dev.jsonl", dedup_rows)
+        buf = StringIO()
+        orig_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            rc_dedup = _mod.main([
+                "--cut", CUT_ISO,
+                "--repo", str(dedup_repo),
+                "--repo", str(dedup_repo) + os.sep + ".",
+                "--json",
+            ])
+        finally:
+            sys.stdout = orig_stdout
+        assert rc_dedup == 0, rc_dedup
+        dedup_report = json.loads(buf.getvalue())
+        assert dedup_report["metrics"]["sessions"]["before"]["value"] == 3, (
+            f"same repo passed twice must not double-count sessions: "
+            f"{dedup_report['metrics']['sessions']['before']}"
+        )
+        print("Assertion 11b (same --repo passed twice is deduped, not double-counted): PASS")
 
         # ------------------------------------------------------------
         # Assertion 9: PR history via mocked gh
