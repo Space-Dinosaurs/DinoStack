@@ -3246,7 +3246,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 ## Phase 11b: Wrap learnings (per-ticket capture)
 
-**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
+**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`; Phase 12's later write is read-modify-write and does not clear it (see Phase 12's own note), so this ordering keeps the capture timely rather than beating a clearer. The findings-curator at Phase 6 exit also reads `findings_log` without clearing it.
 
 **Skip conditions:**
 - Phase 9 was skipped (no PR was opened): skip Phase 11b entirely. Lock acquisition below is never attempted - there is nothing to release.
@@ -3274,7 +3274,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `ticket_description`: the full ticket description.
 - `architect_plan_path`: absolute path to the architect's plan output (or in-context if no path).
 - `brief_path`: absolute path to the Brief (or "n/a" if no Brief).
-- `findings_log`: read from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
+- `findings_log`: read from `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` (Phase 12's later write preserves this field; see Phase 12's own note).
 - `qa_md_diff`: the diff between `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `$AE_PROJECT_DIR/.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 - `pr_url`: the PR URL captured at Phase 9.
@@ -3371,20 +3371,12 @@ if [ -n "$RR_PR_NUMBER" ]; then
       RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
     fi
 
-    RR_ANOMALY=""
-    if [ "$(jq -r 'if (.loop_state.termination_reason != null) and (.loop_state.iteration == 1) and (.loop_state.last_engineer_summary == null) and ((.loop_state.findings_log // []) | length == 0) then "1" else "0" end' $AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)" = "1" ]; then
-      RR_ANOMALY="WARNING: findings_log empty at termination - see Phase 6 Step 2."
-    fi
-
     RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
     {
       printf '\n\n## Review rigor\n\n'
       printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
       printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
       printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
-      if [ -n "$RR_ANOMALY" ]; then
-        printf -- '- %s\n' "$RR_ANOMALY"
-      fi
     } > "$RR_APPEND_FILE"
 
     printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
@@ -3880,7 +3872,7 @@ After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped),
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
 
-**`findings_log` persistence.** Phase 12's `status: "complete"` write is read-modify-write and preserves `findings_log` - nothing here clears it, nor does the findings-curator at Phase 6 exit. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this cleanup.
+**`findings_log` persistence (normative).** Phase 12's `status: "complete"` write MUST be read-modify-write, preserving every other `loop_state` field - including `findings_log` - unchanged; a write that emits only `{"status":"complete"}` violates this step and destroys the log. Nothing here clears `findings_log`, nor does the findings-curator at Phase 6 exit. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this cleanup.
 
 **qa.md snapshot cleanup.** Remove `$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
 
@@ -4044,7 +4036,7 @@ Next:  manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatc
 
 Collect any blockers surfaced during this session:
 
-- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `$AE_REPO_DIR/content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `$AE_PROJECT_DIR/.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - cleared at that ticket's own Phase 12, before this phase runs. Under per-ticket keying it is **no longer overwritten by the next ticket** - the next ticket writes its own keyed file - but that changes nothing about this gap, whose cause is that the outcome is never written at all). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `$AE_REPO_DIR/content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `$AE_PROJECT_DIR/.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped to a keyed file this later phase never re-reads. Under per-ticket keying it is **no longer overwritten by the next ticket** - the next ticket writes its own keyed file - but that changes nothing about this gap, whose cause is that the outcome is never written at all). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
 - Batch-escalated tickets: any ticket in `$AE_PROJECT_DIR/.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
 
 Print:

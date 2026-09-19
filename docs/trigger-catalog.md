@@ -104,8 +104,8 @@ iteration. `goal_mode=open_goal` relaxes no existing review obligation.
 **Auditability.** Each iteration records a `risk_declared` field in
 `batch-state.json.open_goal` - the durable outer-loop cursor - as evidence that
 risk classification was performed. It is deliberately NOT held in a
-`loop-state-<LOOP_KEY>.json`, which Phase 12 clears every iteration and which
-therefore cannot hold cross-iteration audit state. An iteration with no
+`loop-state-<LOOP_KEY>.json`, which is a distinct file each iteration and
+cannot hold cross-iteration audit state regardless. An iteration with no
 `risk_declared` is a protocol violation.
 
 **What this buys.** The trigger removes the human from the START of each
