@@ -27,10 +27,12 @@ Public API: ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH]
             SHA (7-40 hex chars) nor an ISO8601 date/datetime, which is
             a CutResolutionError like any other unresolvable --cut, NOT
             a distinct exit code - or when no --repo points at a
-            directory carrying `.agentic/` or `.git`. Exit 2 is reserved
-            for argparse's own usage errors (a missing required flag,
-            an unparseable --window-days), which argparse raises before
-            this module's own logic runs at all.
+            directory carrying `.agentic/` or `.git`. Exit 2 covers usage
+            errors: argparse's own (a missing required flag, an
+            unparseable --window-days) raised before this module's logic
+            runs at all, and main()'s own `--window-days <= 0` range
+            check, which argparse's `type=int` cannot express and this
+            module's body checks explicitly.
 
 Read-only guarantee (AC7): every filesystem open() call in this module is
             read-mode; every subprocess call routes through the single
@@ -110,7 +112,7 @@ GH_CALL_TIMEOUT_SECONDS = 30.0
 PR_PAGE_SIZE = 100
 PR_MAX_PAGES = 50
 
-_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_SHA_RE = re.compile(r"^(?=[0-9a-fA-F]{7,40}$)(?!\d+$)[0-9a-fA-F]+$")
 
 _STATUS_SEVERITY = {
     "ABSENT": 4,
@@ -180,9 +182,12 @@ def _resolve_cut(cut_arg: str, cut_repo: str) -> tuple[datetime, str]:
     --format=%cI <sha>` (the COMMITTER date, deliberate for a
     squash-merge repo - see module docstring), parsed and converted to
     UTC. An ISO8601 date/datetime argument is used directly (a bare date
-    is treated as 00:00:00Z). Raises CutResolutionError (never
-    sys.exit) on an unresolvable SHA or an argument matching neither
-    shape - the caller decides the exit code."""
+    is treated as 00:00:00Z). `_SHA_RE` requires at least one non-digit
+    hex character, so a purely-numeric compact ISO date like "20260825"
+    (valid hex, 7-40 chars, and a real SHA shape) is never misread as a
+    SHA - it falls through to ISO parsing instead. Raises
+    CutResolutionError (never sys.exit) on an unresolvable SHA or an
+    argument matching neither shape - the caller decides the exit code."""
     if _SHA_RE.match(cut_arg):
         try:
             proc = _run(
@@ -413,47 +418,58 @@ def _load_fire_lines(
 
 def _collect_fires(repos: list[Path]) -> dict:
     """Merge every repo's primary + stranded .enforcement-fires.jsonl
-    deny-decision rows into ONE combined row list. Two different repos'
-    fires logs are never deduped against each other (each repo gets its
-    own `seen` scope) since they are legitimately different physical
-    logs, not copies of the same one - see module docstring."""
+    records into ONE combined set. Two different repos' fires logs are
+    never deduped against each other (each repo gets its own `seen`
+    scope) since they are legitimately different physical logs, not
+    copies of the same one - see module docstring.
+
+    Store extent (`earliest_ts`/`latest_ts`/`rows_total`/`sources`) is
+    tracked over EVERY parsed record regardless of decision - a fires
+    log that covers both windows but happens to hold few or no deny
+    rows in a given window is still a covered store, not an absent or
+    insufficiently-covered one. The deny filter applies ONLY to `rows`
+    (the numerator `_fires_window_slice` counts) - fixes a defect where
+    coverage was computed from the deny-only subset, so a covered store
+    with zero post-cut denies wrongly reported INSUFFICIENT_COVERAGE
+    (or ABSENT if it held no denies at all)."""
     rows: list[tuple[datetime, str]] = []
     earliest: datetime | None = None
     latest: datetime | None = None
     sources: list[str] = []
+    total_records = 0
     for repo in repos:
         seen: set[str] = set()
         primary = repo / ".agentic" / ".enforcement-fires.jsonl"
         primary_contributed = False
         for ts, rec in _load_fire_lines(primary, seen, dedupe=False):
-            if rec.get("decision") != "deny":
-                continue
-            rows.append((ts, str(primary)))
             primary_contributed = True
+            total_records += 1
             if earliest is None or ts < earliest:
                 earliest = ts
             if latest is None or ts > latest:
                 latest = ts
+            if rec.get("decision") == "deny":
+                rows.append((ts, str(primary)))
         if primary_contributed:
             sources.append(str(primary))
         for stranded_path in _stranded_fire_log_paths(repo):
             stranded_contributed = False
             for ts, rec in _load_fire_lines(stranded_path, seen, dedupe=True):
-                if rec.get("decision") != "deny":
-                    continue
-                rows.append((ts, str(stranded_path)))
                 stranded_contributed = True
+                total_records += 1
                 if earliest is None or ts < earliest:
                     earliest = ts
                 if latest is None or ts > latest:
                     latest = ts
+                if rec.get("decision") == "deny":
+                    rows.append((ts, str(stranded_path)))
             if stranded_contributed:
                 sources.append(str(stranded_path))
     return {
         "rows": rows,
         "earliest_ts": earliest,
         "latest_ts": latest,
-        "rows_total": len(rows),
+        "rows_total": total_records,
         "sources": sources,
     }
 
@@ -530,7 +546,7 @@ def _combine_status(status_a: str, note_a: str | None, label_a: str,
     else:
         winner_status, winner_note, winner_label = status_b, note_b, label_b
         loser_status, loser_label = status_a, label_a
-    note = f"{winner_label} has {winner_note or winner_status} ({winner_status})"
+    note = f"{winner_label}: {winner_note or winner_status} ({winner_status})"
     if loser_status == "OK":
         note += f"; {loser_label} OK"
     return winner_status, note
@@ -539,6 +555,24 @@ def _combine_status(status_a: str, note_a: str | None, label_a: str,
 # ---------------------------------------------------------------------------
 # PR-history signal (per repo)
 # ---------------------------------------------------------------------------
+
+
+def _has_origin_remote(repo: str) -> bool:
+    """True when `repo` has a resolvable `origin` remote. Distinguishes
+    "not a git repo / no origin remote" (NOT_A_GIT_REPO) from "has an
+    origin remote but gh can't resolve or reach it" (GH_UNAVAILABLE) -
+    e.g. a real git checkout whose origin gh cannot authenticate against
+    for this account. Any failure (not a git repo, no origin, git
+    missing) returns False; never raises."""
+    try:
+        proc = _run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo,
+            timeout=GH_CALL_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 - any failure means no usable remote
+        return False
+    return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
 def _gh_repo_slug(repo: str) -> tuple[str, str] | None:
@@ -711,8 +745,16 @@ def _pr_history_for_repo(
 ) -> dict:
     slug = _gh_repo_slug(repo)
     if slug is None:
+        # A real git checkout with a resolvable `origin` remote that gh
+        # still can't resolve (auth, access, gh missing/erroring) is
+        # GH_UNAVAILABLE, not NOT_A_GIT_REPO - the latter is reserved for
+        # "no origin remote to even try" (fixes gh-failure-mislabeled-
+        # not-a-git-repo: a real repo like authentic8's checkout, whose
+        # origin gh cannot resolve for this account, was previously
+        # reported as if it were not a git repository at all).
+        status = "GH_UNAVAILABLE" if _has_origin_remote(repo) else "NOT_A_GIT_REPO"
         na = {
-            "status": "NOT_A_GIT_REPO", "merged_prs": None, "commits": None,
+            "status": status, "merged_prs": None, "commits": None,
             "commits_per_pr": None, "source": None, "rows_consumed": 0,
         }
         return {"before": dict(na), "after": dict(na), "delta": None, "note": None}
@@ -731,7 +773,7 @@ def _pr_history_for_repo(
 # ---------------------------------------------------------------------------
 
 
-def _side_obj(status: str, value, source: list[str], rows_consumed: int, note: str | None = None) -> dict:
+def _side_obj(status: str, value, source: list[str], rows_consumed, note: str | None = None) -> dict:
     """Every side-object always carries `note` (None on a clean OK side) -
     always present, never conditionally omitted, so a caller can rely on
     the key existing regardless of status."""
@@ -837,12 +879,18 @@ def build_delta(
     )
     b_val = (before_fires["deny_count"] / before_sess["sessions"]) if b_combined == "OK" else None
     a_val = (after_fires["deny_count"] / after_sess["sessions"]) if a_combined == "OK" else None
+    # rows_consumed is split per store (fires numerator, session-log
+    # denominator) rather than reporting the fires-only count alone,
+    # which silently hid how many session-log rows the ratio's
+    # denominator actually consumed.
     b_side = _side_obj(b_combined, b_val,
                         sorted(set(before_fires["sources"]) | set(before_sess["sources"])),
-                        before_fires["rows_consumed"], b_combined_note)
+                        {"fires": before_fires["rows_consumed"], "sessions": before_sess["rows_consumed"]},
+                        b_combined_note)
     a_side = _side_obj(a_combined, a_val,
                         sorted(set(after_fires["sources"]) | set(after_sess["sources"])),
-                        after_fires["rows_consumed"], a_combined_note)
+                        {"fires": after_fires["rows_consumed"], "sessions": after_sess["rows_consumed"]},
+                        a_combined_note)
     hd_delta = (a_val - b_val) if (b_combined == "OK" and a_combined == "OK") else None
     metrics["hook_denies_per_session"] = {"before": b_side, "after": a_side, "delta": hd_delta, "note": None}
 

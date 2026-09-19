@@ -41,11 +41,16 @@ ds-change-delta --cut <SHA|ISO8601> [--cut-repo PATH] [--window-days N] --repo P
 
 ## Coverage and status
 
-Every metric names the file(s) or query it read and the row/record count
-it consumed. When a store is absent, empty, or does not reach the
+Every metric's `--json` output names the file(s) or query it read and
+the row/record count it consumed - the default table is a compact
+summary and omits both; use `--json` to see the provenance. When a
+store is absent, empty, or does not reach the
 requested window on one side, that side reports a status word
 (`ABSENT`, `NOT_YET_ELAPSED`, `INSUFFICIENT_COVERAGE`, `ZERO_SESSIONS`,
-or `OK`) and a `null` delta rather than a misleading numeric zero. Token
+or `OK`) and a `null` delta rather than a misleading numeric zero - the
+`value` field is also `null` on every non-`OK` status, including
+`NOT_YET_ELAPSED`; a not-yet-elapsed after window never reports a
+partial informational figure. Token
 and wall-time metrics additionally carry a `data_quality` flag
 (`"zero-filled"`, `"zero-filled-before"`, or `"zero-filled-after"`) that
 forces `delta` to `null` even when both sides otherwise report `OK` -

@@ -95,12 +95,18 @@ def _build_primary_fixture(tmp: Path) -> Path:
 
     # Stranded copy: line 0 is an EXACT duplicate of one primary after-window
     # deny line (must dedupe); line 1 is a genuinely new after-window deny
-    # row (must count once).
+    # row (must count once); line 2 is a NON-deny row (must not count -
+    # removing the stranded-loop deny filter must redden this).
     dup_line = json.dumps(_fire_row("2026-08-26T00:00:00+00:00"))
     new_line = json.dumps(_fire_row("2026-08-31T00:00:00+00:00"))
+    stranded_non_deny_line = json.dumps(
+        _fire_row("2026-08-27T06:00:00+00:00", decision="allow")
+    )
     stranded_path = repo / ".claude" / "worktrees" / "agent-x" / ".agentic" / ".enforcement-fires.jsonl"
     stranded_path.parent.mkdir(parents=True, exist_ok=True)
-    stranded_path.write_text(dup_line + "\n" + new_line + "\n", encoding="utf-8")
+    stranded_path.write_text(
+        dup_line + "\n" + new_line + "\n" + stranded_non_deny_line + "\n", encoding="utf-8"
+    )
 
     return repo
 
@@ -162,7 +168,13 @@ def run_tests() -> None:
             assert False, "expected CutResolutionError for malformed --cut"
         except _mod.CutResolutionError:
             pass
-        print("_resolve_cut (SHA / date / malformed): PASS")
+        # finding 8: a compact all-digit ISO date (valid hex, 7-40 chars,
+        # a real SHA shape) must resolve as a DATE, never be misread as
+        # an unresolvable SHA.
+        resolved_dt3, resolved_src3 = _mod._resolve_cut("20260825", str(git_repo))
+        assert resolved_src3 == "date:20260825", resolved_src3
+        assert resolved_dt3 == CUT_DT.replace(hour=0, minute=0, second=0), resolved_dt3
+        print("_resolve_cut (SHA / date / malformed / compact-digit-date): PASS")
 
         # ------------------------------------------------------------
         # CLI exit-code pin (finding 4): a --cut matching neither shape
@@ -223,6 +235,10 @@ def run_tests() -> None:
         assert abs(hd["before"]["value"] - (2 / 3)) < 1e-9, hd["before"]
         # after deny count == 7 (6 primary + 1 new stranded, dup dropped) -> value = 7/5
         assert abs(hd["after"]["value"] - (7 / 5)) < 1e-9, hd["after"]
+        # rows_consumed is split per store (finding 5) - both the fires
+        # numerator and the session-log denominator must be visible.
+        assert hd["before"]["rows_consumed"] == {"fires": 2, "sessions": 3}, hd["before"]
+        assert hd["after"]["rows_consumed"] == {"fires": 7, "sessions": 5}, hd["after"]
         print("Assertion 3 (hook_denies_per_session before-deny=2 after-deny=7, OK/OK, note=None): PASS")
 
         # Assertion 4a: wall_seconds_per_session
@@ -254,6 +270,34 @@ def run_tests() -> None:
         assert hd_3b["after"]["status"] == "ABSENT", hd_3b["after"]
         assert "session-log" in (hd_3b["after"]["note"] or ""), hd_3b["after"]["note"]
         print("Assertion 3b (hook_denies_per_session degrades to ABSENT, session-log named): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 3c [NEW - finding 1]: fires log genuinely covers both
+        # windows (earliest/latest span before_start..after_end) but has
+        # ZERO deny rows in the after window (only a non-deny row there).
+        # Coverage must be judged on the WHOLE store, not the deny-only
+        # subset - after.status must be OK with value 0.0, never
+        # INSUFFICIENT_COVERAGE/ABSENT just because no denies landed
+        # after the cut.
+        # ------------------------------------------------------------
+        zero_deny_repo = tmp / "zero_post_cut_deny"
+        zero_deny_sessions = [
+            _session_row("2026-08-11T00:00:00+00:00", 2, 100, 10, 5),
+            _session_row(CUT_ISO, 3, 100, 10, 5),
+            _session_row("2026-09-08T00:00:00+00:00", 0, 0, 0, 0),  # coverage-only
+        ]
+        _write_jsonl(zero_deny_repo / ".agentic" / "session-log" / "dev.jsonl", zero_deny_sessions)
+        zero_deny_fires = [
+            _fire_row("2026-08-11T00:00:00+00:00"),  # before, deny - anchors earliest
+            _fire_row("2026-08-26T00:00:00+00:00", decision="allow"),  # after, NON-deny
+            _fire_row("2026-09-08T00:00:00+00:00", decision="allow"),  # coverage-only, anchors latest
+        ]
+        _write_jsonl(zero_deny_repo / ".agentic" / ".enforcement-fires.jsonl", zero_deny_fires)
+        report_3c = _mod.build_delta([zero_deny_repo], CUT_DT, 14, now=NOW)
+        hd_3c = report_3c["metrics"]["hook_denies_per_session"]
+        assert hd_3c["after"]["status"] == "OK", hd_3c["after"]
+        assert hd_3c["after"]["value"] == 0.0, hd_3c["after"]
+        print("Assertion 3c (fires log covers both windows, zero post-cut denies -> after.status=OK, value=0.0): PASS")
 
         # ------------------------------------------------------------
         # Assertion 5: both-sided zero-filled
@@ -328,7 +372,14 @@ def run_tests() -> None:
             entry = report_today["metrics"][key]
             assert entry["after"]["status"] == "NOT_YET_ELAPSED", (key, entry["after"])
             assert entry["delta"] is None, (key, entry["delta"])
-        print("Assertion 7 (cut=today -> after.status=NOT_YET_ELAPSED, delta=None): PASS")
+            # Deliberate deviation from the plan's "still reports an
+            # informational value" text (finding 6, not editing the
+            # plan file): the shipped code nulls the value on every
+            # non-OK status including NOT_YET_ELAPSED, for consistency
+            # with how the ratio metrics already treat every other
+            # non-OK status - see content/commands/ds-change-delta.md.
+            assert entry["after"]["value"] is None, (key, entry["after"])
+        print("Assertion 7 (cut=today -> after.status=NOT_YET_ELAPSED, delta=None, value=None): PASS")
 
         # ------------------------------------------------------------
         # Assertion 8: coverage spans both windows, zero session_total in after
@@ -515,6 +566,47 @@ def run_tests() -> None:
             f"before window's end must be exactly one second before the cut: {before_end_q}"
         )
         print("Assertion 9c (half-open PR windows: before-end = cut-1s, after-start = cut): PASS")
+
+        # ------------------------------------------------------------
+        # Assertion 9d [NEW - finding 2]: GH_UNAVAILABLE (a real repo with
+        # an origin remote that gh cannot resolve) vs NOT_A_GIT_REPO (no
+        # origin remote at all) must be distinguished, never collapsed.
+        # ------------------------------------------------------------
+        has_origin_repo = tmp / "has_origin"
+        has_origin_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=has_origin_repo, check=True)
+        subprocess.run(
+            ["git", "remote", "add", "origin", "https://github.com/example/unreachable.git"],
+            cwd=has_origin_repo, check=True,
+        )
+        no_origin_repo = tmp / "no_origin"
+        no_origin_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=no_origin_repo, check=True)
+
+        def _mock_run_gh_erroring(args, cwd=None, timeout=None):
+            if args[:2] == ["git", "remote"]:
+                # Let the real git command run - it reflects the real
+                # per-fixture remote configuration set up above.
+                return subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+            if args[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="gh: authentication error")
+            raise AssertionError(f"unexpected command: {args}")
+
+        _mod._run = _mock_run_gh_erroring
+        try:
+            result_has_origin = _mod._pr_history_for_repo(
+                str(has_origin_repo), CUT_DT - _mod.timedelta(days=14), CUT_DT,
+                CUT_DT, CUT_DT + _mod.timedelta(days=14), NOW,
+            )
+            result_no_origin = _mod._pr_history_for_repo(
+                str(no_origin_repo), CUT_DT - _mod.timedelta(days=14), CUT_DT,
+                CUT_DT, CUT_DT + _mod.timedelta(days=14), NOW,
+            )
+        finally:
+            _mod._run = orig_run
+        assert result_has_origin["before"]["status"] == "GH_UNAVAILABLE", result_has_origin["before"]
+        assert result_no_origin["before"]["status"] == "NOT_A_GIT_REPO", result_no_origin["before"]
+        print("Assertion 9d (origin-remote-but-gh-erroring -> GH_UNAVAILABLE; no-origin -> NOT_A_GIT_REPO): PASS")
 
         # ------------------------------------------------------------
         # R5: read-only guarantee - argv allowlist + HEAD/status byte-identity
