@@ -37,7 +37,7 @@ in the build pipeline:
     glues onto the description value and no valid frontmatter block exists
     at byte 0. Caught by test_frontmatter_block_at_byte_zero.
 
-Performance: parses 27 small files; well under a second.
+Performance: parses 28 small files; well under a second.
 """
 from __future__ import annotations
 
@@ -89,10 +89,10 @@ def _generated_body(name: str) -> str:
     return dst.read_text()
 
 
-def test_all_27_commands_present():
+def test_all_commands_present():
     """Sanity check on the fixture set itself, not the gate's own subject."""
     names = _all_command_names()
-    assert len(names) == 27, f"Expected 27 commands, found {len(names)}: {names}"
+    assert len(names) == 28, f"Expected 28 commands, found {len(names)}: {names}"
 
 
 def test_frontmatter_block_at_byte_zero():

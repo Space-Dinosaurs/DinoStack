@@ -48,6 +48,12 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       the JSON output into the prune analyst's spawn
                       prompt, since the analyst Worker's tool_scope has no
                       Bash);
+                      bin/ds-change-delta (DS-241 - merges
+                      .agentic/.enforcement-fires.jsonl deny-decision rows,
+                      plus its stranded-copy locations, across every
+                      `--repo` to compute hook_denies_per_session for two
+                      windows either side of a methodology-change cut
+                      point);
                       bin/ds-cost team (reads .agentic/session-log/ for team rollup);
                       hooks/conductor-overreach-nudge.js (the registered Stop hook that
                       appends conductor_overreach); bin/ds-cost session/project (render

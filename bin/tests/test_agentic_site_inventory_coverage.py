@@ -305,6 +305,17 @@ EXCLUDED_FILES = {
     # hooks/*.js or hooks/*.py call site; nothing wires it yet
     # (`memory_shard_mode` ships false and is read by no writer).
     "bin/ds-memory-shard",
+    # DS-241 (ds-change-delta): bin/ds-change-delta is a slash-command-
+    # driven before/after telemetry delta tool invoked by the operator or
+    # conductor, never from a hooks/*.js or hooks/*.py call site. Every
+    # `.agentic`-reading site (session-log, `.enforcement-fires.jsonl`
+    # plus its stranded-copy globs, the `_looks_like_repo` existence
+    # check) derives from a `--repo` argument that is REQUIRED (no bare-
+    # cwd default at all, stricter than bin/ds-evaluate's `--repo "."`
+    # default) - same explicit-argument exemption rationale as
+    # bin/ds-hook-fire-report above, which reads the identical fires-log
+    # file the same way.
+    "bin/ds-change-delta",
 }
 
 # Test/fixture paths (at any depth) are never scanned as candidates.
