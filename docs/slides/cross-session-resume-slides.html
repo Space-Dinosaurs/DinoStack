@@ -1143,7 +1143,7 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>loop-state-&lt;LOOP_KEY&gt;.json</strong>
-One per ticket. Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> or deleted after the PR is opened. Legacy unkeyed <code>loop-state.json</code> is read and adopted, never written.
+One per ticket. Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> via a read-modify-write after the PR is opened - every other field, including <code>findings_log</code>, is preserved, never cleared or deleted. Legacy unkeyed <code>loop-state.json</code> is read and adopted, never written.
 </div>
 <div class="card">
 <strong>batch-state.json</strong>

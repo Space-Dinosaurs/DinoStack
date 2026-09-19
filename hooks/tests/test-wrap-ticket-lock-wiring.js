@@ -64,11 +64,22 @@ assert(/\*\*1\*\*\s*-\s*fatal/.test(phase11bText), 'Phase 11b documents exit 1 (
 assert(phase11bText.includes('any other exit code'),
   'Phase 11b documents an "any other exit code" fallback branch');
 
-// (4) findings_log hold instruction present
+// (4) hold instruction present, scoped to the specific hold sentence -
+// findings_log now also appears in unrelated parts of Phase 11b (the
+// trigger note, the wrap-ticket spawn-brief input list), so a bare
+// `phase11bText.includes('findings_log')` no longer discriminates this
+// sentence: it passes even if the hold sentence itself is rewritten to
+// drop its own reference to the protected state file. Anchor on the hold
+// sentence's own text and check IT names .agentic/loop-state-$LOOP_KEY.json.
 assert(phase11bText.includes('MUST NOT advance to Phase 11d'),
   'Phase 11b explicitly forbids advancing past the background wait before it resolves');
-assert(phase11bText.includes('findings_log'),
-  'Phase 11b hold instruction references findings_log explicitly');
+{
+  const holdIdx = phase11bText.indexOf('The conductor holds at this step');
+  assert(holdIdx !== -1, 'Phase 11b contains the hold-instruction sentence');
+  const holdSentence = holdIdx !== -1 ? phase11bText.slice(holdIdx, holdIdx + 400) : '';
+  assert(holdSentence.includes('.agentic/loop-state-$LOOP_KEY.json'),
+    'Phase 11b hold instruction sentence itself (not just elsewhere in the section) names the protected state file .agentic/loop-state-$LOOP_KEY.json');
+}
 
 // (5) PATH-not-found install message ported
 assert(phase11bText.includes('not found on PATH'),
