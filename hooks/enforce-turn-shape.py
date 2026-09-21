@@ -1266,7 +1266,30 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     fragment. Defaults to False so every existing single-argument call
     site is unaffected. DS-171: hooks/tests/test-turn-charge-model.py, a
     former such call site (via the now-deleted _turn_charge), is deleted
-    along with the function it tested."""
+    along with the function it tested.
+
+    Sole-waiting-line fix (this change): the `stoppage` warrant used to
+    test `_WAITING_LINE_RE` against `unfenced_lines` only - the lines
+    AFTER the identity line - never against `identity_line` itself, even
+    though every other warrant here (`decision`/`completion`/`answer`)
+    tests the combined `domain_text`, identity line included, exactly as
+    this docstring's opening sentence claims for the whole function. A
+    turn whose ENTIRE text is one `Waiting: ...` line has no body at all -
+    `_segment` treats that sole line as the identity line and leaves
+    `unfenced_lines` empty - so `stoppage` came back False on the one
+    shape it exists to catch (content/references/conductor-turn-format.md
+    §2 warrant 2: "a `Waiting:` line is present in the turn", not "present
+    after the identity line"). The turn then fell through to the
+    zero-warrant leaf and could be BLOCKED by `_status_only_flag`, the
+    exact class of turn Rule A's forced-yield shape (§4/§7) exists to
+    permit. `_WAITING_LINE_RE` has no `re.MULTILINE` flag, so it cannot be
+    matched against `domain_text` directly (its `^` only anchors to the
+    string start) - checking `identity_line` as its own operand keeps the
+    single-purpose-per-line matching the rest of this function already
+    uses. Every other classification is unchanged: a `Waiting:` line
+    anywhere in `unfenced_lines` still fires exactly as before, and a
+    non-Waiting identity line is unaffected by this added disjunct.
+    """
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
@@ -1275,7 +1298,8 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     )
     return {
         "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
-        "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
+        "stoppage": bool(_WAITING_LINE_RE.match(identity_line))
+        or any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
         # DS-156 round 3: a completion claim is vetoed outright when a
         # continuing-work signal is present anywhere in the same domain -
         # see _has_continuing_work_signal's docstring.

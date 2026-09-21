@@ -4066,6 +4066,67 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# sw. REGRESSION (sole-waiting-line fix): a turn whose ENTIRE text is one
+#     `Waiting: ...` line, with no separate identity line and no body at
+#     all, must classify `stoppage` True and end up QUIET - the exact
+#     shape §7's forced-yield rule exists to permit. Pre-fix, `_segment`
+#     absorbed the sole line into `identity_line`, leaving `unfenced_lines`
+#     empty; `_classify_warrants`'s `stoppage` key tested only
+#     `unfenced_lines`, never `identity_line`, so it came back False and
+#     the turn fell through to the zero-warrant leaf, where
+#     `_status_only_flag` could BLOCK it. Real-corpus measured: 42 of 109
+#     authentic8 blocks and 36 of 127 DinoStack blocks, in a replay of
+#     real conductor turns, were exactly this shape.
+# ---------------------------------------------------------------------------
+
+sole_waiting_line_msg = "Waiting: skeptic reviewing the DS-188 diff (round 1).\n"
+
+# sw1. Direct warrant-classification pin: `stoppage` must be True on the
+# sole-line message, not merely "the hook happens not to block it" - this
+# is the exact field the bug lived in.
+_sw1_warrants = _mod._classify_warrants(sole_waiting_line_msg)
+check(
+    "sw1. sole `Waiting:` line, no separate identity line -> stoppage warrant True",
+    _sw1_warrants["stoppage"] is True,
+)
+
+# sw2. End-to-end: the hook must not block (nor even advise) on this turn.
+# Uses the shared MID-TASK transcript (not a bare payload): `_status_only_
+# flag`'s suppressor 1 fails OPEN when transcript_path is absent/unreadable
+# (there is no operator-position signal to compute), which would make this
+# assertion pass vacuously pre-fix too - the real corpus turns this fix
+# targets all have a real transcript showing the turn is mid-task, which is
+# exactly what makes suppressor 1 NOT fire and the zero-warrant leaf BLOCK.
+rc, out, err = run_hook(with_statement_transcript(sole_waiting_line_msg))
+check(
+    "sw2. sole `Waiting:` line as the ENTIRE turn, mid-task transcript -> "
+    "QUIET (was BLOCKING pre-fix via the zero-warrant leaf's "
+    "_status_only_flag)",
+    is_quiet(rc, out),
+)
+
+# sw3. A trailing newline or trailing whitespace after the sole Waiting:
+# line must not change the verdict - _segment/_WAITING_LINE_RE both work
+# on `.strip()`-independent line content, and this pins that a lone
+# blank line after the identity line does not resurrect a "body".
+rc, out, err = run_hook(with_statement_transcript("Waiting: engineer on unit 2.\n\n"))
+check(
+    "sw3. sole `Waiting:` line + trailing blank line, mid-task transcript "
+    "-> QUIET",
+    is_quiet(rc, out),
+)
+
+# sw-neg. CONTRAST: a sole-line message that is NOT a Waiting: line (an
+# ordinary single-line status ping) must be unaffected by this fix and
+# keeps whatever verdict it already had - proves the fix is scoped to the
+# Waiting: shape, not a blanket "one-line message" exemption.
+_swneg_warrants = _mod._classify_warrants("Did a first thing.\n")
+check(
+    "sw-neg. sole non-Waiting: line -> stoppage warrant stays False",
+    _swneg_warrants["stoppage"] is False,
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
