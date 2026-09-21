@@ -762,8 +762,8 @@ Public API (CLI):
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
-directory is already gone (an admin-only entry - its agent cannot still be
-running when there is no directory left to run in). This tool honors that
+directory is already gone (an admin-only entry - there is no
+directory left to protect). This tool honors that
 guardrail exactly: a locked entry whose directory still exists is ALWAYS
 reported (`SKIP_LOCKED`), NEVER unlocked or force-removed, regardless of
 any other check - the harness's lock is cross-session protection this tool
