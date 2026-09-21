@@ -42,8 +42,10 @@
 #                       invocation or its kill-switch guard (qa_criteria
 #                       scenario 5 / rubric R3); check_lock_caveat_pointers
 #                       guards the single-source lock-state caveat against
-#                       a pointer losing its target path, a pointer being
-#                       deleted, or the caveat itself being deleted.
+#                       a pointer losing its target path, being deleted, or
+#                       being re-homed away from the prose it qualifies, and
+#                       against the caveat being deleted or having its
+#                       trailing clause rewritten.
 #
 # Failure modes: exits non-zero if the observed exit-code sequence across
 #                the three runs is anything other than (0, 1, 1), OR if
@@ -72,17 +74,22 @@
 #                the corrected "is None" short-circuit mechanism explanation
 #                entirely (e.g. the module docstring's --activity-window-hours
 #                entry deleted outright, not merely reworded back to a false
-#                claim), OR if check_lock_caveat_pointers finds either
+#                claim), OR if check_lock_caveat_pointers finds any of five
+#                rot paths on the single-source lock-state caveat: either
 #                content/rules/conventions.md or content/sections/11-worktree-
 #                lifecycle.md no longer naming `bin/ds-cleanup-worktrees` in
-#                its pointer to the canonical lock-state caveat (a pointer
-#                that loses its PATH still reads fine to a human, which is
-#                why the path is part of the pinned literal), or finds
-#                bin/ds-cleanup-worktrees missing either its "Locked
-#                handling:" note or the caveat sentence itself, which would
-#                leave both pointers aimed at nothing. That caveat sentence
-#                is matched whitespace-normalized, so re-wrapping the
-#                docstring paragraph does not redden the check. Cleans up
+#                its pointer (a pointer that loses its PATH still reads fine
+#                to a human, which is why the path is part of the pinned
+#                literal); either pointer deleted outright; either pointer
+#                surviving verbatim but re-homed off the line carrying that
+#                file's lock prose, so it qualifies nothing; or bin/ds-cleanup-
+#                worktrees missing its "Locked handling:" note or the caveat
+#                sentence, which would leave both pointers aimed at nothing.
+#                The caveat is pinned as a WHOLE sentence, opening plus
+#                trailing clause, so rewriting only the trailing clause back
+#                to a lock-released-on-agent-completion cause reddens it too;
+#                it is matched whitespace-normalized, so re-wrapping the
+#                docstring paragraph does not. Cleans up
 #                its scratch repo on exit via a trap regardless of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
@@ -362,22 +369,39 @@ check_activity_window_prose() {
 # Lock-caveat pointer check. content/rules/conventions.md and
 # content/sections/11-worktree-lifecycle.md each defer to the single
 # canonical caveat on what a worktree's lock state proves, which lives in
-# bin/ds-cleanup-worktrees' "Locked handling:" module-docstring note. Three
+# bin/ds-cleanup-worktrees' "Locked handling:" module-docstring note. Five
 # ways this can rot, all pinned positively (fail-loud) here:
 #   (a) either pointer loses the target PATH, leaving "see the Locked
 #       handling note" with no file named - the pointer still reads fine to
 #       a human, and a pin omitting the path would stay green;
 #   (b) either pointer is deleted outright;
-#   (c) the caveat itself is deleted from bin/ds-cleanup-worktrees, which
-#       would leave both pointers aimed at nothing.
-# The caveat sentence is matched against a whitespace-normalized read, so a
-# pure re-wrap of that docstring paragraph does not redden the check.
+#   (c) either pointer survives verbatim but is re-homed away from the lock
+#       prose it qualifies (e.g. appended at EOF under an unrelated
+#       heading), so it no longer qualifies anything. Guarded by requiring
+#       the pointer to share a LINE with that file's lock prose, since in
+#       both files that prose is a single line;
+#   (d) the caveat itself is deleted from bin/ds-cleanup-worktrees, which
+#       would leave both pointers aimed at nothing;
+#   (e) the caveat keeps its pinned opening clause but has its trailing
+#       clause rewritten to reassert the false "the harness releases the
+#       lock once an agent finishes a TURN" cause. Guarded by pinning the
+#       WHOLE sentence, opening and trailing clause together, rather than
+#       the memorable opening alone.
+# The caveat is matched against a whitespace-normalized read, so a pure
+# re-wrap of that docstring paragraph does not redden the check. No pin
+# here is placed on a deleted string: a negative pin would go permanently
+# and silently green once the wording it forbids is gone.
 check_lock_caveat_pointers() {
   local ok=0
   local pointer='the `Locked handling:` note in `bin/ds-cleanup-worktrees`'
+  local caveat='Absence of a lock does NOT prove a worktree is abandoned - a session can be resumed into an unlocked, clean worktree later'
 
-  local doc
-  for doc in "$CONVENTIONS_DOC" "$SECTION_DOC"; do
+  local pair doc anchor
+  for pair in \
+    "$CONVENTIONS_DOC|**Multi-session support:**" \
+    "$SECTION_DOC|Claude Code locks each isolation worktree"; do
+    doc="${pair%%|*}"
+    anchor="${pair#*|}"
     if [ ! -f "$doc" ]; then
       echo "PROSE-WIRING VIOLATION: $doc not found" >&2
       ok=1
@@ -386,6 +410,9 @@ check_lock_caveat_pointers() {
     if ! grep -qF "$pointer" "$doc"; then
       echo "PROSE-WIRING VIOLATION: $doc does not point at the canonical lock caveat by path (expected the literal '$pointer')" >&2
       ok=1
+    elif ! grep -F "$pointer" "$doc" | grep -qF "$anchor"; then
+      echo "PROSE-WIRING VIOLATION: $doc still carries the lock-caveat pointer, but no longer on the same line as the lock prose it qualifies (expected that line to also carry '$anchor') - a re-homed pointer qualifies nothing" >&2
+      ok=1
     fi
   done
 
@@ -393,8 +420,8 @@ check_lock_caveat_pointers() {
     echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN has no 'Locked handling:' note - both pointers above now aim at nothing" >&2
     ok=1
   fi
-  if ! tr '\n' ' ' < "$CLEANUP_BIN" | tr -s ' ' | grep -qF 'Absence of a lock does NOT prove a worktree is abandoned'; then
-    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the canonical caveat sentence ('Absence of a lock does NOT prove a worktree is abandoned')" >&2
+  if ! tr '\n' ' ' < "$CLEANUP_BIN" | tr -s ' ' | grep -qF "$caveat"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the canonical caveat sentence in full ('$caveat') - note the WHOLE sentence is pinned, so rewriting only its trailing clause (e.g. back to a lock-released-on-agent-completion cause) reddens this too" >&2
     ok=1
   fi
 

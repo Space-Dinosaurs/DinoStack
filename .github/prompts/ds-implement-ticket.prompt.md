@@ -2459,10 +2459,10 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
       # unlock` may be used ONLY on a worktree whose directory is already
       # gone (this worktree's directory demonstrably still exists, since we
       # got this far), and a double-force `remove -f -f` overrides the
-      # harness's own lock protection, which this methodology
-      # must never do. A round-2 Skeptic Critical caught an earlier version
-      # of this block doing exactly that on an "agent may have just
-      # finished" assumption with no check backing it - removed entirely.
+      # harness's own lock protection, which this methodology must never do.
+      # A round-2 Skeptic Critical caught an earlier version of this block
+      # doing exactly that on an "agent may have just finished" assumption
+      # with no check backing it - removed entirely.
       REMOVE_STDERR=$(git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>&1)
       REMOVE_RC=$?
       if [ "$REMOVE_RC" -eq 0 ]; then
@@ -2474,9 +2474,7 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
         # is visible in a later session (previously this failure was
         # silently swallowed by `2>/dev/null || true`, which is exactly how
         # isolation worktrees from failed cleanups accumulated invisibly).
-        # A locked-worktree refusal is expected and safe here - the
-        # session-start prune script and bin/ds-cleanup-worktrees remain the
-        # backstop that reclaims it once the lock is genuinely released.
+        # A locked-worktree refusal is expected and safe here.
         echo "WARNING: git worktree remove failed for $WORKTREE_PATH (branch=$BRANCH_NAME): $REMOVE_STDERR" >&2
         mkdir -p "$REPO/.agentic" 2>/dev/null || true
         SKIP_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)

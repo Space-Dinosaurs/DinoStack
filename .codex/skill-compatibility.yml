@@ -6382,16 +6382,6 @@
       "source_token": "sed"
     },
     {
-      "expected_target": "bin/ds-cleanup-worktrees",
-      "generated_token": "$AE_REPO_DIR/bin/ds-cleanup-worktrees",
-      "kind": "operational",
-      "occurrence_hash": "331ffd13808d2cc3fe0ca49d7ae1940b542c40c15c9f1af6e9d0c32c6abdeca0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "bin/ds-cleanup-worktrees"
-    },
-    {
       "expected_target": ".agentic/session-log/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/session-log/",
       "kind": "operational",

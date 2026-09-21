@@ -146,13 +146,10 @@ This is the self-scoped inline pattern; it does not need the general disposition
 
 If the worktree is still locked, `git worktree remove` will refuse. That
 is expected and safe - it is the correct, permanent outcome for a
-refusal, NEVER a signal to unlock or force-remove (`git worktree unlock`
-may be used ONLY on a worktree whose
-directory is already gone - see §Guardrail below, unchanged by any cleanup
-block in this document). The refusal is recorded (Phase 8's ledger above) so
-it stays visible in a later session; the session-start prune script and
-`bin/ds-cleanup-worktrees` below remain the backstop that eventually reclaims it
-once the lock is genuinely released.
+refusal, NEVER a signal to unlock or force-remove (`git worktree unlock` may
+be used ONLY on a worktree whose directory is already gone - see §Guardrail
+below, unchanged by any cleanup block in this document). The refusal is
+recorded (Phase 8's ledger above) so it stays visible in a later session.
 
 ## Feature worktree cleanup commands
 
@@ -761,14 +758,11 @@ it is.
 now-deleted nested-worktree design, so the §Guardrail: never
 force-override the harness lock rule above applies directly here, not as
 an unrelated aside.** If `git worktree remove` instead refuses citing the
-lock (a still-running or not-yet-reaped agent), that is a DIFFERENT
-refusal from the uncommitted-content one in step 3 - do not unlock or
-force-remove it; follow §Isolation worktree cleanup commands above
-("that is expected and safe... NEVER a signal to unlock or
-force-remove") and let the session-start prune's locked-but-dir-missing
-reclaim path or the automatic reap resolve it once the lock is genuinely
-released. Only a refusal naming uncommitted content (not a lock) is what
-step 3's `--force` addresses.
+lock, that is a DIFFERENT refusal from the uncommitted-content one in step
+3 - do not unlock or force-remove it; follow §Isolation worktree cleanup
+commands above ("that is expected and safe... NEVER a signal to unlock or
+force-remove"). Only a refusal naming uncommitted content (not a lock) is
+what step 3's `--force` addresses.
 
 ### Advisory: sharing node_modules across worktrees (pnpm)
 
@@ -784,7 +778,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Guardrail: never force-override the harness lock
 
-No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree) is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Dev-server process lifetime ownership
 
