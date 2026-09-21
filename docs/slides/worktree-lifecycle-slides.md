@@ -263,7 +263,7 @@ git branch -D <branch-name> 2>/dev/null || true
 - Isolation worktrees with changes persist until the conductor explicitly removes them
 
 <div class="callout">
-Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
+Isolation worktrees with changes are the conductor's responsibility.
 </div>
 
 ---
