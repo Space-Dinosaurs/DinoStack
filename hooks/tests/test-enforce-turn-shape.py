@@ -4068,15 +4068,34 @@ check(
 # ---------------------------------------------------------------------------
 # sw. REGRESSION (sole-waiting-line fix): a turn whose ENTIRE text is one
 #     `Waiting: ...` line, with no separate identity line and no body at
-#     all, must classify `stoppage` True and end up QUIET - the exact
-#     shape §7's forced-yield rule exists to permit. Pre-fix, `_segment`
-#     absorbed the sole line into `identity_line`, leaving `unfenced_lines`
-#     empty; `_classify_warrants`'s `stoppage` key tested only
-#     `unfenced_lines`, never `identity_line`, so it came back False and
-#     the turn fell through to the zero-warrant leaf, where
-#     `_status_only_flag` could BLOCK it. Real-corpus measured: 42 of 109
-#     authentic8 blocks and 36 of 127 DinoStack blocks, in a replay of
-#     real conductor turns, were exactly this shape.
+#     all, must classify `stoppage` True and end up QUIET regardless of
+#     line length - the exact shape §7's forced-yield rule exists to
+#     permit, and `Waiting:` lines are deliberately UNBOUNDED in length
+#     (content/references/conductor-turn-format.md:73/:255). Pre-fix,
+#     `_segment` absorbed the sole line into `identity_line`, leaving
+#     `unfenced_lines` empty; `_classify_warrants`'s `stoppage` key tested
+#     only `unfenced_lines`, never `identity_line`, so it came back False
+#     and the turn fell through to the zero-warrant leaf, where
+#     `_status_only_flag` could BLOCK it (round 1). Fixing that alone
+#     would have routed an over-length sole `Waiting:` line into
+#     `_execution_prose_flag`'s identity-line-length check for the first
+#     time, silently importing a length bound the spec forbids - `sw4`
+#     below pins the round-2 fix for that (`_execution_prose_flag`'s own
+#     sole-waiting-line length exemption).
+#
+#     Own-measured isolated per-turn replay (each row its own `cwd`, no
+#     shared loop-guard counter state, `origin/main` vs. this fix,
+#     replayed from this test file's own tree at the time of this
+#     comment - re-run the harness under
+#     hooks/tests/fixtures/turn-shape-real-corpus-sample.json's sibling
+#     scratch tooling to reproduce): of 114 `origin/main` BLOCKs across a
+#     1,552-turn authentic8 corpus, exactly 47 flip to ALLOW and every one
+#     of the 47 is a sole-`Waiting:`-line turn (4 of the 47 over 200
+#     characters); of 119 `origin/main` BLOCKs across a 1,708-turn
+#     DinoStack corpus, exactly 28 flip to ALLOW, all sole-`Waiting:`-line
+#     (3 of the 28 over 200 characters). Zero ALLOW->BLOCK, zero
+#     ALLOW->ADVISORY, and zero BLOCK->ADVISORY flips in either corpus;
+#     advisory counts are unchanged (46 and 83 respectively).
 # ---------------------------------------------------------------------------
 
 sole_waiting_line_msg = "Waiting: skeptic reviewing the DS-188 diff (round 1).\n"
@@ -4124,6 +4143,34 @@ _swneg_warrants = _mod._classify_warrants("Did a first thing.\n")
 check(
     "sw-neg. sole non-Waiting: line -> stoppage warrant stays False",
     _swneg_warrants["stoppage"] is False,
+)
+
+# sw4. REGRESSION (round 2 of this fix): a sole `Waiting:` line OVER
+# STATUS_LINE_MAX_CHARS (200) must still be QUIET, not length-BLOCKING.
+# content/references/conductor-turn-format.md:73/:255 both state Waiting:
+# lines are deliberately UNBOUNDED in length; round 1 of this fix (which
+# only corrected the `stoppage` warrant) would have silently imported the
+# identity-line length bound onto this exact shape, since correctly
+# classifying it as an execution turn routes it into
+# `_execution_prose_flag`'s identity-line-length check for the first
+# time. Direct pin on the function, not just the end-to-end hook, so a
+# future regression here fails at the unit closest to the defect.
+_sw4_long_waiting_msg = "Waiting: " + ("x" * 250) + "\n"
+check(
+    "sw4-pin. the long-Waiting fixture is really over STATUS_LINE_MAX_CHARS",
+    len(_sw4_long_waiting_msg.strip()) > _mod.STATUS_LINE_MAX_CHARS,
+)
+_sw4_warrants = _mod._classify_warrants(_sw4_long_waiting_msg)
+check(
+    "sw4a. sole `Waiting:` line over 200 chars -> _execution_prose_flag is "
+    "None, not a length BLOCK/ADVISORY",
+    _mod._execution_prose_flag(_sw4_long_waiting_msg, _sw4_warrants) is None,
+)
+rc, out, err = run_hook(with_statement_transcript(_sw4_long_waiting_msg))
+check(
+    "sw4b. sole `Waiting:` line over 200 chars, mid-task transcript, "
+    "end-to-end -> QUIET (was BLOCKING at 25b8d64f via the length check)",
+    is_quiet(rc, out),
 )
 
 # ---------------------------------------------------------------------------

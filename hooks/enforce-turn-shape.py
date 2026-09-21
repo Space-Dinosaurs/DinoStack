@@ -1268,27 +1268,32 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     former such call site (via the now-deleted _turn_charge), is deleted
     along with the function it tested.
 
-    Sole-waiting-line fix (this change): the `stoppage` warrant used to
-    test `_WAITING_LINE_RE` against `unfenced_lines` only - the lines
-    AFTER the identity line - never against `identity_line` itself, even
-    though every other warrant here (`decision`/`completion`/`answer`)
-    tests the combined `domain_text`, identity line included, exactly as
-    this docstring's opening sentence claims for the whole function. A
-    turn whose ENTIRE text is one `Waiting: ...` line has no body at all -
-    `_segment` treats that sole line as the identity line and leaves
-    `unfenced_lines` empty - so `stoppage` came back False on the one
-    shape it exists to catch (content/references/conductor-turn-format.md
-    §2 warrant 2: "a `Waiting:` line is present in the turn", not "present
-    after the identity line"). The turn then fell through to the
-    zero-warrant leaf and could be BLOCKED by `_status_only_flag`, the
-    exact class of turn Rule A's forced-yield shape (§4/§7) exists to
-    permit. `_WAITING_LINE_RE` has no `re.MULTILINE` flag, so it cannot be
+    The `stoppage` warrant additionally tests `identity_line` itself
+    against `_WAITING_LINE_RE`, not just `unfenced_lines` - the lines
+    AFTER the identity line. This matches every other warrant here
+    (`decision`/`completion`/`answer`), which all test the combined
+    `domain_text`, identity line included, per this docstring's opening
+    sentence. Without this, a turn whose ENTIRE text is one
+    `Waiting: ...` line has no body at all - `_segment` treats that sole
+    line as the identity line and leaves `unfenced_lines` empty - so
+    `stoppage` would come back False on the one shape it exists to catch
+    (content/references/conductor-turn-format.md §2 warrant 2: "a
+    `Waiting:` line is present in the turn", not "present after the
+    identity line"), and the turn would fall through to the zero-warrant
+    leaf and could be BLOCKED by `_status_only_flag` - the exact class of
+    turn Rule A's forced-yield shape (§4/§7) exists to permit.
+    `_WAITING_LINE_RE` has no `re.MULTILINE` flag, so it cannot be
     matched against `domain_text` directly (its `^` only anchors to the
     string start) - checking `identity_line` as its own operand keeps the
     single-purpose-per-line matching the rest of this function already
-    uses. Every other classification is unchanged: a `Waiting:` line
-    anywhere in `unfenced_lines` still fires exactly as before, and a
-    non-Waiting identity line is unaffected by this added disjunct.
+    uses. A `Waiting:` line anywhere in `unfenced_lines` still fires
+    exactly as it always did, and a non-Waiting identity line is
+    unaffected by this disjunct. This warrant flip is what routes a
+    sole-`Waiting:`-line turn to `_execution_prose_flag` at all; that
+    function carries its own companion exemption keeping such a turn's
+    length UNBOUNDED once it arrives there, matching
+    content/references/conductor-turn-format.md's "`Waiting:` lines
+    remain deliberately UNBOUNDED in length" - see its own docstring.
     """
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
@@ -1575,7 +1580,39 @@ def _execution_prose_flag(text: str, warrants: dict):
     aggregate; only genuinely answer-shaped blocks ever reach the sum.
     """
     identity_line, body = _segment(text)
-    if len(identity_line) > STATUS_LINE_MAX_CHARS:
+    if _WAITING_LINE_RE.match(identity_line) and not any(
+        ln.strip() for ln, _is_fenced in body
+    ):
+        # Sole-waiting-line length exemption (round 2 of this fix): a turn
+        # whose ENTIRE text is one `Waiting:` line is, structurally, a
+        # `Waiting:` line - not a narrative identity line that happens to
+        # start with the word "waiting". `Waiting:` lines are deliberately
+        # UNBOUNDED in length everywhere else in this file (see the module
+        # docstring's Public API contract and
+        # content/references/conductor-turn-format.md:73/:255) - the
+        # sole-stoppage branch below never length-checks a `Waiting:` line
+        # once it is part of a body, and the general branch exempts
+        # `Waiting:` lines from STATUS_LINE_MAX_CHARS by name. The ONLY
+        # reason a sole `Waiting:` line was ever length-checked here at all
+        # is that `_segment` has no third category between "identity line"
+        # and "body" - a one-line message's sole line IS the identity
+        # line, positionally, regardless of content. Without this
+        # exemption, fixing the stoppage-warrant false negative (this
+        # file's `_classify_warrants`) would silently import a length bound
+        # nobody has authorized onto exactly the lines the spec says must
+        # stay unbounded. Testing that no line in `body` has non-blank
+        # content (rather than `len(body) == 0`) scopes this narrowly
+        # without being defeated by a trailing blank line - `_segment`
+        # keeps a trailing blank line IN `body` (it only drops leading
+        # blank lines while hunting for the identity line), so a bare
+        # `len(body) == 0` check would miss the sw3 shape ("Waiting: X\n\n")
+        # entirely. A multi-line turn whose first line happens to read like
+        # a `Waiting:` line but is followed by real body content is NOT
+        # this shape and still hits the check below - the exemption is for
+        # the turn-is-one-Waiting-line case only, not for "an identity line
+        # that happens to match the Waiting shape" in general.
+        pass
+    elif len(identity_line) > STATUS_LINE_MAX_CHARS:
         # Markup-blindspot fix (real-corpus turn_0090/turn_0096): a long
         # identity line is not automatically narrative creep - it can be
         # genuine multi-sentence answer content that simply landed on the
