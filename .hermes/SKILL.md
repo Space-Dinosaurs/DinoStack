@@ -615,7 +615,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) resolves its own base branch rather than assuming `origin/main`, and deletes a branch only when a subsumption predicate proves its tip on that base; absence of proof, or an unresolvable base, is a skip.
 
-Claude Code locks each isolation worktree, so git refuses the non-force removal commands this methodology uses against it from any concurrent session (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state. Isolation worktrees with changes persist until the conductor explicitly removes them.
+Claude Code locks each isolation worktree (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
 **Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123)** - the DS-123 harness worktree-fallback quirk remains open and unresolved. The canonical round-N mechanic for landing a same-approach fix commit on an already-open PR's branch (mitigation, not a fix for DS-123 itself) is documented in `content/rules/conventions.md` §Git Workflow and `content/references/worktree-lifecycle.md` §Round-N rework mechanic.
 
@@ -893,7 +893,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The dinostack repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree, so git refuses the non-force removal commands this methodology uses against it from any concurrent session. This coordination is harness behavior, not a mechanism the conductor or methodology adds. See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Claude Code locks (`git worktree lock`) each isolation worktree. This coordination is harness behavior, not a mechanism the conductor or methodology adds. See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state.
 
 **Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
 
@@ -10120,7 +10120,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Guardrail: never force-override the harness lock
 
-No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree) is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Dev-server process lifetime ownership
 
@@ -10160,9 +10160,9 @@ These are authorized once, for every session, and are never an operator choice:
   reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
   cwd worktree) can be reaped out from under it. No commits are ever lost
   (removal is worktree-only, evidence-gated); the activity window is the
-  deliberate defense; no
-  cross-session-branch-skip gate is added, since the tool has no visibility
-  into other sessions' branches beyond the locked flag.
+  deliberate defense; no cross-session-branch-skip gate is added, since the
+  tool has no visibility into other sessions' branches beyond the locked
+  flag.
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in

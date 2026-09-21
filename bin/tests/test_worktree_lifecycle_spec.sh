@@ -81,16 +81,19 @@
 #                its pointer (a pointer that loses its PATH still reads fine
 #                to a human, which is why the path is part of the pinned
 #                literal); either pointer deleted outright; either pointer
-#                surviving verbatim but re-homed off the line carrying that
-#                file's lock prose, so it qualifies nothing; or bin/ds-cleanup-
+#                surviving verbatim but orphaned from that file's own lock
+#                prose, whether by being re-homed or by that prose being
+#                deleted out from under it (each anchor is lock prose, never
+#                a paragraph label - a label-based anchor stayed green when
+#                the lock sentence was deleted); or bin/ds-cleanup-
 #                worktrees missing its "Locked handling:" note or the caveat
 #                sentence, which would leave both pointers aimed at nothing.
 #                The caveat is pinned as a WHOLE sentence, opening plus
 #                trailing clause, so rewriting only the trailing clause back
 #                to a lock-released-on-agent-completion cause reddens it too;
 #                it is matched whitespace-normalized, so re-wrapping the
-#                docstring paragraph does not. Cleans up
-#                its scratch repo on exit via a trap regardless of outcome.
+#                docstring paragraph does not. Cleans up its scratch repo on
+#                exit via a trap regardless of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -375,11 +378,15 @@ check_activity_window_prose() {
 #       handling note" with no file named - the pointer still reads fine to
 #       a human, and a pin omitting the path would stay green;
 #   (b) either pointer is deleted outright;
-#   (c) either pointer survives verbatim but is re-homed away from the lock
-#       prose it qualifies (e.g. appended at EOF under an unrelated
-#       heading), so it no longer qualifies anything. Guarded by requiring
-#       the pointer to share a LINE with that file's lock prose, since in
-#       both files that prose is a single line;
+#   (c) either pointer survives verbatim but is orphaned from the lock prose
+#       it qualifies - re-homed elsewhere in the file, or left in place
+#       while the lock prose itself is deleted out from under it. Guarded by
+#       requiring the pointer to share a LINE with that file's own lock
+#       prose, which in both files is a single line. Each anchor must be
+#       LOCK PROSE, never a section or paragraph label: an earlier revision
+#       anchored CONVENTIONS_DOC on the bold "Multi-session support:" label,
+#       which left the check green when the lock sentence was deleted and
+#       only the label and the pointer remained;
 #   (d) the caveat itself is deleted from bin/ds-cleanup-worktrees, which
 #       would leave both pointers aimed at nothing;
 #   (e) the caveat keeps its pinned opening clause but has its trailing
@@ -398,8 +405,8 @@ check_lock_caveat_pointers() {
 
   local pair doc anchor
   for pair in \
-    "$CONVENTIONS_DOC|**Multi-session support:**" \
-    "$SECTION_DOC|Claude Code locks each isolation worktree"; do
+    "$CONVENTIONS_DOC"'|Claude Code locks (`git worktree lock`) each isolation worktree' \
+    "$SECTION_DOC"'|Claude Code locks each isolation worktree'; do
     doc="${pair%%|*}"
     anchor="${pair#*|}"
     if [ ! -f "$doc" ]; then

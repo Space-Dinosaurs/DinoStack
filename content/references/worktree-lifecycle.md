@@ -778,7 +778,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Guardrail: never force-override the harness lock
 
-No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree) is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Dev-server process lifetime ownership
 
@@ -818,9 +818,9 @@ These are authorized once, for every session, and are never an operator choice:
   reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
   cwd worktree) can be reaped out from under it. No commits are ever lost
   (removal is worktree-only, evidence-gated); the activity window is the
-  deliberate defense; no
-  cross-session-branch-skip gate is added, since the tool has no visibility
-  into other sessions' branches beyond the locked flag.
+  deliberate defense; no cross-session-branch-skip gate is added, since the
+  tool has no visibility into other sessions' branches beyond the locked
+  flag.
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in

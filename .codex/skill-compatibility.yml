@@ -582,16 +582,6 @@
       "source_token": "/simplify"
     },
     {
-      "expected_target": "bin/ds-cleanup-worktrees",
-      "generated_token": "$AE_REPO_DIR/bin/ds-cleanup-worktrees",
-      "kind": "operational",
-      "occurrence_hash": "444df550164360f12dba62bae0903cecf75fe4a9d5c4f8efac38889fdee6f829",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/ds-cleanup-worktrees"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -2380,6 +2370,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "bin/ds-cleanup-worktrees",
+      "generated_token": "$AE_REPO_DIR/bin/ds-cleanup-worktrees",
+      "kind": "operational",
+      "occurrence_hash": "fdc4813235aafb026ac3aa58068acdb491c3e18e8bebd2d62dc3d82958e8c965",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-cleanup-worktrees"
     },
     {
       "expected_target": "bin/ds-migrate",
