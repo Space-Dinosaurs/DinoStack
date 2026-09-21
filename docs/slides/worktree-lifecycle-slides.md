@@ -262,10 +262,6 @@ git branch -D <branch-name> 2>/dev/null || true
 - Force-remove is only safe after confirming nothing important is uncommitted
 - Isolation worktrees with changes persist until the conductor explicitly removes them
 
-<div class="callout">
-Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
-</div>
-
 ---
 
 ## Cleanup: feature worktrees
@@ -326,10 +322,6 @@ The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, f
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
 - Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own
 - **DS-196:** the preflight also invokes a BACKGROUNDED `ds-cleanup-worktrees` reap (after `git worktree prune`, before branch prune) - the foreground shell returns immediately; output appends to `.agentic/worktree-reap.log` with a per-run header. Suppress with `AE_WORKTREE_REAP_DISABLE=1`; the 30-min-idle re-fire applies here too and is safe by construction (every gate re-checks fresh state)
-
-<div class="callout">
-The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
-</div>
 
 ---
 

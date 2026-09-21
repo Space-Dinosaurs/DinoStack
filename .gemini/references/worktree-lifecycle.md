@@ -144,10 +144,10 @@ git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 
 This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase. `content/commands/ds-implement-ticket.md` Phase 8 carries the hardened, canonical form of this block: single attempt, no force, surfacing stderr and appending a persisted skip record (`.agentic/worktree-cleanup-skips.jsonl`) to a refusal rather than discarding it - the illustrative snippet above omits that hardening for brevity.
 
-If the worktree is still locked by a running agent, `git worktree remove` will
-refuse until the agent finishes. That is expected and safe - it is the
-correct, permanent outcome for a refusal, NEVER a signal to unlock or
-force-remove (`git worktree unlock` may be used ONLY on a worktree whose
+If the worktree is still locked, `git worktree remove` will refuse. That
+is expected and safe - it is the correct, permanent outcome for a
+refusal, NEVER a signal to unlock or force-remove (`git worktree unlock`
+may be used ONLY on a worktree whose
 directory is already gone - see §Guardrail below, unchanged by any cleanup
 block in this document). The refusal is recorded (Phase 8's ledger above) so
 it stays visible in a later session; the session-start prune script and
@@ -346,7 +346,7 @@ Because there is no nested worktree, a crashed continuation spawn leaves
 behind exactly ONE artifact: its own ordinary harness isolation worktree,
 detached, possibly holding an unpushed commit - not two admin entries,
 and no orphaned-nested-entry case to reason about separately. It is
-reaped (or not) by the same harness/session-start machinery that governs
+reaped (or not) by the same session-start machinery that governs
 any other crashed spawn.
 
 `classify_entry` (`bin/tests/worktree_model.py:443-447`)
@@ -784,7 +784,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Guardrail: never force-override the harness lock
 
-No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Dev-server process lifetime ownership
 
@@ -822,9 +822,9 @@ These are authorized once, for every session, and are never an operator choice:
   session's own or a second live session's clean, pushed, idle-past-window
   worktree (including the current session's own non-cwd feature worktree,
   reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
-  cwd worktree) can be reaped out from under it - the harness lock covers
-  only RUNNING agents. No commits are ever lost (removal is worktree-only,
-  evidence-gated); the activity window is the deliberate defense; no
+  cwd worktree) can be reaped out from under it. No commits are ever lost
+  (removal is worktree-only, evidence-gated); the activity window is the
+  deliberate defense; no
   cross-session-branch-skip gate is added, since the tool has no visibility
   into other sessions' branches beyond the locked flag.
 
@@ -976,13 +976,13 @@ ancestry and upstream-tracking state.
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
-DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. On such a build, `hooks/enforce-worktree-isolation-spawn.py` compounds this into a TOTAL deadlock: it denies a non-isolated spawn of the three mandated roles, and isolation itself deadlocks per the paragraph above, leaving no permitted action. The escape hatch is that hook's kill-switch, `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set in the environment that launches Claude Code, then restart) - not a substitute for the Claude Code fix, only a way to fall back to the pre-spawn stash fallback below while the operator is stuck on a pre-fix build. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. On such a build, `hooks/enforce-worktree-isolation-spawn.py` compounds this into a TOTAL deadlock: it denies a non-isolated spawn of the three mandated roles, and isolation itself deadlocks per the paragraph above, leaving no permitted action. The escape hatch is that hook's kill-switch, `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set in the environment that launches Claude Code, then restart) - not a substitute for the Claude Code fix, only a way to fall back to the pre-spawn stash fallback below while the operator is stuck on a pre-fix build. Treat the fix as a hard floor for the delegation model.
 
 ## Project-override policy
 
 Worktree lifecycle rules - classification (`classify_entry`) and disposition (`disposition_for` / `disposition_for_orphan_branch`, all in `bin/tests/worktree_model.py`) - are methodology-owned and NOT overridable by a project `AGENTS.md`. A project may add non-conflicting project-specific conventions (e.g. pruning its own generated artifacts) but may NOT redefine which path prefixes mean ISOLATION/CONDUCTOR_CREATED, change the disposition gate order, or otherwise contradict the classification or trigger rules in this document.
 
-This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock-while-running behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
+This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
 
 ## Pre-spawn stash fallback
 

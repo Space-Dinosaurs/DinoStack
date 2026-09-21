@@ -399,7 +399,7 @@ The fan-out primitive in `/ds-implement-ticket` Phase 5 uses a different worktre
 
 | Mode | Branch naming | Cleanup | Use when |
 |---|---|---|---|
-| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Conductor removes after PR | Single-agent isolation; merge order does not matter |
 | Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
 
 Manually-managed worktrees are created with:

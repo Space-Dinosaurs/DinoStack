@@ -26,7 +26,12 @@
 #                check_manifest_reconciliation and check_activity_window_prose
 #                for its NOTE text and module docstring);
 #                hooks/session-start-wrap.sh (SESSION_START_WRAP, grepped by
-#                check_manifest_reconciliation for its call-site disclosure).
+#                check_manifest_reconciliation for its call-site disclosure);
+#                content/rules/conventions.md (CONVENTIONS_DOC) and
+#                content/sections/11-worktree-lifecycle.md (SECTION_DOC),
+#                both grepped by check_lock_caveat_pointers for the
+#                by-path pointer to bin/ds-cleanup-worktrees' canonical
+#                "Locked handling:" lock-state caveat.
 #
 # Downstream consumers: CI; qa_criteria scenario 8 (this ticket's QA gate) -
 #                       "demonstrates two distinct exit codes across three
@@ -35,7 +40,10 @@
 #                       check_reap_wiring guards against a silent deletion
 #                       of the DS-196 automatic session-start reap
 #                       invocation or its kill-switch guard (qa_criteria
-#                       scenario 5 / rubric R3).
+#                       scenario 5 / rubric R3); check_lock_caveat_pointers
+#                       guards the single-source lock-state caveat against
+#                       a pointer losing its target path, a pointer being
+#                       deleted, or the caveat itself being deleted.
 #
 # Failure modes: exits non-zero if the observed exit-code sequence across
 #                the three runs is anything other than (0, 1, 1), OR if
@@ -64,8 +72,18 @@
 #                the corrected "is None" short-circuit mechanism explanation
 #                entirely (e.g. the module docstring's --activity-window-hours
 #                entry deleted outright, not merely reworded back to a false
-#                claim). Cleans up its scratch repo on exit via a trap
-#                regardless of outcome.
+#                claim), OR if check_lock_caveat_pointers finds either
+#                content/rules/conventions.md or content/sections/11-worktree-
+#                lifecycle.md no longer naming `bin/ds-cleanup-worktrees` in
+#                its pointer to the canonical lock-state caveat (a pointer
+#                that loses its PATH still reads fine to a human, which is
+#                why the path is part of the pinned literal), or finds
+#                bin/ds-cleanup-worktrees missing either its "Locked
+#                handling:" note or the caveat sentence itself, which would
+#                leave both pointers aimed at nothing. That caveat sentence
+#                is matched whitespace-normalized, so re-wrapping the
+#                docstring paragraph does not redden the check. Cleans up
+#                its scratch repo on exit via a trap regardless of outcome.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -79,6 +97,8 @@ CLEANUP_DOC="$REPO_ROOT/content/commands/ds-cleanup-worktrees.md"
 LIFECYCLE_DOC="$REPO_ROOT/content/references/worktree-lifecycle.md"
 CLEANUP_BIN="$REPO_ROOT/bin/ds-cleanup-worktrees"
 SESSION_START_WRAP="$REPO_ROOT/hooks/session-start-wrap.sh"
+CONVENTIONS_DOC="$REPO_ROOT/content/rules/conventions.md"
+SECTION_DOC="$REPO_ROOT/content/sections/11-worktree-lifecycle.md"
 SCRATCH="$(mktemp -d)"
 
 cleanup() {
@@ -339,6 +359,53 @@ check_activity_window_prose() {
   return "$ok"
 }
 
+# Lock-caveat pointer check. content/rules/conventions.md and
+# content/sections/11-worktree-lifecycle.md each defer to the single
+# canonical caveat on what a worktree's lock state proves, which lives in
+# bin/ds-cleanup-worktrees' "Locked handling:" module-docstring note. Three
+# ways this can rot, all pinned positively (fail-loud) here:
+#   (a) either pointer loses the target PATH, leaving "see the Locked
+#       handling note" with no file named - the pointer still reads fine to
+#       a human, and a pin omitting the path would stay green;
+#   (b) either pointer is deleted outright;
+#   (c) the caveat itself is deleted from bin/ds-cleanup-worktrees, which
+#       would leave both pointers aimed at nothing.
+# The caveat sentence is matched against a whitespace-normalized read, so a
+# pure re-wrap of that docstring paragraph does not redden the check.
+check_lock_caveat_pointers() {
+  local ok=0
+  local pointer='the `Locked handling:` note in `bin/ds-cleanup-worktrees`'
+
+  local doc
+  for doc in "$CONVENTIONS_DOC" "$SECTION_DOC"; do
+    if [ ! -f "$doc" ]; then
+      echo "PROSE-WIRING VIOLATION: $doc not found" >&2
+      ok=1
+      continue
+    fi
+    if ! grep -qF "$pointer" "$doc"; then
+      echo "PROSE-WIRING VIOLATION: $doc does not point at the canonical lock caveat by path (expected the literal '$pointer')" >&2
+      ok=1
+    fi
+  done
+
+  if ! grep -qF 'Locked handling:' "$CLEANUP_BIN"; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN has no 'Locked handling:' note - both pointers above now aim at nothing" >&2
+    ok=1
+  fi
+  if ! tr '\n' ' ' < "$CLEANUP_BIN" | tr -s ' ' | grep -qF 'Absence of a lock does NOT prove a worktree is abandoned'; then
+    echo "PROSE-WIRING VIOLATION: $CLEANUP_BIN is missing the canonical caveat sentence ('Absence of a lock does NOT prove a worktree is abandoned')" >&2
+    ok=1
+  fi
+
+  return "$ok"
+}
+
+echo "== Lock-caveat pointer check: $CONVENTIONS_DOC and $SECTION_DOC point at $CLEANUP_BIN's Locked handling note, and that note still exists =="
+check_lock_caveat_pointers
+r0e=$?
+echo "lock-caveat-pointers exit=$r0e"
+
 echo "== Activity-window prose check: $CLEANUP_BIN's --activity-window-hours 0 NOTE and module docstring state the real mechanism =="
 check_activity_window_prose
 r0d=$?
@@ -364,11 +431,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e $r1 $r2 $r3"
 exit 1

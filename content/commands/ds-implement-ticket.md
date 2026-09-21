@@ -2456,7 +2456,7 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
       # unlock` may be used ONLY on a worktree whose directory is already
       # gone (this worktree's directory demonstrably still exists, since we
       # got this far), and a double-force `remove -f -f` overrides the
-      # harness's own lock-while-running protection, which this methodology
+      # harness's own lock protection, which this methodology
       # must never do. A round-2 Skeptic Critical caught an earlier version
       # of this block doing exactly that on an "agent may have just
       # finished" assumption with no check backing it - removed entirely.

@@ -66,11 +66,10 @@ Gate order, first match wins, ALL must clear for REMOVE:
      touching the path directly - never the branch's or its commits'
      creation time) is within `--min-age-hours` (default 24) is never
      removed, regardless of dirty/lock/branch state. This protects a
-     resumable-idle worktree - the harness releases its lock once an agent
-     finishes a TURN, not once the session is truly done; an unlocked,
-     clean worktree can still belong to work the operator will resume. See
-     the Locked handling note below for why this floor exists
-     independently of `SKIP_LOCKED`, not instead of it.
+     resumable-idle worktree - an unlocked, clean worktree can still
+     belong to work the operator will resume. See the Locked handling
+     note below for why this floor exists independently of
+     `SKIP_LOCKED`, not instead of it.
   4.5. RECENT ACTIVITY (DS-196) -> `SKIP_RECENT_ACTIVITY`, immediately
      after the age floor, before any git/gh evidence is gathered. Unlike
      gate 4's single directory-mtime stat, this walks every FILE under the
@@ -763,8 +762,7 @@ Public API (CLI):
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
-directory is already gone (an admin-only entry - its agent cannot still be
-running when there is no directory left to run in). This tool honors that
+directory is already gone (an admin-only entry). This tool honors that
 guardrail exactly: a locked entry whose directory still exists is ALWAYS
 reported (`SKIP_LOCKED`), NEVER unlocked or force-removed, regardless of
 any other check - the harness's lock is cross-session protection this tool
@@ -774,12 +772,11 @@ directory is already gone is handled by the admin-prune pass (`git
 worktree prune`) at the end of every non-dry-run - `git worktree unlock`
 fires first only for that directory-missing case, mirroring the session-
 start prune script's own unlock-then-prune pattern. Absence of a lock does
-NOT prove a worktree is abandoned - the harness releases the lock once an
-agent finishes a TURN, and a session can be resumed into an unlocked,
-clean worktree later (this is exactly what a round-2 review correction
-established: a v1 dry run flagged this very tool's own live worktree as
-REMOVE, which SKIP_LOCKED alone would not have caught since it was
-unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
+NOT prove a worktree is abandoned - a session can be resumed into an
+unlocked, clean worktree later (this is exactly what a round-2 review
+correction established: a v1 dry run flagged this very tool's own live
+worktree as REMOVE, which SKIP_LOCKED alone would not have caught since
+it was unlocked at the time). Gates 3 (SELF) and 4 (AGE FLOOR) above exist
 BECAUSE of this gap, not instead of `SKIP_LOCKED` - all three are
 independent, additive protections.
 
@@ -2742,8 +2739,7 @@ def evaluate_entry(
     exists = Path(entry.path).is_dir()
     if not exists:
         # Admin-only entry (directory already gone). Unlock if locked (the
-        # ONLY case the guardrail permits unlocking - its agent cannot
-        # still be running when the directory is gone) so `git worktree
+        # ONLY case the guardrail permits unlocking) so `git worktree
         # prune` at the end can actually reclaim it.
         if entry.locked:
             return {**base, "outcome": "SKIP_MISSING_LOCKED"}
