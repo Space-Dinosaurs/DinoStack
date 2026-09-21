@@ -615,7 +615,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Worktree prune, the automatic worktree reap, and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight - the auto-reap re-fires on this rule too, which is safe by construction since every gate re-evaluates fresh state on each run. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) resolves its own base branch rather than assuming `origin/main`, and deletes a branch only when a subsumption predicate proves its tip on that base; absence of proof, or an unresolvable base, is a skip.
 
-Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Isolation worktrees with changes persist until the conductor explicitly removes them.
+Claude Code locks each isolation worktree, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Isolation worktrees with changes persist until the conductor explicitly removes them.
 
 **Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123)** - the DS-123 harness worktree-fallback quirk remains open and unresolved. The canonical round-N mechanic for landing a same-approach fix commit on an already-open PR's branch (mitigation, not a fix for DS-123 itself) is documented in `content/rules/conventions.md` §Git Workflow and `content/references/worktree-lifecycle.md` §Round-N rework mechanic.
 
@@ -893,7 +893,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The dinostack repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session. This coordination is harness behavior, not a mechanism the conductor or methodology adds.
 
 **Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
 
@@ -8151,7 +8151,7 @@ Agent(
 )
 ```
 
-The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
+The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch.
 
 ### Nested repo caveat
 
@@ -9486,15 +9486,14 @@ git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 
 This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase. `content/commands/ds-implement-ticket.md` Phase 8 carries the hardened, canonical form of this block: single attempt, no force, surfacing stderr and appending a persisted skip record (`.agentic/worktree-cleanup-skips.jsonl`) to a refusal rather than discarding it - the illustrative snippet above omits that hardening for brevity.
 
-If the worktree is still locked by a running agent, `git worktree remove` will
-refuse until the agent finishes. That is expected and safe - it is the
-correct, permanent outcome for a refusal, NEVER a signal to unlock or
-force-remove (`git worktree unlock` may be used ONLY on a worktree whose
-directory is already gone - see §Guardrail below, unchanged by any cleanup
-block in this document). The refusal is recorded (Phase 8's ledger above) so
-it stays visible in a later session; the session-start prune script and
-`bin/ds-cleanup-worktrees` below remain the backstop that eventually reclaims it
-once the lock is genuinely released.
+If the worktree is still locked, `git worktree remove` will refuse. That is
+expected and safe - it is the correct, permanent outcome for a refusal,
+NEVER a signal to unlock or force-remove (`git worktree unlock` may be used
+ONLY on a worktree whose directory is already gone - see §Guardrail below,
+unchanged by any cleanup block in this document). The refusal is recorded
+(Phase 8's ledger above) so it stays visible in a later session; the
+session-start prune script and `bin/ds-cleanup-worktrees` below remain the
+backstop that eventually reclaims it once the lock is genuinely released.
 
 ## Feature worktree cleanup commands
 
@@ -10102,15 +10101,14 @@ it is.
 **Note - this is the harness's own isolation worktree, unlike the
 now-deleted nested-worktree design, so the §Guardrail: never
 force-override the harness lock rule above applies directly here, not as
-an unrelated aside.** If `git worktree remove` instead refuses citing the
-lock (a still-running or not-yet-reaped agent), that is a DIFFERENT
-refusal from the uncommitted-content one in step 3 - do not unlock or
-force-remove it; follow §Isolation worktree cleanup commands above
-("that is expected and safe... NEVER a signal to unlock or
-force-remove") and let the session-start prune's locked-but-dir-missing
-reclaim path or the automatic reap resolve it once the lock is genuinely
-released. Only a refusal naming uncommitted content (not a lock) is what
-step 3's `--force` addresses.
+an unrelated aside.** If `git worktree remove` instead refuses citing
+the lock, that is a DIFFERENT refusal from the uncommitted-content one
+in step 3 - do not unlock or force-remove it; follow §Isolation worktree
+cleanup commands above ("that is expected and safe... NEVER a signal to
+unlock or force-remove") and let the session-start prune's
+locked-but-dir-missing reclaim path or the automatic reap resolve it
+once the lock is genuinely released. Only a refusal naming uncommitted
+content (not a lock) is what step 3's `--force` addresses.
 
 ### Advisory: sharing node_modules across worktrees (pnpm)
 
@@ -10126,7 +10124,7 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 ## Guardrail: never force-override the harness lock
 
-No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Dev-server process lifetime ownership
 
@@ -10163,12 +10161,12 @@ These are authorized once, for every session, and are never an operator choice:
   re-protected by the activity gate. **Residual, named not fixed:** a live
   session's own or a second live session's clean, pushed, idle-past-window
   worktree (including the current session's own non-cwd feature worktree,
-  reapable via the 30-minute-idle re-fire since `SKIP_SELF` only protects the
-  cwd worktree) can be reaped out from under it - the harness lock covers
-  only RUNNING agents. No commits are ever lost (removal is worktree-only,
-  evidence-gated); the activity window is the deliberate defense; no
-  cross-session-branch-skip gate is added, since the tool has no visibility
-  into other sessions' branches beyond the locked flag.
+  reapable via the 30-minute-idle re-fire since
+  `SKIP_SELF` only protects the cwd worktree) can be reaped out from under it.
+  No commits are ever lost (removal is worktree-only, evidence-gated); the
+  activity window is the deliberate defense; no cross-session-branch-skip gate
+  is added, since the tool has no visibility into other sessions' branches
+  beyond the locked flag.
 
 The boundary is unchanged and is not restated here - see §Guardrail: never
 force-override the harness lock above and the Safe boundary paragraph in
@@ -10324,7 +10322,7 @@ DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-or
 
 Worktree lifecycle rules - classification (`classify_entry`) and disposition (`disposition_for` / `disposition_for_orphan_branch`, all in `bin/tests/worktree_model.py`) - are methodology-owned and NOT overridable by a project `AGENTS.md`. A project may add non-conflicting project-specific conventions (e.g. pruning its own generated artifacts) but may NOT redefine which path prefixes mean ISOLATION/CONDUCTOR_CREATED, change the disposition gate order, or otherwise contradict the classification or trigger rules in this document.
 
-This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock-while-running behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
+This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
 
 ## Pre-spawn stash fallback
 
@@ -19686,7 +19684,7 @@ if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAM
       # unlock` may be used ONLY on a worktree whose directory is already
       # gone (this worktree's directory demonstrably still exists, since we
       # got this far), and a double-force `remove -f -f` overrides the
-      # harness's own lock-while-running protection, which this methodology
+      # harness's own lock protection, which this methodology
       # must never do. A round-2 Skeptic Critical caught an earlier version
       # of this block doing exactly that on an "agent may have just
       # finished" assumption with no check backing it - removed entirely.
