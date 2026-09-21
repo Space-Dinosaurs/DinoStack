@@ -234,24 +234,33 @@ def test_round_n_fix_critical1_live_template_na_value_allowed(tmp_path):
 def test_round_n_fix_critical1_mutation_note_strip_removed_reddens():
     """Executed mutation-testing proof: removing
     `_strip_field7_neutrality_note()` from `field7_violation()` reddens for
-    a TAGGED (non-n/a) field-7 value carrying the template's trailing note -
-    the note's own closing bracket is then read as an untagged claim
-    fragment and a compliant, fully-tagged spawn is falsely denied. (A bare
-    n/a-shaped value is a weaker witness here since Critical 2's shape-based
-    `_field7_is_exempt_na` independently matches any string beginning
-    `n/a - ...` regardless of what follows, strip or no strip - this
-    fixture isolates the note-strip fix specifically.)"""
+    an exempt `n/a - <reason>` field-7 value carrying the template's
+    trailing note - unstripped, the note's own bracket makes the joined
+    field fail `_NA_WITH_REASON_RE`'s bracket-free-reason requirement, so
+    the n/a exemption no longer applies and the value is denied as an
+    untagged sentence.
+
+    Note (this round): a TAGGED (non-n/a) fixture is NO LONGER a valid
+    witness for this mutation - this round's bracket-aware sentence
+    splitting fix (`_mask_bracket_spans`) independently prevents the note's
+    trailing bracket from ever being mis-split off as a bare untagged
+    fragment, so a tagged value's own `[verified: ...]` tag is found by
+    `_PROVENANCE_RE.search()` across the whole (unstripped, unsplit)
+    sentence regardless of whether the note is stripped - that fixture
+    would no longer redden here. The n/a-shaped fixture below is
+    unaffected by that overlap, since `_field7_is_exempt_na` requires the
+    reason to be bracket-free independent of splitting."""
     template_line = _read_live_field7_template_line()
     bracket_start = template_line.index("[Neutrality:")
     trailing_note = template_line[bracket_start:]
-    filled_value = f"The retry fix resolves the timeout. [verified: a.py:5] {trailing_note}"
+    filled_value = f"n/a - Trivial direct edit {trailing_note}"
 
     # Live behavior: allowed.
     assert _mod.field7_violation([filled_value]) is None
 
     # Mutated behavior: skip the strip, exercise the exempt-check +
     # per-sentence path directly as field7_violation() would without it.
-    joined = " ".join([filled_value])
+    joined = " ".join([filled_value]).translate(_mod._TYPOGRAPHIC_NORMALIZE_TABLE)
     assert not _mod._field7_is_exempt_na(joined), (
         "unstripped joined value must not equal the exact n/a shape"
     )
@@ -1277,13 +1286,22 @@ def test_round3_fix_minor_mutation_pre_fix_punctuation_variant_denies():
 def test_round3_fix_minor_content_deviation_still_denies():
     """The normalization/optional-period tolerance must not become a
     generic escape hatch: a bracket carrying a genuine content deviation
-    (not just punctuation) must still fail to strip and deny normally."""
+    (not just punctuation) must still fail to strip and deny normally.
+
+    This round's Fix A widens `_TYPOGRAPHIC_NORMALIZE_TABLE` application to
+    the whole joined field-7 text (not just the note-strip's own internal
+    matching), so the returned violation text is itself normalized - the
+    curly quotes in the input fixture come back as straight quotes in the
+    denied sentence. The deny DECISION is what this test guards; the
+    expected string below reflects that normalization, deliberately not
+    byte-identical to the input."""
     value = (
         "The retry fix is definitely correct. [Neutrality: some unrelated "
         "note referencing skeptic-protocol.md Section 7 "
         "“Neutrality requirement”]"
     )
-    assert _mod.field7_violation([value]) == value
+    expected = value.translate(_mod._TYPOGRAPHIC_NORMALIZE_TABLE)
+    assert _mod.field7_violation([value]) == expected
 
 
 # =========================================================================== #
@@ -1437,3 +1455,145 @@ def test_docstring_states_bounded_scope():
     doc = _mod.__doc__ or ""
     assert "exactly two narrow, bounded surfaces" in doc
     assert "never by this hook" in doc
+
+
+# =========================================================================== #
+# Round-5 fix: typographic-normalization scope - `_TYPOGRAPHIC_NORMALIZE_TABLE`
+# is now applied to the whole joined field-7 text before the note-strip,
+# the n/a-exemption check, and the per-sentence check, not only inside the
+# note-strip's own internal matching. Reproduced on a real corpus spawn
+# whose "n/a - <reason>" clause used a hand-typed en/em dash instead of an
+# ASCII hyphen.
+# =========================================================================== #
+def test_round5_fix_a_em_dash_na_separator_exempt(tmp_path):
+    """An 'n/a — <reason>' value (em dash, the character a smart-typing
+    editor substitutes for a hyphen) must be exempt exactly like the ASCII
+    'n/a - <reason>' form - the em dash is incidental punctuation, not
+    content."""
+    value = "n/a — Trivial direct edit"
+    prompt = f"7. Conductor spawn brief (...): {value}\n\n## What to review\n"
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round5_fix_a_en_dash_and_curly_quotes_na_separator_exempt():
+    """Same property, en dash plus curly quotes in the reason text - all
+    fold to ASCII before the exemption check runs."""
+    value = "n/a – ‘Trivial’ direct edit"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round5_fix_a_mutation_pre_fix_em_dash_denies():
+    """Executed mutation-testing proof, confirmed failing pre-fix: without
+    normalizing the whole joined field before `_field7_is_exempt_na`, an
+    em-dash-separated 'n/a — <reason>' value fails
+    `_NA_WITH_REASON_RE`'s ASCII-hyphen-only match and falls through to the
+    per-sentence check, where it is denied as an untagged sentence -
+    despite being byte-for-byte equivalent in meaning to the exempt ASCII
+    form."""
+    value = "n/a — Trivial direct edit"
+
+    # Live (fixed) behavior: exempt.
+    assert _mod.field7_violation([value]) is None
+
+    # Mutated behavior: reproduce the pre-fix pipeline, which normalized
+    # only INSIDE the note-strip's own matching, never the joined text at
+    # large - so the exemption check runs against the UNNORMALIZED value.
+    joined = _mod._strip_field7_neutrality_note(" ".join([value]))
+    assert not _mod._field7_is_exempt_na(joined), (
+        "mutation should have reddened (em-dash form no longer exempt "
+        "without whole-field normalization)"
+    )
+
+
+# =========================================================================== #
+# Round-5 fix: bracket-aware sentence splitting - `_mask_bracket_spans()`
+# masks every character strictly inside an open `[...]` span before
+# `_SENT_SPLIT_RE` runs, so sentence-ending punctuation or whitespace
+# occurring INSIDE a tag's own bracketed content (e.g. a shell command
+# containing "..." or a "|" pipe) can no longer split a single, fully-tagged
+# sentence into an untagged tail fragment. Reproduced on two real corpus
+# spawns (DS-230, DS-187 sessions).
+# =========================================================================== #
+def test_round5_fix_b_tag_containing_ellipsis_and_pipe_not_split(tmp_path):
+    """A `[verified: ...]` tag whose own bracketed content contains a
+    command-substitution '...' range and a shell pipe must not be split
+    mid-bracket - the whole sentence stays tagged and is allowed."""
+    ellipsis_range = "origin/main" + "...origin/feature/x" + "..."
+    cmd = "git diff -U0 " + ellipsis_range + " | grep -c '^+.*-'"
+    value = f"The branch adds no debt [verified: `{cmd}` run by the conductor this session]."
+    prompt = f"7. Conductor spawn brief (...): {value}\n\n## What to review\n"
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round5_fix_b_mask_bracket_spans_masks_only_interior():
+    """`_mask_bracket_spans` replaces every character strictly between a
+    '[' and its balancing ']' with '#', leaving the brackets themselves and
+    any text outside them untouched."""
+    text = "before [inside. text] after"
+    masked = _mod._mask_bracket_spans(text)
+    assert masked == "before [############] after"
+
+
+def test_round5_fix_b_mutation_pre_fix_ellipsis_in_tag_denies(tmp_path):
+    """Executed mutation-testing proof, confirmed failing pre-fix: without
+    bracket-aware masking, `_SENT_SPLIT_RE` treats the '...' inside the
+    tag's own bracketed shell command as a sentence boundary (a period
+    followed by whitespace not immediately followed by '['), splitting the
+    single tagged sentence into two fragments. The tail fragment carries no
+    provenance/attribution marker of its own and is falsely denied as an
+    untagged claim."""
+    ellipsis_range = "origin/main" + "...origin/feature/x" + "..."
+    cmd = "git diff -U0 " + ellipsis_range + " | grep -c '^+.*-'"
+    value = f"The branch adds no debt [verified: `{cmd}` run by the conductor this session]."
+
+    # Live (fixed) behavior: allowed.
+    assert _mod.field7_violation([value]) is None
+
+    # Mutated behavior: reproduce the pre-fix (unmasked) split directly.
+    raw = _mod._SENT_SPLIT_RE.split(value.strip())
+    out = []
+    for frag in raw:
+        frag = frag.strip()
+        if not frag:
+            continue
+        if out and __import__("re").fullmatch(r'\[[^\]]*\]\.?', frag):
+            out[-1] = out[-1] + " " + frag
+        else:
+            out.append(frag)
+    assert len(out) > 1, (
+        "mutation should have reddened (unmasked split produces more than "
+        "one fragment from a single tagged sentence)"
+    )
+    violation = None
+    for sent in out:
+        if not (
+            _mod._PROVENANCE_RE.search(sent)
+            or _mod._ATTRIBUTION_RE.search(sent)
+            or _mod._SELF_REF_TICKET_RE.search(sent)
+        ):
+            violation = sent
+            break
+    assert violation is not None, (
+        "mutation should have reddened (unmasked split falsely denies a "
+        "tail fragment)"
+    )
+
+
+def test_round5_fix_b_nested_brackets_stay_masked_until_own_close():
+    """A nested bracket span (e.g. a tag whose content itself quotes a
+    bracketed example) stays masked for its full depth-tracked extent, not
+    just until the first ']' encountered."""
+    text = "Sentence one. [verified: example [nested] content. more.] Sentence two."
+    frags = _mod._split_sentences_keep_trailing_tag(text)
+    # The nested-bracket span must not introduce a spurious split inside
+    # the outer bracket's content.
+    assert not any(f.startswith("content.") or f.startswith("more.") for f in frags), (
+        "mutation should have reddened (nested bracket content split off "
+        "as its own fragment)"
+    )

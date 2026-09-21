@@ -239,7 +239,7 @@ Failure modes:
       round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
       `test_round3_residual_provenance_re_substring_match_false_negative`).
 
-    Complete disclosed-residual enumeration (round-4 re-count, by direct
+    Complete disclosed-residual enumeration (round-5 re-count, by direct
     re-grep of this section plus re-execution of each named test, not
     restated from a prior round's count - a prior round's "EXACTLY ONE/
     TWO disclosed" attestations were each themselves found false in a
@@ -272,13 +272,32 @@ Failure modes:
          the real, current brief/field-7 value) - narrower than the
          unbolded-mention shape fixed this round (requires the conductor
          to reproduce heading-shaped bold markup while quoting history).
-    Six residuals total as of this round, not one. Two additional
-    round-4 defects - the unbolded preflight-mention false-positive deny,
-    and `_FIELD7_START_RE`'s first-match (rather than last-match)
-    extraction - are FIXED this round (see `_boundary_alt`'s comment and
-    `_FIELD7_START_RE`'s own comment above) and are covered by regression
-    tests with confirmed-failing-pre-fix mutations, not merely re-labeled
-    as residuals.
+    Six residuals total as of this round, still six - round 5 fixed two
+    further recognition bugs, neither of which was ever a disclosed
+    residual on this list (both were plain false-positive denies, found
+    and closed in the same round they were found, the same pattern as the
+    two round-4 defects below): (a) typographic-normalization scope -
+    `_TYPOGRAPHIC_NORMALIZE_TABLE` previously applied only inside
+    `_strip_field7_neutrality_note`'s own internal matching, so an
+    `n/a` value using a hand-typed en/em dash instead of an ASCII hyphen
+    fell through `_field7_is_exempt_na` and denied; now applied to the
+    whole joined field-7 text before every downstream check (see
+    `field7_violation`'s own "SECOND typographic-normalization bug"
+    docstring paragraph above); (b) bracket-unaware sentence splitting -
+    `_SENT_SPLIT_RE` scanned raw characters, so sentence-ending
+    punctuation or whitespace occurring INSIDE a tag's own bracketed
+    content (e.g. a shell command containing "..." or a "|" pipe) split a
+    single fully-tagged sentence into an untagged tail fragment that was
+    falsely denied; now closed by `_mask_bracket_spans`'s depth-tracked,
+    length-preserving mask (see `_SENT_SPLIT_RE`'s own "THIRD splitter
+    bug" comment above). Both reproduced against real corpus spawns and
+    covered by regression tests with confirmed-failing-pre-fix mutations.
+    Two additional round-4 defects - the unbolded preflight-mention
+    false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
+    than last-match) extraction - were FIXED in round 4 (see
+    `_boundary_alt`'s comment and `_FIELD7_START_RE`'s own comment above)
+    and remain covered by their own regression tests, not merely
+    re-labeled as residuals.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern. A lost
@@ -755,10 +774,60 @@ _SENT_SPLIT_RE = re.compile(
 )
 
 
+# THIRD splitter bug (found this round): `_SENT_SPLIT_RE` scans raw
+# characters, so sentence-ending punctuation (or whitespace) occurring
+# INSIDE a tag's own bracketed content - e.g. `[verified: git diff
+# origin/main...HEAD | grep ...]`, where the "..." and the space before
+# "grep" both look like split points - split a single, fully-tagged
+# sentence mid-bracket. The tail fragment (e.g. "grep ...]") carries no
+# provenance/attribution marker of its own and was falsely denied as an
+# untagged claim, even though the whole sentence IS tagged. Reproduced on
+# two real corpus spawns (DS-230, DS-187 sessions) - see this hook's test
+# file for the executed proof.
+#
+# Fixed with a depth-tracked, length-preserving MASK: every character
+# strictly BETWEEN a "[" and its balancing "]" (never the brackets
+# themselves) is replaced with '#' before `_SENT_SPLIT_RE` ever runs, so no
+# character inside an open bracket span can match `[.?!]` or `\s` at all -
+# the regex simply has nothing to match on there, regardless of its
+# specific lookaheads/lookbehinds. Depth-tracked so nested brackets stay
+# masked until their own closing "]"; an unbalanced "[" with no closing
+# "]" masks to end of string (fails safe toward NOT splitting, never
+# toward splitting somewhere unintended). Masking never changes string
+# length, so match offsets found against the masked copy apply unchanged
+# to the ORIGINAL (unmasked) text when slicing out the returned
+# fragments - the same offset-preservation technique already used by
+# `_strip_field7_neutrality_note`'s typographic normalization above. The
+# "[" and "]" delimiter characters are deliberately left UNMASKED, since
+# `_SENT_SPLIT_RE`'s own alternatives depend on seeing them (`(?!\[)` and
+# `(?<=\])`) and the existing bracket-merge-back logic below
+# (`re.fullmatch(r'\[[^\]]*\]\.?', frag)`) matches against the unmasked
+# fragments, unchanged.
+def _mask_bracket_spans(text: str) -> str:
+    out = list(text)
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == '[':
+            depth += 1
+        elif ch == ']':
+            if depth > 0:
+                depth -= 1
+        elif depth > 0:
+            out[i] = '#'
+    return "".join(out)
+
+
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
-    raw = _SENT_SPLIT_RE.split(text.strip())
+    stripped = text.strip()
+    masked = _mask_bracket_spans(stripped)
+    pieces: list[str] = []
+    last = 0
+    for m in _SENT_SPLIT_RE.finditer(masked):
+        pieces.append(stripped[last:m.start()])
+        last = m.end()
+    pieces.append(stripped[last:])
     out: list[str] = []
-    for frag in raw:
+    for frag in pieces:
         frag = frag.strip()
         if not frag:
             continue
@@ -791,10 +860,26 @@ def field7_violation(field7_paragraphs: list[str] | None) -> str | None:
     Deliberately NOT applied to the brief region - see this module's
     Purpose docstring and the architect plan's proof that all 10 §8
     templates would deny under this rule despite carrying no violation
-    under their own stated purpose."""
+    under their own stated purpose.
+
+    SECOND typographic-normalization bug (found this round): the prior
+    version applied `_TYPOGRAPHIC_NORMALIZE_TABLE` only INSIDE the
+    note-strip's own internal matching, never to the field-7 text at
+    large - so a hand-typed 'n/a — <reason>' (em dash, the character a
+    smart-typing editor substitutes for a hyphen) fell through
+    `_field7_is_exempt_na`'s ASCII-hyphen-only `_NA_WITH_REASON_RE` and
+    denied, while the byte-for-byte-equivalent 'n/a - <reason>' (ASCII
+    hyphen) was exempt - a false-positive deny on incidental punctuation
+    variance, not content, the same class of bug the note-strip was
+    already fixed for. Fixed by normalizing the WHOLE joined field before
+    the note-strip, the n/a-exemption check, and the per-sentence check
+    all run, so every downstream step already sees curly quotes/en-/
+    em-dashes folded to their ASCII equivalents - not just the trailing
+    note bracket."""
     if not field7_paragraphs:
         return None
-    joined = _strip_field7_neutrality_note(" ".join(field7_paragraphs))
+    joined = " ".join(field7_paragraphs).translate(_TYPOGRAPHIC_NORMALIZE_TABLE)
+    joined = _strip_field7_neutrality_note(joined)
     if _field7_is_exempt_na(joined):
         return None
     for sent in _split_sentences_keep_trailing_tag(joined):
