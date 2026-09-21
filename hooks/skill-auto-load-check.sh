@@ -101,7 +101,9 @@ try:
         pattern = re.compile(
             r'\b(code|edit|debug|test|deploy|architect|refactor|depend|implement|'
             r'ticket|build|script|commit|merge|spawn|agent|plan|git|orchestrat|'
-            r'review|bug|hook)|\bpr\b|pull request',
+            r'review|bug|hook|page|icon|button|menu|mockup|design|admin|'
+            r'screen|logo|render|api|endpoint|template|feature|fix|broken|revert)|'
+            r'\bdemos?\b|\bpr\b|pull request',
             re.IGNORECASE,
         )
         print('match' if pattern.search(prompt) else 'no_match')
