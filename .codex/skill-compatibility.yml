@@ -2372,6 +2372,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "bin/ds-cleanup-worktrees",
+      "generated_token": "$AE_REPO_DIR/bin/ds-cleanup-worktrees",
+      "kind": "operational",
+      "occurrence_hash": "fdc4813235aafb026ac3aa58068acdb491c3e18e8bebd2d62dc3d82958e8c965",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-cleanup-worktrees"
+    },
+    {
       "expected_target": "bin/ds-migrate",
       "generated_token": "$AE_REPO_DIR/bin/ds-migrate",
       "kind": "operational",
@@ -6370,16 +6380,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "sed"
-    },
-    {
-      "expected_target": "bin/ds-cleanup-worktrees",
-      "generated_token": "$AE_REPO_DIR/bin/ds-cleanup-worktrees",
-      "kind": "operational",
-      "occurrence_hash": "331ffd13808d2cc3fe0ca49d7ae1940b542c40c15c9f1af6e9d0c32c6abdeca0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "bin/ds-cleanup-worktrees"
     },
     {
       "expected_target": ".agentic/session-log/",

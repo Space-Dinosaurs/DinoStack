@@ -425,7 +425,7 @@ A crashed continuation leaves ONE artifact - its own harness isolation worktree,
 - Discard via **plain `git worktree remove <path>` first** - a refusal naming uncommitted files means there's working-tree content `log -1` couldn't show; inspect `status --porcelain` and `diff` before deciding, only then `--force`
 
 <div class="callout">
-This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one, let the session-start prune or reap resolve it once the lock releases.
+This IS the harness's own locked isolation worktree - a lock refusal is a DIFFERENT case from an uncommitted-content refusal; never unlock/force a still-locked one.
 </div>
 
 ---

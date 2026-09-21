@@ -376,7 +376,7 @@ Agent(
 )
 ```
 
-The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch. When the agent finishes, the worktree is cleaned up.
+The `Agent` tool creates a temporary git worktree for the agent to work in - an isolated copy of the repo at a separate path on its own branch.
 
 ### Nested repo caveat
 
