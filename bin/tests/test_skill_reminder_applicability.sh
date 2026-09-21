@@ -35,6 +35,15 @@
 #   6. Remove the `or not prompt.strip()` guard (round 4 Major 1 fix), so an empty
 #      or whitespace-only "prompt" string falls through to the pattern match on ''
 #      instead of raising: reddens scenario 7.
+#
+# Named mutations, vocabulary-widening round (page|icon|button|menu|mockup|design|
+# admin|screen|logo|render|api|endpoint|template|feature|fix|broken|revert|demo(s)):
+#   7. Fold `\bdemos?\b` back into the bare left-anchor-only group (instead of its own
+#      both-side-anchored alternative): reddens scenario 10, since "demon"/"democracy"/
+#      "demolish" would then match the group's left-boundary-only "demo" prefix.
+#   8. Remove any one of the 17 new bare-group words from the pattern: reddens that
+#      word's case in scenario 8 (the loop asserts each word individually, so removing
+#      one word only reddens its own assertion, not the whole scenario).
 
 set -uo pipefail
 
@@ -229,6 +238,52 @@ if [[ -z "$FALSE_OUT" && -z "$FALSE_ERR" ]]; then
   pass "combining condition: skill_auto_load=false suppresses the banner even on a matching prompt"
 else
   fail "combining condition: expected silence when skill_auto_load=false, got stdout=$FALSE_OUT stderr=$FALSE_ERR"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 8: each of the 17 vocabulary-widening bare-group words, alone in a
+# plain-English sentence with no other keyword present, fires the banner.
+# ---------------------------------------------------------------------------
+NEW_WORDS=(page icon button menu mockup design admin screen logo render api
+           endpoint template feature fix broken revert)
+for word in "${NEW_WORDS[@]}"; do
+  run_with_prompt "can we talk about the ${word} on this thing"
+  if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+    pass "scenario 8: word '$word' alone fires the banner"
+  else
+    fail "scenario 8: word '$word' alone expected the banner, got stdout: $RUN_OUT"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Scenario 9: demo/demos, as their own both-side-anchored alternative, fire
+# the banner.
+# ---------------------------------------------------------------------------
+run_with_prompt "we need a demo of this"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 9: 'demo' fires the banner"
+else
+  fail "scenario 9: 'demo' expected the banner, got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "send the demos over"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 9: 'demos' fires the banner"
+else
+  fail "scenario 9: 'demos' expected the banner, got stdout: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 10: a prompt containing only demon/democracy/demolish - words that
+# share a "demo" prefix but are not demo/demos - and no other keyword, does
+# NOT fire the banner. Confirms \bdemos?\b is both-side-anchored, not folded
+# into the left-anchor-only bare group.
+# ---------------------------------------------------------------------------
+run_with_prompt "the demon threatened democracy so they had to demolish the tower"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 10: demon/democracy/demolish-only prompt suppresses the banner"
+else
+  fail "scenario 10: expected empty stdout, got: $RUN_OUT"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
