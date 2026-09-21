@@ -820,9 +820,11 @@ These are authorized once, for every session, and are never an operator choice:
   session's own or a second live session's clean, pushed, idle-past-window,
   UNLOCKED worktree (including the current session's own non-cwd feature
   worktree, reapable via the 30-minute-idle re-fire since `SKIP_SELF` only
-  protects the cwd worktree) can be reaped out from under it - `SKIP_LOCKED`
-  protects a locked one, and a feature worktree is never harness-locked at
-  all. No commits are ever lost (removal is worktree-only, evidence-gated);
+  protects the cwd worktree) can be reaped out from under it. `SKIP_LOCKED`
+  protects a locked one, but the lock is routinely absent - most isolation
+  worktrees in a long-lived checkout are unlocked at any given moment, and a
+  feature worktree is never harness-locked at all - so this residual is the
+  common case, not an edge case. No commits are ever lost (removal is worktree-only, evidence-gated);
   the activity window is the deliberate defense; no cross-session-branch-skip
   gate is added, since the tool has no visibility into other sessions'
   branches beyond the locked flag.
@@ -975,7 +977,7 @@ ancestry and upstream-tracking state.
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
-DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. On such a build, `hooks/enforce-worktree-isolation-spawn.py` compounds this into a TOTAL deadlock: it denies a non-isolated spawn of the three mandated roles, and isolation itself deadlocks per the paragraph above, leaving no permitted action. The escape hatch is that hook's kill-switch, `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set in the environment that launches Claude Code, then restart) - not a substitute for the Claude Code fix, only a way to fall back to the pre-spawn stash fallback below while the operator is stuck on a pre-fix build. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. On such a build, `hooks/enforce-worktree-isolation-spawn.py` compounds this into a TOTAL deadlock: it denies a non-isolated spawn of the three mandated roles, and isolation itself deadlocks per the paragraph above, leaving no permitted action. The escape hatch is that hook's kill-switch, `AE_WORKTREE_ISOLATION_GUARD_DISABLE=1` (set in the environment that launches Claude Code, then restart) - not a substitute for the Claude Code fix, only a way to fall back to the pre-spawn stash fallback below while the operator is stuck on a pre-fix build. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above: nothing outside this methodology reclaims a stale isolation worktree, so that prune is the only sweep rather than a backstop to one, and skipping it lets them accumulate indefinitely.
 
 ## Project-override policy
 

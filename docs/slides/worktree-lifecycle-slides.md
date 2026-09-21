@@ -240,8 +240,7 @@ The version floor matters: on Claude Code builds predating the isolated-worktree
 <style scoped>
   ul { font-size: 0.88em; }
   ul li { margin: 0.25em 0; }
-  pre { font-size: 0.68em; padding: 0.35em 0.7em; line-height: 1.3; margin: 0.2em 0 0.5em 0; }
-  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+  pre { font-size: 0.62em; padding: 0.3em 0.7em; line-height: 1.25; margin: 0.2em 0 0.4em 0; }
 </style>
 
 Trigger: agent returned output AND conductor has opened a PR (or confirmed no PR needed).
@@ -252,15 +251,14 @@ git -C <worktree-path> status --porcelain
 # If clean (no output), remove the worktree and local branch:
 git worktree remove <worktree-path>
 git branch -D <branch-name> 2>/dev/null || true
-# Safe: the PR is backed by the branch on origin, not this local ref.
-# Only the redundant local branch is removed; pushed commits and PR are unaffected.
+# Safe: the PR is backed by origin; only the redundant local branch goes.
 # If modified tracked files exist, inspect first then force-remove:
 # git worktree remove --force <worktree-path>
 ```
 
-- The local branch lingers after `worktree remove` without an explicit `branch -D`
-- Force-remove is only safe after confirming nothing important is uncommitted
-- Isolation worktrees persist until the conductor explicitly removes them
+- The local branch lingers after `worktree remove` without `branch -D`
+- Force-remove only after confirming nothing important is uncommitted
+- A dirty worktree is never auto-removed (`SKIP_DIRTY`); a clean, unlocked, merge-proven one is reaped
 
 ---
 
@@ -324,7 +322,7 @@ The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, f
 - **DS-196:** the preflight also invokes a BACKGROUNDED `ds-cleanup-worktrees` reap (after `git worktree prune`, before branch prune) - the foreground shell returns immediately; output appends to `.agentic/worktree-reap.log` with a per-run header. Suppress with `AE_WORKTREE_REAP_DISABLE=1`; the 30-min-idle re-fire applies here too and is safe by construction (every gate re-checks fresh state)
 
 <div class="callout">
-The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.
+Nothing outside this methodology reclaims a stale isolation worktree - the per-session prune is the only sweep, not a complement to one. Skip it and they accumulate indefinitely.
 </div>
 
 ---

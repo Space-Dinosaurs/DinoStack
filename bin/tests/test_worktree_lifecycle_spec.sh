@@ -78,6 +78,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLEANUP_DOC="$REPO_ROOT/content/commands/ds-cleanup-worktrees.md"
 LIFECYCLE_DOC="$REPO_ROOT/content/references/worktree-lifecycle.md"
 CLEANUP_BIN="$REPO_ROOT/bin/ds-cleanup-worktrees"
+SECTION_DOC="$REPO_ROOT/content/sections/11-worktree-lifecycle.md"
+CONVENTIONS_DOC="$REPO_ROOT/content/rules/conventions.md"
+DECK_DOC="$REPO_ROOT/docs/slides/worktree-lifecycle-slides.md"
 SESSION_START_WRAP="$REPO_ROOT/hooks/session-start-wrap.sh"
 SCRATCH="$(mktemp -d)"
 
@@ -344,6 +347,81 @@ check_activity_window_prose
 r0d=$?
 echo "activity-window-prose exit=$r0d"
 
+# Lock-and-cleanup claim pins. Three consecutive review rounds found a
+# measured-false or measured-unscoped claim in this region and each fix
+# silently re-opened an adjacent one, so the corrected statements are pinned
+# POSITIVELY here (fail-loud on removal) rather than by a negative pin on the
+# removed wording, which would go permanently green once that wording is gone.
+#
+# Every pin below names the mutation that reddens it. A pin with no named
+# reddening mutation is decorative; do not add one.
+#
+# Measured basis for these statements, re-measured 2026-09-21 on this
+# checkout: 24 directories under .claude/worktrees/, 22 registered entries,
+# exactly 1 locked; the oldest registered isolation worktree was created
+# 2026-08-10 and is still present at 42 days. Behavior read off
+# bin/tests/worktree_model.py::disposition_for - locked -> SKIP_LOCKED,
+# dirty -> SKIP_DIRTY, clean+unlocked+merge-proven -> ELIGIBLE.
+check_lock_claim_pins() {
+  local ok=0
+  _pin() {
+    # $1=file  $2=literal needle  $3=what reverting it would restore
+    if [ ! -f "$1" ]; then
+      echo "LOCK-CLAIM PIN VIOLATION: $1 not found" >&2
+      ok=1
+      return
+    fi
+    if ! grep -qF "$2" "$1"; then
+      echo "LOCK-CLAIM PIN VIOLATION: $1 no longer states: $2" >&2
+      echo "  (reverting this restores: $3)" >&2
+      ok=1
+    fi
+  }
+
+  # Reddening mutation: delete "at creation" from either site, restoring the
+  # unscoped standing-property claim that round 2 shipped and round 3 was
+  # withheld over (measured false for 21 of 22 registered worktrees).
+  _pin "$SECTION_DOC" 'locks each isolation worktree at creation' \
+    'the unscoped "locks each isolation worktree" standing-property claim'
+  _pin "$CONVENTIONS_DOC" 'each isolation worktree at creation' \
+    'the unscoped "locks each isolation worktree" standing-property claim'
+
+  # Reddening mutation: delete the caveat sentence at either site, restoring
+  # prose that lets an agent read the lock as universal cross-session
+  # protection.
+  _pin "$SECTION_DOC" 'Do not read the lock as standing protection' \
+    'prose implying the lock is standing cross-session protection'
+  _pin "$CONVENTIONS_DOC" 'Do not plan around it as a standing guarantee' \
+    'prose implying the lock is standing cross-session protection'
+
+  # Reddening mutation: drop the pointer to the canonical caveat. The Pillar-8
+  # rationale for NOT restating that caveat in full at these sites is only
+  # valid while a pointer to the canonical site exists.
+  _pin "$SECTION_DOC" '(Locked handling) is canonical' \
+    'a Pillar-8 pointer-less site whose omitted caveat has no canonical reference'
+  _pin "$CONVENTIONS_DOC" 'Locked handling)' \
+    'a Pillar-8 pointer-less site whose omitted caveat has no canonical reference'
+
+  # Reddening mutation: restore the "Claude Code's own 30-day orphan sweep"
+  # sentence (measured false - a 42-day-old isolation worktree is still
+  # registered and on disk), which replaces this text wherever it returns.
+  _pin "$LIFECYCLE_DOC" 'nothing outside this methodology reclaims a stale isolation worktree' \
+    "the measured-false claim that Claude Code runs a 30-day orphan sweep"
+
+  # Reddening mutation: re-de-qualify the deck bullet to "Isolation worktrees
+  # persist until the conductor explicitly removes them", which is false for a
+  # clean, unlocked, merge-proven worktree (disposition_for -> ELIGIBLE).
+  _pin "$DECK_DOC" 'is never auto-removed (`SKIP_DIRTY`)' \
+    'the false "all isolation worktrees persist until explicit removal" claim'
+
+  return "$ok"
+}
+
+echo "== Lock-claim pins: lock scope, absence caveat, canonical pointer, no-harness-sweep, and SKIP_DIRTY bullet =="
+check_lock_claim_pins
+r0e=$?
+echo "lock-claim-pins exit=$r0e"
+
 echo "== Run 1: clean scratch repo (expect exit 0) =="
 setup_repo
 run_check "$REPO"
@@ -364,11 +442,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-claim-pins=$r0e run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-claim pins clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-claim-pins=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-claim-pins=$r0e $r1 $r2 $r3"
 exit 1

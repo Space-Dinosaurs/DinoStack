@@ -2740,8 +2740,8 @@ def evaluate_entry(
     exists = Path(entry.path).is_dir()
     if not exists:
         # Admin-only entry (directory already gone). Unlock if locked (the
-        # ONLY case the guardrail permits unlocking - its agent cannot
-        # still be running when the directory is gone) so `git worktree
+        # ONLY case the guardrail permits unlocking - there is no
+        # directory left to protect) so `git worktree
         # prune` at the end can actually reclaim it.
         if entry.locked:
             return {**base, "outcome": "SKIP_MISSING_LOCKED"}
@@ -2770,8 +2770,9 @@ def evaluate_entry(
 
     if disposition is Disposition.SKIP_LOCKED:
         # Guardrail: never unlock or force-remove a worktree whose
-        # directory still exists - its agent may still be running (and
-        # absence of a lock elsewhere does not imply this one is stale -
+        # directory still exists - the lock is cross-session protection
+        # this tool must never override (and absence of a lock
+        # elsewhere does not imply this one is stale -
         # see the module docstring's Locked handling note).
         return {**base, "outcome": "SKIP_LOCKED"}
     if disposition is Disposition.SKIP_DIRTY:
