@@ -82,8 +82,10 @@
 #                to a human, which is why the path is part of the pinned
 #                literal); either pointer deleted outright; either pointer
 #                surviving verbatim but orphaned from that file's own lock
-#                prose, whether by being re-homed or by that prose being
-#                deleted out from under it (each anchor is lock prose, never
+#                prose, whether by being re-homed, duplicated, or by that
+#                prose being deleted out from under it - EVERY line carrying
+#                the pointer must also carry that prose (each anchor is lock
+#                prose, never
 #                a paragraph label - a label-based anchor stayed green when
 #                the lock sentence was deleted); or bin/ds-cleanup-
 #                worktrees missing its "Locked handling:" note or the caveat
@@ -380,9 +382,12 @@ check_activity_window_prose() {
 #   (b) either pointer is deleted outright;
 #   (c) either pointer survives verbatim but is orphaned from the lock prose
 #       it qualifies - re-homed elsewhere in the file, or left in place
-#       while the lock prose itself is deleted out from under it. Guarded by
-#       requiring the pointer to share a LINE with that file's own lock
-#       prose, which in both files is a single line. Each anchor must be
+#       while the lock prose itself is deleted out from under it, or
+#       duplicated so that a co-located copy masks an orphaned one. Guarded
+#       by requiring EVERY line carrying the pointer to also carry that
+#       file's own lock prose, which in both files is a single line - an
+#       any-line test would pass while an orphaned duplicate sat at EOF.
+#       Each anchor must be
 #       LOCK PROSE, never a section or paragraph label: an earlier revision
 #       anchored CONVENTIONS_DOC on the bold "Multi-session support:" label,
 #       which left the check green when the lock sentence was deleted and
@@ -414,11 +419,14 @@ check_lock_caveat_pointers() {
       ok=1
       continue
     fi
-    if ! grep -qF "$pointer" "$doc"; then
+    local total anchored
+    total=$(grep -cF "$pointer" "$doc")
+    anchored=$(grep -F "$pointer" "$doc" | grep -cF "$anchor")
+    if [ "$total" -eq 0 ]; then
       echo "PROSE-WIRING VIOLATION: $doc does not point at the canonical lock caveat by path (expected the literal '$pointer')" >&2
       ok=1
-    elif ! grep -F "$pointer" "$doc" | grep -qF "$anchor"; then
-      echo "PROSE-WIRING VIOLATION: $doc still carries the lock-caveat pointer, but no longer on the same line as the lock prose it qualifies (expected that line to also carry '$anchor') - a re-homed pointer qualifies nothing" >&2
+    elif [ "$anchored" -ne "$total" ]; then
+      echo "PROSE-WIRING VIOLATION: $doc carries the lock-caveat pointer on $total line(s) but only $anchored of them also carry the lock prose it qualifies (expected every such line to carry '$anchor') - a pointer not co-located with that prose qualifies nothing, whether it was re-homed or duplicated" >&2
       ok=1
     fi
   done

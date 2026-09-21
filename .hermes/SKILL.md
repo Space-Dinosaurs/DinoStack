@@ -893,7 +893,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The dinostack repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Claude Code locks (`git worktree lock`) each isolation worktree. This coordination is harness behavior, not a mechanism the conductor or methodology adds. See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Claude Code locks (`git worktree lock`) each isolation worktree. See the `Locked handling:` note in `bin/ds-cleanup-worktrees` for the canonical caveat on lock state.
 
 **Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
 
@@ -8174,7 +8174,7 @@ The fan-out primitive in `/ds-implement-ticket` Phase 5 uses a different worktre
 
 | Mode | Branch naming | Cleanup | Use when |
 |---|---|---|---|
-| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Conductor removes after PR | Single-agent isolation; merge order does not matter |
+| `isolation: "worktree"` (Agent tool) | Anonymous temporary branch, auto-named by the tool | Auto-cleaned by the tool if no changes; conductor removes after PR | Single-agent isolation; merge order does not matter |
 | Manually-managed (fan-out) | Explicit named sub-branches: `${FEATURE_BRANCH}-${unit_slug}` | Conductor removes explicitly after all merges or escalation | Multi-branch fan-out; merge order and branch naming matter for history attribution |
 
 Manually-managed worktrees are created with:
