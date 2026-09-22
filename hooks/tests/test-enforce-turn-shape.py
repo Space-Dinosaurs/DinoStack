@@ -298,6 +298,27 @@ def with_reply_transcript(message: str) -> str:
     return make_payload(message, extra={"transcript_path": REPLY_TRANSCRIPT})
 
 
+# An operator PLAIN INSTRUCTION (imperative, no "?") and nothing since -
+# distinct from REPLY_TRANSCRIPT above only in wording, kept separate so a
+# test reproducing an externally-reported probe shape can cite the exact
+# transcript content that shape was built against.
+_INSTRUCTION_TMPDIR = tempfile.mkdtemp()
+INSTRUCTION_TRANSCRIPT = os.path.join(_INSTRUCTION_TMPDIR, "instruction-transcript.jsonl")
+with open(INSTRUCTION_TRANSCRIPT, "w", encoding="utf-8") as _f:
+    _f.write(
+        json.dumps(
+            {"type": "user", "message": {"content": "ok, keep going on the migration."}}
+        )
+        + "\n"
+    )
+
+
+def with_instruction_transcript(message: str) -> str:
+    """make_payload() plus a transcript where the operator just gave a
+    plain imperative instruction (not a question)."""
+    return make_payload(message, extra={"transcript_path": INSTRUCTION_TRANSCRIPT})
+
+
 def check(label: str, condition: bool):
     global total, failed
     total += 1
@@ -4063,6 +4084,150 @@ check(
     "corpus-fp3. real corpus false positive (multi-paragraph review-scope "
     "narration, no quoted fragment, no transcript bonus) -> QUIET",
     is_quiet(rc, out),
+)
+
+# ---------------------------------------------------------------------------
+# sw. REGRESSION (sole-waiting-line fix): a turn whose ENTIRE text is one
+#     `Waiting: ...` line, with no separate identity line and no body at
+#     all, must classify `stoppage` True and end up QUIET regardless of
+#     line length - the exact shape §7's forced-yield rule exists to
+#     permit, and `Waiting:` lines are deliberately UNBOUNDED in length
+#     (content/references/conductor-turn-format.md:73/:255). Pre-fix,
+#     `_segment` absorbed the sole line into `identity_line`, leaving
+#     `unfenced_lines` empty; `_classify_warrants`'s `stoppage` key tested
+#     only `unfenced_lines`, never `identity_line`, so it came back False
+#     and the turn fell through to the zero-warrant leaf, where
+#     `_status_only_flag` could BLOCK it (round 1). Fixing that alone
+#     would have routed an over-length sole `Waiting:` line into
+#     `_execution_prose_flag`'s identity-line-length check for the first
+#     time, silently importing a length bound the spec forbids - `sw4`
+#     below pins the round-2 fix for that (`_execution_prose_flag`'s own
+#     sole-waiting-line length exemption).
+#
+#     Real-corpus replayed (isolated per-turn replay, each row its own
+#     `cwd`, no shared loop-guard counter state, transcript truncated at
+#     each turn's own line so the hook sees only what was on disk at that
+#     point in the session): every `origin/main` BLOCK that flips to ALLOW
+#     under this fix is a sole-`Waiting:`-line turn, at any length, and no
+#     other turn's verdict changes in either direction - see sw5/sw6 below
+#     for the pinned multi-line-Waiting:-led contrast shape this fix must
+#     NOT touch.
+# ---------------------------------------------------------------------------
+
+sole_waiting_line_msg = "Waiting: skeptic reviewing the DS-188 diff (round 1).\n"
+
+# sw1. Direct warrant-classification pin: `stoppage` must be True on the
+# sole-line message, not merely "the hook happens not to block it" - this
+# is the exact field the bug lived in.
+_sw1_warrants = _mod._classify_warrants(sole_waiting_line_msg)
+check(
+    "sw1. sole `Waiting:` line, no separate identity line -> stoppage warrant True",
+    _sw1_warrants["stoppage"] is True,
+)
+
+# sw2. End-to-end: the hook must not block (nor even advise) on this turn.
+# Uses the shared MID-TASK transcript (not a bare payload): `_status_only_
+# flag`'s suppressor 1 fails OPEN when transcript_path is absent/unreadable
+# (there is no operator-position signal to compute), which would make this
+# assertion pass vacuously pre-fix too - the real corpus turns this fix
+# targets all have a real transcript showing the turn is mid-task, which is
+# exactly what makes suppressor 1 NOT fire and the zero-warrant leaf BLOCK.
+rc, out, err = run_hook(with_statement_transcript(sole_waiting_line_msg))
+check(
+    "sw2. sole `Waiting:` line as the ENTIRE turn, mid-task transcript -> "
+    "QUIET (was BLOCKING pre-fix via the zero-warrant leaf's "
+    "_status_only_flag)",
+    is_quiet(rc, out),
+)
+
+# sw3. A trailing newline or trailing whitespace after the sole Waiting:
+# line must not change the verdict - _segment/_WAITING_LINE_RE both work
+# on `.strip()`-independent line content, and this pins that a lone
+# blank line after the identity line does not resurrect a "body".
+rc, out, err = run_hook(with_statement_transcript("Waiting: engineer on unit 2.\n\n"))
+check(
+    "sw3. sole `Waiting:` line + trailing blank line, mid-task transcript "
+    "-> QUIET",
+    is_quiet(rc, out),
+)
+
+# sw-neg. CONTRAST: a sole-line message that is NOT a Waiting: line (an
+# ordinary single-line status ping) must be unaffected by this fix and
+# keeps whatever verdict it already had - proves the fix is scoped to the
+# Waiting: shape, not a blanket "one-line message" exemption.
+_swneg_warrants = _mod._classify_warrants("Did a first thing.\n")
+check(
+    "sw-neg. sole non-Waiting: line -> stoppage warrant stays False",
+    _swneg_warrants["stoppage"] is False,
+)
+
+# sw4. REGRESSION (round 2 of this fix): a sole `Waiting:` line OVER
+# STATUS_LINE_MAX_CHARS (200) must still be QUIET, not length-BLOCKING.
+# content/references/conductor-turn-format.md:73/:255 both state Waiting:
+# lines are deliberately UNBOUNDED in length; round 1 of this fix (which
+# only corrected the `stoppage` warrant) would have silently imported the
+# identity-line length bound onto this exact shape, since correctly
+# classifying it as an execution turn routes it into
+# `_execution_prose_flag`'s identity-line-length check for the first
+# time. Direct pin on the function, not just the end-to-end hook, so a
+# future regression here fails at the unit closest to the defect.
+_sw4_long_waiting_msg = "Waiting: " + ("x" * 250) + "\n"
+check(
+    "sw4-pin. the long-Waiting fixture is really over STATUS_LINE_MAX_CHARS",
+    len(_sw4_long_waiting_msg.strip()) > _mod.STATUS_LINE_MAX_CHARS,
+)
+_sw4_warrants = _mod._classify_warrants(_sw4_long_waiting_msg)
+check(
+    "sw4a. sole `Waiting:` line over 200 chars -> _execution_prose_flag is "
+    "None, not a length BLOCK/ADVISORY",
+    _mod._execution_prose_flag(_sw4_long_waiting_msg, _sw4_warrants) is None,
+)
+rc, out, err = run_hook(with_statement_transcript(_sw4_long_waiting_msg))
+check(
+    "sw4b. sole `Waiting:` line over 200 chars, mid-task transcript, "
+    "end-to-end -> QUIET (was BLOCKING at 25b8d64f via the length check)",
+    is_quiet(rc, out),
+)
+
+# sw5/sw6. REGRESSION (round 3 of this fix): a turn whose FIRST line reads
+# like a `Waiting:` line but is followed by other non-blank content is NOT
+# the sole-Waiting-line shape - it must keep its origin/main verdict, not
+# be pulled into the execution-turn machinery this fix's `stoppage`
+# disjunct exists for. `_is_sole_waiting_line_turn` scopes both call sites
+# (`_classify_warrants`'s `stoppage` warrant and `_execution_prose_flag`'s
+# length exemption) to the turn-is-one-Waiting-line case specifically, not
+# to "the identity line matches `_WAITING_LINE_RE`" in general.
+_sw5_msg = "Waiting: CI on #123.\nSome narrative line explaining the wait.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw5_msg))
+check(
+    "sw5. Waiting:-led identity line + a narrative line, plain-instruction "
+    "transcript -> QUIET (its origin/main verdict; was BLOCKING at "
+    "2385cece via the sole-stoppage branch)",
+    is_quiet(rc, out),
+)
+
+_sw6_msg = "Waiting: " + ("y" * 250) + "\nState: tests green.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw6_msg))
+check(
+    "sw6. over-200-char Waiting:-led identity line + a State: line, "
+    "plain-instruction transcript -> QUIET (its origin/main verdict; was "
+    "BLOCKING at 2385cece via the identity-line length check)",
+    is_quiet(rc, out),
+)
+
+# sw7. REGRESSION (round 4): an over-length `Waiting:` identity line
+# followed by ANOTHER `Waiting:` line is NOT the sole-Waiting-line shape
+# (there is other non-blank content - a second `Waiting:` line), so it
+# stays length-bounded exactly as `origin/main` bounds it: the length
+# check is never a Waiting:-only exemption, it is an
+# `_is_sole_waiting_line_turn`-only exemption.
+_sw7_msg = "Waiting: " + ("y" * 250) + "\nWaiting: engineer on unit 2.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw7_msg))
+check(
+    "sw7. over-200-char Waiting:-led identity line + a second Waiting: "
+    "line, plain-instruction transcript -> BLOCKING on length (its "
+    "origin/main verdict, unchanged by this fix)",
+    is_blocking(rc, out, "identity line is"),
 )
 
 # ---------------------------------------------------------------------------
