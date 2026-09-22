@@ -55,12 +55,15 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task", "Agent", or
             "Skill"). Reads JSON from stdin, writes hookSpecificOutput JSON to
             stdout when denying, exits 0 always. `would_deny(data: dict) ->
-            str | None` is a pure, side-effect-free re-implementation of
-            `main()`'s deny decision over the same top-level PreToolUse
-            payload shape (may perform the same read-only I/O `main()`
-            already performs - team-config load, sentinel-file check -
-            never writes or logs) - imported by path by hooks/enforce-
-            skeptic-round-cap.py's sibling-deny consultation.
+            str | None` is a re-implementation of `main()`'s deny decision
+            over the same top-level PreToolUse payload shape (may perform the
+            same read-only I/O `main()` already performs - team-config load,
+            sentinel-file check; never writes a file. Not fully side-effect-
+            free: the team-config load can print one fixed diagnostic line
+            to stderr when PyYAML is unavailable, same as `main()`'s own
+            call path - see `would_deny`'s own docstring) - imported by path
+            by hooks/enforce-skeptic-round-cap.py's sibling-deny
+            consultation.
 
 Upstream deps: Python 3 stdlib (json, os, sys, time, pathlib, importlib) for
                core enforcement. PyYAML is imported opportunistically inside
@@ -435,15 +438,20 @@ def _deny(data: dict, reason: str) -> None:
     sys.exit(0)
 
 def would_deny(data: dict) -> str | None:
-    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
-    at the same top-level PreToolUse payload shape `main()` reads from
-    stdin. Returns the deny reason string `main()` would print, or None
-    when this hook would not deny (including a foreground-exempt
-    subagent_type, no active team routing/sentinel, a passing background-
-    spawn check, or malformed input). May perform the SAME read-only I/O
-    `main()` already performs before any deny decision (`_load_effective_
-    team_config`, `_sentinel_is_live`) - never writes, never logs. Never
-    calls `_deny`, `print`, `_load_log_fire`, or `sys.exit`; never raises.
+    """Re-implementation of `main()`'s deny decision, at the same
+    top-level PreToolUse payload shape `main()` reads from stdin. Returns
+    the deny reason string `main()` would print, or None when this hook
+    would not deny (including a foreground-exempt subagent_type, no
+    active team routing/sentinel, a passing background-spawn check, or
+    malformed input). May perform the SAME read-only I/O `main()` already
+    performs before any deny decision (`_load_effective_team_config`,
+    `_sentinel_is_live`) - never writes a file, never calls `_load_log_fire`.
+    Not fully side-effect-free: `_load_effective_team_config` prints one
+    fixed diagnostic line to stderr when PyYAML is unavailable (pre-
+    existing behavior, unchanged by this extraction - `main()` triggers
+    the identical stderr print via the same call, so round-cap's own
+    stdout-only deny-reason parsing is unaffected). Never calls `_deny`,
+    `print` itself, or `sys.exit`; never raises.
 
     Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
     before persisting round state, so a spawn this hook would deny never

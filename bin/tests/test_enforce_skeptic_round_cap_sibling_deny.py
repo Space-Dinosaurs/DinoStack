@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Regression tests for the sibling-deny consultation added to
-hooks/enforce-skeptic-round-cap.py (fix/round-cap-sibling-deny, extended by
-fix/round-cap-all-siblings): a Skeptic spawn round-cap would ALLOW but a
+hooks/enforce-skeptic-round-cap.py: a Skeptic spawn round-cap would ALLOW but a
 REGISTERED sibling PreToolUse hook on the same "Task"/"Agent" spawn matcher
 (enforce-skeptic-neutrality.py / enforce-tier.py / enforce-background-
 spawn.py / enforce-orchestrator-singularity.py) independently DENIES must
@@ -78,22 +77,28 @@ Test groups:
                                                                  (tolerant of a one-line upsert_hook() call)
                                                                  and asserts every registered enforce-*.py
                                                                  hook other than round-cap itself is either
-                                                                 consulted (_SIBLING_MODULES), tracked as a
-                                                                 known unconsulted-but-deny-capable gap
-                                                                 (_KNOWN_UNCONSULTED_DENY_CAPABLE, asserted
-                                                                 EMPTY as of fix/round-cap-all-siblings),
-                                                                 proven never to deny (_NEVER_DENIES), or
-                                                                 proven structurally unable to deny a
-                                                                 skeptic spawn specifically
-                                                                 (_CANNOT_DENY_SKEPTIC) - so a NEW
-                                                                 deny-capable hook added to the matcher
-                                                                 without classification fails this test.
- 13. test_drift_guard_still_catches_a_new_unclassified_hook    - the classification logic still fails a
-                                                                 fabricated, genuinely unclassified hook
-                                                                 name even with an empty known-unconsulted
-                                                                 set - the guard is a real gate, not
+                                                                 consulted (_SIBLING_MODULES), proven never
+                                                                 to deny (_NEVER_DENIES), or proven
+                                                                 structurally unable to deny a skeptic
+                                                                 spawn specifically (_CANNOT_DENY_SKEPTIC) -
+                                                                 also asserts enforce-skeptic-round-cap.py
+                                                                 no longer defines
+                                                                 _KNOWN_UNCONSULTED_DENY_CAPABLE at all - so
+                                                                 a NEW deny-capable hook added to the
+                                                                 matcher without classification fails this
+                                                                 test. Calls the shared `_find_unclassified`
+                                                                 helper (round-2 rework, Major 1).
+ 13. test_drift_guard_still_catches_a_new_unclassified_hook    - the SAME `_find_unclassified` helper still
+                                                                 fails a fabricated, genuinely unclassified
+                                                                 hook name - the guard is a real gate, not
                                                                  trivially green because nothing is left
                                                                  to classify.
+ 14. test_find_unclassified_mutation_reddens_synthetic_hook_test - mutation guard: monkeypatching
+                                                                 `_find_unclassified` to always return []
+                                                                 (the "make the real guard always pass"
+                                                                 shape) reddens test 13, proving both
+                                                                 drift tests share one real classification
+                                                                 path.
 """
 
 from __future__ import annotations
@@ -916,6 +921,29 @@ _CANNOT_DENY_SKEPTIC = {
 }
 
 
+def _find_unclassified(registered: list[str], consulted: set[str]) -> list[str]:
+    """The SOLE classification logic for "is every registered Task/Agent
+    spawn-matcher hook accounted for" - shared by both drift-guard tests
+    (round-2 rework, Major 1: a prior version had test_drift_guard_still_
+    catches_a_new_unclassified_hook retype this comprehension instead of
+    calling the real guard's logic, so a mutation to the real guard left
+    both tests green). Returns every entry in *registered*, excluding
+    enforce-skeptic-round-cap.py itself, that is not in *consulted*, not in
+    `_NEVER_DENIES` (proven never to emit a deny decision at all), and not
+    in `_CANNOT_DENY_SKEPTIC` (proven structurally unable to deny a
+    `subagent_type == "skeptic"` spawn specifically) - a registered,
+    deny-capable hook that can deny a Skeptic spawn must be consulted or
+    it surfaces here."""
+    return [
+        name
+        for name in registered
+        if name != "enforce-skeptic-round-cap.py"
+        and name not in consulted
+        and name not in _NEVER_DENIES
+        and name not in _CANNOT_DENY_SKEPTIC
+    ]
+
+
 def _registered_task_agent_spawn_hooks() -> list[str]:
     """Parse .claude/install.sh's `for spawn_matcher in ("Task", "Agent"):`
     block and return every `upsert_hook(ptu_block["hooks"], "<name>", ...)`
@@ -948,41 +976,28 @@ def test_drift_guard_every_registered_spawn_hook_is_classified():
     assert "enforce-tier.py" in registered
 
     consulted = {f"{name}.py" for name in module._SIBLING_MODULES}
-    known_gap = set(module._KNOWN_UNCONSULTED_DENY_CAPABLE)
 
-    # fix/round-cap-all-siblings: enforce-background-spawn.py and
-    # enforce-orchestrator-singularity.py moved from _KNOWN_UNCONSULTED_
-    # DENY_CAPABLE into _SIBLING_MODULES (consulted), leaving no known
-    # gap - assert the set is genuinely empty rather than merely small.
-    assert known_gap == set(), (
-        f"_KNOWN_UNCONSULTED_DENY_CAPABLE should be empty now that both prior "
-        f"entries are consulted, found: {known_gap!r}"
+    # enforce-background-spawn.py and enforce-orchestrator-singularity.py
+    # are now consulted directly - round-cap has no "known unconsulted
+    # deny-capable" concept left at all (round-2 rework, Minor 3: the hook
+    # module no longer defines _KNOWN_UNCONSULTED_DENY_CAPABLE; every
+    # registered deny-capable hook must be either consulted or proven
+    # unable to deny a Skeptic spawn - see _find_unclassified's own
+    # docstring).
+    assert not hasattr(module, "_KNOWN_UNCONSULTED_DENY_CAPABLE"), (
+        "enforce-skeptic-round-cap.py should no longer define "
+        "_KNOWN_UNCONSULTED_DENY_CAPABLE at all"
     )
     assert "enforce-background-spawn.py" in consulted
     assert "enforce-orchestrator-singularity.py" in consulted
 
-    unclassified = []
-    for name in registered:
-        if name == "enforce-skeptic-round-cap.py":
-            continue
-        if name in consulted or name in known_gap or name in _NEVER_DENIES or name in _CANNOT_DENY_SKEPTIC:
-            continue
-        unclassified.append(name)
+    unclassified = _find_unclassified(registered, consulted)
 
     assert unclassified == [], (
         f"registered Task/Agent spawn-matcher hook(s) {unclassified!r} are not "
-        "classified in enforce-skeptic-round-cap.py's _SIBLING_MODULES, "
-        "_KNOWN_UNCONSULTED_DENY_CAPABLE, or this test's _NEVER_DENIES / "
-        "_CANNOT_DENY_SKEPTIC - classify the new hook before this test can pass"
-    )
-
-    # enforce-worktree-isolation-spawn.py must not ALSO be in the known-gap
-    # set (round-2 rework, Minor 1: a hook is either "deny-capable for
-    # skeptic but unconsulted" or "structurally cannot deny a skeptic
-    # spawn" - never both).
-    assert not (known_gap & set(_CANNOT_DENY_SKEPTIC)), (
-        f"{known_gap & set(_CANNOT_DENY_SKEPTIC)!r} appear in both "
-        "_KNOWN_UNCONSULTED_DENY_CAPABLE and _CANNOT_DENY_SKEPTIC"
+        "classified in enforce-skeptic-round-cap.py's _SIBLING_MODULES or "
+        "this test's _NEVER_DENIES / _CANNOT_DENY_SKEPTIC - classify the new "
+        "hook before this test can pass"
     )
 
     # _NEVER_DENIES entries must genuinely never emit a deny decision -
@@ -994,15 +1009,6 @@ def test_drift_guard_every_registered_spawn_hook_is_classified():
                 f"{name} is listed in _NEVER_DENIES but its source contains a "
                 "deny-capability signal - it must be classified as deny-capable instead"
             )
-
-    # known_gap entries must genuinely BE deny-capable - keeps that
-    # allowlist honest too (not a dumping ground for anything unclassified).
-    for name in known_gap:
-        src = (_HOOKS_DIR / name).read_text(encoding="utf-8")
-        assert _is_deny_capable_source(src), (
-            f"{name} is listed in _KNOWN_UNCONSULTED_DENY_CAPABLE but its "
-            "source has no deny-capability signal - it should not be in this list"
-        )
 
     # _CANNOT_DENY_SKEPTIC entries must be structurally proven, not just
     # asserted: the named role-gate set must genuinely exist AND must
@@ -1017,38 +1023,46 @@ def test_drift_guard_every_registered_spawn_hook_is_classified():
         )
         assert '"skeptic"' not in m.group(1), (
             f"{name}'s role-gate set now includes \"skeptic\" - it CAN deny a "
-            "skeptic spawn and must move to _KNOWN_UNCONSULTED_DENY_CAPABLE "
-            "(or be consulted) instead of _CANNOT_DENY_SKEPTIC"
+            "skeptic spawn and must be consulted directly (added to "
+            "_SIBLING_MODULES) instead of staying in _CANNOT_DENY_SKEPTIC"
         )
 
 
 # --------------------------------------------------------------------------- #
-# 13. Drift guard still fails for a new unclassified deny-capable hook, even
-#     with an empty _KNOWN_UNCONSULTED_DENY_CAPABLE - proves the drift guard
-#     is a genuine gate, not one that trivially passes because there is
-#     nothing left to classify.
+# 13. Drift guard still fails for a new unclassified deny-capable hook -
+#     proves the drift guard is a genuine gate, not one that trivially
+#     passes because there is nothing left to classify. Calls the SAME
+#     `_find_unclassified` helper `test_drift_guard_every_registered_spawn_
+#     hook_is_classified` calls (round-2 rework, Major 1: a prior version
+#     retyped the classification comprehension inline here, so a mutation
+#     to the real guard's logic left this test green too - see
+#     `_find_unclassified`'s own docstring and the mutation-guard test
+#     below, which reddens this exact test by breaking that shared
+#     function).
 # --------------------------------------------------------------------------- #
 def test_drift_guard_still_catches_a_new_unclassified_hook():
     module = _load_round_cap_module()
     consulted = {f"{name}.py" for name in module._SIBLING_MODULES}
-    known_gap = set(module._KNOWN_UNCONSULTED_DENY_CAPABLE)
-    assert known_gap == set(), "precondition: known-unconsulted set must be empty for this test to be meaningful"
 
-    # Same classification logic as test_drift_guard_every_registered_spawn_
-    # hook_is_classified, applied to a SYNTHETIC registered list carrying one
-    # fabricated, genuinely unclassified hook name alongside the real ones.
+    # SYNTHETIC registered list carrying one fabricated, genuinely
+    # unclassified hook name alongside the real ones.
     synthetic_registered = list(_registered_task_agent_spawn_hooks()) + [
         "enforce-a-brand-new-hook-nobody-classified-yet.py"
     ]
-    unclassified = [
-        name
-        for name in synthetic_registered
-        if name != "enforce-skeptic-round-cap.py"
-        and name not in consulted
-        and name not in known_gap
-        and name not in _NEVER_DENIES
-        and name not in _CANNOT_DENY_SKEPTIC
-    ]
+    unclassified = _find_unclassified(synthetic_registered, consulted)
     assert unclassified == ["enforce-a-brand-new-hook-nobody-classified-yet.py"], (
         f"expected exactly the synthetic unclassified hook to surface, got: {unclassified!r}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 14. Mutation guard: a broken `_find_unclassified` (the shape "make the
+#     real guard always pass" - round-2 rework, Major 1) must redden
+#     test_drift_guard_still_catches_a_new_unclassified_hook, proving the
+#     two drift tests share one real classification path rather than each
+#     asserting against its own independent copy.
+# --------------------------------------------------------------------------- #
+def test_find_unclassified_mutation_reddens_synthetic_hook_test(monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "_find_unclassified", lambda registered, consulted: [])
+    with pytest.raises(AssertionError):
+        test_drift_guard_still_catches_a_new_unclassified_hook()

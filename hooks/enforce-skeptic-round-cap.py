@@ -348,22 +348,22 @@ Failure modes:
       therefore reintroduce the spurious-round-charge defect this
       consultation exists to close, but it can never cause THIS hook to
       deny a spawn it would otherwise have allowed.
-    - `_KNOWN_UNCONSULTED_DENY_CAPABLE` is empty as of fix/round-cap-all-
-      siblings: `enforce-background-spawn.py` and `enforce-orchestrator-
-      singularity.py`, both also registered on the same "Task"/"Agent"
-      spawn matcher and each independently deny-capable on a
-      `subagent_type == "skeptic"` spawn (a cross-harness-team-active
-      sentinel or an unbackgrounded Task spawn; a nested spawn issued from
-      inside a subagent context, respectively), now each expose their own
-      `would_deny(data)` and moved into `_SIBLING_MODULES` alongside
-      enforce-skeptic-neutrality.py and enforce-tier.py.
-      `enforce-worktree-isolation-spawn.py` is deliberately NOT in
-      `_SIBLING_MODULES` - see `_KNOWN_UNCONSULTED_DENY_CAPABLE`'s own
-      comment for why. See `bin/tests/test_enforce_skeptic_round_cap_
-      sibling_deny.py`'s drift-guard test, which classifies every
-      registered spawn-matcher hook explicitly rather than silently
-      passing an unclassified one, and asserts the known-unconsulted set
-      is empty.
+    - `_SIBLING_MODULES` covers every registered Task/Agent spawn-matcher
+      hook that is deny-capable on a `subagent_type == "skeptic"` spawn
+      specifically: `enforce-skeptic-neutrality.py`, `enforce-tier.py`,
+      `enforce-background-spawn.py` (a cross-harness-team-active sentinel,
+      or an unbackgrounded Task spawn), and `enforce-orchestrator-
+      singularity.py` (a nested spawn issued from inside a subagent
+      context) - each exposes its own `would_deny(data)`.
+      `enforce-worktree-isolation-spawn.py` is also registered on the same
+      matcher and is also deny-capable, but not on a skeptic spawn: its
+      `MANDATED_ROLES` never includes "skeptic", so it is structurally
+      unable to deny one and is deliberately NOT in `_SIBLING_MODULES`.
+      See `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s
+      drift-guard test, which classifies every registered spawn-matcher
+      hook explicitly (consulted, structurally unable to deny a skeptic
+      spawn, or proven never to deny at all) rather than silently passing
+      an unclassified one.
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name,
       subagent_type != "skeptic": fail-open (exit 0), no enforcement.
     - `cwd` absent from payload: fail-open (exit 0) - the hook cannot
@@ -458,8 +458,13 @@ Failure modes:
       landing inside the same lock-wait window on two different processes
       that both time out - a residual, not claimed to be fully closed.
 
-Performance: < 5 ms per call (no subprocess; one small JSON read/write
-             under `.agentic/`).
+Performance: measured median ~39 ms per Skeptic spawn (N=60, subprocess
+             invocation via `sys.executable`, all four `_SIBLING_MODULES`
+             registered on both matchers so `_sibling_would_deny` loads
+             and calls all four) - dominated by interpreter startup, not
+             this hook's own logic (no subprocess of its own; one small
+             JSON read/write under `.agentic/`, plus up to four dynamic
+             `importlib` loads of sibling modules on the allow path).
 """
 
 from __future__ import annotations
@@ -906,21 +911,18 @@ _SIBLING_MODULES = (
     "enforce-orchestrator-singularity",
 )
 
-# Registered on the same "Task"/"Agent" spawn matcher (.claude/install.sh),
-# genuinely deny-capable (each emits a `"permissionDecision": "deny"`
-# response on some input), but not consulted above - a known, explicitly
-# tracked gap, not a silent one. Empty as of the `enforce-background-
-# spawn.py`/`enforce-orchestrator-singularity.py` consultation (both moved
-# into `_SIBLING_MODULES` above). `enforce-worktree-isolation-spawn.py` is
-# deliberately NOT in this set - its `MANDATED_ROLES` (`{"engineer",
-# "qa-engineer", "release-orchestrator"}`) never includes "skeptic", so it
-# cannot deny a skeptic spawn at all, structurally, not merely "not yet
-# consulted" (see `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s
-# `_CANNOT_DENY_SKEPTIC` classification, which asserts this directly
-# against the live `MANDATED_ROLES` set rather than by omission). A future
-# deny-capable hook registered on the same matcher lands here first, and
-# the drift-guard test fails until it is classified one way or the other.
-_KNOWN_UNCONSULTED_DENY_CAPABLE = frozenset()
+# Every OTHER hook registered on the same "Task"/"Agent" spawn matcher
+# (.claude/install.sh) that is genuinely deny-capable but structurally
+# CANNOT deny a `subagent_type == "skeptic"` spawn specifically - e.g.
+# `enforce-worktree-isolation-spawn.py`, whose `MANDATED_ROLES`
+# (`{"engineer", "qa-engineer", "release-orchestrator"}`) never includes
+# "skeptic" - is out of scope for consultation, not a tracked gap. There is
+# no "known unconsulted deny-capable" set here: a future deny-capable hook
+# registered on the same matcher must be added to `_SIBLING_MODULES` above
+# (if it can deny a skeptic spawn) or proven structurally unable to
+# (`bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s
+# `_CANNOT_DENY_SKEPTIC` classification) - the drift-guard test fails on
+# an unclassified registered hook either way.
 
 # Harness config-dir env vars, in detection precedence order - mirrors
 # bin/_lib.py's resolve_claude_config_dir() / hooks/lib/config-dir.js's
