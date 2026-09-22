@@ -36,7 +36,11 @@ Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
             Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
-            denying, exits 0 always.
+            denying, exits 0 always. `would_deny(data) -> str | None`
+            (round-2 rework) is a pure, side-effect-free re-implementation
+            of `main()`'s deny decision over the same payload shape -
+            imported by path by hooks/enforce-skeptic-round-cap.py's
+            sibling-deny consultation.
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys, importlib.util). No
                external deps. `from __future__ import annotations` keeps the
@@ -49,6 +53,11 @@ Upstream deps: Python 3 stdlib only (json, os, re, sys, importlib.util). No
 Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
                       Agent tool). Wired via ~/.claude/settings.json by
                       .claude/install.sh (matcher blocks "Task" and "Agent").
+                      hooks/enforce-skeptic-round-cap.py also imports this
+                      module by path (importlib) for its `would_deny`
+                      function, consulted before persisting round state -
+                      see that hook's "Sibling-deny consultation" docstring
+                      paragraph.
 
 Failure modes:
     - Malformed stdin / null / non-dict tool_input: fail-open (exit 0). A hook

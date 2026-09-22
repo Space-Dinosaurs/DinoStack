@@ -160,7 +160,11 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
             variant `main()` itself calls), and the two brief-region
             category regexes (`_CAT_B`, `_CAT_C`) are also imported
             directly by bin/tests/test_enforce_skeptic_neutrality.py for
-            content-equality and violation-content assertions.
+            content-equality and violation-content assertions. `would_deny
+            (data: dict) -> str | None` (round-2 rework) is a pure,
+            side-effect-free re-implementation of `main()`'s deny decision
+            over the same payload shape - imported by path by
+            hooks/enforce-skeptic-round-cap.py's sibling-deny consultation.
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys, importlib.util for
                the best-effort `lib/enforcement_log.py` import). No
@@ -177,6 +181,11 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task
                       spawn. `.agentic/.enforcement-fires.jsonl` (via
                       `lib/enforcement_log.py`) records every deny and
                       every allow_advisory row for calibration.
+                      hooks/enforce-skeptic-round-cap.py also imports this
+                      module by path (importlib) for its `would_deny`
+                      function, consulted before persisting round state -
+                      see that hook's "Sibling-deny consultation" docstring
+                      paragraph.
 
 Failure modes:
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name, or
@@ -1034,6 +1043,35 @@ def _log_advisory(data: dict, reason: str) -> None:
         pass
 
 
+def _skeptic_spawn_tinput(data: dict) -> dict | None:
+    """Shared payload-shape guard for both `would_deny()` and `main()`
+    (round-2 rework, Minor 5 - the two previously repeated this exact
+    sequence verbatim). Returns the validated `tool_input` dict when *data*
+    is a dict, `tool_name` is "Task" or "Agent", `tool_input` is itself a
+    dict, and `tool_input["subagent_type"] == "skeptic"` - the same four
+    checks `main()` used to perform inline before this extraction. Returns
+    None on any failure; never raises. Deliberately does NOT check the
+    kill switch (callers differ on placement: `would_deny()` checks it
+    once at its own top before any extraction, `main()` checks it before
+    even reading stdin - see each caller's own comment)."""
+    if not isinstance(data, dict):
+        return None
+
+    tool_name = data.get("tool_name")
+    if tool_name not in ("Task", "Agent"):
+        return None
+
+    raw_tinput = data.get("tool_input")
+    if not isinstance(raw_tinput, dict):
+        return None
+    tinput = raw_tinput
+
+    if tinput.get("subagent_type") != "skeptic":
+        return None
+
+    return tinput
+
+
 def would_deny(data: dict) -> str | None:
     """Pure, side-effect-free re-implementation of `main()`'s deny decision,
     at the same top-level PreToolUse payload shape `main()` reads from
@@ -1050,19 +1088,8 @@ def would_deny(data: dict) -> str | None:
     if os.environ.get(KILL_SWITCH_ENV) == "1":
         return None
     try:
-        if not isinstance(data, dict):
-            return None
-
-        tool_name = data.get("tool_name")
-        if tool_name not in ("Task", "Agent"):
-            return None
-
-        raw_tinput = data.get("tool_input")
-        if not isinstance(raw_tinput, dict):
-            return None
-        tinput = raw_tinput
-
-        if tinput.get("subagent_type") != "skeptic":
+        tinput = _skeptic_spawn_tinput(data)
+        if tinput is None:
             return None
 
         prompt = tinput.get("prompt")
@@ -1102,19 +1129,8 @@ def main() -> None:
         except Exception:
             sys.exit(0)
 
-        if not isinstance(data, dict):
-            sys.exit(0)
-
-        tool_name = data.get("tool_name")
-        if tool_name not in ("Task", "Agent"):
-            sys.exit(0)
-
-        raw_tinput = data.get("tool_input")
-        if not isinstance(raw_tinput, dict):
-            sys.exit(0)
-        tinput = raw_tinput
-
-        if tinput.get("subagent_type") != "skeptic":
+        tinput = _skeptic_spawn_tinput(data)
+        if tinput is None:
             sys.exit(0)
 
         prompt = tinput.get("prompt")

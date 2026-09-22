@@ -200,24 +200,43 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          hooks/AGENTS.md §No gating on inferred session capability.
 
          Sibling-deny consultation (fix for a spurious-round-charge defect,
-         content/references/skeptic-protocol.md ~:431): Claude Code runs
-         every matcher hook registered on a PreToolUse event regardless of
-         order or another hook's decision - registering this hook first
-         cannot prevent a sibling hook further down the matcher array from
-         independently denying the same spawn. Before this fix, this hook's
-         own ALLOW branch always persisted (advanced round_count, consumed
-         a recorded ship/escalate decision) even when a sibling hook such
-         as enforce-skeptic-neutrality.py or enforce-tier.py was about to
-         deny the identical spawn - so a spawn that never ran as a review
-         still spent a round, and in the escalate case, spent the
-         operator's one-time authorization on nothing. On the ALLOW branch,
-         `main()` now calls `_sibling_would_deny(data)` - which imports
-         each `_SIBLING_MODULES` entry's own pure `would_deny(data)`
-         function by path and calls it with this exact payload - BEFORE any
-         of `_write_state` / `_append_tool_use_id` / `_update_tuid_index`.
-         A non-None result from any sibling skips ALL persistence for this
-         call and exits 0 (allow, from this hook's own perspective - the
-         sibling's independently-registered deny still blocks the spawn).
+         content/references/skeptic-protocol.md §Round budget and
+         value-per-round gate, item 1): Claude Code runs every matcher hook
+         registered on a PreToolUse event regardless of order or another
+         hook's decision - registering this hook first cannot prevent a
+         sibling hook further down the matcher array from independently
+         denying the same spawn. Before this fix, this hook's own ALLOW
+         branch always persisted (advanced round_count, consumed a
+         recorded ship/escalate decision) even when a sibling hook such as
+         enforce-skeptic-neutrality.py or enforce-tier.py was about to deny
+         the identical spawn - so a spawn that never ran as a review still
+         spent a round, and in the escalate case, spent the operator's
+         one-time authorization on nothing. On the ALLOW branch, `main()`
+         now calls `_sibling_would_deny(data, cwd)`, which for each
+         `_SIBLING_MODULES` entry first calls `_sibling_registered()` -
+         positively confirming that entry's basename is registered on the
+         Task/Agent PreToolUse matcher in a settings file Claude Code would
+         actually load (round-2 rework, Major 1) - and consults that
+         sibling's own pure `would_deny(data)` function (imported by path)
+         ONLY when registration is confirmed. This closes the case a
+         registration-blind consultation would have gotten backwards: an
+         installed-but-unregistered sibling (e.g. an install between
+         2026-08-12 and 2026-08-24 whose hooks-snapshot was refreshed by
+         `ds-doctor --fix` without re-running `install.sh`, or an operator
+         who hand-deleted the entry) would otherwise be treated as "would
+         deny" even though the real, registered hook set lets the spawn
+         run uncharged every time - the exact defect this consultation
+         exists to prevent, reintroduced from the opposite direction. Every
+         uncertain registration case (no settings file found, a candidate
+         unreadable or malformed, or the basename simply absent) is NOT
+         consulted, so this call persists exactly as it did before the
+         consultation existed - the same fail-open discipline as a
+         sibling's own import/call failure. All of this runs BEFORE any of
+         `_write_state` / `_append_tool_use_id` / `_update_tuid_index`. A
+         non-None result from any CONSULTED sibling skips ALL persistence
+         for this call and exits 0 (allow, from this hook's own
+         perspective - the sibling's independently-registered deny still
+         blocks the spawn).
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
             "Agent"). Reads JSON from stdin, writes hookSpecificOutput JSON
@@ -232,7 +251,12 @@ Upstream deps: Python 3 stdlib only (hashlib, json, os, re, sys, time,
                check entirely (fail-open) rather than falling back to a raw
                cwd. No external deps, no subprocess (the fix that dropped
                `_current_branch()`'s `git rev-parse` call also dropped the
-               only subprocess dependency this hook had).
+               only subprocess dependency this hook had). Also a
+               best-effort dynamic import (importlib by path, same
+               mechanism as the two libs above) of `enforce-skeptic-
+               neutrality.py` and `enforce-tier.py` (the `_SIBLING_MODULES`
+               listed below) for their own `would_deny(data)` functions -
+               see the "Sibling-deny consultation" paragraph above.
 
 Known trade-off (Minor 3, DS-180 round-2 rework): `content/references/
             skeptic-protocol.md` §Round budget and value-per-round gate items
@@ -295,6 +319,21 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       `readRoundState()` for calibration-field lookup.
 
 Failure modes:
+    - `_sibling_registered()` cannot positively confirm a sibling's
+      registration (no settings-file candidate exists, a candidate is
+      unreadable or not valid JSON, or the basename is simply absent from
+      every candidate that did parse): that sibling is NOT consulted at
+      all for this call - `_sibling_would_deny` skips straight to the next
+      sibling. When every sibling is unconfirmed this way, this hook
+      persists exactly as it did before the sibling-deny consultation
+      existed (charges the round). This is the SAME fail-open direction as
+      the bullet immediately below (never a false deny), but the trigger
+      is registration uncertainty rather than an import/call failure -
+      round-2 rework, Major 1: a registration-blind consultation (the
+      round-1 shape) would have treated an installed-but-genuinely-
+      unregistered sibling as "would deny" even on a machine where the
+      real, active hook set never runs it, silently under-counting real
+      rounds an unbounded number of times.
     - A sibling module named in `_SIBLING_MODULES` fails to import
       (missing file, syntax error, a half-applied hooks-snapshot copy) or
       its `would_deny` call raises: `_load_sibling_would_deny_fns()` /
@@ -315,12 +354,14 @@ Failure modes:
       deny path on `subagent_type == "skeptic"` specifically, so neither
       exposes a `would_deny(data)` narrowly scoped to this hook's own
       concern. This hook can still spuriously charge a round for a spawn
-      either of them denies. `enforce-worktree-isolation-spawn.py` is
-      also listed there for completeness, even though its
-      `MANDATED_ROLES` set never includes "skeptic" (so it structurally
-      cannot deny a skeptic spawn today). See `bin/tests/
-      test_enforce_skeptic_round_cap_sibling_deny.py`'s drift-guard test,
-      which names all three explicitly rather than silently passing them.
+      either of them denies (this residual is orthogonal to registration
+      confirmation - it exists regardless of whether either hook is
+      itself registered, since this hook never consults them at all).
+      `enforce-worktree-isolation-spawn.py` is deliberately NOT in this
+      set - see `_KNOWN_UNCONSULTED_DENY_CAPABLE`'s own comment for why.
+      See `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s
+      drift-guard test, which classifies every registered spawn-matcher
+      hook explicitly rather than silently passing an unclassified one.
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name,
       subagent_type != "skeptic": fail-open (exit 0), no enforcement.
     - `cwd` absent from payload: fail-open (exit 0) - the hook cannot
@@ -846,14 +887,16 @@ _REPO_ROOT = _load_repo_root()
 # top-level PreToolUse payload shape this hook's own `main()` reads from
 # stdin) - see enforce-skeptic-neutrality.py's and enforce-tier.py's own
 # `would_deny` docstrings. Consulted in `main()` before any persistence
-# call (`_write_state` / `_append_tool_use_id` / `_update_tuid_index`): a
-# spawn a sibling would deny must never advance round_count or consume a
-# recorded ship/escalate decision, or the operator's round budget/escalate
-# authorization is spent on a review that never ran (content/references/
-# skeptic-protocol.md ~:431). See `bin/tests/test_enforce_skeptic_round_cap
-# _sibling_deny.py`'s drift-guard test for the enumeration of registered
-# spawn-matcher hooks this list is checked against, including the two
-# known-but-not-yet-consulted gaps that test explicitly names.
+# call (`_write_state` / `_append_tool_use_id` / `_update_tuid_index`),
+# and only when `_sibling_registered()` positively confirms that entry's
+# registration: a spawn a CONSULTED sibling would deny must never advance
+# round_count or consume a recorded ship/escalate decision, or the
+# operator's round budget/escalate authorization is spent on a review that
+# never ran (content/references/skeptic-protocol.md §Round budget and
+# value-per-round gate, item 1). See `bin/tests/test_enforce_skeptic_round
+# _cap_sibling_deny.py`'s drift-guard test for the enumeration of
+# registered spawn-matcher hooks this list is checked against, including
+# the two known-but-not-yet-consulted gaps that test explicitly names.
 _SIBLING_MODULES = ("enforce-skeptic-neutrality", "enforce-tier")
 
 # Registered on the same "Task"/"Agent" spawn matcher (.claude/install.sh),
@@ -865,25 +908,126 @@ _SIBLING_MODULES = ("enforce-skeptic-neutrality", "enforce-tier")
 # decision on the role being "skeptic" specifically.
 # `enforce-orchestrator-singularity.py` denies ANY Task/Agent spawn issued
 # from inside a subagent context, regardless of role, so it too can deny a
-# skeptic spawn. `enforce-worktree-isolation-spawn.py` is deny-capable in
-# general but its `MANDATED_ROLES` set never includes "skeptic" - it is
-# listed here anyway (rather than silently omitted) so
-# `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s drift-guard
-# test only needs ONE classification list to check registered hooks
-# against, not two. See this module's Failure modes section.
+# skeptic spawn. `enforce-worktree-isolation-spawn.py` is deliberately NOT
+# in this set - its `MANDATED_ROLES` (`{"engineer", "qa-engineer",
+# "release-orchestrator"}`) never includes "skeptic", so it cannot deny a
+# skeptic spawn at all, structurally, not merely "not yet consulted" (see
+# `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s
+# `_CANNOT_DENY_SKEPTIC` classification, which asserts this directly
+# against the live `MANDATED_ROLES` set rather than by omission).
 _KNOWN_UNCONSULTED_DENY_CAPABLE = frozenset({
     "enforce-background-spawn.py",
     "enforce-orchestrator-singularity.py",
-    "enforce-worktree-isolation-spawn.py",
 })
+
+# Harness config-dir env vars, in detection precedence order - mirrors
+# bin/_lib.py's resolve_claude_config_dir() / hooks/lib/config-dir.js's
+# resolveClaudeConfigDir() (same four vars, same precedence). Duplicated
+# here rather than imported: hooks/ is stdlib-only by convention (see this
+# module's own Upstream deps) and bin/_lib.py is not part of that
+# contract.
+_CONFIG_DIR_ENV = ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR")
+
+
+def _resolve_claude_config_dir() -> Path:
+    for var in _CONFIG_DIR_ENV:
+        raw = os.environ.get(var, "").strip()
+        if raw:
+            return Path(os.path.abspath(os.path.expanduser(raw)))
+    return Path(os.path.expanduser("~/.claude"))
+
+
+def _settings_candidates(cwd: str) -> list[Path]:
+    """User-level `settings.json` under the resolved harness config dir,
+    plus every project-level `settings*.json` under the reviewed unit's
+    OWN repo root's `.claude/` dir (resolved the same `.git`-ancestor way
+    `_state_path` resolves `.agentic/`, never a raw possibly-drifted cwd).
+    Order does not matter to the caller - `_sibling_registered` treats
+    this as an unordered OR across every candidate."""
+    candidates = [_resolve_claude_config_dir() / "settings.json"]
+    if _REPO_ROOT is not None:
+        try:
+            diag = _REPO_ROOT.resolve_agentic_cwd_with_diagnostics(cwd)
+        except Exception:
+            diag = None
+        if diag and diag.get("found_git_ancestor"):
+            claude_dir = Path(diag["root"]) / ".claude"
+            try:
+                if claude_dir.is_dir():
+                    candidates.extend(sorted(claude_dir.glob("settings*.json")))
+            except Exception:
+                pass
+    return candidates
+
+
+def _hook_registered_in_settings(raw: object, basename: str) -> bool:
+    """True iff *raw* (an already-parsed settings.json payload) carries a
+    PreToolUse block matched on "Task" or "Agent" containing a `hooks[]`
+    entry whose `command` string references *basename* as a path segment
+    (`/<basename>`) - the shape every real settings.json command takes,
+    guarded (`test -f ... && python3 <path> || exit 0`) or bare. A
+    malformed/unexpected shape at any level is treated as "not found in
+    this candidate", never raises."""
+    if not isinstance(raw, dict):
+        return False
+    hooks = raw.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    ptu = hooks.get("PreToolUse")
+    if not isinstance(ptu, list):
+        return False
+    needle = "/" + basename
+    for block in ptu:
+        if not isinstance(block, dict) or block.get("matcher") not in ("Task", "Agent"):
+            continue
+        entries = block.get("hooks")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            cmd = entry.get("command")
+            if isinstance(cmd, str) and needle in cmd:
+                return True
+    return False
+
+
+def _sibling_registered(basename: str, cwd: str) -> bool:
+    """True only when *basename* is POSITIVELY found registered on the
+    Task/Agent PreToolUse matcher in at least one settings file Claude
+    Code would actually load (user-level, or this unit's own project-level
+    `.claude/settings*.json`). Every uncertain case - no candidate file
+    exists, a candidate is unreadable, a candidate is malformed JSON, or
+    the basename is simply absent from every candidate that DID parse -
+    returns False, the SAME "not confirmed" outcome, by design (Major 1,
+    round-2 rework): an unregistered sibling (an install between
+    2026-08-12 and 2026-08-24 whose hooks-snapshot was refreshed by
+    `ds-doctor --fix` without re-running `install.sh`, or an operator who
+    hand-deleted the entry) must never be treated as "would deny" - that
+    would silently charge no round for a Skeptic spawn that actually ran
+    uncharged, an unbounded number of times. `_sibling_would_deny` treats
+    False here identically to a sibling that raised on import/call:
+    persist exactly as this hook did before the sibling-deny consultation
+    existed."""
+    for path in _settings_candidates(cwd):
+        try:
+            if not path.is_file():
+                continue
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if _hook_registered_in_settings(raw, basename):
+            return True
+    return False
 
 
 def _load_sibling_would_deny_fns():
     """Best-effort dynamic import of each `_SIBLING_MODULES` entry's
     `would_deny` function (importlib by path, mirroring `_load_log_fire`/
-    `_load_repo_root` above). Returns a list of callables; a sibling that
-    fails to import or lacks a `would_deny` attribute is silently skipped -
-    never raises, never blocks this hook's own decision."""
+    `_load_repo_root` above). Returns a list of `(basename, fn)` pairs; a
+    sibling that fails to import or lacks a `would_deny` attribute is
+    silently skipped - never raises, never blocks this hook's own
+    decision."""
     fns = []
     here = Path(__file__).resolve().parent
     for name in _SIBLING_MODULES:
@@ -896,21 +1040,27 @@ def _load_sibling_would_deny_fns():
             spec.loader.exec_module(mod)
             fn = getattr(mod, "would_deny", None)
             if callable(fn):
-                fns.append(fn)
+                fns.append((f"{name}.py", fn))
         except Exception:
             continue
     return fns
 
 
-def _sibling_would_deny(data: dict) -> str | None:
-    """Returns the first non-None deny reason any consulted sibling hook's
+def _sibling_would_deny(data: dict, cwd: str) -> str | None:
+    """Returns the first non-None deny reason any CONSULTED sibling hook's
     `would_deny(data)` returns for this exact payload, or None if none
-    would deny. Fail direction: an import or call failure on any sibling
-    is swallowed and treated as "would not deny" for THAT sibling - a
-    sibling failure must never change this hook's own persistence
-    behavior (this hook persists exactly as it did before this
-    consultation existed)."""
-    for fn in _load_sibling_would_deny_fns():
+    would deny (including when none is consulted at all). A sibling is
+    consulted only when `_sibling_registered` positively confirms its
+    registration for this unit's own settings files - see that function's
+    docstring for why every uncertain case is treated as "not consulted"
+    rather than "would not deny" vs. "would deny". Fail direction: an
+    import or call failure on any sibling is swallowed and treated as
+    "would not deny" for THAT sibling - a sibling failure must never
+    change this hook's own persistence behavior (this hook persists
+    exactly as it did before this consultation existed)."""
+    for basename, fn in _load_sibling_would_deny_fns():
+        if not _sibling_registered(basename, cwd):
+            continue
         try:
             reason = fn(data)
         except Exception:
@@ -1400,14 +1550,18 @@ def main() -> None:
             _deny(data, reason)
             return
 
-        # A sibling PreToolUse hook on this same spawn matcher (see
-        # `_SIBLING_MODULES`) will independently deny this exact spawn -
-        # Claude Code runs every matcher hook regardless of another hook's
-        # decision, so the sibling's own deny still blocks the spawn. Skip
-        # ALL persistence in that case: neither round_count nor a
-        # recorded ship/escalate decision may advance/consume for a spawn
-        # that never actually ran as a review.
-        if _sibling_would_deny(data) is not None:
+        # A REGISTERED sibling PreToolUse hook on this same spawn matcher
+        # (see `_SIBLING_MODULES`) will independently deny this exact
+        # spawn - Claude Code runs every matcher hook regardless of
+        # another hook's decision, so the sibling's own deny still blocks
+        # the spawn. Skip ALL persistence in that case: neither
+        # round_count nor a recorded ship/escalate decision may
+        # advance/consume for a spawn that never actually ran as a
+        # review. `_sibling_would_deny` only consults a sibling whose
+        # registration `_sibling_registered` positively confirms - an
+        # unconfirmed sibling (unregistered, or registration undetermined)
+        # is never consulted, so this call persists exactly as today.
+        if _sibling_would_deny(data, cwd) is not None:
             sys.exit(0)
 
         new_state = _append_tool_use_id(new_state, tool_use_id)
