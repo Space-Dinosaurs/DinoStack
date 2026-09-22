@@ -4215,6 +4215,21 @@ check(
     is_quiet(rc, out),
 )
 
+# sw7. REGRESSION (round 4): an over-length `Waiting:` identity line
+# followed by ANOTHER `Waiting:` line is NOT the sole-Waiting-line shape
+# (there is other non-blank content - a second `Waiting:` line), so it
+# stays length-bounded exactly as `origin/main` bounds it: the length
+# check is never a Waiting:-only exemption, it is an
+# `_is_sole_waiting_line_turn`-only exemption.
+_sw7_msg = "Waiting: " + ("y" * 250) + "\nWaiting: engineer on unit 2.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw7_msg))
+check(
+    "sw7. over-200-char Waiting:-led identity line + a second Waiting: "
+    "line, plain-instruction transcript -> BLOCKING on length (its "
+    "origin/main verdict, unchanged by this fix)",
+    is_blocking(rc, out, "identity line is"),
+)
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

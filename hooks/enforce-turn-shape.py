@@ -651,14 +651,16 @@ ITEM_FREE_LINES = 3  # per Operator-decisions item
 
 # DS-156. Bounds two distinct things, on every execution-turn branch of
 # _execution_prose_flag: the identity line at position 1 (both branches),
-# and a State:/Running:/Blocked: slot line (general branch only - the
+# EXCEPT when _is_sole_waiting_line_turn holds (a turn whose entire
+# non-blank content is one Waiting: line skips this check entirely); and a
+# State:/Running:/Blocked: slot line (general branch only - the
 # sole-stoppage branch permits no slot lines at all). See
 # content/references/conductor-turn-format.md's "STATUS_LINE_MAX_CHARS ...
 # is defined exactly once, here" paragraph for the full normative
-# definition and rationale. Deliberately does NOT bound Waiting: lines in
-# the shape check - importing this bound onto Waiting: lines would convert
-# the hook's only forced-yield path from a silent pass into a block, a
-# behavior change nobody has authorized.
+# definition and rationale. Deliberately does NOT bound a Waiting: line in
+# the body - importing this bound there would convert the hook's only
+# forced-yield path from a silent pass into a block, a behavior change
+# nobody has authorized.
 STATUS_LINE_MAX_CHARS = 200
 
 # DS-ANSWERFIRST. Sibling to STATUS_LINE_MAX_CHARS: that constant bounds how
@@ -1546,10 +1548,11 @@ def _execution_prose_flag(text: str, warrants: dict):
     for LENGTH ONLY, never shape, against STATUS_LINE_MAX_CHARS - the
     bound is a property of position 1 itself, not of which branch is
     running (a sole-stoppage turn cannot use its wider raw-line domain to
-    smuggle an over-length line into position 1). Both length findings are
-    always BLOCKING - DS-158's advisory downgrade applies only to the
-    general branch's unrecognized-prose finding, never to a length
-    violation.
+    smuggle an over-length line into position 1) - EXCEPT when
+    _is_sole_waiting_line_turn holds, in which case this check does not
+    run at all. Both length findings are always BLOCKING - DS-158's
+    advisory downgrade applies only to the general branch's
+    unrecognized-prose finding, never to a length violation.
 
     DS-158: this function's enforcement posture is no longer uniformly
     BLOCKING. Two false-positive reports (an operator report plus live
