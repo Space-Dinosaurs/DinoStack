@@ -226,10 +226,7 @@ Failure modes:
       mis-split, the same class of false positive this round fixed for
       the six listed forms - DIRECTION: false positive (a false deny on
       an otherwise-compliant sentence). No real-session evidence yet
-      shows a seventh form recurring; extend the list if that changes. A
-      separate, opposite-direction defect in the same four lookbehinds -
-      each missing a word-boundary anchor - is tracked below as its own
-      residual (item 8), not conflated with this one.
+      shows a seventh form recurring; extend the list if that changes.
     - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
       literal substring `[verified:` / `[verified-local:` anywhere in a
       sentence, so a sentence that merely quotes tag syntax as an example
@@ -258,16 +255,6 @@ Failure modes:
       (content/references/skeptic-protocol.md §7). Measured gain was 3 of
       798 replayed real spawns; not worth hardening further. Named,
       deferred follow-up, not implemented here.
-    - `_SENT_SPLIT_RE`'s abbreviation lookbehinds (`al.`/`vs.`/`cf.`/`etc.`)
-      have no word-boundary anchor, so a word merely ENDING in one of
-      those letter sequences - "minimal.", "final.", "assertEqual." - also
-      suppresses the split, not just the abbreviation itself. A tag or
-      attribution on one sentence then exempts the following untagged
-      sentence: "Per the architect, the change is minimal. The real root
-      cause is the retry classifier in retry.py." is allowed in full -
-      DIRECTION: false negative (a bypass). Found this round; this
-      behavior predates this PR and this unit does not change splitting
-      - a separate unit is scoped to add the anchors.
 
     Complete disclosed-residual enumeration (round-5 re-count, by direct
     re-grep of this section plus re-execution of each named test, not
@@ -289,8 +276,7 @@ Failure modes:
       4. `_SENT_SPLIT_RE` abbreviation-guard non-exhaustiveness (bullet
          above, this section): an abbreviation outside the fixed 6-form
          list can still mis-split a compliant sentence. DIRECTION: false
-         positive (a false deny on an otherwise-compliant sentence). Not
-         to be confused with item 8 below - same guard, opposite direction.
+         positive (a false deny on an otherwise-compliant sentence).
       5. `_PROVENANCE_RE` substring-match false negative (bullet above,
          this section): quoted tag syntax reads as exempt.
          DIRECTION: false negative (bypass).
@@ -310,15 +296,7 @@ Failure modes:
          and NOT fixed this round - an attempted bracket-masking fix was
          reverted before merge for introducing a worse false-negative
          bypass; see the bullet above for the full rationale.
-      8. `_SENT_SPLIT_RE` abbreviation-lookbehind missing word-boundary
-         anchor (bullet above, this section): a word merely ending in
-         "al."/"vs."/"cf."/"etc." also suppresses the split, letting a tag
-         or attribution on one sentence exempt the following untagged
-         sentence. DIRECTION: false negative (a bypass). Found this round;
-         predates this PR and out of scope for this unit - a separate unit
-         is scoped to add the anchors. Not to be confused with item 4
-         above - same guard, opposite direction.
-    Eight residuals total as of this round (was six on round 4). Round 5
+    Seven residuals total as of this round (was six on round 4). Round 5
     fixed one further recognition bug, never a disclosed residual on this
     list (a plain false-positive deny, found and closed in the same round
     it was found, the same pattern as the two round-4 defects below):
@@ -330,11 +308,13 @@ Failure modes:
     downstream check (see `field7_violation`'s own "SECOND typographic-
     normalization bug" docstring paragraph above). Reproduced against a
     real corpus spawn and covered by a regression test with a confirmed-
-    failing-pre-fix mutation. Round 5 also found two further pre-existing
-    defects, neither fixed this round: item 7 above (an attempted fix was
-    reverted before merge for being net-worse than the defect it closed)
-    and item 8 above (out of scope for this unit) - both newly disclosed
-    this round rather than left unrecorded.
+    failing-pre-fix mutation. Round 5 also found one further pre-existing
+    defect, not fixed this round: item 7 above (an attempted fix was
+    reverted before merge for being net-worse than the defect it closed) -
+    newly disclosed this round rather than left unrecorded. Round 5 also
+    found the missing word-boundary anchor on the abbreviation lookbehinds
+    (out of scope for that unit); it was fixed in a separate unit and is no
+    longer a residual.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
