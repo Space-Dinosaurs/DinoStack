@@ -1587,115 +1587,48 @@ def test_round5_fix_a_self_ref_ticket_en_dash_also_normalized():
 
 
 # =========================================================================== #
-
-
-# =========================================================================== #
-# Round 8 fixes: backtick code-span masking (Fix A, a new recognition bug,
-# not a previously-disclosed residual), `_ABBREV_ISOLATION` replacing `\b`
-# in the abbreviation lookbehinds (Fix E, closes module-docstring residual
-# item 8's second shape for all six abbreviation forms), and a narrow
-# etc./al. force-split (Fix B-narrow, closes item 8's first shape for those
-# two forms only - deliberately NOT extended to e.g./i.e./vs./cf.). See
-# hooks/enforce-skeptic-neutrality.py's module docstring for the full,
-# current residual accounting.
+# Round 8 fixes: `_ABBREV_ISOLATION` replacing `\b` in the abbreviation
+# lookbehinds (Fix E, closes module-docstring residual item 8's second
+# shape for all six abbreviation forms), a narrow etc./al. force-split
+# (Fix B-narrow, closes item 8's first shape for those two forms only -
+# deliberately NOT extended to e.g./i.e./vs./cf.), and a leading
+# isolation-space fix so `_ABBREV_ISOLATION` can match at the very start
+# of the field-7 text. See hooks/enforce-skeptic-neutrality.py's module
+# docstring for the full, current residual accounting.
 #
 # Round-8 rework (Skeptic round-2 findings against 83bf9fdc): closed two
-# Majors in the backtick-masking fix (a span can straddle a genuine
-# sentence boundary - most commonly a mismatched fenced-code delimiter -
-# and the `_ABBREV_ISOLATION` lookbehind could not match at the very
-# start of the field-7 text), rewrote the stale skeptic-protocol.md:594
-# paragraph, disclosed the etc./al. force-split's own remaining gap
-# (lowercase/digit/backtick/paren immediately following), added the
-# missing al. force-split test, and removed four self-contained
-# "mutation" tests that duplicated their own sibling live test's
-# assertion rather than exercising the live hook.
+# Majors in a backtick-code-span-masking fix ("Fix A" - a span could
+# straddle a genuine sentence boundary, and the `_ABBREV_ISOLATION`
+# lookbehind could not match at the very start of the field-7 text),
+# rewrote the stale skeptic-protocol.md:594 paragraph, disclosed the
+# etc./al. force-split's own remaining gap (lowercase/digit/backtick/
+# paren immediately following), added the missing al. force-split test,
+# and removed four self-contained "mutation" tests that duplicated their
+# own sibling live test's assertion rather than exercising the live hook.
+#
+# Round-8 second rework (Skeptic round-3 findings against 10dcb202):
+# Fix A itself is SUBTRACTED, not merely revised - each guard added to
+# contain one of its bypasses relocated the bypass rather than closing
+# it (first a span straddling a sentence boundary; then an untagged
+# sentence starting right after a masked span with a lowercase letter, a
+# digit, or a quote, plus an `n/a` value hiding a claim inside a span;
+# the bracket guard itself never had a discriminating test), and its
+# measured gain was 3 of 798 replayed real spawns, each a false deny in
+# the safe direction. Every Fix-A test is deleted along with it. The
+# leading-isolation-space fix (start-of-text isolation) is retained on
+# its own, independent of Fix A - `_split_sentences_keep_trailing_tag`
+# keeps only that one change against origin/main. The inline-code-span
+# punctuation false positive Fix A was trying to close is now a
+# disclosed, unfixed residual (module docstring item 9).
 # =========================================================================== #
-def test_round8_fix_a_backtick_period_not_split():
-    """A fully-tagged sentence containing a shell command inside a
-    bracket-free backtick span is no longer mis-split on a period inside
-    the span."""
-    value = "The command `--repo . --dry-run` reproduces the failure. [verified: a.py:1]"
-    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 1
-    assert _mod.field7_violation([value]) is None
-
-
-def test_round8_fix_a_bracket_span_stays_unmasked_and_denies():
-    """A backtick span whose interior contains a bracket is deliberately
-    left UNMASKED, so the pre-existing (disclosed, item-7) bracket-unaware
-    splitting behavior still applies to it - a smuggled untagged claim
-    placed inside a backtick-and-bracket combination is not silently
-    exempted by masking it into one merged, attribution-covered sentence.
-
-    NOTE on fixture construction: the plan's literal example
-    ("`[verified: x.py:1] . Untagged smuggled claim.` More text [per
-    conductor, unverified].") was tried first and does NOT discriminate -
-    it is ALLOWED (not denied) under BOTH the guarded and an
-    unguarded-masking variant, because `_PROVENANCE_RE`'s own disclosed
-    substring-match residual (module docstring item 5) makes every
-    resulting fragment individually match a bracket substring regardless
-    of masking. This fixture instead puts the attribution phrase inside
-    the backtick-and-bracket span itself, which does discriminate: masked
-    indiscriminately, the whole span (attribution phrase plus smuggled
-    claim) merges into one attribution-covered sentence and is falsely
-    allowed; left unmasked (the guard's actual behavior), the smuggled
-    claim splits into its own fragment and is correctly denied."""
-    value = "`Per the architect array[0] . The real defect is a race condition in worker.py.`"
-    result = _mod.field7_violation([value])
-    assert result == "The real defect is a race condition in worker.py.`"
-
-
-def test_round8_fix_a_unpaired_backtick_still_splits_and_denies():
-    """An odd number of backticks (unpaired) leaves the text unmasked
-    entirely - the pre-existing splitting behavior applies and a
-    genuinely untagged fragment still denies."""
-    value = "The command `--repo . --dry-run reproduces the failure. [verified: a.py:1]"
-    result = _mod.field7_violation([value])
-    assert result == "The command `--repo ."
-
-
-# --------------------------------------------------------------------------- #
-# Round-8 rework, Major 1: a backtick span can carry a genuine sentence
-# boundary of its own - most commonly a mismatched fenced-code delimiter,
-# where naive pairwise backtick matching pairs the wrong marks together
-# and forms one span spanning several real sentences of surrounding
-# prose. Masking such a span silently merged an untagged claim into a
-# preceding tagged/attributed sentence. Both probes below are denied on
-# origin/main (before Fix A existed) and were wrongly ALLOWED by 83bf9fdc
-# before this fix.
-# --------------------------------------------------------------------------- #
-def test_round8_fix_a_sentence_boundary_fenced_code_span_denies():
-    """A mismatched triple-backtick fence marker pairs adjacent backticks
-    into a huge middle span that straddles real prose sentences - that
-    span is left unmasked (the sentence-boundary guard), so the untagged
-    middle sentence still denies."""
-    value = (
-        "Per the architect, the plan opens a ``` fence at line 40. "
-        "The retry classifier in retry.py is the real root cause. "
-        "The plan closes the ``` fence at line 90."
-    )
-    result = _mod.field7_violation([value])
-    assert result == "The retry classifier in retry.py is the real root cause."
-
-
-def test_round8_fix_a_sentence_boundary_inline_span_denies():
-    """A backtick span whose interior itself contains a genuine sentence
-    boundary (a period, then whitespace, then a capitalized word) is left
-    unmasked, so the untagged fragment before the tag still denies."""
-    value = "Run `ls. The real root cause is the retry classifier in retry.py.` now [verified: a.py:1]."
-    result = _mod.field7_violation([value])
-    assert result == "Run `ls."
-
-
-# --------------------------------------------------------------------------- #
-# Round-8 rework, Major 2: the fixed-width `_ABBREV_ISOLATION` lookbehind
-# cannot match when there is no character at all before the abbreviation,
-# unlike `\b` (which matches at string start) - a field-7 value genuinely
-# STARTING with an abbreviation was falsely denied by 83bf9fdc. Fixed by
-# prepending a single isolation character (space) before masking/
-# splitting. All six recognized forms are checked at the very start of
-# the field-7 text; none of these is denied on origin/main either.
-# --------------------------------------------------------------------------- #
 def test_round8_fix_start_of_text_isolation_all_six_forms_allowed():
+    """The fixed-width `_ABBREV_ISOLATION` lookbehind cannot match when
+    there is no character at all before the abbreviation, unlike `\\b`
+    (which matches at string start) - a field-7 value genuinely STARTING
+    with an abbreviation was falsely denied before this fix. Fixed by
+    prepending a single isolation character (space) before splitting.
+    All six recognized forms are checked at the very start of the
+    field-7 text; none of these is denied on origin/main either."""
     cases = {
         "e.g.": "e.g. Windows versus Linux [per architect, unverified].",
         "i.e.": "i.e. the config change is unrelated to the retry path. [verified: a.py:1]",
@@ -1723,9 +1656,8 @@ def test_round8_fix_b_narrow_mid_sentence_eg_still_allowed():
     """Compliant mid-sentence 'e.g.' use is not force-split - Fix
     B-narrow is scoped to etc./al. only. Plan's literal fixture, no
     attribution prefix - this string STARTS with the abbreviation, so
-    (before the start-of-text fix above) it was the exact shape the Major
-    2 regression falsely denied; restoring the literal fixture here is
-    itself part of the regression coverage."""
+    it exercises the start-of-text isolation fix above at the same time
+    as Fix B-narrow's own scoping."""
     value = "e.g. Windows versus Linux [per architect, unverified]."
     assert _mod.field7_violation([value]) is None
 
@@ -1791,31 +1723,6 @@ def test_round8_fix_e_punctuation_glued_abbreviation_denies():
     value = "Per the architect, see main.cf. The retry classifier in retry.py is unrelated."
     result = _mod.field7_violation([value])
     assert result == "The retry classifier in retry.py is unrelated."
-
-
-def test_round8_fix_e_mutation_iso_reverted_to_word_boundary_reddens():
-    """Executed mutation-testing proof: reverting `_ABBREV_ISOLATION` back
-    to a bare `\\b` reddens - the punctuation-glued 'main.cf.' again
-    satisfies the word-boundary lookbehind and the split is suppressed,
-    falsely allowing the fixture above in full."""
-    import re as _re
-
-    mutated_re = _re.compile(
-        r'(?<!\b(?i:e\.g\.))(?<!\b(?i:i\.e\.))(?<!\b(?i:etc\.))(?<!\b(?i:vs\.))(?<!\b(?i:cf\.))(?<!\b(?i:al\.))'
-        r'(?<=[.?!])\s+(?!\[)'
-        r'|(?<=\])\s+(?=[A-Z])'
-    )
-    value = "Per the architect, see main.cf. The retry classifier in retry.py is unrelated."
-
-    # Live (fixed) behavior: splits, second sentence denied.
-    assert _mod.field7_violation([value]) == "The retry classifier in retry.py is unrelated."
-
-    mutated_sentences = mutated_re.split(_mod._mask_code_spans(" " + value.strip()))
-    joined = [_mod._unmask_code_spans(f.strip()) for f in mutated_sentences if f.strip()]
-    assert len(joined) == 1, "mutation should not split at the cf. boundary"
-    assert _mod._ATTRIBUTION_RE.search(joined[0]), (
-        "mutation should have reddened (leading attribution falsely covers the tail)"
-    )
 
 
 def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():

@@ -304,7 +304,7 @@ Failure modes:
       denied ("e.g. Windows versus Linux [per architect, unverified]."
       denied in full - reproduced by execution). Fixed by
       `_split_sentences_keep_trailing_tag` prepending a single isolation
-      character (space) before masking/splitting, so "not preceded by a
+      character (space) before splitting, so "not preceded by a
       non-isolation character" now holds uniformly, including at the very
       start of the text - `.strip()` on the padded text and every
       returned fragment removes the synthetic space again before it ever
@@ -350,6 +350,7 @@ Failure modes:
          and NOT fixed this round - an attempted bracket-masking fix was
          reverted before merge for introducing a worse false-negative
          bypass; see the bullet above for the full rationale.
+      9. Inline code-span punctuation (NEW, disclosed, NOT fixed): a `.`, `?`, or `!` inside a backtick code span can mis-split a compliant tagged sentence into an untagged tail fragment (false positive, safe direction).
       8. `_SENT_SPLIT_RE` cannot distinguish a genuine sentence-final
          abbreviation from the same abbreviation used mid-sentence
          (bullet above, this section), NARROWED round 8: a
@@ -398,34 +399,22 @@ Failure modes:
     shape for all six abbreviation forms (`_ABBREV_ISOLATION` replaces
     `\b`) and narrowed item 8's first shape by fixing it for "etc."/"al."
     specifically, leaving "e.g."/"i.e."/"vs."/"cf." disclosed. Round 8
-    also fixed a new recognition bug never previously listed as a
-    residual (the same pattern as round 5's typographic-normalization
-    fix): backtick code-span splitting - a period, question mark, or
-    exclamation point inside a balanced, bracket-free single-backtick
-    code span (e.g. a shell command like `` `--repo . --dry-run` ``) was
-    read as sentence-ending punctuation and mis-split a single, fully-
-    tagged sentence into an untagged tail fragment. Fixed by masking
-    those three characters inside such a span (1-char-for-1-char, so span
-    offsets never shift) before splitting, then unmasking each fragment -
-    a span whose interior contains a bracket is left unmasked, so the
-    pre-existing, disclosed item-7 bracket-unaware-splitting behavior
-    still applies to it unchanged rather than silently exempting a
-    smuggled untagged claim placed inside a backtick-and-bracket
-    combination. Reproduced fixed against two real corpus spawns this
-    round. The same round's rework pass found two further Majors in the
-    backtick-masking fix by execution, both closed in the same rework: a
-    backtick span can straddle a genuine sentence boundary of its own
-    (most commonly a mismatched fenced-code delimiter, where naive
-    pairwise backtick matching pairs the wrong marks together and forms
-    one span spanning several real sentences) - masking such a span
-    silently merged an untagged claim into a preceding tagged/attributed
-    sentence; fixed by leaving a span unmasked whenever its interior
-    contains a `[.?!]` immediately followed by whitespace then a
-    capitalized letter, the same per-span "leave it alone" response
-    already used for a bracket-carrying span. And the `_ABBREV_ISOLATION`
-    fix's own start-of-text gap (described above) was found and fixed in
-    the same pass, applying uniformly to every abbreviation form, not
-    only the ones inside a backtick span.
+    also attempted a fix for a related recognition bug - a period,
+    question mark, or exclamation point inside a backtick code span being
+    read as sentence-ending punctuation, mis-splitting a single, fully-
+    tagged sentence into an untagged tail fragment - by masking those
+    three characters inside a balanced, bracket-free span before
+    splitting. SUBTRACTED in the same round's second rework, the same
+    pattern as item 7's own reverted bracket-masking attempt: each guard
+    added to contain the masking fix's own bypasses relocated the problem
+    rather than closing it (first a span straddling a genuine sentence
+    boundary, most commonly a mismatched fenced-code delimiter; then an
+    untagged sentence starting with a lowercase letter, a digit, or a
+    quote immediately after a masked span, plus an `n/a` value that hid a
+    claim inside a span; the bracket guard itself never had a
+    discriminating test). Measured gain was 3 of 798 replayed real
+    spawns, and each of those 3 is a false deny in the safe direction -
+    not worth the bypass surface it kept opening. See item 9 above.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
@@ -961,109 +950,25 @@ _SENT_SPLIT_RE = re.compile(
     r'|(?<=\])\s+(?=[A-Z])'
 )
 
-# --------------------------------------------------------------------------- #
-# Round 8 fix (new): backtick code-span masking, closes the specific
-# bracket-unaware-splitting shape where the mis-split fragment lands INSIDE
-# a backtick code span. `_SENT_SPLIT_RE` still has no awareness of bracket
-# nesting in general (module docstring residual item 7, unchanged, NOT
-# fixed by this round - a depth-tracked `[...]` mask was tried and reverted
-# before merge for reintroducing a worse bypass), but a backtick code span
-# is lexically unambiguous (no nesting, a single delimiter character) and
-# reproduced against two real corpus spawns: a fully-tagged sentence
-# containing a shell command like `--repo . --dry-run` inside single
-# backticks was mis-split on the period inside the span, falsely denying
-# the fragment before the span (reproduced: "The command `--repo .
-# --dry-run` reproduces the failure. [verified: a.py:1]" denied on "The
-# command `--repo ." before this fix). Only `.`/`?`/`!` inside a BALANCED
-# single-backtick span are masked (replaced 1-char-for-1-char with a
-# Private Use Area sentinel so span offsets never shift), and only when
-# the span's interior contains no `[` or `]` - a span carrying a bracket
-# is left unmasked so the existing bracket-unaware-splitting behavior
-# (and its own disclosed residual, item 7) still applies to it unchanged,
-# rather than silently exempting a smuggled untagged claim placed inside a
-# backtick-and-bracket combination. An odd number of backticks in the text
-# (unpaired) leaves the text unmasked entirely - the span boundaries are
-# ambiguous, so the pre-existing (imperfect) splitting behavior applies
-# rather than guessing at a pairing.
-#
-# SECOND guard, closing a Critical found by execution (round-8 rework): a
-# span can carry a genuine sentence boundary of its own - most commonly a
-# multi-line/fenced-code delimiter (triple backtick) where naive pairwise
-# backtick matching pairs the wrong marks together, producing one huge
-# "span" that actually straddles several real sentences of surrounding
-# prose. Masking such a span would silently merge an untagged claim into
-# a preceding tagged/attributed sentence. Reproduced: "Per the architect,
-# the plan opens a ``` fence at line 40. The retry classifier in retry.py
-# is the real root cause. The plan closes the ``` fence at line 90."
-# (adjacent backtick pairs collapse the middle content - "fence at line
-# 40. The retry classifier ... The plan closes the" - into one masked
-# span) and "Run `ls. The real root cause is the retry classifier in
-# retry.py.` now [verified: a.py:1]." both allowed in full before this
-# guard. A span whose interior contains a `[.?!]` immediately followed by
-# whitespace then a capitalized letter - the same sentence-boundary shape
-# `_SENT_SPLIT_RE`'s own trailing-bracket alternative and the etc./al.
-# force-split alternatives look for - is left UNMASKED entirely, exactly
-# like the bracket-guard case above: the pre-existing (imperfect,
-# disclosed) splitting behavior applies to it rather than silently
-# absorbing the boundary. Deliberately the SAME per-span, leave-it-alone
-# response as the bracket guard, not a narrower partial mask.
-_SENTENCE_BOUNDARY_IN_SPAN_RE = re.compile(r'[.?!]\s+[A-Z]')
-_CODE_SPAN_PUA = {'.': '', '?': '', '!': ''}
-_CODE_SPAN_PUA_REVERSE = {v: k for k, v in _CODE_SPAN_PUA.items()}
-
-
-def _mask_code_spans(text: str) -> str:
-    if text.count('`') % 2 != 0:
-        return text
-    out: list[str] = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] != '`':
-            out.append(text[i])
-            i += 1
-            continue
-        j = text.find('`', i + 1)
-        if j == -1:
-            out.append(text[i:])
-            break
-        interior = text[i + 1:j]
-        if (
-            '[' in interior or ']' in interior
-            or _SENTENCE_BOUNDARY_IN_SPAN_RE.search(interior)
-        ):
-            out.append(text[i:j + 1])
-        else:
-            masked = ''.join(_CODE_SPAN_PUA.get(c, c) for c in interior)
-            out.append('`' + masked + '`')
-        i = j + 1
-    return ''.join(out)
-
-
-def _unmask_code_spans(text: str) -> str:
-    for pua, orig in _CODE_SPAN_PUA_REVERSE.items():
-        text = text.replace(pua, orig)
-    return text
-
-
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
-    # Round-8 rework fix (Major, start-of-text isolation): the abbreviation
+    # Round-8 fix (Major, start-of-text isolation): the abbreviation
     # lookbehinds' fixed-width `_ABBREV_ISOLATION` character class cannot
     # match when there is no character at all before the abbreviation -
     # unlike `\b`, which matches at string start. That regression falsely
     # denied a field-7 value genuinely STARTING with an abbreviation
     # ("e.g. Windows versus Linux [per architect, unverified]." denied in
     # full - reproduced by execution). A single leading isolation
-    # character (space) is prepended before masking/splitting so the
-    # abbreviation at logical position 0 sees the same isolation the
+    # character (space) is prepended before splitting so the abbreviation
+    # at logical position 0 sees the same isolation the
     # `_ABBREV_ISOLATION` class already requires everywhere else - "not
     # preceded by a non-isolation character" now holds uniformly,
     # including at the very start of the text. `.strip()` on both the
     # padded text and every returned fragment removes the synthetic
     # leading space again, so it never leaks into the output.
-    raw = _SENT_SPLIT_RE.split(_mask_code_spans(" " + text.strip()))
+    raw = _SENT_SPLIT_RE.split(" " + text.strip())
     out: list[str] = []
     for frag in raw:
-        frag = _unmask_code_spans(frag.strip())
+        frag = frag.strip()
         if not frag:
             continue
         if out and re.fullmatch(r'\[[^\]]*\]\.?', frag):
