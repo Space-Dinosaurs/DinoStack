@@ -264,33 +264,42 @@ Failure modes:
       (content/references/skeptic-protocol.md §7). Measured gain was 3 of
       798 replayed real spawns; not worth hardening further. Named,
       deferred follow-up, not implemented here.
-    - `_SENT_SPLIT_RE`'s abbreviation lookbehinds cannot distinguish a
-      genuine abbreviation that GENUINELY ENDS a sentence from the same
-      abbreviation used mid-sentence - the lookbehind only sees the
-      trailing characters, not sentence-level position. A tagged or
-      attributed sentence ending "..., etc." (or "et al."/"..., i.e.")
-      immediately followed by a real, independent, untagged sentence is
-      not split at all, so the whole blob is checked as one unit and the
-      leading tag/attribution falsely covers the untagged sentence that
-      follows - DIRECTION: false negative (a bypass), the same failure
-      shape `_SENT_SPLIT_RE`'s own word-boundary anchor (see the regex's
-      compile-site comment) closed for the LOOK-ALIKE-WORD case, but the
-      anchor cannot help with a GENUINE abbreviation:
-      the split must be suppressed for the mid-sentence use and allowed
-      for the sentence-final use, and the abbreviation's own trailing
-      characters carry no signal to tell them apart. Reproduced by
-      execution: "Per the architect, it touches hooks, tests, etc. The
-      real root cause is the retry classifier in retry.py." is allowed
-      in full. A second, narrower disclosed shape: `\b` requires only a
-      non-word character immediately before the abbreviation, not that
-      the preceding text is a genuinely separate word - a punctuation-
-      attached look-alike ("main.cf.", "/etc.", "x-al.") still satisfies
-      `\b` and still mis-suppresses the split, reproduced by execution.
-      Found this round; not fixed - resolving either shape needs the
-      splitter to reason about what follows the abbreviation (e.g. a
-      capitalized word starting a materially different clause) or about
-      the preceding token's own boundaries, heuristics no round to date
-      has scoped or validated against real corpus false-positive risk.
+    - `_SENT_SPLIT_RE`'s abbreviation lookbehinds previously could not
+      distinguish a genuine abbreviation that GENUINELY ENDS a sentence
+      from the same abbreviation used mid-sentence - the lookbehind only
+      saw the trailing characters, not sentence-level position. Round 8
+      closed this NARROWLY for "etc."/"al." only: two additional
+      alternatives force a split after an isolated "etc."/"al." followed
+      by whitespace and a capitalized word (see `_SENT_SPLIT_RE`'s
+      compile-site comment), reproduced fixed against "Per the architect,
+      it touches hooks, tests, etc. The real root cause is the retry
+      classifier in retry.py." (now correctly denies on the second
+      sentence). The remaining four forms - "e.g."/"i.e."/"vs."/"cf." -
+      are deliberately NOT force-split when sentence-final: measured by
+      probe, applying the identical force-split shape to them
+      false-denies compliant mid-sentence use ("approach A vs. B in
+      detail", "e.g. Windows versus Linux"), since those four are used
+      mid-sentence far more often than sentence-finally in real spawns -
+      DIRECTION: false negative (a bypass), disclosed and NOT fixed for
+      those four forms.
+      A second, previously-disclosed shape under this same item - `\b`
+      requiring only a non-word character immediately before the
+      abbreviation, not genuine token isolation, so a punctuation-attached
+      look-alike ("main.cf.", "/etc.", "x-al.") also mis-suppressed the
+      split - is now CLOSED round 8 for all six forms: `\b` is replaced
+      with `_ABBREV_ISOLATION`, a character class requiring an actual
+      whitespace/paren/quote/opening-bracket character immediately before
+      the abbreviation (see `_SENT_SPLIT_RE`'s compile-site comment),
+      reproduced fixed against "Per the architect, see main.cf. The retry
+      classifier in retry.py is unrelated." (now correctly denies on the
+      second sentence). One narrower behavior change this introduced: at
+      the very start of the field-7 text (no character precedes the
+      abbreviation at all), a leading abbreviation is no longer suppressed
+      the way `\b` suppressed it there (`\b` matches at string start; the
+      fixed-width `_ABBREV_ISOLATION` lookbehind cannot match when there
+      is no preceding character to test) - checked against both replay
+      corpora this round with zero observed flips from this specific
+      sub-case, not otherwise hardened further.
 
     Complete disclosed-residual enumeration (kept current every round by
     direct re-grep of this section plus re-execution of each named test,
@@ -332,22 +341,21 @@ Failure modes:
          and NOT fixed this round - an attempted bracket-masking fix was
          reverted before merge for introducing a worse false-negative
          bypass; see the bullet above for the full rationale.
-      8. `_SENT_SPLIT_RE` cannot distinguish a genuine abbreviation that
-         ends a sentence from the same abbreviation used mid-sentence
-         (bullet above, this section): a tagged/attributed sentence ending
-         in a genuine abbreviation ("etc."/"et al."/"i.e.") is never split
-         from the untagged sentence that follows it, so the leading tag
-         falsely covers the untagged claim. A second, narrower disclosed
-         shape under this same item: `\b` requires only a non-word
-         character immediately before the abbreviation, not genuine token
-         isolation, so a punctuation-attached look-alike ("main.cf.",
-         "/etc.", "x-al.") also mis-suppresses the split. DIRECTION: false
-         negative (a bypass), both shapes. Found this round; not fixed -
-         the word-boundary anchor separates a look-alike WORD from a
-         genuine abbreviation, but neither shape here is that case: one is
-         the genuine abbreviation itself used sentence-finally, the other
-         is a look-alike the anchor was never able to catch in the first
-         place.
+      8. `_SENT_SPLIT_RE` cannot distinguish a genuine sentence-final
+         abbreviation from the same abbreviation used mid-sentence
+         (bullet above, this section), NARROWED round 8: a
+         tagged/attributed sentence ending in "e.g."/"i.e."/"vs."/"cf."
+         is still never split from the untagged sentence that follows it
+         - "etc."/"al." are fixed round 8 (force-split when isolated and
+         followed by whitespace then a capitalized word). DIRECTION:
+         false negative (a bypass), disclosed and not fixed, for the four
+         remaining forms. The second shape under this item - a
+         punctuation-attached look-alike ("main.cf.", "/etc.", "x-al.")
+         mis-suppressing the split because `\b` requires only a non-word
+         character immediately before, not genuine token isolation - is
+         CLOSED round 8 for all six forms (`_ABBREV_ISOLATION` replaces
+         `\b`; see the bullet above and `_SENT_SPLIT_RE`'s compile-site
+         comment) and is no longer a residual.
     Round 5 fixed one further recognition bug, never a disclosed residual on
     this list (a plain false-positive deny, found and closed in the same round
     it was found, the same pattern as the two round-4 defects below):
@@ -370,8 +378,25 @@ Failure modes:
     a genuine abbreviation ending a sentence bypasses the split. Round 7
     found item 8's second shape - `\b` also passes a punctuation-attached
     look-alike, since it requires only a non-word character immediately
-    before, not genuine token isolation. Item 8 (both shapes) is
-    disclosed, not fixed.
+    before, not genuine token isolation. Round 8 fixed item 8's second
+    shape for all six abbreviation forms (`_ABBREV_ISOLATION` replaces
+    `\b`) and narrowed item 8's first shape by fixing it for "etc."/"al."
+    specifically, leaving "e.g."/"i.e."/"vs."/"cf." disclosed. Round 8
+    also fixed a new recognition bug never previously listed as a
+    residual (the same pattern as round 5's typographic-normalization
+    fix): backtick code-span splitting - a period, question mark, or
+    exclamation point inside a balanced, bracket-free single-backtick
+    code span (e.g. a shell command like `` `--repo . --dry-run` ``) was
+    read as sentence-ending punctuation and mis-split a single, fully-
+    tagged sentence into an untagged tail fragment. Fixed by masking
+    those three characters inside such a span (1-char-for-1-char, so span
+    offsets never shift) before splitting, then unmasking each fragment -
+    a span whose interior contains a bracket is left unmasked, so the
+    pre-existing, disclosed item-7 bracket-unaware-splitting behavior
+    still applies to it unchanged rather than silently exempting a
+    smuggled untagged claim placed inside a backtick-and-bracket
+    combination. Reproduced fixed against two real corpus spawns this
+    round.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
@@ -832,8 +857,8 @@ def _strip_field7_neutrality_note(text: str) -> str:
 # sentence 2's untagged claim - a splitter bug found and fixed during this
 # design: the original form never split after a closing "]", so two
 # consecutive tagged sentences merged into one unit and an untagged second
-# sentence went undetected). The four negative lookbehinds guard against a
-# SECOND splitter bug (found this round): a period ending a common
+# sentence went undetected). The six negative lookbehinds guard against a
+# SECOND splitter bug (found round 7): a period ending a common
 # abbreviation ("e.g.", "i.e.", "etc.", "vs.", "cf.", "al." as in "et al.")
 # is sentence-ending punctuation by the bare [.?!] test, so a single,
 # fully-tagged-or-attributed sentence that merely contains one of these
@@ -843,34 +868,133 @@ def _strip_field7_neutrality_note(text: str) -> str:
 # they chain legally even though the abbreviations differ in length.
 # Each abbreviation lookbehind is SCOPED case-insensitive via the inline
 # (?i:...) flag group, not a compile-wide re.IGNORECASE - a compile-wide
-# flag would also case-fold the `[A-Z]` lookahead on the second alternative,
-# reintroducing the exact splitter-merge bug this regex was fixed for (any
-# lowercase word after a closing "]" would then also split, no longer
-# distinguishing a genuinely new sentence from mid-value bracket noise).
-# Each abbreviation lookbehind carries a leading `\b` (zero-width, so it
-# does not change the lookbehind's fixed character width) so the guard no
-# longer fires when a LETTER immediately precedes the abbreviation letters
-# - without it, any word merely ENDING in the same letters ("minimal.",
-# "final.", "vs." as a substring of a longer token, etc.) mis-suppressed
-# the split too, which let a tagged/attributed sentence's cover extend
-# over the next, untagged sentence (found and fixed this round). `\b`
-# requires only a non-word character immediately before, not genuine
-# token isolation, so a punctuation-attached look-alike ("main.cf.",
-# "/etc.", "x-al.") still satisfies it and still mis-suppresses the split
-# - a narrower residual than the one this fix closes; see the module
-# docstring's residual list, item 8.
+# flag would also case-fold the `[A-Z]` lookahead on the trailing-bracket
+# alternative, reintroducing the exact splitter-merge bug this regex was
+# fixed for (any lowercase word after a closing "]" would then also split,
+# no longer distinguishing a genuinely new sentence from mid-value bracket
+# noise).
+#
+# Round 8 fix (item 8, second shape - punctuation-glued look-alikes, closed
+# for all six forms): each abbreviation lookbehind's isolation requirement
+# was previously a bare `\b` (zero-width), which only demands a non-word
+# character immediately before the abbreviation, not genuine token
+# isolation - a punctuation-attached look-alike ("main.cf.", "/etc.",
+# "x-al.") satisfied `\b` too and still mis-suppressed the split, letting a
+# leading tag/attribution falsely cover a genuinely separate, untagged
+# sentence that followed (reproduced by execution against "Per the
+# architect, see main.cf. The retry classifier in retry.py is
+# unrelated." - denied None instead of the second sentence). `\b` is
+# replaced with `_ABBREV_ISOLATION`, a character class requiring the
+# immediately preceding character to be whitespace, an opening paren, a
+# quote, or an opening bracket - a punctuation-glued look-alike no longer
+# satisfies it (there is no such character immediately before "cf" in
+# "main.cf."), so the split is no longer suppressed there. At the very
+# start of the field-7 text (no preceding character at all), the
+# fixed-width lookbehind cannot match either, which changes behavior from
+# `\b` (a word boundary exists at string start) - a leading abbreviation
+# ("e.g. ..." as the field's first four characters) is no longer
+# suppressed by this fix, a narrower behavior change than the punctuation-
+# glued fix itself; see this hook's test file and the round-8 replay notes
+# for the measured effect against both real corpora (zero observed flips
+# from this specific sub-case).
+_ABBREV_ISOLATION = r'[\s(\'"\[]'
+
+# Round 8 fix (item 8, first shape - genuine sentence-final abbreviation,
+# closed narrowly for "etc."/"al." only): the six negative lookbehinds
+# above suppress a split after ANY of the six abbreviation forms
+# unconditionally, so a tagged/attributed sentence genuinely ENDING in one
+# of them was never split from the untagged sentence that followed
+# (reproduced by execution: "Per the architect, it touches hooks, tests,
+# etc. The real root cause is the retry classifier in retry.py." denied
+# None in full). Two additional alternatives FORCE a split after "etc."/
+# "al." specifically when isolated (`_ABBREV_ISOLATION` immediately
+# before) and followed by whitespace then a capitalized word - the same
+# positive shape the pre-existing trailing-bracket alternative already
+# uses, just gated on the abbreviation instead of "]". Scoped to "etc."/
+# "al." only, NOT "e.g."/"i.e."/"vs."/"cf.": measured by probe, applying
+# the identical force-split shape to those four false-denies compliant
+# mid-sentence use ("approach A vs. B in detail", "e.g. Windows versus
+# Linux") - those four are used mid-sentence, before a capitalized proper
+# noun or the start of an independent clause, far more often in real
+# spawns than they are used to end a sentence, so a genuine sentence-final
+# use of "e.g."/"i.e."/"vs."/"cf." remains a disclosed residual (module
+# docstring, item 8).
 _SENT_SPLIT_RE = re.compile(
-    r'(?<!\b(?i:e\.g\.))(?<!\b(?i:i\.e\.))(?<!\b(?i:etc\.))(?<!\b(?i:vs\.))(?<!\b(?i:cf\.))(?<!\b(?i:al\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:e\.g\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:i\.e\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:etc\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:vs\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:cf\.))'
+    r'(?<!' + _ABBREV_ISOLATION + r'(?i:al\.))'
     r'(?<=[.?!])\s+(?!\[)'
+    r'|(?<=' + _ABBREV_ISOLATION + r'(?i:etc\.))\s+(?=[A-Z])'
+    r'|(?<=' + _ABBREV_ISOLATION + r'(?i:al\.))\s+(?=[A-Z])'
     r'|(?<=\])\s+(?=[A-Z])'
 )
 
+# --------------------------------------------------------------------------- #
+# Round 8 fix (new): backtick code-span masking, closes the specific
+# bracket-unaware-splitting shape where the mis-split fragment lands INSIDE
+# a backtick code span. `_SENT_SPLIT_RE` still has no awareness of bracket
+# nesting in general (module docstring residual item 7, unchanged, NOT
+# fixed by this round - a depth-tracked `[...]` mask was tried and reverted
+# before merge for reintroducing a worse bypass), but a backtick code span
+# is lexically unambiguous (no nesting, a single delimiter character) and
+# reproduced against two real corpus spawns: a fully-tagged sentence
+# containing a shell command like `--repo . --dry-run` inside single
+# backticks was mis-split on the period inside the span, falsely denying
+# the fragment before the span (reproduced: "The command `--repo .
+# --dry-run` reproduces the failure. [verified: a.py:1]" denied on "The
+# command `--repo ." before this fix). Only `.`/`?`/`!` inside a BALANCED
+# single-backtick span are masked (replaced 1-char-for-1-char with a
+# Private Use Area sentinel so span offsets never shift), and only when
+# the span's interior contains no `[` or `]` - a span carrying a bracket
+# is left unmasked so the existing bracket-unaware-splitting behavior
+# (and its own disclosed residual, item 7) still applies to it unchanged,
+# rather than silently exempting a smuggled untagged claim placed inside a
+# backtick-and-bracket combination. An odd number of backticks in the text
+# (unpaired) leaves the text unmasked entirely - the span boundaries are
+# ambiguous, so the pre-existing (imperfect) splitting behavior applies
+# rather than guessing at a pairing.
+_CODE_SPAN_PUA = {'.': '', '?': '', '!': ''}
+_CODE_SPAN_PUA_REVERSE = {v: k for k, v in _CODE_SPAN_PUA.items()}
+
+
+def _mask_code_spans(text: str) -> str:
+    if text.count('`') % 2 != 0:
+        return text
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != '`':
+            out.append(text[i])
+            i += 1
+            continue
+        j = text.find('`', i + 1)
+        if j == -1:
+            out.append(text[i:])
+            break
+        interior = text[i + 1:j]
+        if '[' in interior or ']' in interior:
+            out.append(text[i:j + 1])
+        else:
+            masked = ''.join(_CODE_SPAN_PUA.get(c, c) for c in interior)
+            out.append('`' + masked + '`')
+        i = j + 1
+    return ''.join(out)
+
+
+def _unmask_code_spans(text: str) -> str:
+    for pua, orig in _CODE_SPAN_PUA_REVERSE.items():
+        text = text.replace(pua, orig)
+    return text
+
 
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
-    raw = _SENT_SPLIT_RE.split(text.strip())
+    raw = _SENT_SPLIT_RE.split(_mask_code_spans(text.strip()))
     out: list[str] = []
     for frag in raw:
-        frag = frag.strip()
+        frag = _unmask_code_spans(frag.strip())
         if not frag:
             continue
         if out and re.fullmatch(r'\[[^\]]*\]\.?', frag):
@@ -962,7 +1086,10 @@ def _field7_deny_reason(sentence: str) -> str:
         "[verified-local: <path> - reason]) or be attributed to a named subagent "
         "('Per <Agent>' / DONE_WITH_CONCERNS). Fix: add the appropriate tag, or "
         "replace the field with 'n/a - <reason>' if there is nothing claim-bearing "
-        "to disclose. To disable this guard for this session: set "
+        "to disclose. A sentence describing the conductor's OWN process (e.g. "
+        "'I told the engineer...', 'the conductor relayed...') is itself a claim - "
+        "tag it [per conductor, unverified] or omit it if not load-bearing. "
+        "To disable this guard for this session: set "
         f"{KILL_SWITCH_ENV}=1 and restart."
     )
 

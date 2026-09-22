@@ -1584,3 +1584,281 @@ def test_round5_fix_a_self_ref_ticket_en_dash_also_normalized():
     # about the self-reference rule existing at all.
     ascii_value = "DS-230 is the ticket for this fix."
     assert _mod.field7_violation([ascii_value]) is None
+
+
+# =========================================================================== #
+# Round 8 fixes: backtick code-span masking (Fix A, a new recognition bug,
+# not a previously-disclosed residual), `_ABBREV_ISOLATION` replacing `\b`
+# in the abbreviation lookbehinds (Fix E, closes module-docstring residual
+# item 8's second shape for all six abbreviation forms), and a narrow
+# etc./al. force-split (Fix B-narrow, closes item 8's first shape for those
+# two forms only - deliberately NOT extended to e.g./i.e./vs./cf.). See
+# hooks/enforce-skeptic-neutrality.py's module docstring for the full,
+# current residual accounting.
+# =========================================================================== #
+def test_round8_fix_a_backtick_period_not_split():
+    """A fully-tagged sentence containing a shell command inside a
+    bracket-free backtick span is no longer mis-split on a period inside
+    the span."""
+    value = "The command `--repo . --dry-run` reproduces the failure. [verified: a.py:1]"
+    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 1
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_a_mutation_masking_disabled_reddens():
+    """Executed mutation-testing proof: with code-span masking disabled
+    (reverting `_split_sentences_keep_trailing_tag` to split the raw,
+    unmasked text), the same compliant, tagged sentence is mis-split on
+    the period inside the backtick span and the fragment before the tag
+    is falsely denied as untagged."""
+    import re as _re
+
+    value = "The command `--repo . --dry-run` reproduces the failure. [verified: a.py:1]"
+
+    def _unmasked_split(text: str) -> list[str]:
+        raw = _mod._SENT_SPLIT_RE.split(text.strip())  # no _mask_code_spans call
+        out: list[str] = []
+        for frag in raw:
+            frag = frag.strip()
+            if not frag:
+                continue
+            if out and _re.fullmatch(r'\[[^\]]*\]\.?', frag):
+                out[-1] = out[-1] + " " + frag
+            else:
+                out.append(frag)
+        return out
+
+    mutated = _unmasked_split(value)
+    assert len(mutated) == 2, "mutation did not split as expected"
+    violation = None
+    for sent in mutated:
+        if not (
+            _mod._PROVENANCE_RE.search(sent)
+            or _mod._ATTRIBUTION_RE.search(sent)
+            or _mod._SELF_REF_TICKET_RE.search(sent)
+        ):
+            violation = sent
+            break
+    assert violation is not None, "mutation should have reddened (false deny)"
+
+
+def test_round8_fix_a_bracket_span_stays_unmasked_and_denies():
+    """A backtick span whose interior contains a bracket is deliberately
+    left UNMASKED, so the pre-existing (disclosed, item-7) bracket-unaware
+    splitting behavior still applies to it - a smuggled untagged claim
+    placed inside a backtick-and-bracket combination is not silently
+    exempted by masking it into one merged, attribution-covered sentence.
+
+    NOTE on fixture construction: the plan's literal example
+    ("`[verified: x.py:1] . Untagged smuggled claim.` More text [per
+    conductor, unverified].") was tried first and does NOT discriminate -
+    it is ALLOWED (not denied) under BOTH the guarded and an
+    unguarded-masking variant, because `_PROVENANCE_RE`'s own disclosed
+    substring-match residual (module docstring item 5) makes every
+    resulting fragment individually match a bracket substring regardless
+    of masking. This fixture instead puts the attribution phrase inside
+    the backtick-and-bracket span itself, which does discriminate: masked
+    indiscriminately, the whole span (attribution phrase plus smuggled
+    claim) merges into one attribution-covered sentence and is falsely
+    allowed; left unmasked (the guard's actual behavior), the smuggled
+    claim splits into its own fragment and is correctly denied."""
+    value = "`Per the architect array[0] . The real defect is a race condition in worker.py.`"
+    result = _mod.field7_violation([value])
+    assert result == "The real defect is a race condition in worker.py.`"
+
+
+def test_round8_fix_a_mutation_bracket_guard_removed_reddens():
+    """Executed mutation-testing proof: removing the bracket-interior
+    guard (masking every backtick span's periods unconditionally, even
+    one containing a bracket) reddens the fixture above - the smuggled
+    untagged claim merges with the leading attribution phrase into one
+    exempt sentence and is falsely allowed."""
+    import re as _re
+
+    PUA = {'.': '', '?': '', '!': ''}
+    PUA_REVERSE = {v: k for k, v in PUA.items()}
+
+    def _mask_no_bracket_guard(text: str) -> str:
+        if text.count('`') % 2 != 0:
+            return text
+        out: list[str] = []
+        i, n = 0, len(text)
+        while i < n:
+            if text[i] != '`':
+                out.append(text[i])
+                i += 1
+                continue
+            j = text.find('`', i + 1)
+            if j == -1:
+                out.append(text[i:])
+                break
+            interior = text[i + 1:j]
+            masked = ''.join(PUA.get(c, c) for c in interior)  # no bracket check
+            out.append('`' + masked + '`')
+            i = j + 1
+        return ''.join(out)
+
+    def _unmask(text: str) -> str:
+        for pua, orig in PUA_REVERSE.items():
+            text = text.replace(pua, orig)
+        return text
+
+    def _split_with_mutation(text: str) -> list[str]:
+        raw = _mod._SENT_SPLIT_RE.split(_mask_no_bracket_guard(text.strip()))
+        out: list[str] = []
+        for frag in raw:
+            frag = _unmask(frag.strip())
+            if not frag:
+                continue
+            if out and _re.fullmatch(r'\[[^\]]*\]\.?', frag):
+                out[-1] = out[-1] + " " + frag
+            else:
+                out.append(frag)
+        return out
+
+    value = "`Per the architect array[0] . The real defect is a race condition in worker.py.`"
+    mutated = _split_with_mutation(value)
+    assert len(mutated) == 1, "mutation should merge the span into one sentence"
+    assert _mod._ATTRIBUTION_RE.search(mutated[0]), (
+        "mutation should have reddened (smuggled claim falsely allowed via attribution)"
+    )
+
+
+def test_round8_fix_a_unpaired_backtick_still_splits_and_denies():
+    """An odd number of backticks (unpaired) leaves the text unmasked
+    entirely - the pre-existing splitting behavior applies and a
+    genuinely untagged fragment still denies."""
+    value = "The command `--repo . --dry-run reproduces the failure. [verified: a.py:1]"
+    result = _mod.field7_violation([value])
+    assert result == "The command `--repo ."
+
+
+def test_round8_fix_b_narrow_etc_genuine_sentence_final_denies():
+    """A tagged/attributed sentence genuinely ENDING in 'etc.' immediately
+    followed by a real, independent, untagged sentence is now split and
+    denied - closes module-docstring residual item 8's first shape for
+    'etc.' specifically."""
+    value = (
+        "Per the architect, it touches hooks, tests, etc. "
+        "The real root cause is the retry classifier in retry.py."
+    )
+    result = _mod.field7_violation([value])
+    assert result == "The real root cause is the retry classifier in retry.py."
+
+
+def test_round8_fix_b_narrow_mutation_etc_force_split_removed_reddens():
+    """Executed mutation-testing proof: reverting `_SENT_SPLIT_RE` to drop
+    the etc./al. force-split alternatives (leaving only the original six
+    negative-lookbehind branch) reddens - the same fixture is no longer
+    split and is falsely allowed in full."""
+    import re as _re
+
+    mutated_re = _re.compile(
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:e\.g\.))'
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:i\.e\.))'
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:etc\.))'
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:vs\.))'
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:cf\.))'
+        r'(?<!' + _mod._ABBREV_ISOLATION + r'(?i:al\.))'
+        r'(?<=[.?!])\s+(?!\[)'
+        r'|(?<=\])\s+(?=[A-Z])'
+    )
+    value = (
+        "Per the architect, it touches hooks, tests, etc. "
+        "The real root cause is the retry classifier in retry.py."
+    )
+
+    # Live (fixed) behavior: two sentences, second denied.
+    assert _mod.field7_violation([value]) == "The real root cause is the retry classifier in retry.py."
+
+    mutated_sentences = mutated_re.split(_mod._mask_code_spans(value.strip()))
+    joined = [_mod._unmask_code_spans(f.strip()) for f in mutated_sentences if f.strip()]
+    assert len(joined) == 1, "mutation should not split at the etc. boundary"
+
+
+def test_round8_fix_e_punctuation_glued_abbreviation_denies():
+    """A tagged/attributed sentence ending in a punctuation-glued
+    look-alike abbreviation ('main.cf.') no longer suppresses the split
+    to a genuinely separate, untagged sentence that follows - closes
+    module-docstring residual item 8's second shape for all six forms."""
+    value = "Per the architect, see main.cf. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
+
+
+def test_round8_fix_e_mutation_iso_reverted_to_word_boundary_reddens():
+    """Executed mutation-testing proof: reverting `_ABBREV_ISOLATION` back
+    to a bare `\\b` reddens - the punctuation-glued 'main.cf.' again
+    satisfies the word-boundary lookbehind and the split is suppressed,
+    falsely allowing the fixture above in full."""
+    import re as _re
+
+    mutated_re = _re.compile(
+        r'(?<!\b(?i:e\.g\.))(?<!\b(?i:i\.e\.))(?<!\b(?i:etc\.))(?<!\b(?i:vs\.))(?<!\b(?i:cf\.))(?<!\b(?i:al\.))'
+        r'(?<=[.?!])\s+(?!\[)'
+        r'|(?<=\])\s+(?=[A-Z])'
+    )
+    value = "Per the architect, see main.cf. The retry classifier in retry.py is unrelated."
+
+    # Live (fixed) behavior: splits, second sentence denied.
+    assert _mod.field7_violation([value]) == "The retry classifier in retry.py is unrelated."
+
+    mutated_sentences = mutated_re.split(_mod._mask_code_spans(value.strip()))
+    joined = [_mod._unmask_code_spans(f.strip()) for f in mutated_sentences if f.strip()]
+    assert len(joined) == 1, "mutation should not split at the cf. boundary"
+    assert _mod._ATTRIBUTION_RE.search(joined[0]), (
+        "mutation should have reddened (leading attribution falsely covers the tail)"
+    )
+
+
+def test_round8_fix_b_narrow_mid_sentence_vs_still_allowed():
+    """Compliant mid-sentence 'vs.' use is not force-split - Fix B-narrow
+    is scoped to etc./al. only."""
+    value = "Per the architect, approach A vs. B in detail [per architect, unverified]."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_b_narrow_mid_sentence_eg_still_allowed():
+    """Compliant mid-sentence 'e.g.' use is not force-split - Fix
+    B-narrow is scoped to etc./al. only."""
+    value = "Per the architect, e.g. Windows versus Linux [per architect, unverified]."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_b_narrow_mutation_broadened_to_vs_and_eg_reddens():
+    """Executed mutation-testing proof: extending the etc./al. force-split
+    shape to vs./e.g. as well reddens both allowed fixtures above - they
+    become falsely denied on compliant mid-sentence use."""
+    import re as _re
+
+    ISO = _mod._ABBREV_ISOLATION
+    mutated_re = _re.compile(
+        r'(?<!' + ISO + r'(?i:e\.g\.))'
+        r'(?<!' + ISO + r'(?i:i\.e\.))'
+        r'(?<!' + ISO + r'(?i:etc\.))'
+        r'(?<!' + ISO + r'(?i:vs\.))'
+        r'(?<!' + ISO + r'(?i:cf\.))'
+        r'(?<!' + ISO + r'(?i:al\.))'
+        r'(?<=[.?!])\s+(?!\[)'
+        r'|(?<=' + ISO + r'(?i:etc\.))\s+(?=[A-Z])'
+        r'|(?<=' + ISO + r'(?i:al\.))\s+(?=[A-Z])'
+        r'|(?<=' + ISO + r'(?i:vs\.))\s+(?=[A-Z])'
+        r'|(?<=' + ISO + r'(?i:e\.g\.))\s+(?=[A-Z])'
+        r'|(?<=\])\s+(?=[A-Z])'
+    )
+    vs_value = "Per the architect, approach A vs. B in detail [per architect, unverified]."
+    eg_value = "Per the architect, e.g. Windows versus Linux [per architect, unverified]."
+
+    for value in (vs_value, eg_value):
+        mutated_sentences = mutated_re.split(_mod._mask_code_spans(value.strip()))
+        joined = [_mod._unmask_code_spans(f.strip()) for f in mutated_sentences if f.strip()]
+        assert len(joined) == 2, f"mutation should force-split: {value!r}"
+
+
+def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
+    """`_field7_deny_reason`'s message now tells the conductor that a
+    sentence narrating its OWN process is itself a claim requiring a
+    provenance tag or omission - pure string addition, no logic change."""
+    reason = _mod._field7_deny_reason("some untagged sentence")
+    assert "[per conductor, unverified]" in reason
+    assert "OWN process" in reason
