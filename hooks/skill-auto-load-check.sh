@@ -39,8 +39,10 @@
 # Performance: when skill_auto_load is false, the content_state read is skipped entirely (round
 #              4 Minor 1) - only the one python3 JSON parse for the config flag runs. When
 #              skill_auto_load is true, bounded to ~1s worst case by the select() timeout, then
-#              one non-blocking os.read syscall and one regex match - never proportional to
-#              producer behavior.
+#              one non-blocking os.read syscall and two regex searches (the IGNORECASE
+#              keyword pattern, then the case-sensitive ticket-ID pattern, short-circuited
+#              via `or` so the second only runs when the first does not match) - never
+#              proportional to producer behavior.
 # Note (round 5): the `skill_auto_load == "true"` operand in the final condition (below) is
 #                 redundant with the earlier guard that gates content_state, since content_state
 #                 can only ever be something other than "no_match" when that guard already ran.
@@ -102,11 +104,17 @@ try:
             r'\b(code|edit|debug|test|deploy|architect|refactor|depend|implement|'
             r'ticket|build|script|commit|merge|spawn|agent|plan|git|orchestrat|'
             r'review|bug|hook|page|icon|button|menu|mockup|design|admin|'
-            r'screen|logo|render|api|endpoint|template|feature|fix|broken|revert)|'
-            r'\bdemos?\b|\bpr\b|pull request',
+            r'screen|logo|render|api|endpoint|template|feature|fix|broken|revert|'
+            r'border)|'
+            r'\bdemos?\b|\bpr\b|pull request|\bworktrees?\b|\bconductors?\b|\breap(?:ing)?\b',
             re.IGNORECASE,
         )
-        print('match' if pattern.search(prompt) else 'no_match')
+        # Ticket IDs (e.g. "AUT-930", "DS-45") are case-sensitive by convention -
+        # a lowercase "ab-12" must not match, so this runs as a separate check
+        # rather than folding into the IGNORECASE pattern above.
+        ticket_pattern = re.compile(r'\b[A-Z]{2,6}-\d{2,5}\b')
+        matched = bool(pattern.search(prompt)) or bool(ticket_pattern.search(prompt))
+        print('match' if matched else 'no_match')
 except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown")

@@ -220,8 +220,9 @@ PYEOF
 #   AE_CONFIG_PATH (agentic-engineering.json) - four readers hardcode
 #     $HOME/.claude/agentic-engineering.json with no config-dir chain:
 #     bin/ds-config:86, bin/ds-status:127, bin/ds-disable:50, and
-#     hooks/skill-auto-load-check.sh:56 (whose redirect branch at :57 is
-#     gated on `adapter == codex`, so it never fires for Claude). Moving it
+#     hooks/skill-auto-load-check.sh's `ae_config=` assignment (whose
+#     redirect branch immediately below it is gated on `adapter == codex`,
+#     so it never fires for Claude). Moving it
 #     on a bare CLAUDE_CONFIG_DIR would split activation state: install
 #     writes one file, every reader reads another. It still follows an
 #     EXPLICIT redirect (flag / AGENTIC_CONFIG_DIR), which is the

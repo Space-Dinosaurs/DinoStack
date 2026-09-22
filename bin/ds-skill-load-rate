@@ -225,8 +225,9 @@ from _lib import (  # noqa: E402
 # "dinostack" load and would otherwise be misclassified as never-loaded.
 TARGET_SKILL_NAMES = frozenset({"dinostack", "agentic-engineering"})
 
-# The exact substring emitted by hooks/skill-auto-load-check.sh:123's
-# stdout, verified against a live attachment record
+# The exact substring emitted by hooks/skill-auto-load-check.sh's
+# `echo "SKILL CHECK [dinostack]: ..."` banner line's stdout, verified
+# against a live attachment record
 # (03940f2f-5154-40b7-8943-a8b809bf1d11.jsonl line 16, 2026-08-10). Matched
 # as a substring, not full-string equality, because the hook's message may
 # gain trailing detail without changing the marker.

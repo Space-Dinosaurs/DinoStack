@@ -44,6 +44,57 @@
 #   8. Remove any one of the 17 new bare-group words from the pattern: reddens that
 #      word's case in scenario 8 (the loop asserts each word individually, so removing
 #      one word only reddens its own assertion, not the whole scenario).
+#
+# Named mutations, DS-242 round (ticket IDs, worktree/conductor/reap(ing), border):
+#   9.  Remove the ticket_pattern check entirely: reddens scenario 11's positive case
+#       ("AUT-930" no longer fires).
+#   10. Fold ticket_pattern into the IGNORECASE `pattern` instead of keeping it a
+#       separate case-sensitive check: reddens scenario 11's negative case
+#       (lowercase "ab-12" starts firing).
+#   11. Remove `border` from the bare left-anchor-only group: reddens scenario 12.
+#   12. Remove `\bworktrees?\b`, `\bconductors?\b`, or `\breap(?:ing)?\b` from the
+#       both-side-anchored alternation: reddens that word's positive case in
+#       scenario 13.
+#   13. Widen one of the three both-side-anchored alternatives to an unanchored
+#       (bare substring) match - each word has its OWN look-alike negative case in
+#       scenario 13, since widening one word does not affect the other two's
+#       negative cases:
+#         - `\breap(?:ing)?\b` -> `\breap`: reddens "reapply" (shares the "reap"
+#           prefix; right anchor is the one that was removed).
+#         - `\bworktrees?\b` -> `worktrees?` (drop both anchors): reddens
+#           "networktree", which contains "worktree" as a substring
+#           (n-e-t-w-o-r-k-t-r-e-e) but is not itself the word "worktree".
+#         - `\bconductors?\b` -> `conductors?` (drop both anchors): reddens
+#           "semiconductor", which contains "conductor" as a substring but is not
+#           itself the word "conductor".
+#       Confirmed: widening only ONE word's anchor does not redden the OTHER two
+#       words' negative cases (verified during implementation - see the
+#       engineer's return summary).
+#   14. Single-anchor removal (narrower than mutation 13's drop-both-anchors
+#       form - the round-2 gap: mutation 13 never tested removing just ONE
+#       side). Each has its own look-alike negative case, confirmed isolated
+#       from the other two (removing one word's anchor does not redden a
+#       different word's negative):
+#         - `\bworktrees?\b` -> `\bworktrees?` (right anchor only removed):
+#           reddens "worktreeing" (left-anchored prefix match, no right
+#           boundary required after "worktree").
+#         - `\bconductors?\b` -> `\bconductors?` (right anchor only removed):
+#           reddens "conductorship" (same shape as "worktreeing").
+#         - `\breap(?:ing)?\b` -> `reap(?:ing)?\b` (left anchor only removed):
+#           reddens "misreap" (right-anchored suffix match, no left boundary
+#           required before "reap").
+#   15. Ticket pattern, boundary and cardinality mutations (round-2 gap - the
+#       existing scenario 11 negative, "ab-12", only exercises the
+#       IGNORECASE-vs-case-sensitive split, not these two axes):
+#         - Remove both `\b` anchors from `ticket_pattern` entirely: reddens a
+#           mid-token ID with no boundary before the letter run, e.g.
+#           "xAUT-930" (the "x" is itself a word character immediately
+#           preceding "AUT-930", so no boundary exists there under the
+#           anchored pattern - unlike a space-preceded "AUT-930", which
+#           already matches today regardless of anchors, since start-of-word
+#           is itself a boundary).
+#         - Widen `[A-Z]{2,6}` to `[A-Z]{1,6}`: reddens a one-letter-prefix ID,
+#           e.g. "A-12".
 
 set -uo pipefail
 
@@ -284,6 +335,141 @@ if [[ -z "$RUN_OUT" ]]; then
   pass "scenario 10: demon/democracy/demolish-only prompt suppresses the banner"
 else
   fail "scenario 10: expected empty stdout, got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 11: ticket IDs (case-sensitive [A-Z]{2,6}-\d{2,5}). The uppercase
+# form fires the banner alone; the lowercase form does not (the main
+# IGNORECASE pattern must not swallow it).
+# ---------------------------------------------------------------------------
+run_with_prompt "fold AUT-930 into the mix"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 11: uppercase ticket ID (AUT-930) alone fires the banner"
+else
+  fail "scenario 11: expected the banner for AUT-930, got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "ab-12 should not match"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 11: lowercase ticket-ID-shaped text (ab-12) does not fire the banner"
+else
+  fail "scenario 11: expected empty stdout for ab-12, got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 12: `border`, left-anchored like the existing bare-word group,
+# fires the banner alone.
+# ---------------------------------------------------------------------------
+run_with_prompt "just make the borders 1px"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 12: 'border' (as 'borders') alone fires the banner"
+else
+  fail "scenario 12: expected the banner for 'borders', got stdout: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 13: worktree/conductor/reap(ing), each both-side-anchored, fire the
+# banner alone (including their plain plural/inflected forms measured in the
+# corpora). Each word has its own negative-case look-alike that shares its
+# substring but is not the word itself at a boundary: "reapply" (reap),
+# "networktree" (worktree, contains "worktree" starting at its 4th letter -
+# n-e-t-[w-o-r-k-t-r-e-e]), and "semiconductor" (conductor). None fire.
+# ---------------------------------------------------------------------------
+run_with_prompt "let's talk about worktrees"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'worktrees' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'worktrees', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "the conductor should delegate this"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'conductor' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'conductor', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "how does auto-reap work?"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'reap' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'reap', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "this auto reaping is separate"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'reaping' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'reaping', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "reapply the patch please"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'reapply' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'reapply', got: $RUN_OUT"
+fi
+
+run_with_prompt "the networktree diagram needs updating"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'networktree' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'networktree', got: $RUN_OUT"
+fi
+
+run_with_prompt "the semiconductor shortage is affecting production"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'semiconductor' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'semiconductor', got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 14: single-anchor look-alikes (mutation 14). Each shares a word's
+# substring but only on the side whose anchor mutation 14 does NOT remove -
+# "worktreeing" and "conductorship" both extend past their word's right
+# boundary; "misreap" extends before "reap"'s left boundary. None fire today.
+# ---------------------------------------------------------------------------
+run_with_prompt "let's talk about worktreeing this branch"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'worktreeing' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'worktreeing', got: $RUN_OUT"
+fi
+
+run_with_prompt "his conductorship ended last year"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'conductorship' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'conductorship', got: $RUN_OUT"
+fi
+
+run_with_prompt "did we misreap that resource"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'misreap' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'misreap', got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 15: ticket-pattern boundary and cardinality look-alikes
+# (mutation 15). "xAUT-930" is a mid-token ID with no boundary before the
+# letter run (the "x" is a word character immediately abutting "AUT-930");
+# "A-12" is a single-letter-prefix ID, below the {2,6} floor. Neither fires
+# today.
+# ---------------------------------------------------------------------------
+run_with_prompt "check xAUT-930 for updates"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 15: mid-token ID 'xAUT-930' does not fire the banner"
+else
+  fail "scenario 15: expected empty stdout for 'xAUT-930', got: $RUN_OUT"
+fi
+
+run_with_prompt "look at A-12 sometime"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 15: one-letter-prefix ID 'A-12' does not fire the banner"
+else
+  fail "scenario 15: expected empty stdout for 'A-12', got: $RUN_OUT"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
