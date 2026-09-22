@@ -36,7 +36,7 @@ Purpose: PreToolUse hook that mechanically enforces exactly two
          check, not a phrase scan.** Field 7's own mandated label
          (content/agents/skeptic.md) is "claim-bearing text only," and
          content/sections/04-risk-classification.md's provenance test
-         already requires every claim to carry one of three canonical
+         already requires every claim to carry one of four canonical
          tags. `field7_violation()` enforces that contract directly: any
          non-exempt sentence in field 7 that carries no provenance tag, no
          attribution marker, and no self-referential ticket mention is
@@ -123,7 +123,7 @@ Purpose: PreToolUse hook that mechanically enforces exactly two
          its deny path permanently unreachable), OR (b)
          content/agents/skeptic.md's field-7 provenance mandate is itself
          deleted or narrowed to no longer require every claim to carry one
-         of the three canonical tags. The brief-region categories B and C
+         of the four canonical tags. The brief-region categories B and C
          retire independently, on a separate condition: when the deferred
          brief-region structural-conformance follow-up ticket (see
          "Categories A, D, E: deleted, with rationale" above) ships and
@@ -237,7 +237,7 @@ Failure modes:
       an otherwise-compliant sentence). No real-session evidence yet
       shows a seventh form recurring; extend the list if that changes.
     - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
-      literal substring `[verified:` / `[verified-local:` anywhere in a
+      literal substring `[verified:` / `[verified-local:` / `[verified-by-execution` anywhere in a
       sentence, so a sentence that merely quotes tag syntax as an example
       (rather than genuinely carrying a tag of its own) reads as exempt -
       DIRECTION: false negative (a bypass, not a false deny). Fixing it
@@ -683,7 +683,7 @@ def extract_field7(prompt: str) -> list[str] | None:
 # --------------------------------------------------------------------------- #
 # Shared exemption markers (provenance tag, attribution, self-ref ticket)
 # --------------------------------------------------------------------------- #
-_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[per\s+\S+.*?,\s*unverified\]',
+_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[verified-by-execution\b|\[per\s+\S+.*?,\s*unverified\]',
                              re.IGNORECASE)
 
 # content/agents/skeptic.md:30 states the attribution carve-out is OPEN,
@@ -1080,9 +1080,10 @@ def _field7_deny_reason(sentence: str) -> str:
         f"Agent/Task spawn blocked: field 7 (Conductor spawn brief) contains an "
         f"untagged sentence: {sentence!r}. Field 7's own mandated label is "
         "'claim-bearing text only' - per content/sections/04-risk-classification.md's "
-        "provenance test, every claim in it must carry one of the three canonical "
+        "provenance test, every claim in it must carry one of the four canonical "
         "tags ([verified: file:line] / [per <agent>, unverified] / "
-        "[verified-local: <path> - reason]) or be attributed to a named subagent "
+        "[verified-local: <path> - reason] / [verified-by-execution: <command> - result]) "
+        "or be attributed to a named subagent "
         "('Per <Agent>' / DONE_WITH_CONCERNS). Fix: add the appropriate tag, or "
         "replace the field with 'n/a - <reason>' if there is nothing claim-bearing "
         "to disclose. A sentence describing the conductor's OWN process (e.g. "

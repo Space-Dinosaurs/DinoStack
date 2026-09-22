@@ -136,7 +136,7 @@ _GOOD_EXAMPLE = "Review the diff for correctness of retry/backoff logic across a
 def test_scenario_01_deny_field7_real_round1_defect(tmp_path):
     sentence = (
         "The plan uses a [verified-by-read: file:line] tag form that is not "
-        "one of the three canonical provenance tags."
+        "one of the four canonical provenance tags."
     )
     prompt = f"7. Conductor spawn brief (...): {sentence}\n\n## What to review\n"
     rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
@@ -1740,3 +1740,39 @@ def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
     reason = _mod._field7_deny_reason("some untagged sentence")
     assert "[per conductor, unverified]" in reason
     assert "OWN process" in reason
+
+
+# =========================================================================== #
+# `[verified-by-execution: ...]` tag: fourth canonical provenance tag
+# (content/sections/04-risk-classification.md's provenance test). Added
+# because this shape was in live conductor use before the hook recognized
+# it - every use was denied. `\b`, not a required `:`, because real uses
+# include a colon-detail form, a comma-session form, and a bare form with
+# no trailing punctuation at all.
+# =========================================================================== #
+def test_verified_by_execution_colon_detail_form_exempt():
+    sentence = (
+        "The hook denies this sentence "
+        "[verified-by-execution: pytest bin/tests/test_x.py - 12 passed]."
+    )
+    assert _mod.field7_violation([sentence]) is None
+
+
+def test_verified_by_execution_comma_session_form_exempt():
+    sentence = "The hook denies this sentence [verified-by-execution, this session]."
+    assert _mod.field7_violation([sentence]) is None
+
+
+def test_verified_by_execution_bare_form_exempt():
+    sentence = "The hook denies this sentence [verified-by-execution]."
+    assert _mod.field7_violation([sentence]) is None
+
+
+def test_execution_mentioned_without_literal_bracket_still_denies():
+    """The widening is a literal-prefix match on `[verified-by-execution`,
+    not a semantic one - prose merely describing that something was
+    verified by running a command, with no bracketed tag, is still an
+    untagged claim and must still deny."""
+    sentence = "The hook denies this sentence, verified by execution this session."
+    result = _mod.field7_violation([sentence])
+    assert result == sentence
