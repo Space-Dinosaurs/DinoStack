@@ -199,6 +199,26 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          gates on inferred session capability - flat prohibitions in
          hooks/AGENTS.md §No gating on inferred session capability.
 
+         Sibling-deny consultation (fix for a spurious-round-charge defect,
+         content/references/skeptic-protocol.md ~:431): Claude Code runs
+         every matcher hook registered on a PreToolUse event regardless of
+         order or another hook's decision - registering this hook first
+         cannot prevent a sibling hook further down the matcher array from
+         independently denying the same spawn. Before this fix, this hook's
+         own ALLOW branch always persisted (advanced round_count, consumed
+         a recorded ship/escalate decision) even when a sibling hook such
+         as enforce-skeptic-neutrality.py or enforce-tier.py was about to
+         deny the identical spawn - so a spawn that never ran as a review
+         still spent a round, and in the escalate case, spent the
+         operator's one-time authorization on nothing. On the ALLOW branch,
+         `main()` now calls `_sibling_would_deny(data)` - which imports
+         each `_SIBLING_MODULES` entry's own pure `would_deny(data)`
+         function by path and calls it with this exact payload - BEFORE any
+         of `_write_state` / `_append_tool_use_id` / `_update_tuid_index`.
+         A non-None result from any sibling skips ALL persistence for this
+         call and exits 0 (allow, from this hook's own perspective - the
+         sibling's independently-registered deny still blocks the spawn).
+
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
             "Agent"). Reads JSON from stdin, writes hookSpecificOutput JSON
             to stdout when denying, exits 0 always.
@@ -275,6 +295,32 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task and
                       `readRoundState()` for calibration-field lookup.
 
 Failure modes:
+    - A sibling module named in `_SIBLING_MODULES` fails to import
+      (missing file, syntax error, a half-applied hooks-snapshot copy) or
+      its `would_deny` call raises: `_load_sibling_would_deny_fns()` /
+      `_sibling_would_deny()` swallow the error and treat that sibling as
+      "would not deny" - this hook then persists exactly as it did before
+      the sibling-deny consultation existed. A broken sibling can
+      therefore reintroduce the spurious-round-charge defect this
+      consultation exists to close, but it can never cause THIS hook to
+      deny a spawn it would otherwise have allowed.
+    - Known gap, not covered by `_SIBLING_MODULES` (tracked in
+      `_KNOWN_UNCONSULTED_DENY_CAPABLE` above, not silently expanded
+      into): `enforce-background-spawn.py` and
+      `enforce-orchestrator-singularity.py` are also registered on the
+      same "Task"/"Agent" spawn matcher and can each independently deny a
+      `subagent_type == "skeptic"` spawn (a cross-harness-team-active
+      sentinel or an unbackgrounded Task spawn; a nested spawn issued from
+      inside a subagent context, respectively) - neither gates its own
+      deny path on `subagent_type == "skeptic"` specifically, so neither
+      exposes a `would_deny(data)` narrowly scoped to this hook's own
+      concern. This hook can still spuriously charge a round for a spawn
+      either of them denies. `enforce-worktree-isolation-spawn.py` is
+      also listed there for completeness, even though its
+      `MANDATED_ROLES` set never includes "skeptic" (so it structurally
+      cannot deny a skeptic spawn today). See `bin/tests/
+      test_enforce_skeptic_round_cap_sibling_deny.py`'s drift-guard test,
+      which names all three explicitly rather than silently passing them.
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name,
       subagent_type != "skeptic": fail-open (exit 0), no enforcement.
     - `cwd` absent from payload: fail-open (exit 0) - the hook cannot
@@ -793,6 +839,87 @@ def _load_repo_root():
 _REPO_ROOT = _load_repo_root()
 
 
+# Sibling PreToolUse hooks (registered on the SAME "Task"/"Agent" spawn
+# matcher, .claude/install.sh ~:1249-1283) that can independently DENY a
+# `subagent_type == "skeptic"` spawn this hook would otherwise ALLOW. Each
+# exposes a pure `would_deny(data: dict) -> str | None` function (same
+# top-level PreToolUse payload shape this hook's own `main()` reads from
+# stdin) - see enforce-skeptic-neutrality.py's and enforce-tier.py's own
+# `would_deny` docstrings. Consulted in `main()` before any persistence
+# call (`_write_state` / `_append_tool_use_id` / `_update_tuid_index`): a
+# spawn a sibling would deny must never advance round_count or consume a
+# recorded ship/escalate decision, or the operator's round budget/escalate
+# authorization is spent on a review that never ran (content/references/
+# skeptic-protocol.md ~:431). See `bin/tests/test_enforce_skeptic_round_cap
+# _sibling_deny.py`'s drift-guard test for the enumeration of registered
+# spawn-matcher hooks this list is checked against, including the two
+# known-but-not-yet-consulted gaps that test explicitly names.
+_SIBLING_MODULES = ("enforce-skeptic-neutrality", "enforce-tier")
+
+# Registered on the same "Task"/"Agent" spawn matcher (.claude/install.sh),
+# genuinely deny-capable (each emits a `"permissionDecision": "deny"`
+# response on some input), but NOT YET consulted above - a known,
+# explicitly tracked gap, not a silent one. `enforce-background-spawn.py`
+# can deny a `subagent_type == "skeptic"` spawn (a cross-harness-team-
+# active sentinel, or an unbackgrounded Task spawn) without gating that
+# decision on the role being "skeptic" specifically.
+# `enforce-orchestrator-singularity.py` denies ANY Task/Agent spawn issued
+# from inside a subagent context, regardless of role, so it too can deny a
+# skeptic spawn. `enforce-worktree-isolation-spawn.py` is deny-capable in
+# general but its `MANDATED_ROLES` set never includes "skeptic" - it is
+# listed here anyway (rather than silently omitted) so
+# `bin/tests/test_enforce_skeptic_round_cap_sibling_deny.py`'s drift-guard
+# test only needs ONE classification list to check registered hooks
+# against, not two. See this module's Failure modes section.
+_KNOWN_UNCONSULTED_DENY_CAPABLE = frozenset({
+    "enforce-background-spawn.py",
+    "enforce-orchestrator-singularity.py",
+    "enforce-worktree-isolation-spawn.py",
+})
+
+
+def _load_sibling_would_deny_fns():
+    """Best-effort dynamic import of each `_SIBLING_MODULES` entry's
+    `would_deny` function (importlib by path, mirroring `_load_log_fire`/
+    `_load_repo_root` above). Returns a list of callables; a sibling that
+    fails to import or lacks a `would_deny` attribute is silently skipped -
+    never raises, never blocks this hook's own decision."""
+    fns = []
+    here = Path(__file__).resolve().parent
+    for name in _SIBLING_MODULES:
+        try:
+            import importlib.util as _ilu
+
+            mod_path = here / f"{name}.py"
+            spec = _ilu.spec_from_file_location(name.replace("-", "_"), str(mod_path))
+            mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+            spec.loader.exec_module(mod)
+            fn = getattr(mod, "would_deny", None)
+            if callable(fn):
+                fns.append(fn)
+        except Exception:
+            continue
+    return fns
+
+
+def _sibling_would_deny(data: dict) -> str | None:
+    """Returns the first non-None deny reason any consulted sibling hook's
+    `would_deny(data)` returns for this exact payload, or None if none
+    would deny. Fail direction: an import or call failure on any sibling
+    is swallowed and treated as "would not deny" for THAT sibling - a
+    sibling failure must never change this hook's own persistence
+    behavior (this hook persists exactly as it did before this
+    consultation existed)."""
+    for fn in _load_sibling_would_deny_fns():
+        try:
+            reason = fn(data)
+        except Exception:
+            continue
+        if reason:
+            return reason
+    return None
+
+
 def _state_path(cwd: str, key: str) -> Path | None:
     """Returns None when the repo root cannot be resolved - callers must
     skip the read/write on None rather than fall back to a raw cwd.
@@ -1272,6 +1399,16 @@ def main() -> None:
         if not allow:
             _deny(data, reason)
             return
+
+        # A sibling PreToolUse hook on this same spawn matcher (see
+        # `_SIBLING_MODULES`) will independently deny this exact spawn -
+        # Claude Code runs every matcher hook regardless of another hook's
+        # decision, so the sibling's own deny still blocks the spawn. Skip
+        # ALL persistence in that case: neither round_count nor a
+        # recorded ship/escalate decision may advance/consume for a spawn
+        # that never actually ran as a review.
+        if _sibling_would_deny(data) is not None:
+            sys.exit(0)
 
         new_state = _append_tool_use_id(new_state, tool_use_id)
         _write_state(path, unit_key, new_state)

@@ -232,40 +232,46 @@ def _deny(data, reason):
     sys.exit(0)
 
 
-def main():
-    # Kill-switch: fail-open before touching stdin (mirrors singularity hook).
-    if os.environ.get("AE_TIER_GUARD_DISABLE") == "1":
-        sys.exit(0)
+def would_deny(data):
+    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
+    at the same top-level PreToolUse payload shape `main()` reads from
+    stdin. Returns the deny reason string `main()` would print, or None
+    when this hook would not deny. Never calls `_deny` or `log_fire` -
+    logging and process-exit remain `main()`'s exclusive concern. Never
+    raises.
 
+    Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
+    before persisting round state, so a spawn this hook would deny never
+    advances the round counter - see that hook's module docstring."""
+    if os.environ.get("AE_TIER_GUARD_DISABLE") == "1":
+        return None
     try:
-        try:
-            data = json.load(sys.stdin)
-        except Exception:
-            sys.exit(0)
+        if not isinstance(data, dict):
+            return None
 
         tool_name = data.get("tool_name")
         if tool_name not in ("Task", "Agent"):
-            sys.exit(0)
+            return None
 
         raw_tinput = data.get("tool_input")
         if not isinstance(raw_tinput, dict):
-            sys.exit(0)
+            return None
         tinput = raw_tinput
 
         agent = tinput.get("subagent_type")
         if agent not in MANDATED_TIER3 and agent not in MANDATED_TIER3_AUTHOR:
-            sys.exit(0)
+            return None
 
         # Absent / null / non-string model param -> frontmatter default (Opus).
         model = tinput.get("model")
         if not isinstance(model, str) or not model.strip():
-            sys.exit(0)
+            return None
 
         # Any Tier-3-or-above model (alias "opus"/"fable" or a full id like
         # claude-opus-4-8 / claude-fable-5-1) -> allow.
         model_lower = model.lower()
         if any(marker in model_lower for marker in TIER3_OR_ABOVE_MARKERS):
-            sys.exit(0)
+            return None
 
         brief = (
             str(tinput.get("prompt") or "")
@@ -275,8 +281,7 @@ def main():
 
         # Explicit sub-Tier-3 downgrade on a mandated-Tier-3 agent.
         if agent == "security-auditor":
-            _deny(
-                data,
+            return (
                 f"{tool_name} spawn blocked: security-auditor was spawned with "
                 f"model={model!r}, an explicit downgrade below Tier 3. The "
                 "security-auditor spec mandates Tier 3 (Opus or above) unconditionally "
@@ -296,8 +301,7 @@ def main():
         if agent in MANDATED_TIER3_AUTHOR:
             marker = _author_brief_matches(brief)
             if marker is not None:
-                _deny(
-                    data,
+                return (
                     f"{tool_name} spawn blocked: {agent} was spawned with "
                     f"model={model!r}, an explicit downgrade below Tier 3, but "
                     "the brief matches an authoring Tier-3 escalation signal "
@@ -311,13 +315,12 @@ def main():
                     "this guard: set AE_TIER_GUARD_DISABLE=1 and restart "
                     "Claude Code.)"
                 )
-            sys.exit(0)
+            return None
 
         # agent == "skeptic": deny only if the brief reads high-stakes.
         marker = _brief_matches_tier3(brief)
         if marker is not None:
-            _deny(
-                data,
+            return (
                 f"{tool_name} spawn blocked: skeptic was spawned with "
                 f"model={model!r}, an explicit downgrade below Tier 3, but the "
                 f"brief matches a Tier-3 escalation signal (pattern {marker!r}). "
@@ -330,6 +333,26 @@ def main():
             )
 
         # Non-mandated skeptic with a benign brief -> allow the downgrade.
+        return None
+    except Exception:
+        return None
+
+
+def main():
+    # Kill-switch: fail-open before touching stdin (mirrors singularity hook).
+    if os.environ.get("AE_TIER_GUARD_DISABLE") == "1":
+        sys.exit(0)
+
+    try:
+        try:
+            data = json.load(sys.stdin)
+        except Exception:
+            sys.exit(0)
+
+        reason = would_deny(data)
+        if reason:
+            _deny(data, reason)  # exits
+
         sys.exit(0)
 
     except Exception:

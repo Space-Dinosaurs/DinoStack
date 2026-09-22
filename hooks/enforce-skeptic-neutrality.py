@@ -1034,6 +1034,62 @@ def _log_advisory(data: dict, reason: str) -> None:
         pass
 
 
+def would_deny(data: dict) -> str | None:
+    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
+    at the same top-level PreToolUse payload shape `main()` reads from
+    stdin. Returns the deny reason string `main()` would print, or None
+    when this hook would not deny (including a set kill switch, a
+    non-Task/Agent tool_name, a non-skeptic subagent_type, malformed
+    input, or a clean brief/field-7). Never calls `_deny`, `_log_advisory`,
+    or `log_fire` - logging and process-exit remain `main()`'s exclusive
+    concern. Never raises.
+
+    Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
+    before persisting round state, so a spawn this hook would deny never
+    advances the round counter - see that hook's module docstring."""
+    if os.environ.get(KILL_SWITCH_ENV) == "1":
+        return None
+    try:
+        if not isinstance(data, dict):
+            return None
+
+        tool_name = data.get("tool_name")
+        if tool_name not in ("Task", "Agent"):
+            return None
+
+        raw_tinput = data.get("tool_input")
+        if not isinstance(raw_tinput, dict):
+            return None
+        tinput = raw_tinput
+
+        if tinput.get("subagent_type") != "skeptic":
+            return None
+
+        prompt = tinput.get("prompt")
+        prompt_text = prompt if isinstance(prompt, str) else ""
+
+        brief_paragraphs = extract_brief(prompt_text)
+        field7_paragraphs, field7_truncated = extract_field7_ex(prompt_text)
+
+        if field7_paragraphs and not field7_truncated:
+            violation = field7_violation(field7_paragraphs)
+            if violation:
+                return _field7_deny_reason(violation)
+
+        if brief_paragraphs:
+            for para in brief_paragraphs:
+                if _paragraph_exempt(para):
+                    continue
+                for name, pat in _BRIEF_CATEGORIES:
+                    m = pat.search(para)
+                    if m:
+                        return _brief_deny_reason(name, m.group(0))
+
+        return None
+    except Exception:
+        return None
+
+
 def main() -> None:
     # Kill-switch checked FIRST, before any extraction or log_fire call, so
     # it suppresses BOTH deny paths and every allow_advisory logging path.
@@ -1071,28 +1127,17 @@ def main() -> None:
             _log_advisory(data, _ADVISORY_BRIEF_MISSING)
         if field7_paragraphs is None:
             _log_advisory(data, _ADVISORY_FIELD7_MISSING)
+        if field7_paragraphs and field7_truncated:
+            # Extraction window closed before the field's logical end - the
+            # captured fragment cannot be proven untagged, so this hook
+            # downgrades to advisory rather than deny (see
+            # `_extract_bounded_region_ex`'s docstring and
+            # `_ADVISORY_FIELD7_TRUNCATED`).
+            _log_advisory(data, _ADVISORY_FIELD7_TRUNCATED)
 
-        if field7_paragraphs:
-            if field7_truncated:
-                # Extraction window closed before the field's logical end -
-                # the captured fragment cannot be proven untagged, so this
-                # hook downgrades to advisory rather than deny (see
-                # `_extract_bounded_region_ex`'s docstring and
-                # `_ADVISORY_FIELD7_TRUNCATED`).
-                _log_advisory(data, _ADVISORY_FIELD7_TRUNCATED)
-            else:
-                violation = field7_violation(field7_paragraphs)
-                if violation:
-                    _deny(data, _field7_deny_reason(violation))  # exits
-
-        if brief_paragraphs:
-            for para in brief_paragraphs:
-                if _paragraph_exempt(para):
-                    continue
-                for name, pat in _BRIEF_CATEGORIES:
-                    m = pat.search(para)
-                    if m:
-                        _deny(data, _brief_deny_reason(name, m.group(0)))  # exits
+        reason = would_deny(data)
+        if reason:
+            _deny(data, reason)  # exits
 
         sys.exit(0)
 
