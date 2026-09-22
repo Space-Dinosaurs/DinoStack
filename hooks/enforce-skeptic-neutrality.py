@@ -274,7 +274,11 @@ Failure modes:
       compile-site comment), reproduced fixed against "Per the architect,
       it touches hooks, tests, etc. The real root cause is the retry
       classifier in retry.py." (now correctly denies on the second
-      sentence). The remaining four forms - "e.g."/"i.e."/"vs."/"cf." -
+      sentence) - and ONLY when the word following "etc."/"al." is
+      capitalized; a sentence-final "etc."/"al." followed by a lowercase
+      word, a digit, a backtick, or a closing paren is not force-split
+      and remains a disclosed residual (enumerated list item 8 below).
+      The remaining four forms - "e.g."/"i.e."/"vs."/"cf." -
       are deliberately NOT force-split when sentence-final: measured by
       probe, applying the identical force-split shape to them
       false-denies compliant mid-sentence use ("approach A vs. B in
@@ -292,14 +296,19 @@ Failure modes:
       the abbreviation (see `_SENT_SPLIT_RE`'s compile-site comment),
       reproduced fixed against "Per the architect, see main.cf. The retry
       classifier in retry.py is unrelated." (now correctly denies on the
-      second sentence). One narrower behavior change this introduced: at
-      the very start of the field-7 text (no character precedes the
-      abbreviation at all), a leading abbreviation is no longer suppressed
-      the way `\b` suppressed it there (`\b` matches at string start; the
-      fixed-width `_ABBREV_ISOLATION` lookbehind cannot match when there
-      is no preceding character to test) - checked against both replay
-      corpora this round with zero observed flips from this specific
-      sub-case, not otherwise hardened further.
+      second sentence). A Major found by execution during the same
+      round's rework: the fixed-width `_ABBREV_ISOLATION` lookbehind
+      cannot match when there is no character at all before the
+      abbreviation, unlike `\b` (which matches at string start), so a
+      field-7 value genuinely STARTING with an abbreviation was falsely
+      denied ("e.g. Windows versus Linux [per architect, unverified]."
+      denied in full - reproduced by execution). Fixed by
+      `_split_sentences_keep_trailing_tag` prepending a single isolation
+      character (space) before masking/splitting, so "not preceded by a
+      non-isolation character" now holds uniformly, including at the very
+      start of the text - `.strip()` on the padded text and every
+      returned fragment removes the synthetic space again before it ever
+      reaches a caller.
 
     Complete disclosed-residual enumeration (kept current every round by
     direct re-grep of this section plus re-execution of each named test,
@@ -346,11 +355,18 @@ Failure modes:
          (bullet above, this section), NARROWED round 8: a
          tagged/attributed sentence ending in "e.g."/"i.e."/"vs."/"cf."
          is still never split from the untagged sentence that follows it
-         - "etc."/"al." are fixed round 8 (force-split when isolated and
-         followed by whitespace then a capitalized word). DIRECTION:
-         false negative (a bypass), disclosed and not fixed, for the four
-         remaining forms. The second shape under this item - a
-         punctuation-attached look-alike ("main.cf.", "/etc.", "x-al.")
+         - "etc."/"al." are fixed round 8, but ONLY when the abbreviation
+         is immediately followed by whitespace then a CAPITALIZED word;
+         a sentence-final "etc."/"al." followed by a lowercase word, a
+         digit, a backtick, or a closing paren still suppresses the split
+         and is not force-split (e.g. "..., etc. the real root cause is
+         ..."; "..., etc. 2 files changed ..."; "..., etc. `retry.py` is
+         ..."; "..., etc. (see retry.py) is ..." - all reproduced still
+         allowed in full). DIRECTION: false negative (a bypass), disclosed
+         and not fixed, for the four remaining forms unconditionally, and
+         for "etc."/"al." themselves whenever the word immediately
+         following is not capitalized. The second shape under this item -
+         a punctuation-attached look-alike ("main.cf.", "/etc.", "x-al.")
          mis-suppressing the split because `\b` requires only a non-word
          character immediately before, not genuine token isolation - is
          CLOSED round 8 for all six forms (`_ABBREV_ISOLATION` replaces
@@ -396,7 +412,20 @@ Failure modes:
     still applies to it unchanged rather than silently exempting a
     smuggled untagged claim placed inside a backtick-and-bracket
     combination. Reproduced fixed against two real corpus spawns this
-    round.
+    round. The same round's rework pass found two further Majors in the
+    backtick-masking fix by execution, both closed in the same rework: a
+    backtick span can straddle a genuine sentence boundary of its own
+    (most commonly a mismatched fenced-code delimiter, where naive
+    pairwise backtick matching pairs the wrong marks together and forms
+    one span spanning several real sentences) - masking such a span
+    silently merged an untagged claim into a preceding tagged/attributed
+    sentence; fixed by leaving a span unmasked whenever its interior
+    contains a `[.?!]` immediately followed by whitespace then a
+    capitalized letter, the same per-span "leave it alone" response
+    already used for a bracket-carrying span. And the `_ABBREV_ISOLATION`
+    fix's own start-of-text gap (described above) was found and fixed in
+    the same pass, applying uniformly to every abbreviation form, not
+    only the ones inside a backtick span.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
@@ -956,6 +985,29 @@ _SENT_SPLIT_RE = re.compile(
 # (unpaired) leaves the text unmasked entirely - the span boundaries are
 # ambiguous, so the pre-existing (imperfect) splitting behavior applies
 # rather than guessing at a pairing.
+#
+# SECOND guard, closing a Critical found by execution (round-8 rework): a
+# span can carry a genuine sentence boundary of its own - most commonly a
+# multi-line/fenced-code delimiter (triple backtick) where naive pairwise
+# backtick matching pairs the wrong marks together, producing one huge
+# "span" that actually straddles several real sentences of surrounding
+# prose. Masking such a span would silently merge an untagged claim into
+# a preceding tagged/attributed sentence. Reproduced: "Per the architect,
+# the plan opens a ``` fence at line 40. The retry classifier in retry.py
+# is the real root cause. The plan closes the ``` fence at line 90."
+# (adjacent backtick pairs collapse the middle content - "fence at line
+# 40. The retry classifier ... The plan closes the" - into one masked
+# span) and "Run `ls. The real root cause is the retry classifier in
+# retry.py.` now [verified: a.py:1]." both allowed in full before this
+# guard. A span whose interior contains a `[.?!]` immediately followed by
+# whitespace then a capitalized letter - the same sentence-boundary shape
+# `_SENT_SPLIT_RE`'s own trailing-bracket alternative and the etc./al.
+# force-split alternatives look for - is left UNMASKED entirely, exactly
+# like the bracket-guard case above: the pre-existing (imperfect,
+# disclosed) splitting behavior applies to it rather than silently
+# absorbing the boundary. Deliberately the SAME per-span, leave-it-alone
+# response as the bracket guard, not a narrower partial mask.
+_SENTENCE_BOUNDARY_IN_SPAN_RE = re.compile(r'[.?!]\s+[A-Z]')
 _CODE_SPAN_PUA = {'.': '', '?': '', '!': ''}
 _CODE_SPAN_PUA_REVERSE = {v: k for k, v in _CODE_SPAN_PUA.items()}
 
@@ -975,7 +1027,10 @@ def _mask_code_spans(text: str) -> str:
             out.append(text[i:])
             break
         interior = text[i + 1:j]
-        if '[' in interior or ']' in interior:
+        if (
+            '[' in interior or ']' in interior
+            or _SENTENCE_BOUNDARY_IN_SPAN_RE.search(interior)
+        ):
             out.append(text[i:j + 1])
         else:
             masked = ''.join(_CODE_SPAN_PUA.get(c, c) for c in interior)
@@ -991,7 +1046,21 @@ def _unmask_code_spans(text: str) -> str:
 
 
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
-    raw = _SENT_SPLIT_RE.split(_mask_code_spans(text.strip()))
+    # Round-8 rework fix (Major, start-of-text isolation): the abbreviation
+    # lookbehinds' fixed-width `_ABBREV_ISOLATION` character class cannot
+    # match when there is no character at all before the abbreviation -
+    # unlike `\b`, which matches at string start. That regression falsely
+    # denied a field-7 value genuinely STARTING with an abbreviation
+    # ("e.g. Windows versus Linux [per architect, unverified]." denied in
+    # full - reproduced by execution). A single leading isolation
+    # character (space) is prepended before masking/splitting so the
+    # abbreviation at logical position 0 sees the same isolation the
+    # `_ABBREV_ISOLATION` class already requires everywhere else - "not
+    # preceded by a non-isolation character" now holds uniformly,
+    # including at the very start of the text. `.strip()` on both the
+    # padded text and every returned fragment removes the synthetic
+    # leading space again, so it never leaks into the output.
+    raw = _SENT_SPLIT_RE.split(_mask_code_spans(" " + text.strip()))
     out: list[str] = []
     for frag in raw:
         frag = _unmask_code_spans(frag.strip())
