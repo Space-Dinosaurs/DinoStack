@@ -122,11 +122,17 @@ def _prompt(
     )
 
 
-def _payload(cwd: str, prompt: str, model: str | None = None, tool_use_id: str | None = None) -> dict:
+def _payload(
+    cwd: str,
+    prompt: str,
+    model: str | None = None,
+    tool_use_id: str | None = None,
+    tool_name: str = "Agent",
+) -> dict:
     tinput = {"subagent_type": "skeptic", "description": "review", "prompt": prompt}
     if model is not None:
         tinput["model"] = model
-    payload = {"tool_name": "Agent", "cwd": cwd, "tool_input": tinput}
+    payload = {"tool_name": tool_name, "cwd": cwd, "tool_input": tinput}
     if tool_use_id is not None:
         payload["tool_use_id"] = tool_use_id
     return payload
@@ -167,6 +173,17 @@ def _write_settings(path: Path, basenames: list[str]) -> None:
             ]
         }
     }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload))
+
+
+def _write_settings_single_matcher(path: Path, basenames: list[str], matcher: str) -> None:
+    """Same shape as `_write_settings`, but registers *basenames* on ONLY
+    *matcher* ("Task" or "Agent") - used to prove registration is scoped
+    to the spawn's own `tool_name` (round-2 rework, Minor 2), not "either
+    matcher, whichever."""
+    entries = [{"type": "command", "command": f"python3 /fake/hooks/{name}", "timeout": 5} for name in basenames]
+    payload = {"hooks": {"PreToolUse": [{"matcher": matcher, "hooks": entries}]}}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload))
 
@@ -276,6 +293,9 @@ def test_tier_denied_spawn_leaves_no_state_file(tmp_path, registered_config_dir)
     assert rc_code == 0
     assert not _is_denied(rc_parsed)
     assert _state_files(cwd) == [], "round-cap must not persist any state for a spawn a sibling would deny"
+    assert not _tuid_index_path(cwd).exists(), (
+        "round-cap must not create/update skeptic-tuid-index.json for a spawn it never persisted a round for"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -537,6 +557,62 @@ def test_registered_sibling_via_project_settings_is_consulted(tmp_path):
     assert _state_files(cwd) == [], (
         "project-level .claude/settings.json registration must be enough to "
         "confirm the sibling and trigger consultation"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Minor 2 (round-3 rework): registration must be scoped to the spawn's own
+# tool_name - a sibling registered on ONLY "Task" must not be treated as
+# registered for an "Agent" spawn, and vice versa.
+# --------------------------------------------------------------------------- #
+def test_registration_scoped_to_spawn_tool_name(tmp_path):
+    cwd = str(tmp_path / "repo")
+    Path(cwd).mkdir()
+    _ensure_git_marker(cwd)
+    # Registered ONLY on "Task" - the spawn below uses tool_name "Agent".
+    config_dir = tmp_path / "claude-config"
+    _write_settings_single_matcher(
+        config_dir / "settings.json", ["enforce-skeptic-neutrality.py"], matcher="Task"
+    )
+
+    diff_key = "sibling-deny-matcher-scope-unit"
+    prompt = _prompt(
+        diff_key,
+        what_to_review="Worker fixed issue #1, round 1.",
+        field7="This claim has no tag at all.",  # would deny IF consulted
+    )
+    payload = _payload(cwd, prompt, tool_use_id="tuid-1", tool_name="Agent")
+
+    env = _isolated_env(config_dir)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
+    assert rc_code == 0
+    assert not _is_denied(rc_parsed)
+
+    state_files = _state_files(cwd)
+    assert len(state_files) == 1, (
+        "a Task-only registration must not be treated as registered for an "
+        "Agent spawn - registration is scoped to the spawn's own tool_name, "
+        "not 'either matcher'"
+    )
+    state = json.loads(state_files[0].read_text())
+    assert state["round_count"] == 1
+
+    # Control: the SAME registration (Task-only) genuinely IS consulted for
+    # a Task spawn - proves the scoping is about matching, not a blanket
+    # "single-matcher registrations never count."
+    diff_key2 = "sibling-deny-matcher-scope-unit-2"
+    prompt2 = _prompt(
+        diff_key2,
+        what_to_review="Worker fixed issue #1, round 1.",
+        field7="This claim has no tag at all.",
+    )
+    payload2 = _payload(cwd, prompt2, tool_use_id="tuid-2", tool_name="Task")
+    rc2_code, rc2_parsed = _run_hook(_ROUND_CAP_HOOK, payload2, env=env)
+    assert rc2_code == 0
+    assert not _is_denied(rc2_parsed)
+    assert len(_state_files(cwd)) == 1, (
+        "a Task-registered sibling must be consulted for a genuine Task "
+        "spawn, and consultation must still result in no NEW state file"
     )
 
 

@@ -215,9 +215,12 @@ Purpose: PreToolUse hook that mechanically enforces the ad-hoc Skeptic
          now calls `_sibling_would_deny(data, cwd)`, which for each
          `_SIBLING_MODULES` entry first calls `_sibling_registered()` -
          positively confirming that entry's basename is registered on the
-         Task/Agent PreToolUse matcher in a settings file Claude Code would
-         actually load (round-2 rework, Major 1) - and consults that
-         sibling's own pure `would_deny(data)` function (imported by path)
+         Task/Agent PreToolUse matcher in the user-level `settings.json`
+         (under the resolved harness config dir) or the unit's own
+         project-level `.claude/settings*.json` (round-2 rework, Major 1;
+         does NOT read a higher-precedence managed/enterprise settings
+         file - see `_sibling_registered`'s own docstring) - and consults
+         that sibling's own pure `would_deny(data)` function (imported by path)
          ONLY when registration is confirmed. This closes the case a
          registration-blind consultation would have gotten backwards: an
          installed-but-unregistered sibling (e.g. an install between
@@ -960,14 +963,18 @@ def _settings_candidates(cwd: str) -> list[Path]:
     return candidates
 
 
-def _hook_registered_in_settings(raw: object, basename: str) -> bool:
+def _hook_registered_in_settings(raw: object, basename: str, tool_name: str) -> bool:
     """True iff *raw* (an already-parsed settings.json payload) carries a
-    PreToolUse block matched on "Task" or "Agent" containing a `hooks[]`
-    entry whose `command` string references *basename* as a path segment
-    (`/<basename>`) - the shape every real settings.json command takes,
-    guarded (`test -f ... && python3 <path> || exit 0`) or bare. A
-    malformed/unexpected shape at any level is treated as "not found in
-    this candidate", never raises."""
+    PreToolUse block matched EXACTLY on *tool_name* (the spawn's own
+    "Task" or "Agent" - round-2 rework, Minor 2: a prior version accepted
+    a match on EITHER matcher regardless of the spawn's actual tool_name,
+    so a sibling registered only on "Task" would be treated as consulted
+    for an "Agent" spawn it is never actually invoked for, and vice
+    versa) containing a `hooks[]` entry whose `command` string references
+    *basename* as a path segment (`/<basename>`) - the shape every real
+    settings.json command takes, guarded (`test -f ... && python3 <path>
+    || exit 0`) or bare. A malformed/unexpected shape at any level is
+    treated as "not found in this candidate", never raises."""
     if not isinstance(raw, dict):
         return False
     hooks = raw.get("hooks")
@@ -978,7 +985,7 @@ def _hook_registered_in_settings(raw: object, basename: str) -> bool:
         return False
     needle = "/" + basename
     for block in ptu:
-        if not isinstance(block, dict) or block.get("matcher") not in ("Task", "Agent"):
+        if not isinstance(block, dict) or block.get("matcher") != tool_name:
             continue
         entries = block.get("hooks")
         if not isinstance(entries, list):
@@ -992,11 +999,23 @@ def _hook_registered_in_settings(raw: object, basename: str) -> bool:
     return False
 
 
-def _sibling_registered(basename: str, cwd: str) -> bool:
+def _sibling_registered(basename: str, cwd: str, tool_name: str) -> bool:
     """True only when *basename* is POSITIVELY found registered on the
-    Task/Agent PreToolUse matcher in at least one settings file Claude
-    Code would actually load (user-level, or this unit's own project-level
-    `.claude/settings*.json`). Every uncertain case - no candidate file
+    Task/Agent PreToolUse matcher, on the matcher covering the spawn's own
+    `tool_name`, in at least one of: the user-level `settings.json` under
+    the resolved harness config dir, or this unit's own project-level
+    `.claude/settings*.json`. A higher-precedence managed/enterprise
+    settings file (e.g. macOS `/Library/Application Support/ClaudeCode/
+    managed-settings.json`, Linux `/etc/claude-code/managed-settings.json`)
+    is deliberately NOT read - a sibling registered ONLY there is treated
+    as "not confirmed" and therefore NOT consulted (round-2 rework, Minor
+    4): a disclosed, accepted residual (the original spurious-round-charge
+    defect this whole consultation exists to close can still occur for
+    that narrow case, since the sibling is genuinely active and will
+    independently deny while round-cap still persists), traded for the
+    stronger guarantee that this function never returns True on a
+    registration it cannot actually verify. Every uncertain case - no
+    candidate file
     exists, a candidate is unreadable, a candidate is malformed JSON, or
     the basename is simply absent from every candidate that DID parse -
     returns False, the SAME "not confirmed" outcome, by design (Major 1,
@@ -1016,7 +1035,7 @@ def _sibling_registered(basename: str, cwd: str) -> bool:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             continue
-        if _hook_registered_in_settings(raw, basename):
+        if _hook_registered_in_settings(raw, basename, tool_name):
             return True
     return False
 
@@ -1046,20 +1065,22 @@ def _load_sibling_would_deny_fns():
     return fns
 
 
-def _sibling_would_deny(data: dict, cwd: str) -> str | None:
+def _sibling_would_deny(data: dict, cwd: str, tool_name: str) -> str | None:
     """Returns the first non-None deny reason any CONSULTED sibling hook's
     `would_deny(data)` returns for this exact payload, or None if none
     would deny (including when none is consulted at all). A sibling is
     consulted only when `_sibling_registered` positively confirms its
-    registration for this unit's own settings files - see that function's
-    docstring for why every uncertain case is treated as "not consulted"
-    rather than "would not deny" vs. "would deny". Fail direction: an
-    import or call failure on any sibling is swallowed and treated as
-    "would not deny" for THAT sibling - a sibling failure must never
-    change this hook's own persistence behavior (this hook persists
-    exactly as it did before this consultation existed)."""
+    registration, ON THE MATCHER COVERING *tool_name* specifically, for
+    this unit's own settings files - see that function's docstring for
+    why every uncertain case (including a registration on the OTHER
+    matcher only) is treated as "not consulted" rather than "would not
+    deny" vs. "would deny". Fail direction: an import or call failure on
+    any sibling is swallowed and treated as "would not deny" for THAT
+    sibling - a sibling failure must never change this hook's own
+    persistence behavior (this hook persists exactly as it did before
+    this consultation existed)."""
     for basename, fn in _load_sibling_would_deny_fns():
-        if not _sibling_registered(basename, cwd):
+        if not _sibling_registered(basename, cwd, tool_name):
             continue
         try:
             reason = fn(data)
@@ -1561,7 +1582,7 @@ def main() -> None:
         # registration `_sibling_registered` positively confirms - an
         # unconfirmed sibling (unregistered, or registration undetermined)
         # is never consulted, so this call persists exactly as today.
-        if _sibling_would_deny(data, cwd) is not None:
+        if _sibling_would_deny(data, cwd, tool_name) is not None:
             sys.exit(0)
 
         new_state = _append_tool_use_id(new_state, tool_use_id)
