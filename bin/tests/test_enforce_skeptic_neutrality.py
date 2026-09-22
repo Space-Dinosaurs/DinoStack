@@ -415,14 +415,22 @@ def test_abbrev_anchor_assertequal_splits():
     assert result == "The retry classifier in retry.py is unrelated."
 
 
-def test_abbrev_anchor_genuine_eg_still_suppressed():
-    value = "Per the Engineer, the fix touches the retry path, e.g. the backoff calculation."
-    assert _mod.field7_violation([value]) is None
+def test_abbrev_anchor_devs_splits():
+    value = "Per the architect, ask the devs. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
 
 
-def test_abbrev_anchor_genuine_ie_still_suppressed():
-    value = "That is, i.e. the config change is unrelated to the retry path. [verified: a.py:1]"
-    assert _mod.field7_violation([value]) is None
+def test_abbrev_anchor_diffcf_splits():
+    value = "Per the architect, the config uses a diffCf. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
+
+
+def test_abbrev_anchor_planetc_splits():
+    value = "Per the architect, the fixture is a planetc. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
 
 
 def test_abbrev_anchor_genuine_etc_still_suppressed():

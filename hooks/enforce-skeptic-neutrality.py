@@ -264,23 +264,29 @@ Failure modes:
       not split at all, so the whole blob is checked as one unit and the
       leading tag/attribution falsely covers the untagged sentence that
       follows - DIRECTION: false negative (a bypass), the same failure
-      shape the word-boundary anchor fix above closed, but for the
-      genuine-abbreviation case the anchor cannot help: the split must be
-      suppressed for the mid-sentence use and allowed for the
-      sentence-final use, and the abbreviation's own trailing characters
-      carry no signal to tell them apart. Reproduced by execution:
-      "Per the architect, it touches hooks, tests, etc. The real root
-      cause is the retry classifier in retry.py." is allowed in full.
-      Found this round; not fixed - resolving it needs the splitter to
-      reason about what follows the abbreviation (e.g. a capitalized word
-      starting a materially different clause), a heuristic no round to
-      date has scoped or validated against real corpus false-positive
-      risk.
+      shape `_SENT_SPLIT_RE`'s own word-boundary anchor (see the regex's
+      compile-site comment) closed for the LOOK-ALIKE-WORD case, but the
+      anchor cannot help with a GENUINE abbreviation:
+      the split must be suppressed for the mid-sentence use and allowed
+      for the sentence-final use, and the abbreviation's own trailing
+      characters carry no signal to tell them apart. Reproduced by
+      execution: "Per the architect, it touches hooks, tests, etc. The
+      real root cause is the retry classifier in retry.py." is allowed
+      in full. A second, narrower disclosed shape: `\b` requires only a
+      non-word character immediately before the abbreviation, not that
+      the preceding text is a genuinely separate word - a punctuation-
+      attached look-alike ("main.cf.", "/etc.", "x-al.") still satisfies
+      `\b` and still mis-suppresses the split, reproduced by execution.
+      Found this round; not fixed - resolving either shape needs the
+      splitter to reason about what follows the abbreviation (e.g. a
+      capitalized word starting a materially different clause) or about
+      the preceding token's own boundaries, heuristics no round to date
+      has scoped or validated against real corpus false-positive risk.
 
-    Complete disclosed-residual enumeration (round-5 re-count, by direct
-    re-grep of this section plus re-execution of each named test, not
-    restated from a prior round's count - a prior round's "EXACTLY ONE/
-    TWO disclosed" attestations were each themselves found false in a
+    Complete disclosed-residual enumeration (kept current every round by
+    direct re-grep of this section plus re-execution of each named test,
+    not restated from a prior round's count - a prior round's "EXACTLY
+    ONE/TWO disclosed" attestations were each themselves found false in a
     later round by exactly this omission; enumerating the full list here
     rather than asserting a bare count is round-4's fix for that pattern):
       1. Field-7 truncation false negative (bullet above, this section):
@@ -322,14 +328,19 @@ Failure modes:
          (bullet above, this section): a tagged/attributed sentence ending
          in a genuine abbreviation ("etc."/"et al."/"i.e.") is never split
          from the untagged sentence that follows it, so the leading tag
-         falsely covers the untagged claim. DIRECTION: false negative (a
-         bypass). Found this round; not fixed - the word-boundary anchor
-         fix cannot help here, since the anchor's whole purpose is telling
-         a genuine abbreviation apart from a look-alike word, and this
-         case IS the genuine abbreviation.
-    Eight residuals total as of this round (was seven on round 5). Round 5
-    fixed one further recognition bug, never a disclosed residual on this
-    list (a plain false-positive deny, found and closed in the same round
+         falsely covers the untagged claim. A second, narrower disclosed
+         shape under this same item: `\b` requires only a non-word
+         character immediately before the abbreviation, not genuine token
+         isolation, so a punctuation-attached look-alike ("main.cf.",
+         "/etc.", "x-al.") also mis-suppresses the split. DIRECTION: false
+         negative (a bypass), both shapes. Found this round; not fixed -
+         the word-boundary anchor separates a look-alike WORD from a
+         genuine abbreviation, but neither shape here is that case: one is
+         the genuine abbreviation itself used sentence-finally, the other
+         is a look-alike the anchor was never able to catch in the first
+         place.
+    Round 5 fixed one further recognition bug, never a disclosed residual on
+    this list (a plain false-positive deny, found and closed in the same round
     it was found, the same pattern as the two round-4 defects below):
     typographic-normalization scope - `_TYPOGRAPHIC_NORMALIZE_TABLE`
     previously applied only inside `_strip_field7_neutrality_note`'s own
@@ -345,10 +356,13 @@ Failure modes:
     newly disclosed this round rather than left unrecorded. Round 5 also
     found the missing word-boundary anchor on the abbreviation lookbehinds
     (out of scope for that unit); it was fixed in a separate unit in round
-    6 and is no longer a residual. That same round-6 unit found item 8
-    above - a genuine abbreviation ending a sentence bypasses the split -
-    while confirming the word-boundary fix itself against 798 replayed
-    real spawns (0 flips); item 8 is disclosed, not fixed, this round.
+    6, confirmed against 798 replayed real spawns (0 flips), and is no
+    longer a residual. That same round-6 unit found item 8's first shape -
+    a genuine abbreviation ending a sentence bypasses the split. Round 7
+    found item 8's second shape - `\b` also passes a punctuation-attached
+    look-alike, since it requires only a non-word character immediately
+    before, not genuine token isolation. Item 8 (both shapes) is
+    disclosed, not fixed.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
@@ -825,12 +839,17 @@ def _strip_field7_neutrality_note(text: str) -> str:
 # lowercase word after a closing "]" would then also split, no longer
 # distinguishing a genuinely new sentence from mid-value bracket noise).
 # Each abbreviation lookbehind carries a leading `\b` (zero-width, so it
-# does not change the lookbehind's fixed character width) so the guard
-# fires only when the abbreviation is a standalone word - without it, any
-# word merely ENDING in the same letters ("minimal.", "final.", "vs." as
-# a substring of a longer token, etc.) mis-suppressed the split too, which
-# let a tagged/attributed sentence's cover extend over the next, untagged
-# sentence (found and fixed this round).
+# does not change the lookbehind's fixed character width) so the guard no
+# longer fires when a LETTER immediately precedes the abbreviation letters
+# - without it, any word merely ENDING in the same letters ("minimal.",
+# "final.", "vs." as a substring of a longer token, etc.) mis-suppressed
+# the split too, which let a tagged/attributed sentence's cover extend
+# over the next, untagged sentence (found and fixed this round). `\b`
+# requires only a non-word character immediately before, not genuine
+# token isolation, so a punctuation-attached look-alike ("main.cf.",
+# "/etc.", "x-al.") still satisfies it and still mis-suppresses the split
+# - a narrower residual than the one this fix closes; see the module
+# docstring's residual list, item 8.
 _SENT_SPLIT_RE = re.compile(
     r'(?<!\b(?i:e\.g\.))(?<!\b(?i:i\.e\.))(?<!\b(?i:etc\.))(?<!\b(?i:vs\.))(?<!\b(?i:cf\.))(?<!\b(?i:al\.))'
     r'(?<=[.?!])\s+(?!\[)'
