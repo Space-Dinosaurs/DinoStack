@@ -1746,9 +1746,13 @@ def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
 # `[verified-by-execution: ...]` tag: fourth canonical provenance tag
 # (content/sections/04-risk-classification.md's provenance test). Added
 # because this shape was in live conductor use before the hook recognized
-# it - every use was denied. `\b`, not a required `:`, because real uses
-# include a colon-detail form, a comma-session form, and a bare form with
-# no trailing punctuation at all.
+# it - every use was denied. Round-2 fix: the tag must be followed by `:`
+# or `,` (matching the corpus's colon-detail and comma-session forms) -
+# a bare `[verified-by-execution]` names no command and can't be checked,
+# and a round-1 `\b`-only match let a sentence that merely backtick-quotes
+# the bare tag as an example (real corpus record: "...and every
+# `[verified-by-execution]` tag it carries") read as falsely exempt. Both
+# are now denied.
 # =========================================================================== #
 def test_verified_by_execution_colon_detail_form_exempt():
     sentence = (
@@ -1763,9 +1767,28 @@ def test_verified_by_execution_comma_session_form_exempt():
     assert _mod.field7_violation([sentence]) is None
 
 
-def test_verified_by_execution_bare_form_exempt():
+def test_verified_by_execution_bare_form_denies():
+    """Round-2 fix: a bare tag with no `:` or `,` detail names no command
+    and can't be checked - it must deny, not be treated as exempt. This
+    also closes the real round-1 bypass where a sentence merely
+    backtick-quoting the bare tag as an example read as falsely exempt."""
     sentence = "The hook denies this sentence [verified-by-execution]."
-    assert _mod.field7_violation([sentence]) is None
+    result = _mod.field7_violation([sentence])
+    assert result == sentence
+
+
+def test_verified_by_execution_bare_quoted_mention_denies():
+    """Real round-1 bypass, reproduced verbatim (corpus record
+    skeptic_spawns.jsonl line 9): a claim that merely backtick-quotes
+    the bare tag as an example carries no genuine detail and must deny."""
+    sentence = (
+        "One caution from earlier this session: an architect asserted "
+        "`[verified-by-execution]` from a one-sided measurement and was "
+        "wrong, so treat single-shape verification claims as unverified "
+        "for the shapes not named."
+    )
+    result = _mod.field7_violation([sentence])
+    assert result == sentence
 
 
 def test_execution_mentioned_without_literal_bracket_still_denies():
@@ -1776,3 +1799,11 @@ def test_execution_mentioned_without_literal_bracket_still_denies():
     sentence = "The hook denies this sentence, verified by execution this session."
     result = _mod.field7_violation([sentence])
     assert result == sentence
+
+
+def test_field7_deny_reason_mentions_verified_by_execution_tag():
+    """Companion to test_round8_deny_message_flags_conductor_self_narration_
+    as_a_claim above: the deny message's enumerated tag list now names the
+    fourth canonical tag."""
+    reason = _mod._field7_deny_reason("some untagged sentence")
+    assert "[verified-by-execution" in reason

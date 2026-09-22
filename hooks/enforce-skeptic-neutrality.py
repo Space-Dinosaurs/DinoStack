@@ -237,16 +237,20 @@ Failure modes:
       an otherwise-compliant sentence). No real-session evidence yet
       shows a seventh form recurring; extend the list if that changes.
     - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
-      literal substring `[verified:` / `[verified-local:` / `[verified-by-execution` anywhere in a
-      sentence, so a sentence that merely quotes tag syntax as an example
+      literal substring `[verified:` / `[verified-local:` / `[verified-by-execution:`
+      / `[verified-by-execution,` anywhere in a sentence, so a sentence that
+      merely quotes any of these four canonical-tag prefixes as an example
       (rather than genuinely carrying a tag of its own) reads as exempt -
-      DIRECTION: false negative (a bypass, not a false deny). Fixing it
-      requires parsing the wrapping bracket's own well-formedness (e.g.
-      confirming the tag is the sentence's own trailing annotation, not
-      prose describing tag syntax) - a materially larger structural
-      change than any round to date has scoped; tracked as a named
-      residual, not silently absorbed. Re-verified by execution this
-      round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
+      DIRECTION: false negative (a bypass, not a false deny). A round-2
+      fix required `[verified-by-execution` to be followed by `:` or `,`
+      before this residual applies to it (a bare `[verified-by-execution]`
+      quoted or not, now denies), narrowing but not eliminating this class
+      for that tag. Fixing it requires parsing the wrapping bracket's own
+      well-formedness (e.g. confirming the tag is the sentence's own
+      trailing annotation, not prose describing tag syntax) - a materially
+      larger structural change than any round to date has scoped; tracked
+      as a named residual, not silently absorbed. Re-verified by execution
+      this round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
       `test_round3_residual_provenance_re_substring_match_false_negative`).
     - `_SENT_SPLIT_RE` scans raw characters with no awareness of bracket
       nesting, so sentence-ending punctuation or whitespace occurring
@@ -683,7 +687,7 @@ def extract_field7(prompt: str) -> list[str] | None:
 # --------------------------------------------------------------------------- #
 # Shared exemption markers (provenance tag, attribution, self-ref ticket)
 # --------------------------------------------------------------------------- #
-_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[verified-by-execution\b|\[per\s+\S+.*?,\s*unverified\]',
+_PROVENANCE_RE = re.compile(r'\[verified:|\[verified-local:|\[verified-by-execution[:,]|\[per\s+\S+.*?,\s*unverified\]',
                              re.IGNORECASE)
 
 # content/agents/skeptic.md:30 states the attribution carve-out is OPEN,
