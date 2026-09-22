@@ -255,6 +255,27 @@ Failure modes:
       (content/references/skeptic-protocol.md §7). Measured gain was 3 of
       798 replayed real spawns; not worth hardening further. Named,
       deferred follow-up, not implemented here.
+    - `_SENT_SPLIT_RE`'s abbreviation lookbehinds cannot distinguish a
+      genuine abbreviation that GENUINELY ENDS a sentence from the same
+      abbreviation used mid-sentence - the lookbehind only sees the
+      trailing characters, not sentence-level position. A tagged or
+      attributed sentence ending "..., etc." (or "et al."/"..., i.e.")
+      immediately followed by a real, independent, untagged sentence is
+      not split at all, so the whole blob is checked as one unit and the
+      leading tag/attribution falsely covers the untagged sentence that
+      follows - DIRECTION: false negative (a bypass), the same failure
+      shape the word-boundary anchor fix above closed, but for the
+      genuine-abbreviation case the anchor cannot help: the split must be
+      suppressed for the mid-sentence use and allowed for the
+      sentence-final use, and the abbreviation's own trailing characters
+      carry no signal to tell them apart. Reproduced by execution:
+      "Per the architect, it touches hooks, tests, etc. The real root
+      cause is the retry classifier in retry.py." is allowed in full.
+      Found this round; not fixed - resolving it needs the splitter to
+      reason about what follows the abbreviation (e.g. a capitalized word
+      starting a materially different clause), a heuristic no round to
+      date has scoped or validated against real corpus false-positive
+      risk.
 
     Complete disclosed-residual enumeration (round-5 re-count, by direct
     re-grep of this section plus re-execution of each named test, not
@@ -296,7 +317,17 @@ Failure modes:
          and NOT fixed this round - an attempted bracket-masking fix was
          reverted before merge for introducing a worse false-negative
          bypass; see the bullet above for the full rationale.
-    Seven residuals total as of this round (was six on round 4). Round 5
+      8. `_SENT_SPLIT_RE` cannot distinguish a genuine abbreviation that
+         ends a sentence from the same abbreviation used mid-sentence
+         (bullet above, this section): a tagged/attributed sentence ending
+         in a genuine abbreviation ("etc."/"et al."/"i.e.") is never split
+         from the untagged sentence that follows it, so the leading tag
+         falsely covers the untagged claim. DIRECTION: false negative (a
+         bypass). Found this round; not fixed - the word-boundary anchor
+         fix cannot help here, since the anchor's whole purpose is telling
+         a genuine abbreviation apart from a look-alike word, and this
+         case IS the genuine abbreviation.
+    Eight residuals total as of this round (was seven on round 5). Round 5
     fixed one further recognition bug, never a disclosed residual on this
     list (a plain false-positive deny, found and closed in the same round
     it was found, the same pattern as the two round-4 defects below):
@@ -313,8 +344,11 @@ Failure modes:
     reverted before merge for being net-worse than the defect it closed) -
     newly disclosed this round rather than left unrecorded. Round 5 also
     found the missing word-boundary anchor on the abbreviation lookbehinds
-    (out of scope for that unit); it was fixed in a separate unit and is no
-    longer a residual.
+    (out of scope for that unit); it was fixed in a separate unit in round
+    6 and is no longer a residual. That same round-6 unit found item 8
+    above - a genuine abbreviation ending a sentence bypasses the split -
+    while confirming the word-boundary fix itself against 798 replayed
+    real spawns (0 flips); item 8 is disclosed, not fixed, this round.
     Two additional round-4 defects - the unbolded preflight-mention
     false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
     than last-match) extraction - were FIXED in round 4 (see
