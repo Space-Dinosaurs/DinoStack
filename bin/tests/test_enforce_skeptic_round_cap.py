@@ -313,6 +313,33 @@ def _run_hook(payload: dict, run_cwd: str | None = None) -> tuple[int, dict | No
     return result.returncode, parsed
 
 
+@pytest.fixture(autouse=True)
+def _isolate_claude_config(monkeypatch, tmp_path):
+    """Round-3 rework, Minor 3: the hook's sibling-deny consultation (see
+    `_sibling_registered` in the hook itself) reads settings.json files
+    off `CLAUDE_CONFIG_DIR` (falling back to `~/.claude`). Without this
+    fixture, EVERY `_run_hook` call in this file inherits the real
+    ambient environment, so a local run on a machine whose real
+    `~/.claude/settings.json` genuinely registers enforce-skeptic-
+    neutrality.py/enforce-tier.py reads that file on every invocation -
+    diverging from a CI run (no such file exists there) and violating
+    "never read the real settings.json in tests." Autouse: applies to
+    every test in this module without touching individual call sites.
+    Clears all four harness config-dir env vars and points
+    `CLAUDE_CONFIG_DIR` (and `HOME`, so the same-machine fallback path an
+    unset config-dir var would otherwise take also lands off-machine) at
+    a fresh, empty, per-test scratch directory - no settings.json exists
+    there, so every sibling registration in this file's tests is
+    "unconfirmed" (today's pre-consultation persist behavior), matching
+    what every test in this file already asserts."""
+    scratch = tmp_path / "claude-config-isolated"
+    scratch.mkdir()
+    for var in ("AGENTIC_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(scratch))
+    monkeypatch.setenv("HOME", str(scratch))
+
+
 def _is_denied(parsed: dict | None) -> bool:
     if not parsed:
         return False

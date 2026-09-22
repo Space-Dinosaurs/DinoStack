@@ -160,7 +160,11 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or
             variant `main()` itself calls), and the two brief-region
             category regexes (`_CAT_B`, `_CAT_C`) are also imported
             directly by bin/tests/test_enforce_skeptic_neutrality.py for
-            content-equality and violation-content assertions.
+            content-equality and violation-content assertions. `would_deny
+            (data: dict) -> str | None` (round-2 rework) is a pure,
+            side-effect-free re-implementation of `main()`'s deny decision
+            over the same payload shape - imported by path by
+            hooks/enforce-skeptic-round-cap.py's sibling-deny consultation.
 
 Upstream deps: Python 3 stdlib only (json, os, re, sys, importlib.util for
                the best-effort `lib/enforcement_log.py` import). No
@@ -177,6 +181,11 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task
                       spawn. `.agentic/.enforcement-fires.jsonl` (via
                       `lib/enforcement_log.py`) records every deny and
                       every allow_advisory row for calibration.
+                      hooks/enforce-skeptic-round-cap.py also imports this
+                      module by path (importlib) for its `would_deny`
+                      function, consulted before persisting round state -
+                      see that hook's "Sibling-deny consultation" docstring
+                      paragraph.
 
 Failure modes:
     - Malformed stdin, non-dict tool_input, non-Task/Agent tool_name, or
@@ -1034,6 +1043,80 @@ def _log_advisory(data: dict, reason: str) -> None:
         pass
 
 
+def _skeptic_spawn_tinput(data: dict) -> dict | None:
+    """Shared payload-shape guard for both `would_deny()` and `main()`
+    (round-2 rework, Minor 5 - the two previously repeated this exact
+    sequence verbatim). Returns the validated `tool_input` dict when *data*
+    is a dict, `tool_name` is "Task" or "Agent", `tool_input` is itself a
+    dict, and `tool_input["subagent_type"] == "skeptic"` - the same four
+    checks `main()` used to perform inline before this extraction. Returns
+    None on any failure; never raises. Deliberately does NOT check the
+    kill switch (callers differ on placement: `would_deny()` checks it
+    once at its own top before any extraction, `main()` checks it before
+    even reading stdin - see each caller's own comment)."""
+    if not isinstance(data, dict):
+        return None
+
+    tool_name = data.get("tool_name")
+    if tool_name not in ("Task", "Agent"):
+        return None
+
+    raw_tinput = data.get("tool_input")
+    if not isinstance(raw_tinput, dict):
+        return None
+    tinput = raw_tinput
+
+    if tinput.get("subagent_type") != "skeptic":
+        return None
+
+    return tinput
+
+
+def would_deny(data: dict) -> str | None:
+    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
+    at the same top-level PreToolUse payload shape `main()` reads from
+    stdin. Returns the deny reason string `main()` would print, or None
+    when this hook would not deny (including a set kill switch, a
+    non-Task/Agent tool_name, a non-skeptic subagent_type, malformed
+    input, or a clean brief/field-7). Never calls `_deny`, `_log_advisory`,
+    or `log_fire` - logging and process-exit remain `main()`'s exclusive
+    concern. Never raises.
+
+    Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
+    before persisting round state, so a spawn this hook would deny never
+    advances the round counter - see that hook's module docstring."""
+    if os.environ.get(KILL_SWITCH_ENV) == "1":
+        return None
+    try:
+        tinput = _skeptic_spawn_tinput(data)
+        if tinput is None:
+            return None
+
+        prompt = tinput.get("prompt")
+        prompt_text = prompt if isinstance(prompt, str) else ""
+
+        brief_paragraphs = extract_brief(prompt_text)
+        field7_paragraphs, field7_truncated = extract_field7_ex(prompt_text)
+
+        if field7_paragraphs and not field7_truncated:
+            violation = field7_violation(field7_paragraphs)
+            if violation:
+                return _field7_deny_reason(violation)
+
+        if brief_paragraphs:
+            for para in brief_paragraphs:
+                if _paragraph_exempt(para):
+                    continue
+                for name, pat in _BRIEF_CATEGORIES:
+                    m = pat.search(para)
+                    if m:
+                        return _brief_deny_reason(name, m.group(0))
+
+        return None
+    except Exception:
+        return None
+
+
 def main() -> None:
     # Kill-switch checked FIRST, before any extraction or log_fire call, so
     # it suppresses BOTH deny paths and every allow_advisory logging path.
@@ -1046,19 +1129,8 @@ def main() -> None:
         except Exception:
             sys.exit(0)
 
-        if not isinstance(data, dict):
-            sys.exit(0)
-
-        tool_name = data.get("tool_name")
-        if tool_name not in ("Task", "Agent"):
-            sys.exit(0)
-
-        raw_tinput = data.get("tool_input")
-        if not isinstance(raw_tinput, dict):
-            sys.exit(0)
-        tinput = raw_tinput
-
-        if tinput.get("subagent_type") != "skeptic":
+        tinput = _skeptic_spawn_tinput(data)
+        if tinput is None:
             sys.exit(0)
 
         prompt = tinput.get("prompt")
@@ -1071,28 +1143,17 @@ def main() -> None:
             _log_advisory(data, _ADVISORY_BRIEF_MISSING)
         if field7_paragraphs is None:
             _log_advisory(data, _ADVISORY_FIELD7_MISSING)
+        if field7_paragraphs and field7_truncated:
+            # Extraction window closed before the field's logical end - the
+            # captured fragment cannot be proven untagged, so this hook
+            # downgrades to advisory rather than deny (see
+            # `_extract_bounded_region_ex`'s docstring and
+            # `_ADVISORY_FIELD7_TRUNCATED`).
+            _log_advisory(data, _ADVISORY_FIELD7_TRUNCATED)
 
-        if field7_paragraphs:
-            if field7_truncated:
-                # Extraction window closed before the field's logical end -
-                # the captured fragment cannot be proven untagged, so this
-                # hook downgrades to advisory rather than deny (see
-                # `_extract_bounded_region_ex`'s docstring and
-                # `_ADVISORY_FIELD7_TRUNCATED`).
-                _log_advisory(data, _ADVISORY_FIELD7_TRUNCATED)
-            else:
-                violation = field7_violation(field7_paragraphs)
-                if violation:
-                    _deny(data, _field7_deny_reason(violation))  # exits
-
-        if brief_paragraphs:
-            for para in brief_paragraphs:
-                if _paragraph_exempt(para):
-                    continue
-                for name, pat in _BRIEF_CATEGORIES:
-                    m = pat.search(para)
-                    if m:
-                        _deny(data, _brief_deny_reason(name, m.group(0)))  # exits
+        reason = would_deny(data)
+        if reason:
+            _deny(data, reason)  # exits
 
         sys.exit(0)
 
