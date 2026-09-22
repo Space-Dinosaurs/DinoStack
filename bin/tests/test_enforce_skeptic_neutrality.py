@@ -1584,3 +1584,159 @@ def test_round5_fix_a_self_ref_ticket_en_dash_also_normalized():
     # about the self-reference rule existing at all.
     ascii_value = "DS-230 is the ticket for this fix."
     assert _mod.field7_violation([ascii_value]) is None
+
+
+# =========================================================================== #
+# Field-7 abbreviation-lookbehind fixes: `_ABBREV_ISOLATION` replacing `\b`
+# in the abbreviation lookbehinds (Fix E, closes module-docstring residual
+# item 8's second shape for all six abbreviation forms), a narrow etc./al.
+# force-split (Fix B-narrow, closes item 8's first shape for those two
+# forms only - deliberately NOT extended to e.g./i.e./vs./cf., and itself
+# a source of a new false-positive residual, module docstring item 10),
+# and a leading isolation-space fix so `_ABBREV_ISOLATION` can match at
+# the very start of the field-7 text - a fix to the lookbehind mechanism
+# itself, independent of the backtick-code-span-masking attempt below, not
+# attributable to it. See hooks/enforce-skeptic-neutrality.py's module
+# docstring for the full, current residual accounting.
+#
+# A backtick-code-span-masking fix ("Fix A") was attempted separately, to
+# close a period, question mark, or exclamation point inside a backtick
+# span being read as sentence-ending punctuation. It was SUBTRACTED, not
+# shipped: each guard added to contain one of its own bypasses relocated
+# the bypass rather than closing it (first a span straddling a genuine
+# sentence boundary; then an untagged sentence starting right after a
+# masked span with a lowercase letter, a digit, or a quote, plus an `n/a`
+# value hiding a claim inside a span; the bracket guard itself never had
+# a discriminating test), and its measured gain was 3 of 798 replayed
+# real spawns, each a false deny in the safe direction. Every Fix-A test
+# is deleted along with it. The inline-code-span punctuation false
+# positive Fix A was trying to close is now a disclosed, unfixed residual
+# (module docstring item 9).
+# =========================================================================== #
+def test_round8_fix_start_of_text_isolation_all_six_forms_allowed():
+    """The fixed-width `_ABBREV_ISOLATION` lookbehind cannot match when
+    there is no character at all before the abbreviation, unlike `\\b`
+    (which matches at string start) - a field-7 value genuinely STARTING
+    with an abbreviation was falsely denied before this fix. Fixed by
+    prepending a single isolation character (space) before splitting.
+    All six recognized forms are checked at the very start of the
+    field-7 text; none of these is denied on origin/main either."""
+    cases = {
+        "e.g.": "e.g. Windows versus Linux [per architect, unverified].",
+        "i.e.": "i.e. the config change is unrelated to the retry path. [verified: a.py:1]",
+        "etc.": "etc. files are untouched here [verified: a.py:1].",
+        "vs.": "vs. main, the retry branch is unrelated [verified: a.py:1].",
+        "cf.": "cf. Section 7 for the neutrality rule [verified: a.py:1].",
+        "al.": "al. is unrelated to this claim [per architect, unverified].",
+    }
+    for label, value in cases.items():
+        assert _mod.field7_violation([value]) is None, f"{label} at start of text was denied"
+
+
+def test_round8_fix_start_of_text_isolation_parenthesized_mid_sentence_still_allowed():
+    """`_ABBREV_ISOLATION` must treat an opening paren, not only whitespace,
+    as isolation - a tagged sentence using a parenthetical "(e.g. ...)"
+    aside must stay one sentence and allowed. Reddens if
+    `_ABBREV_ISOLATION` is ever narrowed to `\\s` alone: the "(" before
+    "e.g." would no longer satisfy isolation, so the split would no
+    longer be suppressed there and the untagged leading fragment would be
+    falsely denied."""
+    value = (
+        "The tool works on multiple platforms (e.g. Windows versus Linux) "
+        "without issue. [verified: a.py:1]"
+    )
+    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 1
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_b_narrow_mid_sentence_vs_still_allowed():
+    """Compliant mid-sentence 'vs.' use is not force-split - Fix B-narrow
+    is scoped to etc./al. only. Plan's literal fixture, no attribution
+    prefix - this exact string starts mid-sentence (not with the
+    abbreviation itself), so it is unaffected by the start-of-text fix
+    above, and is a clean check that Fix B-narrow's own scoping still
+    holds."""
+    value = "approach A vs. B in detail [per architect, unverified]."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_b_narrow_mid_sentence_eg_still_allowed():
+    """Compliant mid-sentence 'e.g.' use is not force-split - Fix
+    B-narrow is scoped to etc./al. only. Plan's literal fixture, no
+    attribution prefix - this string STARTS with the abbreviation, so
+    it exercises the start-of-text isolation fix above at the same time
+    as Fix B-narrow's own scoping."""
+    value = "e.g. Windows versus Linux [per architect, unverified]."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round8_fix_b_narrow_etc_genuine_sentence_final_denies():
+    """A tagged/attributed sentence genuinely ENDING in 'etc.' immediately
+    followed by a real, independent, untagged sentence is now split and
+    denied - closes module-docstring residual item 8's first shape for
+    'etc.' specifically."""
+    value = (
+        "Per the architect, it touches hooks, tests, etc. "
+        "The real root cause is the retry classifier in retry.py."
+    )
+    result = _mod.field7_violation([value])
+    assert result == "The real root cause is the retry classifier in retry.py."
+
+
+def test_round8_fix_b_narrow_al_genuine_sentence_final_denies():
+    """Same property as the etc. test above, for 'al.' (as in 'et al.') -
+    the force-split alternative for 'al.' had no dedicated test before
+    this round."""
+    value = (
+        "Per the architect, the design was reviewed by Kant et al. "
+        "The retry classifier is broken."
+    )
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier is broken."
+
+
+def test_round8_fix_b_narrow_etc_sentence_final_non_capital_still_allowed():
+    """Disclosed, NOT fixed (module docstring item 8): a sentence-final
+    'etc.' followed by a lowercase word, a digit, a backtick, or a
+    closing paren is not force-split and still suppresses the split -
+    the force-split alternative only fires when the following word is
+    capitalized."""
+    cases = {
+        "lowercase next": (
+            "Per the architect, it touches hooks, tests, etc. the real "
+            "root cause is the retry classifier in retry.py."
+        ),
+        "digit next": (
+            "Per the architect, it touches hooks, tests, etc. 2 files "
+            "changed in retry.py."
+        ),
+        "backtick next": (
+            "Per the architect, it touches hooks, tests, etc. `retry.py` "
+            "is the real root cause."
+        ),
+        "paren next": (
+            "Per the architect, it touches hooks, tests, etc. (see "
+            "retry.py) is the real root cause."
+        ),
+    }
+    for label, value in cases.items():
+        assert _mod.field7_violation([value]) is None, f"{label} was denied"
+
+
+def test_round8_fix_e_punctuation_glued_abbreviation_denies():
+    """A tagged/attributed sentence ending in a punctuation-glued
+    look-alike abbreviation ('main.cf.') no longer suppresses the split
+    to a genuinely separate, untagged sentence that follows - closes
+    module-docstring residual item 8's second shape for all six forms."""
+    value = "Per the architect, see main.cf. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
+
+
+def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
+    """`_field7_deny_reason`'s message now tells the conductor that a
+    sentence narrating its OWN process is itself a claim requiring a
+    provenance tag or omission - pure string addition, no logic change."""
+    reason = _mod._field7_deny_reason("some untagged sentence")
+    assert "[per conductor, unverified]" in reason
+    assert "OWN process" in reason
