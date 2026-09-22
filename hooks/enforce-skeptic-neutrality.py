@@ -224,8 +224,12 @@ Failure modes:
       `cf.`/`et al.`) is a fixed, non-exhaustive list - an abbreviation
       outside this list that ends mid-sentence in a period can still be
       mis-split, the same class of false positive this round fixed for
-      the six listed forms. No real-session evidence yet shows a
-      seventh form recurring; extend the list if that changes.
+      the six listed forms - DIRECTION: false positive (a false deny on
+      an otherwise-compliant sentence). No real-session evidence yet
+      shows a seventh form recurring; extend the list if that changes. A
+      separate, opposite-direction defect in the same four lookbehinds -
+      each missing a word-boundary anchor - is tracked below as its own
+      residual (item 8), not conflated with this one.
     - `_PROVENANCE_RE` false negative (disclosed, NOT fixed): matches the
       literal substring `[verified:` / `[verified-local:` anywhere in a
       sentence, so a sentence that merely quotes tag syntax as an example
@@ -238,8 +242,34 @@ Failure modes:
       residual, not silently absorbed. Re-verified by execution this
       round (see `bin/tests/test_enforce_skeptic_neutrality.py`'s
       `test_round3_residual_provenance_re_substring_match_false_negative`).
+    - `_SENT_SPLIT_RE` scans raw characters with no awareness of bracket
+      nesting, so sentence-ending punctuation or whitespace occurring
+      INSIDE a tag's own bracketed content (e.g. a shell command
+      containing "..." or a "|" pipe) can still split a single,
+      fully-tagged sentence into an untagged tail fragment that is
+      falsely denied - DIRECTION: false positive. Reproduced against two
+      real corpus spawns this round. A depth-tracked bracket-masking fix
+      was attempted and REVERTED before merge: it exempted every sentence
+      following an unclosed `[` to end-of-string, and made whole
+      sentences inside a balanced bracket invisible to the per-sentence
+      check entirely - a false-negative bypass strictly worse than the
+      false positive it closed, and a direct violation of this rule's own
+      "a tag never exempts a different sentence" guarantee
+      (content/references/skeptic-protocol.md §7). Measured gain was 3 of
+      798 replayed real spawns; not worth hardening further. Named,
+      deferred follow-up, not implemented here.
+    - `_SENT_SPLIT_RE`'s abbreviation lookbehinds (`al.`/`vs.`/`cf.`/`etc.`)
+      have no word-boundary anchor, so a word merely ENDING in one of
+      those letter sequences - "minimal.", "final.", "assertEqual." - also
+      suppresses the split, not just the abbreviation itself. A tag or
+      attribution on one sentence then exempts the following untagged
+      sentence: "Per the architect, the change is minimal. The real root
+      cause is the retry classifier in retry.py." is allowed in full -
+      DIRECTION: false negative (a bypass). Found this round; this
+      behavior predates this PR and this unit does not change splitting
+      - a separate unit is scoped to add the anchors.
 
-    Complete disclosed-residual enumeration (round-4 re-count, by direct
+    Complete disclosed-residual enumeration (round-5 re-count, by direct
     re-grep of this section plus re-execution of each named test, not
     restated from a prior round's count - a prior round's "EXACTLY ONE/
     TWO disclosed" attestations were each themselves found false in a
@@ -259,9 +289,10 @@ Failure modes:
       4. `_SENT_SPLIT_RE` abbreviation-guard non-exhaustiveness (bullet
          above, this section): an abbreviation outside the fixed 6-form
          list can still mis-split a compliant sentence. DIRECTION: false
-         positive (a false deny on an otherwise-compliant sentence).
-      5. `_PROVENANCE_RE` substring-match false negative (bullet
-         immediately above): quoted tag syntax reads as exempt.
+         positive (a false deny on an otherwise-compliant sentence). Not
+         to be confused with item 8 below - same guard, opposite direction.
+      5. `_PROVENANCE_RE` substring-match false negative (bullet above,
+         this section): quoted tag syntax reads as exempt.
          DIRECTION: false negative (bypass).
       6. Bolded-quote preflight boundary (this module's Purpose docstring,
          "CORRECTED this round" paragraph): a preflight block quoting a
@@ -272,13 +303,44 @@ Failure modes:
          the real, current brief/field-7 value) - narrower than the
          unbolded-mention shape fixed this round (requires the conductor
          to reproduce heading-shaped bold markup while quoting history).
-    Six residuals total as of this round, not one. Two additional
-    round-4 defects - the unbolded preflight-mention false-positive deny,
-    and `_FIELD7_START_RE`'s first-match (rather than last-match)
-    extraction - are FIXED this round (see `_boundary_alt`'s comment and
-    `_FIELD7_START_RE`'s own comment above) and are covered by regression
-    tests with confirmed-failing-pre-fix mutations, not merely re-labeled
-    as residuals.
+      7. `_SENT_SPLIT_RE` bracket-unaware splitting (bullet above, this
+         section): sentence-ending punctuation or whitespace inside a tag's
+         own bracketed content can still mis-split a fully-tagged sentence
+         into an untagged tail fragment. DIRECTION: false positive. Found
+         and NOT fixed this round - an attempted bracket-masking fix was
+         reverted before merge for introducing a worse false-negative
+         bypass; see the bullet above for the full rationale.
+      8. `_SENT_SPLIT_RE` abbreviation-lookbehind missing word-boundary
+         anchor (bullet above, this section): a word merely ending in
+         "al."/"vs."/"cf."/"etc." also suppresses the split, letting a tag
+         or attribution on one sentence exempt the following untagged
+         sentence. DIRECTION: false negative (a bypass). Found this round;
+         predates this PR and out of scope for this unit - a separate unit
+         is scoped to add the anchors. Not to be confused with item 4
+         above - same guard, opposite direction.
+    Eight residuals total as of this round (was six on round 4). Round 5
+    fixed one further recognition bug, never a disclosed residual on this
+    list (a plain false-positive deny, found and closed in the same round
+    it was found, the same pattern as the two round-4 defects below):
+    typographic-normalization scope - `_TYPOGRAPHIC_NORMALIZE_TABLE`
+    previously applied only inside `_strip_field7_neutrality_note`'s own
+    internal matching, so an `n/a` value using a hand-typed en/em dash
+    instead of an ASCII hyphen fell through `_field7_is_exempt_na` and
+    denied; now applied to the whole joined field-7 text before every
+    downstream check (see `field7_violation`'s own "SECOND typographic-
+    normalization bug" docstring paragraph above). Reproduced against a
+    real corpus spawn and covered by a regression test with a confirmed-
+    failing-pre-fix mutation. Round 5 also found two further pre-existing
+    defects, neither fixed this round: item 7 above (an attempted fix was
+    reverted before merge for being net-worse than the defect it closed)
+    and item 8 above (out of scope for this unit) - both newly disclosed
+    this round rather than left unrecorded.
+    Two additional round-4 defects - the unbolded preflight-mention
+    false-positive deny, and `_FIELD7_START_RE`'s first-match (rather
+    than last-match) extraction - were FIXED in round 4 (see
+    `_boundary_alt`'s comment and `_FIELD7_START_RE`'s own comment above)
+    and remain covered by their own regression tests, not merely
+    re-labeled as residuals.
     - Best-effort dynamic import of `lib/enforcement_log.py` for
       `log_fire()`; any import error falls back to a no-op, matching
       every other enforce-*.py hook's fire-logging pattern. A lost
@@ -791,10 +853,34 @@ def field7_violation(field7_paragraphs: list[str] | None) -> str | None:
     Deliberately NOT applied to the brief region - see this module's
     Purpose docstring and the architect plan's proof that all 10 §8
     templates would deny under this rule despite carrying no violation
-    under their own stated purpose."""
+    under their own stated purpose.
+
+    SECOND typographic-normalization bug (found this round): the prior
+    version applied `_TYPOGRAPHIC_NORMALIZE_TABLE` only INSIDE the
+    note-strip's own internal matching, never to the field-7 text at
+    large - so a hand-typed 'n/a <en-or-em-dash> <reason>' (the character
+    a smart-typing editor substitutes for a hyphen) fell through
+    `_field7_is_exempt_na`'s ASCII-hyphen-only `_NA_WITH_REASON_RE` and
+    denied, while the byte-for-byte-equivalent 'n/a - <reason>' (ASCII
+    hyphen) was exempt - a false-positive deny on incidental punctuation
+    variance, not content, the same class of bug the note-strip was
+    already fixed for. Fixed by normalizing the WHOLE joined field before
+    the note-strip, the n/a-exemption check, and the per-sentence check
+    all run, so every downstream step already sees curly quotes/en-/
+    em-dashes folded to their ASCII equivalents - not just the trailing
+    note bracket.
+
+    Applying normalization to the whole field, not just the note bracket,
+    means every field-7 check - the n/a-exemption shape, the
+    neutrality-note strip, and the per-sentence provenance/attribution/
+    self-reference match - now runs on typographically normalized text, so
+    a dash or curly-quote variant of any recognized form is treated the
+    same as its ASCII form. Deny messages quote the normalized text, not
+    the conductor's literal keystrokes."""
     if not field7_paragraphs:
         return None
-    joined = _strip_field7_neutrality_note(" ".join(field7_paragraphs))
+    joined = " ".join(field7_paragraphs).translate(_TYPOGRAPHIC_NORMALIZE_TABLE)
+    joined = _strip_field7_neutrality_note(joined)
     if _field7_is_exempt_na(joined):
         return None
     for sent in _split_sentences_keep_trailing_tag(joined):

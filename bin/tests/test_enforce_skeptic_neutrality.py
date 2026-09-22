@@ -1277,13 +1277,22 @@ def test_round3_fix_minor_mutation_pre_fix_punctuation_variant_denies():
 def test_round3_fix_minor_content_deviation_still_denies():
     """The normalization/optional-period tolerance must not become a
     generic escape hatch: a bracket carrying a genuine content deviation
-    (not just punctuation) must still fail to strip and deny normally."""
+    (not just punctuation) must still fail to strip and deny normally.
+
+    This round's Fix A widens `_TYPOGRAPHIC_NORMALIZE_TABLE` application to
+    the whole joined field-7 text (not just the note-strip's own internal
+    matching), so the returned violation text is itself normalized - the
+    curly quotes in the input fixture come back as straight quotes in the
+    denied sentence. The deny DECISION is what this test guards; the
+    expected string below reflects that normalization, deliberately not
+    byte-identical to the input."""
     value = (
         "The retry fix is definitely correct. [Neutrality: some unrelated "
         "note referencing skeptic-protocol.md Section 7 "
         "“Neutrality requirement”]"
     )
-    assert _mod.field7_violation([value]) == value
+    expected = value.translate(_mod._TYPOGRAPHIC_NORMALIZE_TABLE)
+    assert _mod.field7_violation([value]) == expected
 
 
 # =========================================================================== #
@@ -1437,3 +1446,69 @@ def test_docstring_states_bounded_scope():
     doc = _mod.__doc__ or ""
     assert "exactly two narrow, bounded surfaces" in doc
     assert "never by this hook" in doc
+
+
+# =========================================================================== #
+# Round-5 fix: typographic-normalization scope - `_TYPOGRAPHIC_NORMALIZE_TABLE`
+# is now applied to the whole joined field-7 text before the note-strip,
+# the n/a-exemption check, and the per-sentence check, not only inside the
+# note-strip's own internal matching. Reproduced on a real corpus spawn
+# whose "n/a - <reason>" clause used a hand-typed en/em dash instead of an
+# ASCII hyphen.
+#
+# (A second recognition bug - bracket-unaware sentence splitting - was
+# found and an attempted fix was reverted before merge; see the module
+# docstring's disclosed-residual list item 7 for the rationale. No test
+# for it is added here.)
+#
+# Dash/curly-quote characters below are built via chr(...) rather than a
+# literal or backslash-escaped character in source, per repo convention
+# (no added em dash bytes in the diff outside this documented exception).
+# =========================================================================== #
+_EM_DASH = chr(0x2014)
+_EN_DASH = chr(0x2013)
+_LEFT_SINGLE_QUOTE = chr(0x2018)
+_RIGHT_SINGLE_QUOTE = chr(0x2019)
+
+
+def test_round5_fix_a_em_dash_na_separator_exempt(tmp_path):
+    """An 'n/a <em-dash> <reason>' value (the character a smart-typing
+    editor substitutes for a hyphen) must be exempt exactly like the ASCII
+    'n/a - <reason>' form - the em dash is incidental punctuation, not
+    content."""
+    value = "n/a " + _EM_DASH + " Trivial direct edit"
+    prompt = f"7. Conductor spawn brief (...): {value}\n\n## What to review\n"
+    rc, parsed, _ = _run_hook(_payload(str(tmp_path), prompt))
+    assert rc == 0
+    assert not _is_denied(parsed), _deny_reason(parsed)
+    assert _mod.field7_violation([value]) is None
+
+
+def test_round5_fix_a_en_dash_and_curly_quotes_na_separator_exempt():
+    """Same property, en dash plus curly quotes in the reason text - all
+    fold to ASCII before the exemption check runs."""
+    value = "n/a " + _EN_DASH + " " + _LEFT_SINGLE_QUOTE + "Trivial" + _RIGHT_SINGLE_QUOTE + " direct edit"
+    assert _mod.field7_violation([value]) is None
+
+
+# =========================================================================== #
+# Round-5 Fix A, disclosed side effect: whole-field normalization also
+# widens `_SELF_REF_TICKET_RE`'s match to a self-reference ticket id
+# hand-typed with an en/em dash instead of an ASCII hyphen. Same
+# typographic-variance tolerance already extended to the n/a and
+# neutrality-note forms, not a new exemption category - pinned here as a
+# known, intended consequence.
+# =========================================================================== #
+def test_round5_fix_a_self_ref_ticket_en_dash_also_normalized():
+    """A self-referential ticket claim hand-typed with an en dash instead
+    of an ASCII hyphen (e.g. 'DS<en-dash>230') is exempt, matching
+    `_SELF_REF_TICKET_RE` against the same normalized text every other
+    check now sees."""
+    value = "DS" + _EN_DASH + "230 is the ticket for this fix."
+    assert _mod.field7_violation([value]) is None
+
+    # Control: the ASCII-hyphen form already matched before this round -
+    # this test is about the en-dash form gaining the same treatment, not
+    # about the self-reference rule existing at all.
+    ascii_value = "DS-230 is the ticket for this fix."
+    assert _mod.field7_violation([ascii_value]) is None
