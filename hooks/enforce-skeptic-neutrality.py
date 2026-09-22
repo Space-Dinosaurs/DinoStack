@@ -350,7 +350,6 @@ Failure modes:
          and NOT fixed this round - an attempted bracket-masking fix was
          reverted before merge for introducing a worse false-negative
          bypass; see the bullet above for the full rationale.
-      9. Inline code-span punctuation (NEW, disclosed, NOT fixed): a `.`, `?`, or `!` inside a backtick code span can mis-split a compliant tagged sentence into an untagged tail fragment (false positive, safe direction).
       8. `_SENT_SPLIT_RE` cannot distinguish a genuine sentence-final
          abbreviation from the same abbreviation used mid-sentence
          (bullet above, this section), NARROWED round 8: a
@@ -373,6 +372,25 @@ Failure modes:
          CLOSED round 8 for all six forms (`_ABBREV_ISOLATION` replaces
          `\b`; see the bullet above and `_SENT_SPLIT_RE`'s compile-site
          comment) and is no longer a residual.
+      9. Inline code-span punctuation (disclosed, NOT fixed): a `.`, `?`,
+         or `!` inside a backtick code span can mis-split a compliant
+         tagged sentence into an untagged tail fragment. DIRECTION: false
+         positive, safe direction.
+      10. Force-split over-fires on mid-sentence "etc."/"al." before a
+          capitalized word (bullet above, this section, Fix B-narrow): a
+          compliant, tagged sentence containing "et al." or "etc." that is
+          NOT genuinely sentence-final, immediately followed by whitespace
+          then a capitalized word, is still force-split and its leading,
+          untagged fragment denied (reproduced: "Reviewed by Smith et al.
+          Retry is broken [verified: a.py:1]." and "It touches hooks,
+          tests, etc. Python files too [per architect, unverified]." both
+          denied in full). The same punctuation-glued-look-alike fix (Fix
+          E) can also break the single-sentence `n/a - <reason>` exemption
+          when the reason itself contains a glued abbreviation followed by
+          more reason text (reproduced: "n/a - touches /etc. files only"
+          denied in full). DIRECTION: false positive in all three cases (a
+          false deny in the safe direction), disclosed and not fixed - no
+          real-corpus spawn has hit this shape.
     Round 5 fixed one further recognition bug, never a disclosed residual on
     this list (a plain false-positive deny, found and closed in the same round
     it was found, the same pattern as the two round-4 defects below):
@@ -910,11 +928,13 @@ def _strip_field7_neutrality_note(text: str) -> str:
 # start of the field-7 text (no preceding character at all), the
 # fixed-width lookbehind cannot match either, which changes behavior from
 # `\b` (a word boundary exists at string start) - a leading abbreviation
-# ("e.g. ..." as the field's first four characters) is no longer
-# suppressed by this fix, a narrower behavior change than the punctuation-
-# glued fix itself; see this hook's test file and the round-8 replay notes
-# for the measured effect against both real corpora (zero observed flips
-# from this specific sub-case).
+# ("e.g. ..." as the field's first four characters) was no longer
+# suppressed by this fix when first shipped, a Major found by execution
+# and closed in the same round's rework:
+# `_split_sentences_keep_trailing_tag` now prepends a single isolation
+# character (space) before splitting, so a leading abbreviation sees the
+# same isolation character `_ABBREV_ISOLATION` already requires
+# everywhere else, and is suppressed uniformly with a mid-text occurrence.
 _ABBREV_ISOLATION = r'[\s(\'"\[]'
 
 # Round 8 fix (item 8, first shape - genuine sentence-final abbreviation,
@@ -936,7 +956,11 @@ _ABBREV_ISOLATION = r'[\s(\'"\[]'
 # noun or the start of an independent clause, far more often in real
 # spawns than they are used to end a sentence, so a genuine sentence-final
 # use of "e.g."/"i.e."/"vs."/"cf." remains a disclosed residual (module
-# docstring, item 8).
+# docstring, item 8). The force-split alternatives below cannot tell a
+# genuine sentence-final "etc."/"al." from a mid-sentence one immediately
+# followed by a capitalized word either, so they can also produce a false
+# deny in the opposite (safe) direction on compliant text - disclosed,
+# not fixed (module docstring, item 10).
 _SENT_SPLIT_RE = re.compile(
     r'(?<!' + _ABBREV_ISOLATION + r'(?i:e\.g\.))'
     r'(?<!' + _ABBREV_ISOLATION + r'(?i:i\.e\.))'
@@ -949,6 +973,7 @@ _SENT_SPLIT_RE = re.compile(
     r'|(?<=' + _ABBREV_ISOLATION + r'(?i:al\.))\s+(?=[A-Z])'
     r'|(?<=\])\s+(?=[A-Z])'
 )
+
 
 def _split_sentences_keep_trailing_tag(text: str) -> list[str]:
     # Round-8 fix (Major, start-of-text isolation): the abbreviation

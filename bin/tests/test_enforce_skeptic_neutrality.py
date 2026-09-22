@@ -1587,39 +1587,31 @@ def test_round5_fix_a_self_ref_ticket_en_dash_also_normalized():
 
 
 # =========================================================================== #
-# Round 8 fixes: `_ABBREV_ISOLATION` replacing `\b` in the abbreviation
-# lookbehinds (Fix E, closes module-docstring residual item 8's second
-# shape for all six abbreviation forms), a narrow etc./al. force-split
-# (Fix B-narrow, closes item 8's first shape for those two forms only -
-# deliberately NOT extended to e.g./i.e./vs./cf.), and a leading
-# isolation-space fix so `_ABBREV_ISOLATION` can match at the very start
-# of the field-7 text. See hooks/enforce-skeptic-neutrality.py's module
+# Field-7 abbreviation-lookbehind fixes: `_ABBREV_ISOLATION` replacing `\b`
+# in the abbreviation lookbehinds (Fix E, closes module-docstring residual
+# item 8's second shape for all six abbreviation forms), a narrow etc./al.
+# force-split (Fix B-narrow, closes item 8's first shape for those two
+# forms only - deliberately NOT extended to e.g./i.e./vs./cf., and itself
+# a source of a new false-positive residual, module docstring item 10),
+# and a leading isolation-space fix so `_ABBREV_ISOLATION` can match at
+# the very start of the field-7 text - a fix to the lookbehind mechanism
+# itself, independent of the backtick-code-span-masking attempt below, not
+# attributable to it. See hooks/enforce-skeptic-neutrality.py's module
 # docstring for the full, current residual accounting.
 #
-# Round-8 rework (Skeptic round-2 findings against 83bf9fdc): closed two
-# Majors in a backtick-code-span-masking fix ("Fix A" - a span could
-# straddle a genuine sentence boundary, and the `_ABBREV_ISOLATION`
-# lookbehind could not match at the very start of the field-7 text),
-# rewrote the stale skeptic-protocol.md:594 paragraph, disclosed the
-# etc./al. force-split's own remaining gap (lowercase/digit/backtick/
-# paren immediately following), added the missing al. force-split test,
-# and removed four self-contained "mutation" tests that duplicated their
-# own sibling live test's assertion rather than exercising the live hook.
-#
-# Round-8 second rework (Skeptic round-3 findings against 10dcb202):
-# Fix A itself is SUBTRACTED, not merely revised - each guard added to
-# contain one of its bypasses relocated the bypass rather than closing
-# it (first a span straddling a sentence boundary; then an untagged
-# sentence starting right after a masked span with a lowercase letter, a
-# digit, or a quote, plus an `n/a` value hiding a claim inside a span;
-# the bracket guard itself never had a discriminating test), and its
-# measured gain was 3 of 798 replayed real spawns, each a false deny in
-# the safe direction. Every Fix-A test is deleted along with it. The
-# leading-isolation-space fix (start-of-text isolation) is retained on
-# its own, independent of Fix A - `_split_sentences_keep_trailing_tag`
-# keeps only that one change against origin/main. The inline-code-span
-# punctuation false positive Fix A was trying to close is now a
-# disclosed, unfixed residual (module docstring item 9).
+# A backtick-code-span-masking fix ("Fix A") was attempted separately, to
+# close a period, question mark, or exclamation point inside a backtick
+# span being read as sentence-ending punctuation. It was SUBTRACTED, not
+# shipped: each guard added to contain one of its own bypasses relocated
+# the bypass rather than closing it (first a span straddling a genuine
+# sentence boundary; then an untagged sentence starting right after a
+# masked span with a lowercase letter, a digit, or a quote, plus an `n/a`
+# value hiding a claim inside a span; the bracket guard itself never had
+# a discriminating test), and its measured gain was 3 of 798 replayed
+# real spawns, each a false deny in the safe direction. Every Fix-A test
+# is deleted along with it. The inline-code-span punctuation false
+# positive Fix A was trying to close is now a disclosed, unfixed residual
+# (module docstring item 9).
 # =========================================================================== #
 def test_round8_fix_start_of_text_isolation_all_six_forms_allowed():
     """The fixed-width `_ABBREV_ISOLATION` lookbehind cannot match when
@@ -1639,6 +1631,22 @@ def test_round8_fix_start_of_text_isolation_all_six_forms_allowed():
     }
     for label, value in cases.items():
         assert _mod.field7_violation([value]) is None, f"{label} at start of text was denied"
+
+
+def test_round8_fix_start_of_text_isolation_parenthesized_mid_sentence_still_allowed():
+    """`_ABBREV_ISOLATION` must treat an opening paren, not only whitespace,
+    as isolation - a tagged sentence using a parenthetical "(e.g. ...)"
+    aside must stay one sentence and allowed. Reddens if
+    `_ABBREV_ISOLATION` is ever narrowed to `\\s` alone: the "(" before
+    "e.g." would no longer satisfy isolation, so the split would no
+    longer be suppressed there and the untagged leading fragment would be
+    falsely denied."""
+    value = (
+        "The tool works on multiple platforms (e.g. Windows versus Linux) "
+        "without issue. [verified: a.py:1]"
+    )
+    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 1
+    assert _mod.field7_violation([value]) is None
 
 
 def test_round8_fix_b_narrow_mid_sentence_vs_still_allowed():
