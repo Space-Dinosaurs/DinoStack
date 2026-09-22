@@ -298,6 +298,27 @@ def with_reply_transcript(message: str) -> str:
     return make_payload(message, extra={"transcript_path": REPLY_TRANSCRIPT})
 
 
+# An operator PLAIN INSTRUCTION (imperative, no "?") and nothing since -
+# distinct from REPLY_TRANSCRIPT above only in wording, kept separate so a
+# test reproducing an externally-reported probe shape can cite the exact
+# transcript content that shape was built against.
+_INSTRUCTION_TMPDIR = tempfile.mkdtemp()
+INSTRUCTION_TRANSCRIPT = os.path.join(_INSTRUCTION_TMPDIR, "instruction-transcript.jsonl")
+with open(INSTRUCTION_TRANSCRIPT, "w", encoding="utf-8") as _f:
+    _f.write(
+        json.dumps(
+            {"type": "user", "message": {"content": "ok, keep going on the migration."}}
+        )
+        + "\n"
+    )
+
+
+def with_instruction_transcript(message: str) -> str:
+    """make_payload() plus a transcript where the operator just gave a
+    plain imperative instruction (not a question)."""
+    return make_payload(message, extra={"transcript_path": INSTRUCTION_TRANSCRIPT})
+
+
 def check(label: str, condition: bool):
     global total, failed
     total += 1
@@ -4083,19 +4104,14 @@ check(
 #     below pins the round-2 fix for that (`_execution_prose_flag`'s own
 #     sole-waiting-line length exemption).
 #
-#     Own-measured isolated per-turn replay (each row its own `cwd`, no
-#     shared loop-guard counter state, `origin/main` vs. this fix,
-#     replayed from this test file's own tree at the time of this
-#     comment - re-run the harness under
-#     hooks/tests/fixtures/turn-shape-real-corpus-sample.json's sibling
-#     scratch tooling to reproduce): of 114 `origin/main` BLOCKs across a
-#     1,552-turn authentic8 corpus, exactly 47 flip to ALLOW and every one
-#     of the 47 is a sole-`Waiting:`-line turn (4 of the 47 over 200
-#     characters); of 119 `origin/main` BLOCKs across a 1,708-turn
-#     DinoStack corpus, exactly 28 flip to ALLOW, all sole-`Waiting:`-line
-#     (3 of the 28 over 200 characters). Zero ALLOW->BLOCK, zero
-#     ALLOW->ADVISORY, and zero BLOCK->ADVISORY flips in either corpus;
-#     advisory counts are unchanged (46 and 83 respectively).
+#     Real-corpus replayed (isolated per-turn replay, each row its own
+#     `cwd`, no shared loop-guard counter state, transcript truncated at
+#     each turn's own line so the hook sees only what was on disk at that
+#     point in the session): every `origin/main` BLOCK that flips to ALLOW
+#     under this fix is a sole-`Waiting:`-line turn, at any length, and no
+#     other turn's verdict changes in either direction - see sw5/sw6 below
+#     for the pinned multi-line-Waiting:-led contrast shape this fix must
+#     NOT touch.
 # ---------------------------------------------------------------------------
 
 sole_waiting_line_msg = "Waiting: skeptic reviewing the DS-188 diff (round 1).\n"
@@ -4170,6 +4186,32 @@ rc, out, err = run_hook(with_statement_transcript(_sw4_long_waiting_msg))
 check(
     "sw4b. sole `Waiting:` line over 200 chars, mid-task transcript, "
     "end-to-end -> QUIET (was BLOCKING at 25b8d64f via the length check)",
+    is_quiet(rc, out),
+)
+
+# sw5/sw6. REGRESSION (round 3 of this fix): a turn whose FIRST line reads
+# like a `Waiting:` line but is followed by other non-blank content is NOT
+# the sole-Waiting-line shape - it must keep its origin/main verdict, not
+# be pulled into the execution-turn machinery this fix's `stoppage`
+# disjunct exists for. `_is_sole_waiting_line_turn` scopes both call sites
+# (`_classify_warrants`'s `stoppage` warrant and `_execution_prose_flag`'s
+# length exemption) to the turn-is-one-Waiting-line case specifically, not
+# to "the identity line matches `_WAITING_LINE_RE`" in general.
+_sw5_msg = "Waiting: CI on #123.\nSome narrative line explaining the wait.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw5_msg))
+check(
+    "sw5. Waiting:-led identity line + a narrative line, plain-instruction "
+    "transcript -> QUIET (its origin/main verdict; was BLOCKING at "
+    "2385cece via the sole-stoppage branch)",
+    is_quiet(rc, out),
+)
+
+_sw6_msg = "Waiting: " + ("y" * 250) + "\nState: tests green.\n"
+rc, out, err = run_hook(with_instruction_transcript(_sw6_msg))
+check(
+    "sw6. over-200-char Waiting:-led identity line + a State: line, "
+    "plain-instruction transcript -> QUIET (its origin/main verdict; was "
+    "BLOCKING at 2385cece via the identity-line length check)",
     is_quiet(rc, out),
 )
 
