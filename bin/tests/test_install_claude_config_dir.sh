@@ -173,7 +173,8 @@ fi
 # T3: agentic-engineering.json is PINNED to $HOME/.claude - a bare
 # CLAUDE_CONFIG_DIR is not an explicit redirect. Four readers hardcode the
 # $HOME path (bin/ds-config:86, bin/ds-status:127, bin/ds-disable:50,
-# hooks/skill-auto-load-check.sh:56), so moving it would split activation state.
+# hooks/skill-auto-load-check.sh's `ae_config=` assignment), so moving it
+# would split activation state.
 if [[ -f "$H1/.claude/agentic-engineering.json" ]]; then
   pass "T3 agentic-engineering.json stayed in \$HOME/.claude"
 else

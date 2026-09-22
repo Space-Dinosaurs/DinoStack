@@ -70,6 +70,31 @@
 #       Confirmed: widening only ONE word's anchor does not redden the OTHER two
 #       words' negative cases (verified during implementation - see the
 #       engineer's return summary).
+#   14. Single-anchor removal (narrower than mutation 13's drop-both-anchors
+#       form - the round-2 gap: mutation 13 never tested removing just ONE
+#       side). Each has its own look-alike negative case, confirmed isolated
+#       from the other two (removing one word's anchor does not redden a
+#       different word's negative):
+#         - `\bworktrees?\b` -> `\bworktrees?` (right anchor only removed):
+#           reddens "worktreeing" (left-anchored prefix match, no right
+#           boundary required after "worktree").
+#         - `\bconductors?\b` -> `\bconductors?` (right anchor only removed):
+#           reddens "conductorship" (same shape as "worktreeing").
+#         - `\breap(?:ing)?\b` -> `reap(?:ing)?\b` (left anchor only removed):
+#           reddens "misreap" (right-anchored suffix match, no left boundary
+#           required before "reap").
+#   15. Ticket pattern, boundary and cardinality mutations (round-2 gap - the
+#       existing scenario 11 negative, "ab-12", only exercises the
+#       IGNORECASE-vs-case-sensitive split, not these two axes):
+#         - Remove both `\b` anchors from `ticket_pattern` entirely: reddens a
+#           mid-token ID with no boundary before the letter run, e.g.
+#           "xAUT-930" (the "x" is itself a word character immediately
+#           preceding "AUT-930", so no boundary exists there under the
+#           anchored pattern - unlike a space-preceded "AUT-930", which
+#           already matches today regardless of anchors, since start-of-word
+#           is itself a boundary).
+#         - Widen `[A-Z]{2,6}` to `[A-Z]{1,6}`: reddens a one-letter-prefix ID,
+#           e.g. "A-12".
 
 set -uo pipefail
 
@@ -397,6 +422,54 @@ if [[ -z "$RUN_OUT" ]]; then
   pass "scenario 13: 'semiconductor' does not fire the banner"
 else
   fail "scenario 13: expected empty stdout for 'semiconductor', got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 14: single-anchor look-alikes (mutation 14). Each shares a word's
+# substring but only on the side whose anchor mutation 14 does NOT remove -
+# "worktreeing" and "conductorship" both extend past their word's right
+# boundary; "misreap" extends before "reap"'s left boundary. None fire today.
+# ---------------------------------------------------------------------------
+run_with_prompt "let's talk about worktreeing this branch"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'worktreeing' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'worktreeing', got: $RUN_OUT"
+fi
+
+run_with_prompt "his conductorship ended last year"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'conductorship' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'conductorship', got: $RUN_OUT"
+fi
+
+run_with_prompt "did we misreap that resource"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 14: 'misreap' does not fire the banner"
+else
+  fail "scenario 14: expected empty stdout for 'misreap', got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 15: ticket-pattern boundary and cardinality look-alikes
+# (mutation 15). "xAUT-930" is a mid-token ID with no boundary before the
+# letter run (the "x" is a word character immediately abutting "AUT-930");
+# "A-12" is a single-letter-prefix ID, below the {2,6} floor. Neither fires
+# today.
+# ---------------------------------------------------------------------------
+run_with_prompt "check xAUT-930 for updates"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 15: mid-token ID 'xAUT-930' does not fire the banner"
+else
+  fail "scenario 15: expected empty stdout for 'xAUT-930', got: $RUN_OUT"
+fi
+
+run_with_prompt "look at A-12 sometime"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 15: one-letter-prefix ID 'A-12' does not fire the banner"
+else
+  fail "scenario 15: expected empty stdout for 'A-12', got: $RUN_OUT"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
