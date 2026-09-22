@@ -39,8 +39,10 @@
 # Performance: when skill_auto_load is false, the content_state read is skipped entirely (round
 #              4 Minor 1) - only the one python3 JSON parse for the config flag runs. When
 #              skill_auto_load is true, bounded to ~1s worst case by the select() timeout, then
-#              one non-blocking os.read syscall and one regex match - never proportional to
-#              producer behavior.
+#              one non-blocking os.read syscall and two regex searches (the IGNORECASE
+#              keyword pattern, then the case-sensitive ticket-ID pattern, short-circuited
+#              via `or` so the second only runs when the first does not match) - never
+#              proportional to producer behavior.
 # Note (round 5): the `skill_auto_load == "true"` operand in the final condition (below) is
 #                 redundant with the earlier guard that gates content_state, since content_state
 #                 can only ever be something other than "no_match" when that guard already ran.

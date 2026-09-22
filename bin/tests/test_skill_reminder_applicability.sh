@@ -55,8 +55,21 @@
 #   12. Remove `\bworktrees?\b`, `\bconductors?\b`, or `\breap(?:ing)?\b` from the
 #       both-side-anchored alternation: reddens that word's positive case in
 #       scenario 13.
-#   13. Widen any of those three to an unanchored or left-anchor-only match:
-#       reddens scenario 13's shared negative case ("reapply" starts firing).
+#   13. Widen one of the three both-side-anchored alternatives to an unanchored
+#       (bare substring) match - each word has its OWN look-alike negative case in
+#       scenario 13, since widening one word does not affect the other two's
+#       negative cases:
+#         - `\breap(?:ing)?\b` -> `\breap`: reddens "reapply" (shares the "reap"
+#           prefix; right anchor is the one that was removed).
+#         - `\bworktrees?\b` -> `worktrees?` (drop both anchors): reddens
+#           "networktree", which contains "worktree" as a substring
+#           (n-e-t-w-o-r-k-t-r-e-e) but is not itself the word "worktree".
+#         - `\bconductors?\b` -> `conductors?` (drop both anchors): reddens
+#           "semiconductor", which contains "conductor" as a substring but is not
+#           itself the word "conductor".
+#       Confirmed: widening only ONE word's anchor does not redden the OTHER two
+#       words' negative cases (verified during implementation - see the
+#       engineer's return summary).
 
 set -uo pipefail
 
@@ -332,7 +345,10 @@ fi
 # ---------------------------------------------------------------------------
 # Scenario 13: worktree/conductor/reap(ing), each both-side-anchored, fire the
 # banner alone (including their plain plural/inflected forms measured in the
-# corpora); "reapply" - which shares the "reap" prefix - does not.
+# corpora). Each word has its own negative-case look-alike that shares its
+# substring but is not the word itself at a boundary: "reapply" (reap),
+# "networktree" (worktree, contains "worktree" starting at its 4th letter -
+# n-e-t-[w-o-r-k-t-r-e-e]), and "semiconductor" (conductor). None fire.
 # ---------------------------------------------------------------------------
 run_with_prompt "let's talk about worktrees"
 if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
@@ -367,6 +383,20 @@ if [[ -z "$RUN_OUT" ]]; then
   pass "scenario 13: 'reapply' does not fire the banner"
 else
   fail "scenario 13: expected empty stdout for 'reapply', got: $RUN_OUT"
+fi
+
+run_with_prompt "the networktree diagram needs updating"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'networktree' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'networktree', got: $RUN_OUT"
+fi
+
+run_with_prompt "the semiconductor shortage is affecting production"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'semiconductor' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'semiconductor', got: $RUN_OUT"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
