@@ -1752,7 +1752,10 @@ def test_round8_deny_message_flags_conductor_self_narration_as_a_claim():
 # and a round-1 `\b`-only match let a sentence that merely backtick-quotes
 # the bare tag as an example (real corpus record: "...and every
 # `[verified-by-execution]` tag it carries") read as falsely exempt. Both
-# are now denied.
+# are now denied. Round-3 fix: `:`/`,` with nothing after it (an empty
+# detail - `[verified-by-execution:]` / `[verified-by-execution,]`) was
+# still falsely exempt; now requires at least one non-whitespace
+# character after the punctuation.
 # =========================================================================== #
 def test_verified_by_execution_colon_detail_form_exempt():
     sentence = (
@@ -1765,6 +1768,24 @@ def test_verified_by_execution_colon_detail_form_exempt():
 def test_verified_by_execution_comma_session_form_exempt():
     sentence = "The hook denies this sentence [verified-by-execution, this session]."
     assert _mod.field7_violation([sentence]) is None
+
+
+def test_verified_by_execution_colon_empty_detail_denies():
+    """Round-3 fix: `[verified-by-execution:]` with nothing after the
+    colon names no command and can't be checked - it must deny, same as
+    the bare form."""
+    sentence = "The hook denies this sentence [verified-by-execution:]."
+    result = _mod.field7_violation([sentence])
+    assert result == sentence
+
+
+def test_verified_by_execution_comma_empty_detail_denies():
+    """Round-3 fix: `[verified-by-execution,]` with nothing after the
+    comma names no command and can't be checked - it must deny, same as
+    the bare form."""
+    sentence = "The hook denies this sentence [verified-by-execution,]."
+    result = _mod.field7_violation([sentence])
+    assert result == sentence
 
 
 def test_verified_by_execution_bare_form_denies():
