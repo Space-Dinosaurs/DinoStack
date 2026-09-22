@@ -810,8 +810,15 @@ def _strip_field7_neutrality_note(text: str) -> str:
 # reintroducing the exact splitter-merge bug this regex was fixed for (any
 # lowercase word after a closing "]" would then also split, no longer
 # distinguishing a genuinely new sentence from mid-value bracket noise).
+# Each abbreviation lookbehind carries a leading `\b` (zero-width, so it
+# does not change the lookbehind's fixed character width) so the guard
+# fires only when the abbreviation is a standalone word - without it, any
+# word merely ENDING in the same letters ("minimal.", "final.", "vs." as
+# a substring of a longer token, etc.) mis-suppressed the split too, which
+# let a tagged/attributed sentence's cover extend over the next, untagged
+# sentence (found and fixed this round).
 _SENT_SPLIT_RE = re.compile(
-    r'(?<!(?i:e\.g\.))(?<!(?i:i\.e\.))(?<!(?i:etc\.))(?<!(?i:vs\.))(?<!(?i:cf\.))(?<!(?i:al\.))'
+    r'(?<!\b(?i:e\.g\.))(?<!\b(?i:i\.e\.))(?<!\b(?i:etc\.))(?<!\b(?i:vs\.))(?<!\b(?i:cf\.))(?<!\b(?i:al\.))'
     r'(?<=[.?!])\s+(?!\[)'
     r'|(?<=\])\s+(?=[A-Z])'
 )

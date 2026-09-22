@@ -382,6 +382,110 @@ def test_round_n_fix_major_mutation_abbreviation_guard_removed_reddens():
 
 
 # --------------------------------------------------------------------------- #
+# Regression: the abbreviation lookbehinds in _SENT_SPLIT_RE must anchor on
+# a word boundary. Without it, a word that merely ENDS in the same letters
+# as an abbreviation ("minimal." ends in "al.", "vs." is a substring of no
+# real word but "final."/"general." end in "al." too, "assertEqual." ends
+# in "al.") suppressed the split - so a tagged/attributed first sentence's
+# cover falsely extended over a second, untagged sentence.
+# --------------------------------------------------------------------------- #
+def test_abbrev_anchor_word_ending_in_al_splits():
+    value = (
+        "Per the architect, the change is minimal. "
+        "The real root cause is the retry classifier in retry.py."
+    )
+    result = _mod.field7_violation([value])
+    assert result == "The real root cause is the retry classifier in retry.py."
+
+
+def test_abbrev_anchor_final_splits():
+    value = "Per the architect, the fix is final. The retry classifier in retry.py is untouched."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is untouched."
+
+
+def test_abbrev_anchor_general_splits():
+    value = "Per the architect, this holds in general. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
+
+
+def test_abbrev_anchor_assertequal_splits():
+    value = "Per the Engineer, the new check calls assertEqual. The retry classifier in retry.py is unrelated."
+    result = _mod.field7_violation([value])
+    assert result == "The retry classifier in retry.py is unrelated."
+
+
+def test_abbrev_anchor_genuine_eg_still_suppressed():
+    value = "Per the Engineer, the fix touches the retry path, e.g. the backoff calculation."
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_genuine_ie_still_suppressed():
+    value = "That is, i.e. the config change is unrelated to the retry path. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_genuine_etc_still_suppressed():
+    value = "Per the architect, this covers retries, timeouts, etc. in one pass. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_genuine_vs_still_suppressed():
+    value = "The retry backoff is unchanged vs. the prior round. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_genuine_cf_still_suppressed():
+    value = "The retry backoff is unchanged, cf. the prior round. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_genuine_et_al_still_suppressed():
+    value = "Per the architect, et al. confirmed this reading. [verified: a.py:1]"
+    assert _mod.field7_violation([value]) is None
+
+
+def test_abbrev_anchor_mutation_boundary_removed_reddens():
+    """Executed mutation-testing proof: dropping the `\\b` from the `al.`
+    lookbehind (reverting to the pre-fix _SENT_SPLIT_RE) makes
+    "minimal." falsely suppress the split, so the untagged tail sentence
+    is never flagged - the exact reported defect."""
+    import re as _re
+
+    pre_fix_re = _re.compile(
+        r'(?<!(?i:e\.g\.))(?<!(?i:i\.e\.))(?<!(?i:etc\.))(?<!(?i:vs\.))(?<!(?i:cf\.))(?<!(?i:al\.))'
+        r'(?<=[.?!])\s+(?!\[)'
+        r'|(?<=\])\s+(?=[A-Z])'
+    )
+    value = (
+        "Per the architect, the change is minimal. "
+        "The real root cause is the retry classifier in retry.py."
+    )
+
+    def _split_with(regex, text):
+        raw = regex.split(text.strip())
+        out: list[str] = []
+        for frag in raw:
+            frag = frag.strip()
+            if not frag:
+                continue
+            if out and _re.fullmatch(r'\[[^\]]*\]\.?', frag):
+                out[-1] = out[-1] + " " + frag
+            else:
+                out.append(frag)
+        return out
+
+    # Live regex: splits into two sentences, flags the untagged tail.
+    assert len(_mod._split_sentences_keep_trailing_tag(value)) == 2
+    assert _mod.field7_violation([value]) is not None
+
+    # Pre-fix (mutated) regex: "minimal." suppresses the split entirely.
+    pre_fix_sentences = _split_with(pre_fix_re, value)
+    assert len(pre_fix_sentences) == 1, "mutation should have suppressed the split"
+
+
+# --------------------------------------------------------------------------- #
 # Scenario 5: ALLOW - field-7 single tagged claim (true negative)
 # --------------------------------------------------------------------------- #
 def test_scenario_05_allow_field7_single_tagged_claim():
