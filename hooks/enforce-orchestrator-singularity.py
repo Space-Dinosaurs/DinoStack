@@ -17,16 +17,27 @@ Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
             Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
-            denying, exits 0 always.
+            denying, exits 0 always. `would_deny(data: dict) -> str | None` is a
+            pure, side-effect-free re-implementation of `main()`'s deny decision
+            over the same top-level PreToolUse payload shape - imported by path
+            by hooks/enforce-skeptic-round-cap.py's sibling-deny consultation.
 
 Upstream deps: Python 3 stdlib only (os, sys, json, importlib.util). No
-               external dependencies. Best-effort dynamic import of the
+               external dependencies. `from __future__ import annotations`
+               keeps the file importable on Python 3.8/3.9 (the `would_deny`
+               PEP 604 `X | None` hint would otherwise crash there - same
+               reason enforce-tier.py and enforce-skeptic-neutrality.py
+               carry the same import). Best-effort dynamic import of the
                sibling hooks/lib/enforcement_log.py fire-logging helper -
                a failed import degrades to a no-op logger, never a crash.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
                       Agent tool). Wired via ~/.claude/settings.json by
                       .claude/install.sh (two matcher blocks: "Task" and "Agent").
+                      hooks/enforce-skeptic-round-cap.py also imports this
+                      module by path (importlib) for its `would_deny` function,
+                      consulted before persisting round state - see that hook's
+                      "Sibling-deny consultation" docstring paragraph.
 
 Failure modes:
     - Malformed stdin: fail-open (exit 0, no deny). A hook bug must never
@@ -62,6 +73,8 @@ Performance: < 1 ms per call (pure in-memory JSON parse + single print, no I/O).
 #   Therefore: deny if and only if agent_id is a non-empty string at the
 #   TOP LEVEL of the parsed JSON (NOT inside tool_input).
 
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -92,34 +105,41 @@ def _load_log_fire():
         return lambda *a, **k: None
 
 
-def main() -> None:
-    # Kill-switch: fail-open immediately before touching stdin.
-    if os.environ.get("AE_SINGULARITY_GUARD_DISABLE") == "1":
-        sys.exit(0)
+def would_deny(data: dict) -> str | None:
+    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
+    at the same top-level PreToolUse payload shape `main()` reads from
+    stdin. Returns the deny reason string `main()` would print, or None
+    when this hook would not deny (including a set kill switch, a
+    non-Task/Agent tool_name, an absent/non-string/blank agent_id, or
+    malformed input). Never calls `print`, `_load_log_fire`, or
+    `sys.exit`; never raises.
 
+    Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
+    before persisting round state, so a spawn this hook would deny never
+    advances the round counter - see that hook's module docstring."""
+    if os.environ.get("AE_SINGULARITY_GUARD_DISABLE") == "1":
+        return None
     try:
-        try:
-            data = json.load(sys.stdin)
-        except Exception:
-            sys.exit(0)
+        if not isinstance(data, dict):
+            return None
 
         # Only enforce on Task/Agent (subagent spawn). Claude Code renamed
         # this tool from "Task" to "Agent"; guard on both names so the hook
         # works across CC versions. install.sh wires two matcher blocks
         # ("Task" and "Agent") for belt-and-suspenders coverage.
         if data.get("tool_name") not in ("Task", "Agent"):
-            sys.exit(0)
+            return None
 
         # Read agent_id from the TOP LEVEL of the payload (not tool_input).
         # Absent or non-string agent_id means main conductor or ambiguous -
         # always allow to prevent blocking the conductor.
         agent_id = data.get("agent_id")
         if not (isinstance(agent_id, str) and agent_id.strip()):
-            sys.exit(0)
+            return None
 
         # Deny: a subagent attempted to spawn a nested subagent.
         tool_name = data.get("tool_name", "Task/Agent")
-        deny_reason = (
+        return (
             tool_name
             + " spawn blocked: a subagent (agent_id="
             + repr(agent_id)
@@ -132,6 +152,25 @@ def main() -> None:
             "To disable this guard: set AE_SINGULARITY_GUARD_DISABLE=1 "
             "and restart Claude Code."
         )
+    except Exception:
+        return None
+
+
+def main() -> None:
+    # Kill-switch: fail-open immediately before touching stdin.
+    if os.environ.get("AE_SINGULARITY_GUARD_DISABLE") == "1":
+        sys.exit(0)
+
+    try:
+        try:
+            data = json.load(sys.stdin)
+        except Exception:
+            sys.exit(0)
+
+        deny_reason = would_deny(data)
+        if deny_reason is None:
+            sys.exit(0)
+
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, and is
         # wrapped in its own try/except so a raising log_fire (e.g. a

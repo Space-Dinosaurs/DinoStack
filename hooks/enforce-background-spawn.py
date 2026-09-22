@@ -54,7 +54,13 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
 
 Public API: Run as a Claude Code PreToolUse hook (matcher: "Task", "Agent", or
             "Skill"). Reads JSON from stdin, writes hookSpecificOutput JSON to
-            stdout when denying, exits 0 always.
+            stdout when denying, exits 0 always. `would_deny(data: dict) ->
+            str | None` is a pure, side-effect-free re-implementation of
+            `main()`'s deny decision over the same top-level PreToolUse
+            payload shape (may perform the same read-only I/O `main()`
+            already performs - team-config load, sentinel-file check -
+            never writes or logs) - imported by path by hooks/enforce-
+            skeptic-round-cap.py's sibling-deny consultation.
 
 Upstream deps: Python 3 stdlib (json, os, sys, time, pathlib, importlib) for
                core enforcement. PyYAML is imported opportunistically inside
@@ -74,6 +80,10 @@ Downstream consumers: Claude Code hook runner (PreToolUse event for Task, Agent,
                       and Skill tools). Wired via ~/.claude/settings.json by
                       .claude/install.sh (matcher blocks for "Task", "Agent",
                       and "Skill" - no new wiring needed beyond those matchers).
+                      hooks/enforce-skeptic-round-cap.py also imports this
+                      module by path (importlib) for its `would_deny` function,
+                      consulted before persisting round state - see that hook's
+                      "Sibling-deny consultation" docstring paragraph.
 
 Failure modes:
     - Malformed stdin: fail-open (exit 0, no deny). A hook bug must never brick
@@ -424,14 +434,23 @@ def _deny(data: dict, reason: str) -> None:
         pass
     sys.exit(0)
 
-def main() -> None:
+def would_deny(data: dict) -> str | None:
+    """Pure, side-effect-free re-implementation of `main()`'s deny decision,
+    at the same top-level PreToolUse payload shape `main()` reads from
+    stdin. Returns the deny reason string `main()` would print, or None
+    when this hook would not deny (including a foreground-exempt
+    subagent_type, no active team routing/sentinel, a passing background-
+    spawn check, or malformed input). May perform the SAME read-only I/O
+    `main()` already performs before any deny decision (`_load_effective_
+    team_config`, `_sentinel_is_live`) - never writes, never logs. Never
+    calls `_deny`, `print`, `_load_log_fire`, or `sys.exit`; never raises.
+
+    Consulted by hooks/enforce-skeptic-round-cap.py (via importlib by path)
+    before persisting round state, so a spawn this hook would deny never
+    advances the round counter - see that hook's module docstring."""
     try:
-        # Fail-open: never block on malformed input - a broken hook must not
-        # prevent the conductor from spawning workers at all.
-        try:
-            data = json.load(sys.stdin)
-        except Exception:
-            sys.exit(0)
+        if not isinstance(data, dict):
+            return None
 
         tool_name = data.get("tool_name")
 
@@ -447,7 +466,7 @@ def main() -> None:
             raw_tinput_early = data.get("tool_input")
             tinput_early = raw_tinput_early if isinstance(raw_tinput_early, dict) else {}
             if tinput_early.get("subagent_type") in FOREGROUND_EXEMPT:
-                sys.exit(0)
+                return None
 
         # ------------------------------------------------------------------ #
         # Cross-harness team ROUTING enforcement (proactive, fixes the core  #
@@ -471,27 +490,24 @@ def main() -> None:
                                 # harness is untrusted (team.yml is project-
                                 # controlled, e.g. a malicious PR) - do not
                                 # echo it back into an LLM-facing message.
-                                _deny(
-                                    data,
+                                return (
                                     f"cross-harness team active: role '{role}' is "
                                     "assigned to a non-claude harness in team.yml; "
                                     "dispatch via bin/ds-team."
                                 )
-                            else:
-                                # model is untrusted free text from team.yml
-                                # (project-controlled, e.g. a malicious PR) -
-                                # never interpolate it into an LLM-facing
-                                # message. Reference team.yml generically
-                                # instead; harness is allowlist-validated
-                                # above so it may stay verbatim.
-                                _deny(
-                                    data,
-                                    f"cross-harness team active: role '{role}' is assigned to "
-                                    f"harness '{harness}'. Dispatch with: "
-                                    f"bin/ds-team dispatch --harness {harness} --role {role} "
-                                    "--brief <file> --workdir <dir> --model <model-from-team.yml> "
-                                    "- then poll status/collect."
-                                )
+                            # model is untrusted free text from team.yml
+                            # (project-controlled, e.g. a malicious PR) -
+                            # never interpolate it into an LLM-facing
+                            # message. Reference team.yml generically
+                            # instead; harness is allowlist-validated
+                            # above so it may stay verbatim.
+                            return (
+                                f"cross-harness team active: role '{role}' is assigned to "
+                                f"harness '{harness}'. Dispatch with: "
+                                f"bin/ds-team dispatch --harness {harness} --role {role} "
+                                "--brief <file> --workdir <dir> --model <model-from-team.yml> "
+                                "- then poll status/collect."
+                            )
                 except Exception:
                     # Fail-open: any config-load/resolution error allows the
                     # native spawn through unchanged.
@@ -500,14 +516,13 @@ def main() -> None:
         # ------------------------------------------------------------------ #
         # Cross-harness sentinel suppression                                 #
         # Applies to non-exempt Task/Agent spawns and oh-my-claudecode:*     #
-        # Skills. Exempt agents (wrap-ticket) already exited above.          #
+        # Skills. Exempt agents (wrap-ticket) already returned above.        #
         # ------------------------------------------------------------------ #
         if tool_name in ("Task", "Agent", "Skill"):
             cwd = data.get("cwd") or os.getcwd()
             if _sentinel_is_live(cwd):
                 if tool_name in ("Task", "Agent"):
-                    _deny(
-                        data,
+                    return (
                         f"{tool_name} spawn blocked: a DinoStack cross-harness team "
                         "run is active (.agentic/teamrun/.active sentinel present and "
                         "live). Dispatch workers via `bin/ds-team dispatch` "
@@ -517,7 +532,7 @@ def main() -> None:
                         "no manual clear command."
                     )
                 # SKILL-ONLY sub-block: only tool_name == "Skill" reaches here -
-                # Task/Agent were _deny()'d outright above and never enter this
+                # Task/Agent were returned outright above and never enter this
                 # block. We block oh-my-claudecode:* Skills while a team run owns
                 # dispatch.
                 # The Claude Code Skill tool passes the skill name in
@@ -534,8 +549,7 @@ def main() -> None:
                     if isinstance(raw, str):
                         skill_name = raw
                 if skill_name.startswith("oh-my-claudecode:"):
-                    _deny(
-                        data,
+                    return (
                         f"Skill '{skill_name}' blocked: a DinoStack cross-harness "
                         "team run is active (.agentic/teamrun/.active sentinel "
                         "present and live). OMC skills must not be invoked while "
@@ -543,7 +557,7 @@ def main() -> None:
                         "`bin/ds-team dispatch` to assign work to workers."
                     )
                 # Non-OMC Skill, Skill with absent/unrecognised field -> allow.
-                sys.exit(0)
+                return None
             # Sentinel not live -> fall through to background enforcement.
 
         # ------------------------------------------------------------------ #
@@ -561,12 +575,12 @@ def main() -> None:
         #     False. Absent -> allow (harness already backgrounds by         #
         #     default; omitting the field is the documented conductor norm). #
         #     True -> allow.                                                 #
-        # Skill already exited above (via sentinel block or passthrough).    #
-        # Any other tool_name exits here (Read, Bash, Write, Edit, etc. are  #
-        # never Task/Agent, so there are no false positives).                #
+        # Skill already returned above (via sentinel block or passthrough).  #
+        # Any other tool_name returns here (Read, Bash, Write, Edit, etc.    #
+        # are never Task/Agent, so there are no false positives).            #
         # ------------------------------------------------------------------ #
         if tool_name not in ("Task", "Agent"):
-            sys.exit(0)
+            return None
 
         # tool_input may be null/missing. Null means no structured params -
         # treat as fail-open since we cannot make an enforcement decision
@@ -575,11 +589,11 @@ def main() -> None:
         # signal.
         raw_tinput = data.get("tool_input")
         if raw_tinput is None:
-            sys.exit(0)
+            return None
         tinput = raw_tinput if isinstance(raw_tinput, dict) else {}
 
-        # Foreground-exempt agents were already allowed before the sentinel
-        # suppression block above. Any spawn that reaches here is non-exempt.
+        # Foreground-exempt agents already returned above. Any spawn that
+        # reaches here is non-exempt.
 
         rib = tinput.get("run_in_background")
 
@@ -589,8 +603,7 @@ def main() -> None:
             # the harness level, so omitting the field is correct usage, not
             # a violation.
             if rib is False:
-                _deny(
-                    data,
+                return (
                     "Agent spawn blocked: run_in_background is explicitly "
                     "false. All delegated subagent spawns MUST run in the "
                     "background (METHODOLOGY.md §Delegation). Omit "
@@ -599,17 +612,16 @@ def main() -> None:
                     "memory answers, synthesis) do not spawn an Agent at "
                     "all - use the appropriate dedicated tool instead."
                 )
-            sys.exit(0)
+            return None
 
         # tool_name == "Task" (legacy): only boolean True allows. String
         # "false", 0, None, and other truthy-but-not-true values all deny.
         if rib is True:
-            sys.exit(0)
+            return None
 
         # Deny foreground Task spawns and feed back a clear, actionable reason
         # so the conductor re-issues with run_in_background: true.
-        _deny(
-            data,
+        return (
             "Task spawn blocked: run_in_background is missing or false. "
             "All delegated subagent spawns MUST set run_in_background: true "
             "(METHODOLOGY.md §Delegation). Re-issue the Task call with "
@@ -617,6 +629,22 @@ def main() -> None:
             "answers, synthesis) do not use it at all - use the appropriate "
             "dedicated tool instead."
         )
+    except Exception:
+        return None
+
+def main() -> None:
+    try:
+        # Fail-open: never block on malformed input - a broken hook must not
+        # prevent the conductor from spawning workers at all.
+        try:
+            data = json.load(sys.stdin)
+        except Exception:
+            sys.exit(0)
+
+        reason = would_deny(data)
+        if reason is None:
+            sys.exit(0)
+        _deny(data, reason)
 
     except Exception:
         # Defense-in-depth: any unexpected error exits 0 (fail-open).

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
 Regression tests for the sibling-deny consultation added to
-hooks/enforce-skeptic-round-cap.py (fix/round-cap-sibling-deny): a Skeptic
-spawn round-cap would ALLOW but a REGISTERED sibling PreToolUse hook on the
-same "Task"/"Agent" spawn matcher (enforce-skeptic-neutrality.py /
-enforce-tier.py) independently DENIES must never advance round_count or
-consume a recorded ship/escalate decision - see enforce-skeptic-round-cap.py's
-"Sibling-deny consultation" docstring paragraph and content/references/
-skeptic-protocol.md's "Round budget and value-per-round gate" item 1.
+hooks/enforce-skeptic-round-cap.py (fix/round-cap-sibling-deny, extended by
+fix/round-cap-all-siblings): a Skeptic spawn round-cap would ALLOW but a
+REGISTERED sibling PreToolUse hook on the same "Task"/"Agent" spawn matcher
+(enforce-skeptic-neutrality.py / enforce-tier.py / enforce-background-
+spawn.py / enforce-orchestrator-singularity.py) independently DENIES must
+never advance round_count or consume a recorded ship/escalate decision -
+see enforce-skeptic-round-cap.py's "Sibling-deny consultation" docstring
+paragraph and content/references/skeptic-protocol.md's "Round budget and
+value-per-round gate" item 1.
 
 Every test that invokes hooks/enforce-skeptic-round-cap.py runs it with an
 EXPLICIT, scratch `CLAUDE_CONFIG_DIR` (and the other three harness config-dir
@@ -25,6 +27,18 @@ Test groups:
   2. test_tier_denied_spawn_leaves_no_state_file                - same shape, tier denies (explicit
                                                                  sub-Tier-3 model downgrade on a
                                                                  security-flavored brief).
+  2b. test_background_spawn_denied_spawn_leaves_no_state_file   - same shape, enforce-background-
+                                                                 spawn.py denies (foreground Task
+                                                                 spawn, no run_in_background: true).
+  2b'. test_background_spawn_unregistered_leaves_todays_behavior - unregistered background-spawn ->
+                                                                 not consulted -> round-cap charges
+                                                                 the round exactly as before.
+  2c. test_singularity_denied_spawn_leaves_no_state_file        - same shape, enforce-orchestrator-
+                                                                 singularity.py denies (non-empty
+                                                                 top-level agent_id).
+  2c'. test_singularity_unregistered_leaves_todays_behavior     - unregistered singularity -> not
+                                                                 consulted -> round-cap charges the
+                                                                 round exactly as before.
   3. test_escalate_decision_preserved_when_sibling_denies       - SEVERE case: state at cap with
                                                                  decision:"escalate" recorded; a
                                                                  sibling-denied spawn leaves round_count
@@ -66,12 +80,20 @@ Test groups:
                                                                  hook other than round-cap itself is either
                                                                  consulted (_SIBLING_MODULES), tracked as a
                                                                  known unconsulted-but-deny-capable gap
-                                                                 (_KNOWN_UNCONSULTED_DENY_CAPABLE), proven
-                                                                 never to deny (_NEVER_DENIES), or proven
-                                                                 structurally unable to deny a skeptic spawn
-                                                                 specifically (_CANNOT_DENY_SKEPTIC) - so a
-                                                                 NEW deny-capable hook added to the matcher
+                                                                 (_KNOWN_UNCONSULTED_DENY_CAPABLE, asserted
+                                                                 EMPTY as of fix/round-cap-all-siblings),
+                                                                 proven never to deny (_NEVER_DENIES), or
+                                                                 proven structurally unable to deny a
+                                                                 skeptic spawn specifically
+                                                                 (_CANNOT_DENY_SKEPTIC) - so a NEW
+                                                                 deny-capable hook added to the matcher
                                                                  without classification fails this test.
+ 13. test_drift_guard_still_catches_a_new_unclassified_hook    - the classification logic still fails a
+                                                                 fabricated, genuinely unclassified hook
+                                                                 name even with an empty known-unconsulted
+                                                                 set - the guard is a real gate, not
+                                                                 trivially green because nothing is left
+                                                                 to classify.
 """
 
 from __future__ import annotations
@@ -92,6 +114,8 @@ _HOOKS_DIR = _REPO_ROOT / "hooks"
 _ROUND_CAP_HOOK = _HOOKS_DIR / "enforce-skeptic-round-cap.py"
 _NEUTRALITY_HOOK = _HOOKS_DIR / "enforce-skeptic-neutrality.py"
 _TIER_HOOK = _HOOKS_DIR / "enforce-tier.py"
+_BACKGROUND_SPAWN_HOOK = _HOOKS_DIR / "enforce-background-spawn.py"
+_SINGULARITY_HOOK = _HOOKS_DIR / "enforce-orchestrator-singularity.py"
 _INSTALL_SH = _REPO_ROOT / ".claude" / "install.sh"
 
 _CONFIG_DIR_ENV_VARS = ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR")
@@ -128,13 +152,19 @@ def _payload(
     model: str | None = None,
     tool_use_id: str | None = None,
     tool_name: str = "Agent",
+    run_in_background: bool | None = None,
+    agent_id: str | None = None,
 ) -> dict:
     tinput = {"subagent_type": "skeptic", "description": "review", "prompt": prompt}
     if model is not None:
         tinput["model"] = model
+    if run_in_background is not None:
+        tinput["run_in_background"] = run_in_background
     payload = {"tool_name": tool_name, "cwd": cwd, "tool_input": tinput}
     if tool_use_id is not None:
         payload["tool_use_id"] = tool_use_id
+    if agent_id is not None:
+        payload["agent_id"] = agent_id
     return payload
 
 
@@ -238,6 +268,24 @@ def registered_config_dir(tmp_path):
     return config_dir
 
 
+@pytest.fixture
+def registered_background_spawn_config_dir(tmp_path):
+    """A scratch harness config dir whose settings.json registers ONLY
+    enforce-background-spawn.py on Task/Agent."""
+    config_dir = tmp_path / "claude-config-bg"
+    _write_settings(config_dir / "settings.json", ["enforce-background-spawn.py"])
+    return config_dir
+
+
+@pytest.fixture
+def registered_singularity_config_dir(tmp_path):
+    """A scratch harness config dir whose settings.json registers ONLY
+    enforce-orchestrator-singularity.py on Task/Agent."""
+    config_dir = tmp_path / "claude-config-sing"
+    _write_settings(config_dir / "settings.json", ["enforce-orchestrator-singularity.py"])
+    return config_dir
+
+
 # --------------------------------------------------------------------------- #
 # 1. Neutrality-denied spawn: no state file, no tuid index, ever written
 # --------------------------------------------------------------------------- #
@@ -296,6 +344,119 @@ def test_tier_denied_spawn_leaves_no_state_file(tmp_path, registered_config_dir)
     assert not _tuid_index_path(cwd).exists(), (
         "round-cap must not create/update skeptic-tuid-index.json for a spawn it never persisted a round for"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 2b. background-spawn-denied spawn: no state file ever written (registered)
+# --------------------------------------------------------------------------- #
+def test_background_spawn_denied_spawn_leaves_no_state_file(tmp_path, registered_background_spawn_config_dir):
+    cwd = str(tmp_path / "repo")
+    Path(cwd).mkdir()
+    _ensure_git_marker(cwd)
+    diff_key = "sibling-deny-background-spawn-unit"
+
+    prompt = _prompt(diff_key, what_to_review="Worker fixed issue #1, round 1.")
+    # tool_name "Task" (legacy) with no run_in_background field -> enforce-
+    # background-spawn.py denies (Task requires an explicit True).
+    payload = _payload(cwd, prompt, tool_use_id="tuid-1", tool_name="Task")
+
+    _, bg_parsed = _run_hook(_BACKGROUND_SPAWN_HOOK, payload)
+    assert _is_denied(bg_parsed), "precondition failed: background-spawn did not deny the foreground Task payload"
+
+    env = _isolated_env(registered_background_spawn_config_dir)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
+    assert rc_code == 0
+    assert not _is_denied(rc_parsed), "round-cap itself should allow (the sibling's own deny blocks the spawn)"
+    assert _state_files(cwd) == [], "round-cap must not persist any state for a spawn a sibling would deny"
+    assert not _tuid_index_path(cwd).exists(), (
+        "round-cap must not create/update skeptic-tuid-index.json for a spawn it never persisted a round for"
+    )
+
+
+def test_background_spawn_unregistered_leaves_todays_behavior(tmp_path):
+    cwd = str(tmp_path / "repo")
+    Path(cwd).mkdir()
+    _ensure_git_marker(cwd)
+    empty_config_dir = tmp_path / "claude-config-empty"
+    empty_config_dir.mkdir()
+
+    diff_key = "sibling-deny-background-spawn-unregistered-unit"
+    prompt = _prompt(diff_key, what_to_review="Worker fixed issue #1, round 1.")
+    payload = _payload(cwd, prompt, tool_use_id="tuid-1", tool_name="Task")
+
+    _, bg_parsed = _run_hook(_BACKGROUND_SPAWN_HOOK, payload)
+    assert _is_denied(bg_parsed), "precondition failed: background-spawn did not deny the foreground Task payload"
+
+    env = _isolated_env(empty_config_dir)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
+    assert rc_code == 0
+    assert not _is_denied(rc_parsed)
+
+    state_files = _state_files(cwd)
+    assert len(state_files) == 1, (
+        "an UNCONFIRMED enforce-background-spawn.py registration must never be "
+        "treated as 'would deny' - round-cap must persist exactly as it did "
+        "before this consultation existed"
+    )
+    state = json.loads(state_files[0].read_text())
+    assert state["round_count"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# 2c. orchestrator-singularity-denied spawn: no state file ever written
+#     (registered)
+# --------------------------------------------------------------------------- #
+def test_singularity_denied_spawn_leaves_no_state_file(tmp_path, registered_singularity_config_dir):
+    cwd = str(tmp_path / "repo")
+    Path(cwd).mkdir()
+    _ensure_git_marker(cwd)
+    diff_key = "sibling-deny-singularity-unit"
+
+    prompt = _prompt(diff_key, what_to_review="Worker fixed issue #1, round 1.")
+    # A non-empty top-level agent_id means this spawn was issued from inside
+    # a subagent context -> enforce-orchestrator-singularity.py denies.
+    payload = _payload(cwd, prompt, tool_use_id="tuid-1", agent_id="agent-xyz")
+
+    _, sing_parsed = _run_hook(_SINGULARITY_HOOK, payload)
+    assert _is_denied(sing_parsed), "precondition failed: singularity did not deny the nested-spawn payload"
+
+    env = _isolated_env(registered_singularity_config_dir)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
+    assert rc_code == 0
+    assert not _is_denied(rc_parsed), "round-cap itself should allow (the sibling's own deny blocks the spawn)"
+    assert _state_files(cwd) == [], "round-cap must not persist any state for a spawn a sibling would deny"
+    assert not _tuid_index_path(cwd).exists(), (
+        "round-cap must not create/update skeptic-tuid-index.json for a spawn it never persisted a round for"
+    )
+
+
+def test_singularity_unregistered_leaves_todays_behavior(tmp_path):
+    cwd = str(tmp_path / "repo")
+    Path(cwd).mkdir()
+    _ensure_git_marker(cwd)
+    empty_config_dir = tmp_path / "claude-config-empty"
+    empty_config_dir.mkdir()
+
+    diff_key = "sibling-deny-singularity-unregistered-unit"
+    prompt = _prompt(diff_key, what_to_review="Worker fixed issue #1, round 1.")
+    payload = _payload(cwd, prompt, tool_use_id="tuid-1", agent_id="agent-xyz")
+
+    _, sing_parsed = _run_hook(_SINGULARITY_HOOK, payload)
+    assert _is_denied(sing_parsed), "precondition failed: singularity did not deny the nested-spawn payload"
+
+    env = _isolated_env(empty_config_dir)
+    rc_code, rc_parsed = _run_hook(_ROUND_CAP_HOOK, payload, env=env)
+    assert rc_code == 0
+    assert not _is_denied(rc_parsed)
+
+    state_files = _state_files(cwd)
+    assert len(state_files) == 1, (
+        "an UNCONFIRMED enforce-orchestrator-singularity.py registration must "
+        "never be treated as 'would deny' - round-cap must persist exactly as "
+        "it did before this consultation existed"
+    )
+    state = json.loads(state_files[0].read_text())
+    assert state["round_count"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -789,6 +950,17 @@ def test_drift_guard_every_registered_spawn_hook_is_classified():
     consulted = {f"{name}.py" for name in module._SIBLING_MODULES}
     known_gap = set(module._KNOWN_UNCONSULTED_DENY_CAPABLE)
 
+    # fix/round-cap-all-siblings: enforce-background-spawn.py and
+    # enforce-orchestrator-singularity.py moved from _KNOWN_UNCONSULTED_
+    # DENY_CAPABLE into _SIBLING_MODULES (consulted), leaving no known
+    # gap - assert the set is genuinely empty rather than merely small.
+    assert known_gap == set(), (
+        f"_KNOWN_UNCONSULTED_DENY_CAPABLE should be empty now that both prior "
+        f"entries are consulted, found: {known_gap!r}"
+    )
+    assert "enforce-background-spawn.py" in consulted
+    assert "enforce-orchestrator-singularity.py" in consulted
+
     unclassified = []
     for name in registered:
         if name == "enforce-skeptic-round-cap.py":
@@ -848,3 +1020,35 @@ def test_drift_guard_every_registered_spawn_hook_is_classified():
             "skeptic spawn and must move to _KNOWN_UNCONSULTED_DENY_CAPABLE "
             "(or be consulted) instead of _CANNOT_DENY_SKEPTIC"
         )
+
+
+# --------------------------------------------------------------------------- #
+# 13. Drift guard still fails for a new unclassified deny-capable hook, even
+#     with an empty _KNOWN_UNCONSULTED_DENY_CAPABLE - proves the drift guard
+#     is a genuine gate, not one that trivially passes because there is
+#     nothing left to classify.
+# --------------------------------------------------------------------------- #
+def test_drift_guard_still_catches_a_new_unclassified_hook():
+    module = _load_round_cap_module()
+    consulted = {f"{name}.py" for name in module._SIBLING_MODULES}
+    known_gap = set(module._KNOWN_UNCONSULTED_DENY_CAPABLE)
+    assert known_gap == set(), "precondition: known-unconsulted set must be empty for this test to be meaningful"
+
+    # Same classification logic as test_drift_guard_every_registered_spawn_
+    # hook_is_classified, applied to a SYNTHETIC registered list carrying one
+    # fabricated, genuinely unclassified hook name alongside the real ones.
+    synthetic_registered = list(_registered_task_agent_spawn_hooks()) + [
+        "enforce-a-brand-new-hook-nobody-classified-yet.py"
+    ]
+    unclassified = [
+        name
+        for name in synthetic_registered
+        if name != "enforce-skeptic-round-cap.py"
+        and name not in consulted
+        and name not in known_gap
+        and name not in _NEVER_DENIES
+        and name not in _CANNOT_DENY_SKEPTIC
+    ]
+    assert unclassified == ["enforce-a-brand-new-hook-nobody-classified-yet.py"], (
+        f"expected exactly the synthetic unclassified hook to surface, got: {unclassified!r}"
+    )
