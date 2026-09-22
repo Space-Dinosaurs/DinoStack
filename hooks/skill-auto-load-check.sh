@@ -102,11 +102,17 @@ try:
             r'\b(code|edit|debug|test|deploy|architect|refactor|depend|implement|'
             r'ticket|build|script|commit|merge|spawn|agent|plan|git|orchestrat|'
             r'review|bug|hook|page|icon|button|menu|mockup|design|admin|'
-            r'screen|logo|render|api|endpoint|template|feature|fix|broken|revert)|'
-            r'\bdemos?\b|\bpr\b|pull request',
+            r'screen|logo|render|api|endpoint|template|feature|fix|broken|revert|'
+            r'border)|'
+            r'\bdemos?\b|\bpr\b|pull request|\bworktrees?\b|\bconductors?\b|\breap(?:ing)?\b',
             re.IGNORECASE,
         )
-        print('match' if pattern.search(prompt) else 'no_match')
+        # Ticket IDs (e.g. "AUT-930", "DS-45") are case-sensitive by convention -
+        # a lowercase "ab-12" must not match, so this runs as a separate check
+        # rather than folding into the IGNORECASE pattern above.
+        ticket_pattern = re.compile(r'\b[A-Z]{2,6}-\d{2,5}\b')
+        matched = bool(pattern.search(prompt)) or bool(ticket_pattern.search(prompt))
+        print('match' if matched else 'no_match')
 except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown")

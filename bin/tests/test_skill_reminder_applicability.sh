@@ -44,6 +44,19 @@
 #   8. Remove any one of the 17 new bare-group words from the pattern: reddens that
 #      word's case in scenario 8 (the loop asserts each word individually, so removing
 #      one word only reddens its own assertion, not the whole scenario).
+#
+# Named mutations, DS-242 round (ticket IDs, worktree/conductor/reap(ing), border):
+#   9.  Remove the ticket_pattern check entirely: reddens scenario 11's positive case
+#       ("AUT-930" no longer fires).
+#   10. Fold ticket_pattern into the IGNORECASE `pattern` instead of keeping it a
+#       separate case-sensitive check: reddens scenario 11's negative case
+#       (lowercase "ab-12" starts firing).
+#   11. Remove `border` from the bare left-anchor-only group: reddens scenario 12.
+#   12. Remove `\bworktrees?\b`, `\bconductors?\b`, or `\breap(?:ing)?\b` from the
+#       both-side-anchored alternation: reddens that word's positive case in
+#       scenario 13.
+#   13. Widen any of those three to an unanchored or left-anchor-only match:
+#       reddens scenario 13's shared negative case ("reapply" starts firing).
 
 set -uo pipefail
 
@@ -284,6 +297,76 @@ if [[ -z "$RUN_OUT" ]]; then
   pass "scenario 10: demon/democracy/demolish-only prompt suppresses the banner"
 else
   fail "scenario 10: expected empty stdout, got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 11: ticket IDs (case-sensitive [A-Z]{2,6}-\d{2,5}). The uppercase
+# form fires the banner alone; the lowercase form does not (the main
+# IGNORECASE pattern must not swallow it).
+# ---------------------------------------------------------------------------
+run_with_prompt "fold AUT-930 into the mix"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 11: uppercase ticket ID (AUT-930) alone fires the banner"
+else
+  fail "scenario 11: expected the banner for AUT-930, got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "ab-12 should not match"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 11: lowercase ticket-ID-shaped text (ab-12) does not fire the banner"
+else
+  fail "scenario 11: expected empty stdout for ab-12, got: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 12: `border`, left-anchored like the existing bare-word group,
+# fires the banner alone.
+# ---------------------------------------------------------------------------
+run_with_prompt "just make the borders 1px"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 12: 'border' (as 'borders') alone fires the banner"
+else
+  fail "scenario 12: expected the banner for 'borders', got stdout: $RUN_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Scenario 13: worktree/conductor/reap(ing), each both-side-anchored, fire the
+# banner alone (including their plain plural/inflected forms measured in the
+# corpora); "reapply" - which shares the "reap" prefix - does not.
+# ---------------------------------------------------------------------------
+run_with_prompt "let's talk about worktrees"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'worktrees' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'worktrees', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "the conductor should delegate this"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'conductor' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'conductor', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "how does auto-reap work?"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'reap' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'reap', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "this auto reaping is separate"
+if [[ "$RUN_OUT" == *"SKILL CHECK [dinostack]"* ]]; then
+  pass "scenario 13: 'reaping' alone fires the banner"
+else
+  fail "scenario 13: expected the banner for 'reaping', got stdout: $RUN_OUT"
+fi
+
+run_with_prompt "reapply the patch please"
+if [[ -z "$RUN_OUT" ]]; then
+  pass "scenario 13: 'reapply' does not fire the banner"
+else
+  fail "scenario 13: expected empty stdout for 'reapply', got: $RUN_OUT"
 fi
 
 echo "Results: $PASS passed, $FAIL failed"
