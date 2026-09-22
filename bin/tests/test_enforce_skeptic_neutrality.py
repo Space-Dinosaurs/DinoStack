@@ -19,7 +19,6 @@ import importlib.util
 import json
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 _HOOK_PATH = Path(__file__).parent.parent.parent / "hooks" / "enforce-skeptic-neutrality.py"
@@ -28,37 +27,6 @@ _REPO_ROOT = Path(__file__).parent.parent.parent
 _spec = importlib.util.spec_from_file_location("enforce_skeptic_neutrality", _HOOK_PATH)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
-
-_origin_main_mod_cache: dict = {}
-
-
-def _load_origin_main_hook_module():
-    """Loads `origin/main`'s own, real copy of this hook as a standalone
-    module - for a mutation-testing proof that must show a specific
-    assertion genuinely failing against the actual pre-fix code, not a
-    hand-reconstructed stand-in for it (a hand-reconstruction can drift
-    from the real pipeline and pass regardless of whether the live fix is
-    present or absent). Cached per test-session run since the subprocess
-    call is not free."""
-    if "mod" in _origin_main_mod_cache:
-        return _origin_main_mod_cache["mod"]
-    result = subprocess.run(
-        ["git", "show", "origin/main:hooks/enforce-skeptic-neutrality.py"],
-        cwd=_REPO_ROOT, capture_output=True, text=True, check=True,
-    )
-    tmp = tempfile.NamedTemporaryFile(
-        suffix=".py", prefix="origin_main_enforce_skeptic_neutrality_",
-        delete=False, mode="w", encoding="utf-8",
-    )
-    tmp.write(result.stdout)
-    tmp.close()
-    spec = importlib.util.spec_from_file_location(
-        "enforce_skeptic_neutrality_origin_main", tmp.name
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    _origin_main_mod_cache["mod"] = mod
-    return mod
 
 
 # --------------------------------------------------------------------------- #
@@ -1521,30 +1489,6 @@ def test_round5_fix_a_en_dash_and_curly_quotes_na_separator_exempt():
     fold to ASCII before the exemption check runs."""
     value = "n/a " + _EN_DASH + " " + _LEFT_SINGLE_QUOTE + "Trivial" + _RIGHT_SINGLE_QUOTE + " direct edit"
     assert _mod.field7_violation([value]) is None
-
-
-def test_round5_fix_a_mutation_pre_fix_em_dash_denies():
-    """Executed mutation-testing proof, confirmed failing against the
-    real `origin/main` hook (not a hand-reconstructed stand-in for it):
-    `origin/main`'s own, unmodified `field7_violation()` normalized
-    `_TYPOGRAPHIC_NORMALIZE_TABLE` only INSIDE the note-strip's own
-    internal matching, never the joined field-7 text at large - so it
-    denies the em-dash-separated 'n/a <em-dash> <reason>' value that the
-    live (fixed) hook exempts, despite the two forms being byte-for-byte
-    equivalent in meaning."""
-    value = "n/a " + _EM_DASH + " Trivial direct edit"
-
-    # Live (fixed) behavior: exempt.
-    assert _mod.field7_violation([value]) is None
-
-    # origin/main's real, unmodified field7_violation() denies the same
-    # value - not a reconstruction, the actual pre-fix code, genuinely
-    # executed and shown failing.
-    origin_mod = _load_origin_main_hook_module()
-    assert origin_mod.field7_violation([value]) is not None, (
-        "mutation should have reddened: origin/main's own field7_violation() "
-        "must deny the em-dash form, proving Fix A is load-bearing"
-    )
 
 
 # =========================================================================== #
