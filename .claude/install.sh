@@ -1984,20 +1984,23 @@ done
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
 
-# The registration launches Chrome HEADLESS against a pinned profile root.
-# The stdio server opens a VISIBLE window by default (`headless: {default:
+# The registration launches Chrome headless against a pinned profile root.
+# The stdio server opens a visible window by default (`headless: {default:
 # false}` in browser-options.js; only the unrelated --viaCli variant flips it),
 # which is the desktop clutter this block exists to prevent. The pinned root
-# is the MCP's own documented default, so pinning changes no behavior but
-# stops a future upstream default change from moving the directory that
-# identifies an agent-launched browser. --isolated is NOT passed: the option
-# schema declares it conflicting with --user-data-dir.
+# is the path the MCP's own default resolves to, so pinning changes no
+# behavior but stops a future upstream default change from moving the
+# directory that identifies an agent-launched browser. That default is
+# channel-suffixed for any non-stable channel (`chrome-profile-canary` under
+# --channel=canary), so the pinned path carries the same suffix. --isolated is
+# not passed: the option schema declares it conflicting with --user-data-dir.
 #
 # State is detected rather than testing only "is the key present", because a
 # registration written before the headless default shipped has the key but
-# lacks the flags - a short-circuit there would leave that operator headed
-# forever. absent | stale | current, plus unreadable for a file that is not a
-# JSON object, which is never rewritten blind.
+# lacks the flags - a short-circuit there would leave that operator headless
+# forever. absent | stale | current are the states this writer can edit;
+# unreadable, mcp-servers-not-object, entry-not-object and args-not-string-list
+# are refusals, and none of the four is ever rewritten blind.
 CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" <<'PYEOF'
 import json, sys
 
@@ -2012,10 +2015,24 @@ except (OSError, ValueError):
     print("unreadable")
     sys.exit(0)
 
+# A container this writer cannot edit surgically is reported as itself, never
+# collapsed into absent: absent runs the create path, which would write over
+# content the operator owns (a legacy server list, an array standing where an
+# entry belongs).
 servers = data.get("mcpServers") if isinstance(data, dict) else None
+if isinstance(data, dict) and "mcpServers" in data and not isinstance(servers, dict):
+    print("mcp-servers-not-object")
+    sys.exit(0)
 entry = servers.get("chrome-devtools") if isinstance(servers, dict) else None
-args = entry.get("args") if isinstance(entry, dict) else None
-args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
+if isinstance(servers, dict) and "chrome-devtools" in servers and not isinstance(entry, dict):
+    print("entry-not-object")
+    sys.exit(0)
+raw_args = entry.get("args") if isinstance(entry, dict) else None
+args_ok = isinstance(raw_args, list) and all(isinstance(a, str) for a in raw_args)
+if isinstance(entry, dict) and "args" in entry and not args_ok:
+    print("args-not-string-list")
+    sys.exit(0)
+args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
 
 if entry is None:
     print("absent")
@@ -2030,8 +2047,18 @@ if [[ "$CD_MCP_STATE" == "current" ]]; then
   echo "  = chrome-devtools MCP already configured (headless)"
 elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
   echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
+elif [[ "$CD_MCP_STATE" == "mcp-servers-not-object" || "$CD_MCP_STATE" == "entry-not-object" || "$CD_MCP_STATE" == "args-not-string-list" ]]; then
+  # Refuse rather than coerce. The writer below has no surgical edit for any
+  # of these shapes, so it is never reached and the file stays untouched.
+  CD_MCP_SHAPE=""
+  case "$CD_MCP_STATE" in
+    mcp-servers-not-object) CD_MCP_SHAPE="mcpServers is not a JSON object" ;;
+    entry-not-object) CD_MCP_SHAPE="the chrome-devtools entry is not a JSON object" ;;
+    args-not-string-list) CD_MCP_SHAPE="the chrome-devtools entry has an args value that is not a list of strings" ;;
+  esac
+  echo "  ! $CLAUDE_JSON: $CD_MCP_SHAPE - leaving the chrome-devtools MCP entry untouched; fix that value by hand and re-run this installer"
 else
-  echo "  chrome-devtools launches Chrome HEADLESS: an agent-driven browser opens no window, so watching a"
+  echo "  chrome-devtools launches Chrome headless: an agent-driven browser opens no window, so watching a"
   echo "  page load live is gone (screenshots and script evaluation still work). To get the window back,"
   echo "  remove --headless from its args in $CLAUDE_JSON; the next session picks that up."
   if [[ "$CD_MCP_STATE" == "stale" ]]; then
@@ -2040,7 +2067,7 @@ else
     CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
   fi
   if ae_confirm "$CD_MCP_QUESTION"; then
-    # Every refusal exits non-zero WITHOUT writing, and the write lands in a
+    # Every refusal exits non-zero without writing, and the write lands in a
     # same-directory temp file followed by os.replace, so an interrupted run
     # cannot truncate the operator's ~/.claude.json. The caller tolerates the
     # non-zero exit: a refusal is not a reason to fail the whole install.
@@ -2048,17 +2075,38 @@ else
 import json, os, stat, sys, tempfile
 
 target = sys.argv[1]
-PROFILE_DIR = os.path.expanduser("~/.cache/chrome-devtools-mcp/chrome-profile")
 
 
-def ask_manual(entry_args):
+def ask_manual(reason, entry_args):
     sys.stderr.write("\n".join([
-        "  ! " + target + " changed while this installer was preparing its update,",
-        "    so nothing was written. To apply it by hand, set",
+        "  ! " + reason,
+        "    To apply it by hand, set",
         '    mcpServers["chrome-devtools"]["args"] to:',
         "      " + json.dumps(entry_args),
         "    and re-run this installer.",
     ]) + "\n")
+
+
+def refuse(shape):
+    sys.stderr.write("\n".join([
+        "  ! " + target + ": " + shape + ", so nothing was written.",
+        "    Fix that value by hand (or remove it) and re-run this installer.",
+    ]) + "\n")
+    sys.exit(1)
+
+
+def channel_suffix(args):
+    # The MCP's own default profile dir is channel-suffixed for any non-stable
+    # channel (`chrome-profile-canary` under --channel=canary). A pinned path
+    # without that suffix is not the directory the server would have used, so
+    # pinning it would move the profile rather than match it.
+    channel = None
+    for i, a in enumerate(args):
+        if a.startswith("--channel="):
+            channel = a[len("--channel="):]
+        elif a == "--channel" and i + 1 < len(args):
+            channel = args[i + 1]
+    return "" if channel in (None, "stable") else "-" + channel
 
 
 if os.path.islink(target):
@@ -2079,11 +2127,18 @@ if os.path.exists(target):
         sys.stderr.write("  ! " + target + " is not a JSON object - left untouched\n")
         sys.exit(1)
 
+# Each shape below has no surgical edit: the code after the guard can only
+# replace the container wholesale, which loses whatever it held. Refusing
+# leaves the file byte-identical instead.
+if "mcpServers" in data and not isinstance(data["mcpServers"], dict):
+    refuse("mcpServers is not a JSON object")
 servers = data.get("mcpServers")
 if not isinstance(servers, dict):
     servers = {}
     data["mcpServers"] = servers
 
+if "chrome-devtools" in servers and not isinstance(servers["chrome-devtools"], dict):
+    refuse("the chrome-devtools entry is not a JSON object")
 entry = servers.get("chrome-devtools")
 created = not isinstance(entry, dict)
 if created:
@@ -2095,13 +2150,18 @@ if created:
     }
     servers["chrome-devtools"] = entry
 
+raw_args = entry.get("args")
+args_ok = isinstance(raw_args, list) and all(isinstance(a, str) for a in raw_args)
+if "args" in entry and not args_ok:
+    refuse("the chrome-devtools entry has an args value that is not a list of strings")
+
 # Append only what is missing, so an operator's own extra flags survive.
-args = entry.get("args")
-args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
+args = [a for a in raw_args if isinstance(a, str)] if isinstance(raw_args, list) else []
 if "--headless" not in args:
     args.append("--headless")
 if not any(a.startswith("--user-data-dir=") for a in args):
-    args.append("--user-data-dir=" + PROFILE_DIR)
+    args.append("--user-data-dir=" + os.path.expanduser(
+        "~/.cache/chrome-devtools-mcp/chrome-profile") + channel_suffix(args))
 entry["args"] = args
 
 fd, tmp_path = tempfile.mkstemp(
@@ -2126,7 +2186,10 @@ try:
         moved = now is None or (
             now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns)
     if moved:
-        ask_manual(args)
+        ask_manual(
+            target + " changed while this installer was preparing its update,"
+            " so nothing was written.",
+            args)
         sys.exit(1)
     os.replace(tmp_path, target)
 finally:

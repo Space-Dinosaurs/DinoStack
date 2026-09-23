@@ -19,13 +19,28 @@
 #                  completes and the file behind the symlink is untouched
 #            V1d - an unparseable config       -> skipped with a message, never
 #                  replaced
+#            V3  - a container the writer cannot edit surgically (three shapes:
+#                  a non-object mcpServers, a non-object chrome-devtools entry,
+#                  an args value that is not a list of strings) -> the
+#                  classifier names the shape and skips, without offering a
+#                  prompt for an edit it cannot make, and the file is
+#                  byte-identical
+#            V4  - the same shapes driven straight at the writer block (the
+#                  last guard before a temp file exists) -> non-zero exit, the
+#                  shape named, the file byte-identical
+#            V5  - a stale entry carrying --channel=canary -> the pinned root
+#                  carries the same channel suffix the MCP appends, and a
+#                  --channel=stable entry (the control) gets the unsuffixed one
 #
 #          The ae_confirm prompt reads /dev/tty, so each case runs under a real
 #          pseudo-terminal (python3 pty.fork) with the answer written once the
 #          prompt text is observed. Every other prompt in install.sh is seeded
 #          away (skill_auto_load key, permissions.defaultMode, the five
 #          CLI_TOOLS on PATH, --mode and --no-identity flags), so exactly one
-#          prompt is live per run - see the seed list below.
+#          prompt is live per run - see the seed list below. The container-shape
+#          fixture is the exception: its mcpServers is a list, so the atlassian
+#          block's own key check finds nothing and prompts, and that prompt gets
+#          its own seeded answer.
 #
 #          MUTATION COVERAGE (each mutation is RUN, not merely named):
 #            (a) drop the --headless append           -> V1 reddens
@@ -38,6 +53,19 @@
 #            (f) call an unparseable config "absent" -> V1d reddens
 #            (g) drop the trade-off statement printed before the accept prompt
 #                -> V2 and V1 redden
+#            (h) collapse a non-object mcpServers into "absent" (the pre-fix
+#                classifier)                            -> V3's container case
+#                reddens
+#            (i) collapse a non-object entry into "absent" -> V3's entry case
+#                reddens
+#            (j) collapse a non-string-list args into "absent" -> V3's args case
+#                reddens
+#            (k) disable the writer's mcpServers guard (the pre-fix coercion)
+#                -> V4's container case reddens
+#            (l) disable the writer's entry guard -> V4's entry case reddens
+#            (m) disable the writer's args guard -> V4's args cases redden
+#            (n) pin the unsuffixed root for every channel (channel-blind)
+#                -> V5 reddens
 #          A mutation is a full copy of .claude/install.sh, so it must live in
 #          .claude/ too (REPO_DIR is derived from the script's own path). Those
 #          copies are removed by the exit trap.
@@ -57,9 +85,10 @@
 #                git shim below can escape its sandbox and mutate the LIVE
 #                primary checkout's pre-commit hook symlink - see Seed 5.
 #
-# Performance: ~5 s per install run; 13 install runs per invocation (5 cases
-#              plus 8 mutation runs of the installer; the concurrent-writer
-#              mutations run no installer) on a warm tree, so ~70 s total.
+# Performance: 19 install runs per invocation (8 of the cases plus 11 mutation
+#              runs of the installer), measured at ~78 s total on a warm tree.
+#              The concurrent-writer and V4/V5 cases run the extracted writer
+#              instead, at negligible cost.
 
 set -uo pipefail
 
@@ -578,12 +607,141 @@ case_v1d_unparseable() {
 }
 
 # ---------------------------------------------------------------------------
+# V3/V4 fixtures: the container shapes the writer has no surgical edit for.
+# Each one was coerced before this fix - a non-object mcpServers was replaced
+# outright (both legacy servers lost), a non-object entry was replaced, and an
+# args value that is not a list of strings was discarded and then overwritten
+# with the flags alone. For the string form that yields
+# `npx --headless --user-data-dir=...`, a registration that cannot launch.
+# ---------------------------------------------------------------------------
+write_shape_config() {
+  local path="$1" shape="$2"
+  case "$shape" in
+  container)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": [
+    "legacy-server-A",
+    "legacy-server-B"
+  ]
+}
+EOF
+    ;;
+  entry)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": [
+      "chrome-devtools-mcp@latest"
+    ],
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
+  args-string)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": "chrome-devtools-mcp@latest",
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
+  args-element)
+    cat > "$path" <<'EOF'
+{
+  "numStartups": 42,
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        123
+      ],
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+    ;;
+  esac
+}
+
+# The phrase a refusal must name. The classifier-driven message and the
+# writer's own message carry it verbatim, so one needle pins both paths.
+shape_needle() {
+  case "$1" in
+  container) printf 'mcpServers is not a JSON object' ;;
+  entry) printf 'the chrome-devtools entry is not a JSON object' ;;
+  *) printf "the chrome-devtools entry has an args value that is not a list of strings" ;;
+  esac
+}
+
+# V3: a container the writer cannot edit is refused by the classifier, so the
+# file never reaches the writer and no prompt offers an edit that cannot be
+# made. Asserts the shape is named, no chrome-devtools prompt was offered, the
+# install still completes, and the file is byte-identical.
+case_shape_refused() {
+  local script="$1" shape="$2"
+  local home="$TMP_ROOT/shape-$shape-home"
+  local before="$TMP_ROOT/shape-$shape-before.json"
+  local out rc
+  mkdir -p "$home"
+  seed_home "$home"
+  write_shape_config "$home/.claude.json" "$shape"
+  cp "$home/.claude.json" "$before"
+
+  # The container fixture has no mcp-atlassian key to find (its mcpServers is a
+  # list), so the atlassian block prompts and needs an answer; the other two
+  # fixtures carry mcp-atlassian and never reach that prompt.
+  out="$(run_install "$script" "$home" '[["Configure chrome-devtools MCP", "y\n"], ["mcp-atlassian MCP", "n\n"]]')"
+  rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    _fail "$shape: install exited $rc"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if ! grep -qF "$(shape_needle "$shape")" <<< "$out"; then
+    _fail "$shape: the refusal did not name the shape"
+    tail -20 <<< "$out" >&2
+    return 1
+  fi
+  if grep -q "Configure chrome-devtools MCP" <<< "$out"; then
+    _fail "$shape: a container the writer cannot edit was offered the registration prompt"
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$shape: the refused shape was modified (expected byte-identical)"
+    return 1
+  fi
+  return 0
+}
+
+case_shape_container() { case_shape_refused "$1" container; }
+case_shape_entry() { case_shape_refused "$1" entry; }
+case_shape_args_string() { case_shape_refused "$1" args-string; }
+
+# ---------------------------------------------------------------------------
 # Concurrent-writer guard. The window between the writer's read and its
 # pre-rename re-stat is microseconds, so this runs the SHIPPED writer block
 # (extracted from install.sh, never retyped here) with one injected
 # `time.sleep` to hold the window open, and rewrites the file from another
 # process while it is open.
 # ---------------------------------------------------------------------------
+# extract_writer <source-install-sh> <output.py> - the source is a parameter
+# because the mutation harness runs the extracted writer for a mutated copy.
 extract_writer() {
   # Stops BEFORE the heredoc's terminating PYEOF, which is shell syntax, not
   # Python: leaving it in makes the extracted block raise NameError at its last
@@ -593,13 +751,13 @@ extract_writer() {
     /^import json, os, stat, sys, tempfile$/ { f=1 }
     f && /^PYEOF$/ { exit }
     f { print }
-  ' "$INSTALL_SH" > "$1"
-  if ! grep -q "os.replace(tmp_path, target)" "$1"; then
-    _fail "could not extract the shipped writer block from $INSTALL_SH (anchor line moved?)"
+  ' "$1" > "$2"
+  if ! grep -q "os.replace(tmp_path, target)" "$2"; then
+    _fail "could not extract the shipped writer block from $1 (anchor line moved?)"
     return 1
   fi
-  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$1"; then
-    _fail "the extracted writer block from $INSTALL_SH is not valid Python"
+  if ! python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$2"; then
+    _fail "the extracted writer block from $1 is not valid Python"
     return 1
   fi
   return 0
@@ -649,6 +807,101 @@ case_concurrent_writer() {
     _fail "concurrent-writer: the manual-edit message does not name the args to write"
     return 1
   fi
+  return 0
+}
+
+# V4: the same container shapes driven straight at the writer block. The
+# classifier intercepts them in a real install run, so this is the case that
+# holds the writer's own guard to account: non-zero exit, the shape named, and
+# the file byte-identical. It is also the guard that still holds if the file
+# changes between the classifier's read and the writer's.
+case_writer_refuses() {
+  local script="$1" shape="$2"
+  local home="$TMP_ROOT/writer-$shape-home"
+  local py="$TMP_ROOT/writer-$shape.py"
+  local before="$TMP_ROOT/writer-$shape-before.json"
+  local err="$TMP_ROOT/writer-$shape.err"
+  local rc
+  mkdir -p "$home"
+  write_shape_config "$home/.claude.json" "$shape"
+  cp "$home/.claude.json" "$before"
+  if ! extract_writer "$script" "$py"; then
+    return 1
+  fi
+  : > "$err"
+  ( python3 "$py" "$home/.claude.json" 2>"$err" )
+  rc=$?
+  if [[ "$rc" == "0" ]]; then
+    _fail "$shape: the writer accepted a container it cannot edit surgically (exit 0)"
+    return 1
+  fi
+  if ! grep -qF "$(shape_needle "$shape")" "$err"; then
+    _fail "$shape: the writer's refusal did not name the shape"
+    cat "$err" >&2
+    return 1
+  fi
+  if ! cmp -s "$before" "$home/.claude.json"; then
+    _fail "$shape: the writer modified a container it refused"
+    return 1
+  fi
+  return 0
+}
+
+case_writer_container() { case_writer_refuses "$1" container; }
+case_writer_entry() { case_writer_refuses "$1" entry; }
+case_writer_args_string() { case_writer_refuses "$1" args-string; }
+case_writer_args_element() { case_writer_refuses "$1" args-element; }
+
+# V5: the pinned profile root must be the directory the server itself would
+# have chosen. Its default is channel-suffixed for any non-stable channel, so a
+# fixed unsuffixed pin moves a canary operator's profile instead of matching it.
+# The stable fixture is the control: it is what makes a channel-blind
+# implementation redden here too.
+write_channel_config() {
+  local path="$1" channel="$2"
+  cat > "$path" <<EOF
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "chrome-devtools-mcp@latest",
+        "--channel=$channel"
+      ],
+      "env": {}
+    },
+    "mcp-atlassian": {}
+  }
+}
+EOF
+}
+
+case_writer_channel_suffix() {
+  local script="$1"
+  local py="$TMP_ROOT/writer-channel.py"
+  local got want rc
+  if ! extract_writer "$script" "$py"; then
+    return 1
+  fi
+  for pair in "canary:chrome-profile-canary" "stable:chrome-profile"; do
+    local channel="${pair%%:*}" dirname="${pair##*:}"
+    local home="$TMP_ROOT/channel-$channel-home"
+    mkdir -p "$home"
+    write_channel_config "$home/.claude.json" "$channel"
+    ( HOME="$home" python3 "$py" "$home/.claude.json" ) >/dev/null 2>&1
+    rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+      _fail "channel=$channel: the writer exited $rc on a legitimate stale entry"
+      return 1
+    fi
+    want="[\"chrome-devtools-mcp@latest\", \"--channel=$channel\", \"--headless\", \"--user-data-dir=$home/.cache/chrome-devtools-mcp/$dirname\"]"
+    got="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["mcpServers"]["chrome-devtools"]["args"]))' "$home/.claude.json")"
+    if [[ "$got" != "$want" ]]; then
+      _fail "channel=$channel: the pinned profile root is wrong (want $want, got $got)"
+      return 1
+    fi
+  done
   return 0
 }
 
@@ -739,8 +992,30 @@ run_case "V1d: a config that is not JSON is skipped, not replaced" \
   case_v1d_unparseable "$INSTALL_SH"
 
 echo ""
+echo "=== V3: containers the writer cannot edit are refused, not coerced ==="
+run_case "V3: a non-object mcpServers is named and skipped, file byte-identical" \
+  case_shape_container "$INSTALL_SH"
+run_case "V3: a non-object chrome-devtools entry is named and skipped, file byte-identical" \
+  case_shape_entry "$INSTALL_SH"
+run_case "V3: a non-string-list args is named and skipped, file byte-identical" \
+  case_shape_args_string "$INSTALL_SH"
+
+echo ""
+echo "=== V4: the writer refuses each shape directly, non-zero and without writing ==="
+run_case "V4: the writer refuses a non-object mcpServers" \
+  case_writer_container "$INSTALL_SH"
+run_case "V4: the writer refuses a non-object chrome-devtools entry" \
+  case_writer_entry "$INSTALL_SH"
+run_case "V4: the writer refuses a string args value" \
+  case_writer_args_string "$INSTALL_SH"
+run_case "V4: the writer refuses an args list containing a non-string" \
+  case_writer_args_element "$INSTALL_SH"
+run_case "V5: the pinned profile root carries the entry's own channel suffix" \
+  case_writer_channel_suffix "$INSTALL_SH"
+
+echo ""
 echo "=== Concurrent-writer guard ==="
-if extract_writer "$TMP_ROOT/writer.py" && inject_delay "$TMP_ROOT/writer.py" "$TMP_ROOT/writer_slow.py"; then
+if extract_writer "$INSTALL_SH" "$TMP_ROOT/writer.py" && inject_delay "$TMP_ROOT/writer.py" "$TMP_ROOT/writer_slow.py"; then
   run_case "concurrent-writer: a file changed under the writer is refused, not clobbered" \
     case_concurrent_writer "$TMP_ROOT/writer_slow.py"
 fi
@@ -753,7 +1028,7 @@ if mutate_installer 's/^    args.append("--headless")$/    pass/' no-headless; t
     _pass "mutation (a): dropping the --headless append reddens V1"
   fi
 else
-  _fail "mutation (a): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (a): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 if mutate_installer 's/^elif "--headless" in args and any(a\.startswith("--user-data-dir=") for a in args):$/elif True:/' short-circuit; then
@@ -766,10 +1041,10 @@ if mutate_installer 's/^elif "--headless" in args and any(a\.startswith("--user-
     _pass "mutation (b): treating any existing key as current reddens V1b"
   fi
 else
-  _fail "mutation (b): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (b): the sed pattern no longer matches - the mutation was not applied"
 fi
 
-if mutate_installer '/^  echo "  chrome-devtools launches Chrome HEADLESS/,/remove --headless from its args/d' drop-trade-off; then
+if mutate_installer '/^  echo "  chrome-devtools launches Chrome headless/,/remove --headless from its args/d' drop-trade-off; then
   if expect_case_fails "mutation (g) drop the R6 trade-off statement" case_v2_accepted "$MUTATE_OUT" \
     "V2: the trade-off and the way back are not stated before the accept prompt"; then
     _pass "mutation (g): dropping the trade-off statement reddens V2"
@@ -779,7 +1054,7 @@ if mutate_installer '/^  echo "  chrome-devtools launches Chrome HEADLESS/,/remo
     _pass "mutation (g): dropping the trade-off statement reddens V1's fresh path too"
   fi
 else
-  _fail "mutation (g): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (g): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 if mutate_installer 's/    print("unreadable")/    print("absent")/' treat-unparseable-as-absent; then
@@ -788,7 +1063,79 @@ if mutate_installer 's/    print("unreadable")/    print("absent")/' treat-unpar
     _pass "mutation (f): calling an unparseable config absent reddens V1d"
   fi
 else
-  _fail "mutation (f): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (f): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (h)-(j): the pre-fix classifier collapsed each uneditable container into
+# "absent", which runs the create path against a file that already has content.
+if mutate_installer 's/^    print("mcp-servers-not-object")$/    print("absent")/' unrefuse-container; then
+  if expect_case_fails "mutation (h) non-object mcpServers treated as absent" case_shape_container "$MUTATE_OUT" \
+    "was offered the registration prompt"; then
+    _pass "mutation (h): collapsing a non-object mcpServers into absent reddens its refusal case"
+  fi
+else
+  _fail "mutation (h): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    print("entry-not-object")$/    print("absent")/' unrefuse-entry; then
+  if expect_case_fails "mutation (i) non-object entry treated as absent" case_shape_entry "$MUTATE_OUT" \
+    "was offered the registration prompt"; then
+    _pass "mutation (i): collapsing a non-object entry into absent reddens its refusal case"
+  fi
+else
+  _fail "mutation (i): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    print("args-not-string-list")$/    print("absent")/' unrefuse-args; then
+  if expect_case_fails "mutation (j) non-string-list args treated as absent" case_shape_args_string "$MUTATE_OUT" \
+    "was offered the registration prompt"; then
+    _pass "mutation (j): collapsing a non-string-list args into absent reddens its refusal case"
+  fi
+else
+  _fail "mutation (j): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+# (k)-(m): remove a writer guard. Each mutation restores exactly the pre-fix
+# coercion (the code the guard sits in front of replaces the container
+# wholesale), so these are the mutations that reproduce the reported damage.
+if mutate_installer 's/^    refuse("mcpServers is not a JSON object")$/    pass/' coerce-container; then
+  if expect_case_fails "mutation (k) writer coerces a non-object mcpServers" case_writer_container "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (k): letting the writer replace a non-object mcpServers reddens its refusal case"
+  fi
+else
+  _fail "mutation (k): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    refuse("the chrome-devtools entry is not a JSON object")$/    pass/' coerce-entry; then
+  if expect_case_fails "mutation (l) writer coerces a non-object entry" case_writer_entry "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (l): letting the writer replace a non-object entry reddens its refusal case"
+  fi
+else
+  _fail "mutation (l): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    refuse("the chrome-devtools entry has an args value that is not a list of strings")$/    pass/' coerce-args; then
+  if expect_case_fails "mutation (m) writer discards a non-list args" case_writer_args_string "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (m): letting the writer discard a string args reddens its refusal case"
+  fi
+  if expect_case_fails "mutation (m) writer discards a non-string args element" case_writer_args_element "$MUTATE_OUT" \
+    "the writer accepted a container it cannot edit surgically"; then
+    _pass "mutation (m): letting the writer drop a non-string args element reddens its refusal case"
+  fi
+else
+  _fail "mutation (m): the sed pattern no longer matches - the mutation was not applied"
+fi
+
+if mutate_installer 's/^    return "" if channel in (None, "stable") else "-" + channel$/    return ""/' channel-blind; then
+  if expect_case_fails "mutation (n) channel-blind pinned root" case_writer_channel_suffix "$MUTATE_OUT" \
+    "the pinned profile root is wrong"; then
+    _pass "mutation (n): pinning the unsuffixed root for every channel reddens V5"
+  fi
+else
+  _fail "mutation (n): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 if mutate_installer 's/indent=2, ensure_ascii=False/indent=2/' ascii-escape; then
@@ -797,7 +1144,7 @@ if mutate_installer 's/indent=2, ensure_ascii=False/indent=2/' ascii-escape; the
     _pass "mutation (e): re-encoding non-ASCII reddens V2"
   fi
 else
-  _fail "mutation (e): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (e): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 if mutate_installer 's/if ! python3 - /if python3 - /' invert-guard; then
@@ -806,7 +1153,7 @@ if mutate_installer 's/if ! python3 - /if python3 - /' invert-guard; then
     _pass "mutation (d): inverting the refuse-guard's exit handling reddens V1c"
   fi
 else
-  _fail "mutation (d): the sed pattern no longer matches - the mutation was NOT applied"
+  _fail "mutation (d): the sed pattern no longer matches - the mutation was not applied"
 fi
 
 if [[ -f "$TMP_ROOT/writer_slow.py" ]]; then
