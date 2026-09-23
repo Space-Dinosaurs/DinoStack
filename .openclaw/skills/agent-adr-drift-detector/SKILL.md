@@ -139,7 +139,7 @@ tmp/
 temp/
 ```
 
-When using grep, always add: `--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=vendor --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=target --exclude-dir=coverage`
+When using grep, always add: `--exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build --exclude-dir=out --exclude-dir=.next --exclude-dir=.nuxt --exclude-dir=vendor --exclude-dir=__pycache__ --exclude-dir=.venv --exclude-dir=venv --exclude-dir=env --exclude-dir=target --exclude-dir=coverage --exclude-dir=.cache --exclude-dir=tmp --exclude-dir=temp --exclude='*.pyc' --exclude='*.min.js' --exclude='*.bundle.js'`
 
 ### Search strategy types:
 

@@ -196,7 +196,7 @@ Return this pointer object as the agent's final output:
 
 - **High** - you measured before and after, the delta is outside noise, and the second measurement confirms the hypothesis.
 - **Medium** - the profiler clearly identifies the hotspot and the pattern is well-understood (e.g., obvious N+1), but you could not run a second measurement to confirm impact.
-- **Low** - you identified a candidate from code reading or partial profiling output, but measurement was insufficient. The fix brief must be labeled "Do not implement until root cause is confirmed."
+- **Low** - you identified a candidate from code reading or partial profiling output, but measurement was insufficient. The fix brief must be labeled "Do not implement until root cause is confirmed with a second measurement."
 
 ## Boundaries
 

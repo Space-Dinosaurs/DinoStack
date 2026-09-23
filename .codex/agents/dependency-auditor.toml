@@ -252,7 +252,7 @@ Return this pointer object as the agent's final output:
   "critical_count": <count>,
   "major_count": <count>,
   "minor_count": <count>,
-  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'. A Critical finding must never be suppressed by this cap: if more than 5 real Critical findings exist, report all of them anyway - group findings that share the same CVE/advisory or the same affected package into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it."],
+  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'. See the cap rule below the schema."],
   "scan_completeness": "full | partial | blocked",
   "maintenance_signal": "healthy | stale | abandoned",
   "verdict": "clean | findings_present",
