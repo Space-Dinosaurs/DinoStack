@@ -125,6 +125,13 @@ _assert_classification_zsh() {
   # "permission denied" trying to execute an empty command). Neither
   # single form is safe in both shells at once, so this checks
   # "${#timeout_cmd[@]}" first instead.
+  # DS-252 correction: "neither single form" above is true only of the two
+  # forms this comment compares. The outer-UNQUOTED ${arr[@]+"${arr[@]}"}
+  # IS safe in all three shells (measured 2026-09-23: argc 2/2/4 for
+  # unset/empty/set under /bin/bash 3.2.57, bash 5.3.9 and zsh 5.9); it is
+  # the outer-QUOTED "${arr[@]+"${arr[@]}"}" that yields the empty word
+  # under zsh. See AGENTS.md "Empty-array expansion under `set -u`". The
+  # length test below is kept as the pre-existing, equally sound choice.
   if [ "${#timeout_cmd[@]}" -gt 0 ]; then
     out="$(cd "$REPO_DIR" && "${timeout_cmd[@]}" zsh scripts/gate-provenance.sh "$target" 2>&1)"
   else
