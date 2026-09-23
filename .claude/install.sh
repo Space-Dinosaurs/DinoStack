@@ -1983,43 +1983,161 @@ done
 # chrome-devtools MCP
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
-if [[ -f "$CLAUDE_JSON" ]] && python3 -c "
+
+# The registration launches Chrome HEADLESS against a pinned profile root.
+# The stdio server opens a VISIBLE window by default (`headless: {default:
+# false}` in browser-options.js; only the unrelated --viaCli variant flips it),
+# which is the desktop clutter this block exists to prevent. The pinned root
+# is the MCP's own documented default, so pinning changes no behavior but
+# stops a future upstream default change from moving the directory that
+# identifies an agent-launched browser. --isolated is NOT passed: the option
+# schema declares it conflicting with --user-data-dir.
+#
+# State is detected rather than testing only "is the key present", because a
+# registration written before the headless default shipped has the key but
+# lacks the flags - a short-circuit there would leave that operator headed
+# forever. absent | stale | current, plus unreadable for a file that is not a
+# JSON object, which is never rewritten blind.
+CD_MCP_STATE="$(python3 - "$CLAUDE_JSON" <<'PYEOF'
 import json, sys
-with open('$CLAUDE_JSON') as f:
-    d = json.load(f)
-sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
-" 2>/dev/null; then
-  echo "  = chrome-devtools MCP already configured"
-else
-  if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
-    python3 - <<'PYEOF'
-import json, os, sys
 
-target = os.path.expanduser("~/.claude.json")
-if os.path.exists(target):
-    with open(target) as f:
+target = sys.argv[1]
+try:
+    with open(target, encoding="utf-8") as f:
         data = json.load(f)
-else:
-    data = {}
+except FileNotFoundError:
+    print("absent")
+    sys.exit(0)
+except (OSError, ValueError):
+    print("unreadable")
+    sys.exit(0)
 
-servers = data.setdefault("mcpServers", {})
-if "chrome-devtools" not in servers:
-    servers["chrome-devtools"] = {
+servers = data.get("mcpServers") if isinstance(data, dict) else None
+entry = servers.get("chrome-devtools") if isinstance(servers, dict) else None
+args = entry.get("args") if isinstance(entry, dict) else None
+args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
+
+if entry is None:
+    print("absent")
+elif "--headless" in args and any(a.startswith("--user-data-dir=") for a in args):
+    print("current")
+else:
+    print("stale")
+PYEOF
+)" 2>/dev/null || CD_MCP_STATE="absent"
+
+if [[ "$CD_MCP_STATE" == "current" ]]; then
+  echo "  = chrome-devtools MCP already configured (headless)"
+elif [[ "$CD_MCP_STATE" == "unreadable" ]]; then
+  echo "  ! $CLAUDE_JSON could not be read as JSON - leaving the chrome-devtools MCP entry untouched"
+else
+  if [[ "$CD_MCP_STATE" == "stale" ]]; then
+    CD_MCP_QUESTION="  Update the existing chrome-devtools MCP registration to launch Chrome headless (no visible window) with a pinned profile root? [y/N] "
+  else
+    CD_MCP_QUESTION="  Configure chrome-devtools MCP - inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "
+  fi
+  if ae_confirm "$CD_MCP_QUESTION"; then
+    # Every refusal exits non-zero WITHOUT writing, and the write lands in a
+    # same-directory temp file followed by os.replace, so an interrupted run
+    # cannot truncate the operator's ~/.claude.json. The caller tolerates the
+    # non-zero exit: a refusal is not a reason to fail the whole install.
+    if ! python3 - "$CLAUDE_JSON" <<'PYEOF'
+import json, os, stat, sys, tempfile
+
+target = sys.argv[1]
+PROFILE_DIR = os.path.expanduser("~/.cache/chrome-devtools-mcp/chrome-profile")
+
+
+def ask_manual(entry_args):
+    sys.stderr.write("\n".join([
+        "  ! " + target + " changed while this installer was preparing its update,",
+        "    so nothing was written. To apply it by hand, set",
+        '    mcpServers["chrome-devtools"]["args"] to:',
+        "      " + json.dumps(entry_args),
+        "    and re-run this installer.",
+    ]) + "\n")
+
+
+if os.path.islink(target):
+    sys.stderr.write("  ! refusing to write through symlink: " + target + "\n")
+    sys.exit(1)
+
+data = {}
+before = None
+if os.path.exists(target):
+    try:
+        with open(target, encoding="utf-8") as f:
+            data = json.load(f)
+            before = os.fstat(f.fileno())
+    except (OSError, ValueError):
+        sys.stderr.write("  ! " + target + " is not readable JSON - left untouched\n")
+        sys.exit(1)
+    if not isinstance(data, dict):
+        sys.stderr.write("  ! " + target + " is not a JSON object - left untouched\n")
+        sys.exit(1)
+
+servers = data.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+    data["mcpServers"] = servers
+
+entry = servers.get("chrome-devtools")
+created = not isinstance(entry, dict)
+if created:
+    entry = {
         "type": "stdio",
         "command": "npx",
         "args": ["chrome-devtools-mcp@latest"],
-
-        "env": {}
+        "env": {},
     }
-    if os.path.islink(target):
-        sys.stderr.write(f"refusing to write through symlink: {target}\n")
+    servers["chrome-devtools"] = entry
+
+# Append only what is missing, so an operator's own extra flags survive.
+args = entry.get("args")
+args = [a for a in args if isinstance(a, str)] if isinstance(args, list) else []
+if "--headless" not in args:
+    args.append("--headless")
+if not any(a.startswith("--user-data-dir=") for a in args):
+    args.append("--user-data-dir=" + PROFILE_DIR)
+entry["args"] = args
+
+fd, tmp_path = tempfile.mkstemp(
+    dir=os.path.dirname(os.path.abspath(target)), prefix=".claude.json.")
+try:
+    # ensure_ascii=False and an explicit utf-8 encoding keep the round trip
+    # byte-identical for every key the migration does not touch: the default
+    # escapes each non-ASCII character, which rewrites unrelated values all
+    # over the operator's file.
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    if before is not None:
+        # mkstemp creates the temp file 0600 regardless of the target's own
+        # mode; carry the operator's mode over so the swap does not narrow it.
+        os.chmod(tmp_path, stat.S_IMODE(before.st_mode))
+    # Claude Code writes this file too. Re-check it immediately before the
+    # rename and refuse rather than clobber an update landing in the window.
+    now = os.stat(target) if os.path.exists(target) else None
+    if before is None:
+        moved = now is not None
+    else:
+        moved = now is None or (
+            now.st_size, now.st_mtime_ns) != (before.st_size, before.st_mtime_ns)
+    if moved:
+        ask_manual(args)
         sys.exit(1)
-    with open(target, "w") as f:
-        json.dump(data, f, indent=2)
-    print("  + chrome-devtools MCP configured in ~/.claude.json")
+    os.replace(tmp_path, target)
+finally:
+    if os.path.exists(tmp_path):
+        os.unlink(tmp_path)
+
+if created:
+    print("  + chrome-devtools MCP configured (headless) in " + target)
 else:
-    print("  = chrome-devtools MCP already configured")
+    print("  + chrome-devtools MCP updated to launch headless in " + target)
 PYEOF
+    then
+      echo "  - chrome-devtools MCP registration left unchanged"
+    fi
   else
     echo "  - skipped chrome-devtools MCP"
   fi

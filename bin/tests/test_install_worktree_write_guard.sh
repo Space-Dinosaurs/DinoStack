@@ -78,10 +78,13 @@ EOF
 
 # ---------------------------------------------------------------------------
 # Seed 2: ~/.claude.json with both MCP servers pre-configured -> suppresses
-# both MCP ae_confirm gates (they check $HOME/.claude.json).
+# both MCP ae_confirm gates (they check $HOME/.claude.json). The
+# chrome-devtools entry must carry the SHIPPED args, not just the key: an
+# entry whose args lack --headless is now offered the migration rewrite, and
+# that prompt reads /dev/tty, which blocks an interactive run.
 # ---------------------------------------------------------------------------
 cat > "$FAKE_HOME/.claude.json" <<'EOF'
-{"mcpServers":{"chrome-devtools":{},"mcp-atlassian":{}}}
+{"mcpServers":{"chrome-devtools":{"type":"stdio","command":"npx","args":["chrome-devtools-mcp@latest","--headless","--user-data-dir=/tmp/ae-test-chrome-profile"],"env":{}},"mcp-atlassian":{}}}
 EOF
 
 # ---------------------------------------------------------------------------

@@ -960,6 +960,13 @@
       <li>Already installed? Bootstrap detects an existing install and aborts, printing the update-in-place command instead of creating a second clone.</li>
     </ul>
   </div>
+
+  <div class="note">
+    <strong>Agent browser windows</strong>
+    <ul>
+      <li>The installer registers the <code>chrome-devtools</code> MCP server to launch Chrome <code>--headless</code> against an explicitly pinned <code>--user-data-dir</code> profile root, so a browser an agent drives leaves no window on your desktop. Re-running the installer offers to add those flags to a registration that predates them; declining leaves the file byte-identical.</li>
+    </ul>
+  </div>
 </div>
 
 <!-- ═══ UPDATING: Keep DinoStack current ═══ -->
