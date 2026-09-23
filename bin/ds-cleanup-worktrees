@@ -870,7 +870,17 @@ which supplies no floor - that is where DS-245's value lands. The
 `--report` are non-mutating and need no floor.
 `bin/tests/test_worktree_lifecycle_spec.sh`'s
 `check_unattended_callers_carry_floor` pins this set as an EQUALITY, so a
-new mutating caller cannot appear without reddening it.
+new mutating caller cannot appear without reddening it. That equality
+ranges over invocations the check can SEE, which is this tool named as a
+COMMAND WORD - `$DS_CLEANUP_BIN`, a path ending in its name, or the bare
+name on PATH - standing in command position on an executable line; a flag
+is not required, because a bare `"$DS_CLEANUP_BIN"` runs the default mode,
+which removes. One residual is deliberately NOT claimed closed: a caller
+reaching this tool through a DIFFERENTLY-NAMED variable is invisible to
+the grep feeding that check. `bin/ds-base-sync` is exactly that shape
+today - it assigns `_ds_cleanup_worktrees` and invokes through it - which
+is a live example rather than a hypothetical, though it is `--count-only`
+and so mutates nothing.
 
 Upstream deps: Python 3 stdlib only (argparse, fnmatch, json, os, re, shutil,
                sys, time, pathlib, collections, typing - `subprocess` is
@@ -949,13 +959,27 @@ Downstream consumers: content/commands/ds-cleanup-worktrees.md (Step 2
                       anything from that call site);
                       content/references/worktree-lifecycle.md's
                       §Session-start prune script (DS-196, MUTATING - a
-                      SEPARATE call site from the hook above: a plain,
-                      backgrounded `ds-cleanup-worktrees --repo <root>`
-                      invocation with no `--count-only`/`--dry-run`, run
-                      once per session-start preflight;
-                      suppressible via `AE_WORKTREE_REAP_DISABLE=1` - this
-                      IS the automatic call site the Performance section
-                      above now refers to).
+                      SEPARATE call site from the hook above: a
+                      backgrounded `ds-cleanup-worktrees --repo <root>
+                      --min-age-hours 24` invocation with no
+                      `--count-only`/`--dry-run`, run once per
+                      session-start preflight; suppressible via
+                      `AE_WORKTREE_REAP_DISABLE=1` - this IS the automatic
+                      call site the Performance section above now refers
+                      to. DS-245 made `--min-age-hours 24` load-bearing
+                      there rather than incidental: the floor is off unless
+                      supplied, and this caller is unattended, so the flag
+                      is the only thing keeping its refusal set unchanged.
+                      `bin/tests/test_worktree_lifecycle_spec.sh`'s
+                      `check_unattended_callers_carry_floor` fails if it is
+                      dropped);
+                      content/commands/ds-wrap.md §Step 5 (DS-245,
+                      MUTATING - routes into Step 2 of the command file
+                      above rather than invoking this tool directly, and is
+                      UNATTENDED under the Callers note's predicate. It
+                      supplies no flag of its own: Step 2 applies the 24h
+                      floor whenever `<cwd>/.agentic/wrap/lock` is present,
+                      which /ds-wrap holds across the whole of Step 5);
                       CI: bin/tests/test_cleanup_worktrees.py (single-repo
                       surface, pytest, auto-collected by `python3 -m
                       pytest bin/tests/`) and
@@ -4392,8 +4416,10 @@ def _run_repo(
             "skipped afterward for another reason (recent activity, dirty, protected ignored "
             "content, an unproven branch, etc.) - narrowing this floor does not guarantee "
             "removal, and removes the protection against reaping a concurrent session's fresh "
-            "worktree. This floor applied because it was supplied explicitly, or implied by "
-            "--archive-unproven; it is off by default."
+            "worktree. This floor applied because a caller supplied it on the command line, or "
+            "because --archive-unproven implied it; it is off by default. If you did not pass "
+            "it yourself, the caller did: /ds-cleanup-worktrees Step 2 supplies it whenever "
+            "DS_CLEANUP_MIN_AGE_HOURS is set or a /ds-wrap is in progress."
         )
 
     # DS-196: mirrors the SKIP_TOO_YOUNG NOTE above - a worktree with a file

@@ -467,6 +467,25 @@ echo "activity-window-prose exit=$r0d"
 #         paths reddens this, which is the whole point - it cannot land
 #         without someone deciding whether it is attended and, if not,
 #         giving it a floor.
+#
+#         SCOPE OF THAT EQUALITY, stated exactly (DS-245 review round 1,
+#         CM1). It ranges over invocations this check can SEE, which is the
+#         tool named as a COMMAND WORD - `$DS_CLEANUP_BIN`, a path ending in
+#         the tool name, or the bare name on PATH - standing in command
+#         position on an executable line. Round 1 found two shapes an
+#         earlier revision could not see, both now covered and both pinned
+#         by a mutation below: a bare `"$DS_CLEANUP_BIN"` with NO flags at
+#         all (which is a mutating run - removal is the default mode), and
+#         an invocation inside a fence with no info string. Command position
+#         is now the predicate; carrying a flag is not required.
+#         KNOWN RESIDUAL, unchanged from step 9e and deliberately not
+#         claimed closed: a caller that reaches the tool through a
+#         DIFFERENTLY-NAMED variable is invisible to the step-9a grep that
+#         feeds this check, so it cannot be seen here at all.
+#         `bin/ds-base-sync` is exactly that shape today - it assigns
+#         `_ds_cleanup_worktrees` and invokes through it - and is a live
+#         example, not a hypothetical. It is `--count-only` (non-mutating),
+#         so nothing is missed today, but the equality's reach stops there.
 #   (iv)  the session-start reap's own continuation block carries
 #         `--min-age-hours 24`, and `/ds-cleanup-worktrees` Step 2's shell
 #         block carries the `DS_CLEANUP_MIN_AGE_HOURS` passthrough.
@@ -496,28 +515,115 @@ import sys
 
 repo_root = sys.argv[1]
 
-# The step-9a enumeration pattern, verbatim.
+# The step-9a enumeration pattern, DELIBERATELY WIDENED (DS-245 review
+# round 1, CM1). Step 9a's own pattern excludes `/` from the character
+# class preceding the token, so it cannot match a path-form invocation such
+# as `python3 "$REPO_DIR/bin/ds-cleanup-worktrees" --explain` at all -
+# measured: 0 hits for that line under 9a's pattern, 1 under this one. A
+# feeder that cannot see a shape makes any equality asserted downstream
+# vacuous for it, so this check uses a strict SUPERSET of 9a's pattern.
+# Dropping `/` does not loosen the trailing boundary, so a sibling binary
+# like `ds-cleanup-worktrees-all` is still not matched here (its trailing
+# `-` is inside the excluded class); that sibling is handled deliberately
+# by EXCLUDED_EXACT below, not by accident.
 PATTERN = (
-    r'(^|[^A-Za-z0-9_./-])(ds-cleanup-worktrees|/ds-cleanup-worktrees|DS_CLEANUP_BIN)'
+    r'(^|[^A-Za-z0-9_.-])(ds-cleanup-worktrees|DS_CLEANUP_BIN)'
     r'([^A-Za-z0-9_.-]|$)'
 )
 PATHS = ["content", "hooks", "bin", "scripts"]
 
 # See this function's shell-side comment for why each exclusion is sound.
-EXCLUDED_PREFIXES = (
+# Two kinds, kept apart deliberately (DS-245 review round 1, cm3): EXACT
+# paths, compared with ==, and DIRECTORY prefixes, compared with startswith.
+# `bin/ds-cleanup-worktrees` is an exact path, never a prefix - as a prefix
+# it would silently swallow a future sibling such as
+# `bin/ds-cleanup-worktrees-all`, which WOULD be a caller and must be
+# classified rather than excluded by an accident of naming.
+EXCLUDED_EXACT = (
     "bin/ds-cleanup-worktrees",  # the tool itself is not one of its callers
+)
+EXCLUDED_DIRS = (
     "bin/tests/",                # scratch-fixture runs; this file's own pins
     "hooks/tests/",              # same
 )
 
-# An invocation passes the tool at least one flag. `command -v <tool>` is a
-# probe, not an invocation (step 9a says so explicitly).
-INVOCATION_RE = re.compile(
-    r'(?:"?\$\{?DS_CLEANUP_BIN\}?"?|(?<![A-Za-z0-9_./-])ds-cleanup-worktrees)\s+-'
+# The tool spelled as a COMMAND WORD. Three forms: a `$DS_CLEANUP_BIN`
+# expansion, a PATH ending in the tool name (at least one segment before the
+# slash, so the `/ds-cleanup-worktrees` SLASH COMMAND in `bin/ds-help`'s
+# listing is not mistaken for a filesystem path), or the bare name resolved
+# through PATH.
+TOKEN_RE = (
+    r'(?:'
+    r'"?\$\{?DS_CLEANUP_BIN\}?"?'
+    r'|"?[^\s;&|()"\x27]+/ds-cleanup-worktrees"?'
+    r'|(?<![A-Za-z0-9_./-])ds-cleanup-worktrees'
+    r')(?![A-Za-z0-9_.-])'
 )
-PROBE_RE = re.compile(r'command\s+-v\s+ds-cleanup-worktrees')
+
+# Words that may precede a command without displacing it from command
+# position: interpreters, and wrappers that go on to exec their argument.
+# The `"$VAR"` alternative covers the live `"$TIMEOUT_BIN" 5 python3 ...`
+# shape in hooks/session-start-wrap.sh.
+_WRAPPER = (
+    r'(?:python3?|exec|env|nohup|setsid|time|timeout|sudo|bash|sh|xargs'
+    r'|"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?)'
+)
+
+# Command position, matched against the text BEFORE the token on its line.
+# Deliberately narrow on `(`: a bare `(` counts only at line start (a
+# subshell, the shape the session-start reap uses), never mid-line, because
+# a `(` inside a prose string is common and would fabricate invocations.
+CMD_PREFIX_RE = re.compile(
+    r'(?:'
+    r'^\s*'                                     # start of line
+    r'|^\s*\(\s*'                               # subshell opened at line start
+    r'|\$\(\s*'                                 # command substitution
+    r'|[;&|]\s*'                                # after ; && || |
+    r'|\b(?:then|else|elif|do|if|while|until)\s+'
+    r')'
+    r'(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*'        # inline VAR=val assignments
+    r'(?:' + _WRAPPER + r'\s+(?:[-\w./]+\s+)*)*'  # wrappers, each with optional args
+    r'$'
+)
+# `command -v <tool>` is a probe, not an invocation (step 9a says so).
+PROBE_RE = re.compile(r'command\s+-v\s*$|(?<![A-Za-z0-9_-])-v\s*$')
 NON_MUTATING_FLAGS = ("--count-only", "--report", "--dry-run")
-SHELL_INFO = ("bash", "sh", "shell", "zsh")
+# Fence info strings whose bodies are executable shell. The empty string is
+# INCLUDED (CM1): a bare ``` fence is the default way to write a shell block
+# and an earlier revision skipped those entirely.
+SHELL_INFO = ("bash", "sh", "shell", "zsh", "console", "shell-session", "")
+
+
+def _is_invocation(raw):
+    """True iff the tool stands in command position anywhere on this line.
+
+    For the `$DS_CLEANUP_BIN` and bare-name forms, carrying a flag is NOT
+    required: `"$DS_CLEANUP_BIN"` with no arguments at all runs the tool in
+    its default mode, which REMOVES. That is precisely the shape round 1
+    found unguarded.
+
+    The PATH form is the one exception, and the asymmetry is measured, not
+    stylistic. Widening the feeder grep to see path forms also makes it
+    return every `bin/ds-cleanup-worktrees` CROSS-REFERENCE in a Python
+    docstring, and a docstring continuation line beginning with that path
+    is in command position by every structural test there is - three files
+    (`bin/_lib.py`, `bin/ds-agentic-repair`, `bin/ds-branch-prune`) were
+    flagged this way. Requiring a following flag separates naming a path
+    from running it: all of those mentions are followed by prose, while a
+    real path-form invocation is followed by its arguments. The residual is
+    a path-form invocation with NO arguments at all, which no caller in
+    this repo has ever written.
+    """
+    for m in re.finditer(TOKEN_RE, raw):
+        before = raw[:m.start()]
+        if PROBE_RE.search(before):
+            continue
+        if not CMD_PREFIX_RE.search(before):
+            continue
+        if "/" in m.group(0) and not re.match(r'\s+-', raw[m.end():]):
+            continue
+        return True
+    return False
 
 # (iii) The allowlist, as (path, the literal the invocation must contain).
 ALLOWLIST = {
@@ -571,7 +677,8 @@ def executable_lines(path):
                     in_fence = False
                 else:
                     info = stripped[3:].strip().split()
-                    in_fence = bool(info) and info[0] in SHELL_INFO
+                    word = info[0] if info else ""
+                    in_fence = word in SHELL_INFO
                 continue
             if in_fence and not stripped.startswith("#"):
                 ok.add(i)
@@ -589,14 +696,14 @@ for line in run_grep():
 
 mutating = []
 for path in sorted(hits):
-    if path.startswith(EXCLUDED_PREFIXES):
+    if path in EXCLUDED_EXACT or path.startswith(EXCLUDED_DIRS):
         continue
     ok, text = executable_lines(path)
     for lineno in sorted(hits[path]):
         if lineno not in ok:
             continue
         raw = text[lineno - 1]
-        if PROBE_RE.search(raw) or not INVOCATION_RE.search(raw):
+        if not _is_invocation(raw):
             continue
         if any(flag in raw for flag in NON_MUTATING_FLAGS):
             continue
@@ -673,19 +780,35 @@ check_unattended_callers_carry_floor
 r0f=$?
 echo "unattended-callers exit=$r0f"
 
-# DS-245 regression pin, found by execution during implementation. Step 2's
-# DS_CLEANUP_MIN_AGE_HOURS passthrough must pass ZERO extra arguments when
-# the variable is unset or empty. The obvious `set -u` guard for an empty
-# bash array, `"${ARR[@]-}"`, expands to ONE EMPTY WORD under bash 3.2.57
-# and bash 5.3.9 alike - and `ds-cleanup-worktrees` rejects an empty
-# positional with "positional root arguments require --multi-repo" and
-# exit 2, which would break the DEFAULT attended operator run. This check
-# EXECUTES the block's own construct against a stub that reports its argc,
-# rather than pattern-matching the expansion's spelling: a spelling pin
-# would pass for any construct that merely looks right.
+# DS-245 regression pin on Step 2's argument construction. It EXECUTES the
+# shipped block against a stub that reports its own argv, rather than
+# pattern-matching the block's spelling: a spelling pin passes for any
+# construct that merely looks right. Two separate defects are pinned here.
 #
-# Reddening mutation (EXECUTED): change the block's expansion back to
-# `"${DS_CLEANUP_AGE_ARGS[@]-}"` - the unset leg reports argc=3.
+# (1) Found by execution during implementation: the block must pass ZERO
+#     extra arguments when no floor applies. The obvious `set -u` guard for
+#     an empty bash array, `"${ARR[@]-}"`, expands to ONE EMPTY WORD under
+#     bash 3.2.57 and bash 5.3.9 alike - and `ds-cleanup-worktrees` rejects
+#     an empty positional with "positional root arguments require
+#     --multi-repo" and exit 2, which would break the DEFAULT attended
+#     operator run.
+#     Reddening mutation (EXECUTED): change the expansion back to
+#     `"${DS_CLEANUP_AGE_ARGS[@]-}"` - the no-floor legs report argc 3.
+#
+# (2) DS-245 review round 1, CM2: the /ds-wrap Step 5 handoff. Step 5
+#     reaches this block as a SEPARATE shell invocation and shell state does
+#     not survive between invocations, so an exported
+#     DS_CLEANUP_MIN_AGE_HOURS cannot carry the floor there. The block
+#     derives it from `<cwd>/.agentic/wrap/lock` instead - a filesystem
+#     fact /ds-wrap already maintains across the whole of Step 5. The
+#     `wraplock` case below tests THAT handoff: the lock directory is real
+#     and the environment variable is unset, which is the actual Step 5
+#     condition, not the destination with the value pre-set.
+#     Reddening mutation (EXECUTED): delete the `.agentic/wrap/lock` branch
+#     from the block - the wraplock case drops to 2 arguments.
+#
+# Every case asserts the FULL argv, not just its length, so a floor applied
+# with the wrong value is caught too.
 check_step2_age_passthrough_argv() {
   local ok=0
   local block
@@ -723,40 +846,71 @@ PYEOF
     return 1
   fi
 
-  local stub_dir stub
+  local stub_dir stub work
   stub_dir="$(mktemp -d)"
+  work="$(mktemp -d)"
   stub="$stub_dir/ds-cleanup-worktrees"
   cat > "$stub" <<'STUBEOF'
 #!/bin/sh
-printf 'ARGC=%s\n' "$#"
+printf 'ARGV='; for a in "$@"; do printf '[%s]' "$a"; done; printf '\n'
 STUBEOF
   chmod +x "$stub"
 
+  local base='[--explain][--measure-size]'
+
   # Replay the block with DS_CLEANUP_BIN bound to the stub, under `set -u`,
-  # for each of the three cases. REPO_DIR is unset so the block's own
-  # resolution falls through to the PATH probe, which finds the stub.
-  local case_label expected out argc
-  for case_label in unset:2 empty:2 set:4; do
-    expected="${case_label#*:}"
+  # once per case. REPO_DIR is unset so the block's own resolution falls
+  # through to the PATH probe, which finds the stub. Each case runs in its
+  # own scratch cwd so the wrap-lock probe reads real filesystem state.
+  #
+  # case := <label>:<wrap-lock present>:<env value, - for unset>:<expected argv>
+  local spec label lock envval expected out argv
+  for spec in \
+    "unset:no:-:${base}" \
+    "empty:no::${base}" \
+    "set:no:24:${base}[--min-age-hours][24]" \
+    "wraplock:yes:-:${base}[--min-age-hours][24]" \
+    "wraplock-env-wins:yes:6:${base}[--min-age-hours][6]" \
+    "spaces:no:2 4:${base}[--min-age-hours][2 4]"; do
+    label="${spec%%:*}"
+    local rest="${spec#*:}"
+    lock="${rest%%:*}"
+    rest="${rest#*:}"
+    envval="${rest%%:*}"
+    expected="${rest#*:}"
+
+    rm -rf "$work/.agentic" 2>/dev/null || true
+    if [ "$lock" = "yes" ]; then
+      mkdir -p "$work/.agentic/wrap/lock"
+    fi
+
     out="$(
+      cd "$work" || exit 1
       PATH="$stub_dir:$PATH"
       unset REPO_DIR DS_CLEANUP_MIN_AGE_HOURS
-      case "${case_label%%:*}" in
-        empty) DS_CLEANUP_MIN_AGE_HOURS="" ;;
-        set) DS_CLEANUP_MIN_AGE_HOURS=24 ;;
-      esac
-      export DS_CLEANUP_MIN_AGE_HOURS 2>/dev/null || true
+      if [ "$envval" != "-" ]; then
+        DS_CLEANUP_MIN_AGE_HOURS="$envval"
+        export DS_CLEANUP_MIN_AGE_HOURS
+      fi
       set -u
       eval "$block" 2>/dev/null
     )"
-    argc="$(printf '%s\n' "$out" | sed -n 's/^ARGC=//p' | head -1)"
-    if [ "$argc" != "$expected" ]; then
-      echo "STEP2-ARGV VIOLATION: with DS_CLEANUP_MIN_AGE_HOURS ${case_label%%:*}, Step 2 passed argc=${argc:-<none>}, expected $expected. An empty-array expansion that yields one EMPTY word makes ds-cleanup-worktrees exit 2 ('positional root arguments require --multi-repo') on the default attended run - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]-}\"." >&2
+    argv="$(printf '%s\n' "$out" | sed -n 's/^ARGV=//p' | head -1)"
+    if [ "$argv" != "$expected" ]; then
+      echo "STEP2-ARGV VIOLATION: case '$label' (wrap lock: $lock, DS_CLEANUP_MIN_AGE_HOURS: $envval) produced argv ${argv:-<none>}, expected $expected." >&2
+      case "$label" in
+        wraplock*)
+          echo "  The wrap-lock branch is what carries the floor onto /ds-wrap Step 5: that step reaches this block as a separate shell invocation, so an exported variable cannot reach it and only a filesystem fact can." >&2
+          ;;
+        *)
+          echo "  An empty-array expansion that yields one EMPTY word makes ds-cleanup-worktrees exit 2 ('positional root arguments require --multi-repo') on the default attended run - use \${ARR[@]+\"\${ARR[@]}\"}, never \"\${ARR[@]-}\"." >&2
+          ;;
+      esac
       ok=1
     fi
   done
 
-  rm -rf "$stub_dir" 2>/dev/null || true
+  rm -rf "$stub_dir" "$work" 2>/dev/null || true
   return "$ok"
 }
 
