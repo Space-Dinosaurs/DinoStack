@@ -363,7 +363,7 @@ The declaration format makes classification explicit:
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 

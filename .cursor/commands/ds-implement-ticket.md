@@ -1369,7 +1369,7 @@ Apply the null-render rule when filling this block: a null `skeptic_rounds` rend
 
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) leads with `$UNIT_KEY | ` then the plan-proposed file paths, not a git diff, field 1 (architect plan) is the plan itself under review, field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet; field 7 per §4.5. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
 ---
 
@@ -1684,7 +1684,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
@@ -1850,13 +1850,13 @@ Spawn a `skeptic` agent with:
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
-**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` — two or more prior attempts, not one — declare `Tier: 3` for this Skeptic spawn and pass an explicit `model: opus` on the Agent tool call. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (Tier 2, role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not an Opus Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem.
+**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` — two or more prior attempts, not one — declare `Tier: 3` for this Skeptic spawn and pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not a Fable Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem.
 
-This trigger is **command-scoped and advisory-only — there is no mechanical backstop.** `hooks/enforce-tier.py` backstops Tier-3 by matching the five *global* escalation signals against the spawn brief's text; `PRIOR_ATTEMPTS >= 2` is conductor-computed state that appears in no marker pattern the hook recognises, so the hook will neither detect this trigger nor deny a sub-Opus spawn under it. The conductor's explicit `model: opus` is the only enforcement. Omitting it silently downgrades the review with no error anywhere. This also does not add to the Mandatory Tier-3 escalation category count in `content/references/risk-config-and-tiers.md`.
+This trigger is **command-scoped and advisory-only — there is no mechanical backstop.** `hooks/enforce-tier.py` backstops Tier-3 by matching the five *global* escalation signals against the spawn brief's text; `PRIOR_ATTEMPTS >= 2` is conductor-computed state that appears in no marker pattern the hook recognises, so the hook will neither detect this trigger nor deny a sub-Opus spawn under it. The conductor's explicit param is the only enforcement: pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. Omitting it silently downgrades the review with no error anywhere. This also does not add to the Mandatory Tier-3 escalation category count in `content/references/risk-config-and-tiers.md`.
 
-Known cost: a genuinely multi-wave ticket (big, always needed three passes, never actually regressed) draws an Opus Skeptic from its third wave onward, because `PRIOR_ATTEMPTS` cannot distinguish that from a ticket that came back twice. This is accepted; if it proves expensive the fix is raising this threshold, not adding a discriminator. See `content/references/ticket-rework.md` §Known limitations.
+Known cost: a genuinely multi-wave ticket (big, always needed three passes, never actually regressed) draws a Fable Skeptic from its third wave onward, because `PRIOR_ATTEMPTS` cannot distinguish that from a ticket that came back twice. This is accepted; if it proves expensive the fix is raising this threshold, not adding a discriminator. See `content/references/ticket-rework.md` §Known limitations.
 
 **Findings handling - loop contract:**
 

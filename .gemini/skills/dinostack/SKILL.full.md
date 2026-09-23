@@ -489,12 +489,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -502,7 +502,7 @@ When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts),
 
 ```
 Risk: Elevated - multi-unit feature
-Tier: 2
+Tier: 3
 Brief: docs/planning/<slug>.md
 Applying adversarial review.
 ```
@@ -513,13 +513,11 @@ Plan: docs/planning/<slug>/
 Applying adversarial review.
 ```
 
-Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
+Declare tier at spawn time; role defaults per the Role-default tier table, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
 
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
-
-For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 

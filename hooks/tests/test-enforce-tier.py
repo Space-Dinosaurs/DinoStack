@@ -307,8 +307,9 @@ cases = [
         None,
     ),
 
-    # --- DS-77: authoring-role Tier-3 escalation (architect / adr-generator /
-    # product-discovery) on Plan+ADR-tier units ---
+    # --- DS-77: authoring-role Tier-3 floor (architect / adr-generator /
+    # product-discovery) on Plan+ADR-tier units. Cases 21-23 are an explicit
+    # downgrade (budget or mistake) below the Opus role default. ---
 
     # 21: architect + ADR/cross-track brief -> DENY (done-criterion case)
     (
@@ -352,9 +353,9 @@ cases = [
         "ALLOW",
         None,
     ),
-    # 24: architect + model omitted -> ALLOW (omit = Sonnet default; hook must not force Opus)
+    # 24: architect + model omitted -> ALLOW (omit = Opus role default already satisfies the floor)
     (
-        "24: Agent architect model omitted + ADR brief -> ALLOW (omit=Sonnet default)",
+        "24: Agent architect model omitted + ADR brief -> ALLOW (omit=Opus default)",
         json.dumps({
             "tool_name": "Agent",
             "tool_input": {
@@ -570,12 +571,10 @@ for label, payload, expected, extra_env in cases:
 # 38 (Skeptic-required Fix 1): lock the AUTHOR branch's deny-message wording.
 # The behavioral ALLOW/DENY cases above can't catch a pure message-wording
 # revert, so this asserts on permissionDecisionReason content directly.
-# POSITIVE: the reason must instruct "pass model: opus". NEGATIVE: the reason
-# must NOT contain "omit the model param to use" - that is the correct
-# remediation phrase on the skeptic/security-auditor branches (those roles
-# default to Opus, so omitting is right), but on the AUTHOR branch it would
-# be WRONG (architect/adr-generator/product-discovery default to Sonnet, so
-# telling the operator to omit would silently defeat the escalation).
+# POSITIVE: the reason must name both remediations - "pass model: opus" and
+# the "Opus role default" (as of DS-247 architect/adr-generator/
+# product-discovery default to Opus, so omitting the param is also correct).
+# NEGATIVE: the stale "default to Sonnet" premise must not reappear.
 label_38 = "38: Agent architect model=sonnet + ADR brief -> author deny message wording locked"
 reason_38 = deny_reason(json.dumps({
     "tool_name": "Agent",
@@ -588,7 +587,8 @@ reason_38 = deny_reason(json.dumps({
 ok_38 = (
     reason_38 is not None
     and "pass model: opus" in reason_38
-    and "omit the model param to use" not in reason_38
+    and "Opus role default" in reason_38
+    and "default to Sonnet" not in reason_38
 )
 status_38 = "PASS" if ok_38 else "FAIL"
 if not ok_38:

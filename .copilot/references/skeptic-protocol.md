@@ -67,7 +67,7 @@ When classifying as Elevated, the main agent declares before acting:
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 
@@ -830,7 +830,7 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 
 ```
 Risk: Elevated + Cleanup - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 

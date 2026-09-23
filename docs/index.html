@@ -1420,10 +1420,10 @@
           <h4 style="color: #b06bff;">Cost-Aware Tier Routing</h4>
           <ul>
             <li><strong>Conductors declare Tier 1/2/3 at spawn time</strong> - routes lightweight tasks to faster models and critical reviews to max-capability models</li>
-            <li><strong>Tier 1</strong> - cheap/fast (Haiku). Declare explicitly for shallow reads, existence checks, format-only tasks, and mechanical transformations</li>
-            <li><strong>Tier 2</strong> - implementation default (Sonnet). Most spawns land here: engineer, investigator, qa-engineer, and other implementation roles</li>
-            <li><strong>Tier 3</strong> - review default (Opus or above - <code>opus</code>/<code>fable</code>). Skeptic and security-auditor default to Tier 3 via frontmatter; upgrade architect/engineer to Tier 3 for novel architecture or high-blast-radius units; on Plan+ADR-tier units (cross-track / architecture-constraining), the authoring architect/adr-generator/product-discovery must also be Tier 3, conductor-declared via explicit <code>model: opus</code> and backstopped by <code>enforce-tier.py</code></li>
-            <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior, not Tier 2</li>
+            <li><strong>Tier 1</strong> - bookkeeping (Haiku): learning-extractor, wrap-ticket, goal-condition-evaluator by default; opt-in per spawn for shallow mechanical tasks</li>
+            <li><strong>Tier 2</strong> - gather/execute (Sonnet): investigator, dependency and ADR-drift auditors, release-orchestrator, learnings capture - roles whose output a downstream Opus agent re-checks</li>
+            <li><strong>Tier 3</strong> - Opus for agents whose output is acted on without independent re-verification: skeptic, security-auditor, architect, engineer, debugger, orchestration-planner, product-discovery, adr-generator, qa-engineer, perf-analyst. Mandated Tier-3 reviews pass <code>fable</code> (or <code>opus</code> when Fable is not allowlisted); Plan+ADR-tier authoring never drops below Tier 3, backstopped by <code>enforce-tier.py</code></li>
+            <li><strong>Tier is a required field</strong> - every Elevated spawn carries a <code>Tier:</code> line below <code>Risk:</code>. Each agent's frontmatter <code>model:</code> sets the model when the spawn-call param is omitted; the param overrides for upgrades or budget-mode downgrades (never for mandated-Tier-3 Skeptics). Declaration without the tool-call param produces frontmatter-default behavior</li>
             <li><strong>Codex/Gemini resolve tiers from <code>~/.agentic/tier-map.yml</code></strong> - Claude Code uses a built-in enum (<code>haiku</code>/<code>sonnet</code>/<code>opus</code>); no tier-map lookup needed for Claude</li>
             <li><strong>Pi/oh-my-pi can resolve roles from <code>~/.agentic/role-models.yml</code></strong> - opt-in per-role model strings plus antagonist reviewer diversity for <code>skeptic</code> and <code>security-auditor</code>; if absent, Pi uses session defaults</li>
           </ul>
@@ -2441,7 +2441,7 @@
     <div class="code-block">
       <span class="cb-label">risk declaration example</span>
       <span class="cb-keyword">Risk:</span> Elevated - multi-unit feature<br>
-      <span class="cb-keyword">Tier:</span> 2<br>
+      <span class="cb-keyword">Tier:</span> 3<br>
       <span class="cb-keyword">Brief:</span> <span class="cb-path">docs/planning/&lt;slug&gt;.md</span>       <span class="cb-comment">(when 2-5 Elevated units)</span><br>
       <span class="cb-keyword">Plan:</span>  <span class="cb-path">docs/planning/&lt;slug&gt;/</span>        <span class="cb-comment">(when 6+ units, cross-track, or multi-session)</span>
     </div>

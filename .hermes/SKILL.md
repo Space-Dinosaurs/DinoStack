@@ -500,12 +500,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -513,7 +513,7 @@ When a Brief or Plan governs the task (see METHODOLOGY.md §Planning Artifacts),
 
 ```
 Risk: Elevated - multi-unit feature
-Tier: 2
+Tier: 3
 Brief: docs/planning/<slug>.md
 Applying adversarial review.
 ```
@@ -524,13 +524,11 @@ Plan: docs/planning/<slug>/
 Applying adversarial review.
 ```
 
-Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
+Declare tier at spawn time; role defaults per the Role-default tier table, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `hooks/enforce-tier.py` (escalate-only, fail-open); read `content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, model-param mapping, and the role-model/cross-harness routing layers.
 
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
-
-For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 
@@ -2876,7 +2874,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
-- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - those require explicit `Tier: 3` regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
+- `model_profile` - enum (`default` | `budget`); unrecognized values fall back to `default`. `budget` passes a `model` param one tier below each role's default, with carve-outs - canonical definition: `content/references/risk-config-and-tiers.md` §Project config.
 - `auto_merge_on_ci_green` - boolean, default `false`; governs the "Auto-merge follow-through" rule (see below) - not scoped to `/ds-implement-ticket` alone. Full semantics: `content/references/risk-config-and-tiers.md` §Project config.
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `blocking`. Controls what happens when the conductor finds a missing required dependency during capability preflight. `advisory` emits a warning with the install command and proceeds with the spawn. `blocking` refuses the spawn when any required dependency remains missing after auto-install. Default flipped to `blocking` at P2 now that all agent manifests are populated. See `content/references/capability-preflight.md` for the full preflight protocol.
 - `perceptual_diff_enabled` - boolean, default `false`. When `true`, qa-engineer runs Playwright `toHaveScreenshot` against committed baselines in `tests/visual-baselines/` and raises auto-Major on drift exceeding per-scenario `tolerance`. Opt-in; baseline maintenance overhead justifies the default of `false`.
@@ -4029,7 +4027,7 @@ This section holds the mechanical hook detail behind the "Named agents" rule in 
 
 **Singularity hook.** On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
 
-**Tier-3 escalation hook.** The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Tier-3 `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal - the accept set is `opus` or `fable` (DS-226), both satisfying Tier 3 or above; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Tier-3 `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
+**Tier-3 escalation hook.** The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Tier-3 `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal - the accept set is `opus` or `fable` (DS-226), both satisfying Tier 3 or above; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the Plan+ADR-tier authoring floor (architect / adr-generator / product-discovery, per risk-config-and-tiers.md): it denies an explicit sub-Tier-3 `model` param on those spawns when the brief matches an authoring escalation signal. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
 
 **Planning-artifact hook.** The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence.
 
@@ -6426,7 +6424,9 @@ Upstream deps: content/sections/04-risk-classification.md (parent section;
 Downstream consumers: conductor (reads config toggles before classifying
                       and spawning; reads tier table at every Elevated
                       spawn); content/sections/12-protocol-details.md
-                      (Risk Classification Protocol Details entry).
+                      (Risk Classification Protocol Details entry);
+                      bin/tests/test_role_default_tier_sync.py (pins the
+                      Role-default tier table to agent frontmatter).
 
 Failure modes: Prose reference; does not auto-execute. The project-config
                toggle descriptions here shadow the conventions.md version
@@ -6446,7 +6446,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-five project-level 
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
-- `model_profile` - enum (`default` | `budget`); **absent-key default: `"default"`**. Unrecognized values also fall back to `default`. When `budget`, the conductor routes eligible spawns to Tier 1 to reduce cost. **Carve-out:** `budget` NEVER applies to `security-auditor` or any agent whose spec mandates Tier 3 - the conductor still declares explicit `Tier: 3` for those regardless of the project `model_profile`. The same exemption covers any Skeptic the Mandatory Tier-3 review escalation rule has elevated for this unit: `budget` must not pass a downgrading `model` param to it. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
+- `model_profile` - enum (`default` | `budget`); **absent-key default: `"default"`**. Unrecognized values also fall back to `default`. When `budget`, the conductor passes a `model` param one tier below the spawned role's default (Opus -> `sonnet`, Sonnet -> `haiku`, Haiku unchanged). **Carve-out:** `budget` NEVER applies to `security-auditor`, to a reviewer the Mandatory Tier-3 review escalation has elevated for this unit, or to a Plan+ADR-tier authoring spawn - those keep Tier 3 or above. `budget` acts only through the spawn-call param; it never rewrites an agent's frontmatter `model:`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. The default `false` preserves typical team git workflow (draft -> CI -> ready -> reviewers -> human merges). Also governs the event-keyed "Auto-merge follow-through" rule (not scoped to `/ds-implement-ticket`) - full three-mechanism detail, verified against the code: `content/references/conventions-detail.md` §Auto-merge follow-through.
 - `capability_preflight_mode` - enum (`advisory | blocking`); default `blocking` as of P2 (all agent manifests are populated). The conductor reads this before every Agent spawn to decide whether missing required capabilities warn-and-proceed (`advisory`) or halt the spawn (`blocking`). Canonical reference: `content/references/capability-preflight.md`.
 - `perceptual_diff_enabled` - boolean, default `false`. Opt-in for the `perceptual_diff` QA scenario method; when `true`, qa-engineer runs Playwright `page.screenshot()` + pixelmatch comparison against committed baselines.
@@ -6508,15 +6508,15 @@ Tier: 3  (max reasoning depth - security audit; Tier 3)
 Spawning security-auditor.
 ```
 
-**Tier is a required field of the spawn declaration.** Every Elevated spawn carries a `Tier:` line directly below `Risk:`. The conductor either (a) names a tier explicitly with a justification, or (b) writes `Tier: <n> (role default)` to consciously accept the spawned agent's role-default tier from the Role-default tier table below. "Forgetting" to think about tier is no longer available: an Elevated declaration with no `Tier:` line is malformed. Most implementation spawns resolve to Tier 2 by role default; review spawns (skeptic, security-auditor) resolve to Tier 3 by role default.
+**Tier is a required field of the spawn declaration.** Every Elevated spawn carries a `Tier:` line directly below `Risk:`. The conductor either (a) names a tier explicitly with a justification, or (b) writes `Tier: <n> (role default)` to consciously accept the spawned agent's role-default tier from the Role-default tier table below. "Forgetting" to think about tier is no longer available: an Elevated declaration with no `Tier:` line is malformed. Role defaults follow the Role-default tier table below.
 
 **Model param mapping (Claude Code):**
 
 | Tier | Claude Code `model` param | Use when |
 |---|---|---|
-| 1 | `model: "haiku"` | Shallow/mechanical tasks: existence checks, simple reads, format-only operations |
-| 2 | `"sonnet"` | Standard work - engineer, investigator, qa-engineer at normal depth |
-| 3 | `model: "opus"` (or `"fable"`, the tier above Opus - DS-226) | Security audits, novel architecture, complex blast-radius analysis; skeptic and security-auditor review by default |
+| 1 | `model: "haiku"` | Bookkeeping and shallow mechanical work: existence checks, simple reads, format-only operations |
+| 2 | `"sonnet"` | Gather/execute roles whose output an Opus agent re-checks |
+| 3 | `model: "opus"` (or `"fable"`, the tier above Opus - DS-226) | Output acted on without independent re-verification; `fable` for mandated Tier-3 reviews |
 
 **Mandatory Tier-3 review escalation.** When a unit is Elevated AND matches any of the following signals, the Skeptic (or security-auditor) reviewing that unit MUST be Tier 3 (Opus or above - `opus` or `fable`), regardless of the agent's role default or the project `model_profile`:
 - security, auth, crypto, payments, or secrets
@@ -6525,9 +6525,11 @@ Spawning security-auditor.
 - high blast radius / shared-utility change - this includes a diff that authors or edits an LLM prompt, a confidence/quality/safety gate or its threshold, or sourcing/editorial policy logic
 - release, deploy, or production-state change
 
-This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes the requested Tier-3 model (`opus` or `fable`), the request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that the requested Tier-3-or-above model is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Tier-3 `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal) - the accept set is `opus` or `fable` (DS-226), both satisfying Tier 3 or above. It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
+This reuses the Elevated risk-signal vocabulary above. On these review spawns the conductor must pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus` - the reviewer then sits a tier above the Opus author, and both satisfy the floor. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. An `availableModels` allowlist that excludes a requested model silently drops it and the agent inherits the session model, so the conductor surfaces to the operator only when neither `fable` nor `opus` is available, rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Tier-3 `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal) - the accept set is `opus` or `fable` (DS-226), both satisfying Tier 3 or above. It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
-**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/references/planning-artifacts.md` §Trigger table) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus or above - `opus` or `fable`), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Tier-3 `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
+**Plan+ADR-tier authoring floor.** The architect, adr-generator, or product-discovery authoring a Plan+ADR-tier unit (`content/references/planning-artifacts.md` §Trigger table) stays at Tier 3 or above - `model_profile: budget` never downgrades it, and on Claude Code `hooks/enforce-tier.py` denies an explicit sub-Tier-3 `model` param on such a spawn whose brief names an ADR/architecture marker (best-effort).
+
+Opus for agents whose output is acted on without independent re-verification; Sonnet for gather/execute roles whose output a downstream Opus agent re-checks; Haiku for bookkeeping.
 
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
@@ -6535,24 +6537,24 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 |---|---|---|---|
 | skeptic | 3 | opus | Adversarial review quality binds correctness |
 | security-auditor | 3 | opus | Spec-mandated Tier 3; threat-model depth |
-| architect | 2 | sonnet | Standard design; upgrade to Tier 3 per the escalation rule for novel-architecture units; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
-| engineer | 2 | sonnet | Implementation |
-| investigator | 2 | sonnet | Terrain mapping |
-| orchestration-planner | 2 | sonnet | Decomposition |
-| qa-engineer | 2 | sonnet | Runtime verification |
-| debugger | 2 | sonnet | Root-cause analysis |
-| dependency-auditor | 2 | sonnet | Dependency review |
-| perf-analyst | 2 | sonnet | Performance analysis |
+| architect | 3 | opus | Plans are built on without re-derivation |
+| engineer | 3 | opus | Implementation ships once reviewed; fewer loops |
+| debugger | 3 | opus | Root cause drives the fix directly |
+| orchestration-planner | 3 | opus | Decomposition shapes every downstream unit |
+| product-discovery | 3 | opus | Requirements synthesis others build on |
+| adr-generator | 3 | opus | ADRs constrain future choices |
+| qa-engineer | 3 | opus | Final runtime verdict; no re-check after it |
+| perf-analyst | 3 | opus | Performance findings acted on directly |
+| investigator | 2 | sonnet | Terrain mapping; Opus consumers re-read; escalate to Tier 3 for novel or large blast radius |
+| dependency-auditor | 2 | sonnet | Dependency review; findings re-checked downstream |
+| adr-drift-detector | 2 | sonnet | Compliance audit; findings re-checked downstream |
 | release-orchestrator | 2 | sonnet | Release execution; escalate the reviewing Skeptic per the rule above |
-| product-discovery | 2 | sonnet | Requirements synthesis; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
-| adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
-| adr-drift-detector | 2 | sonnet | Compliance audit |
-| learning-extractor | 2 | sonnet | Pattern extraction |
 | learnings-agent | 2 | sonnet | Mandatory-trigger capture |
-| wrap-ticket | 2 | sonnet | Session wrap |
+| learning-extractor | 1 | haiku | Bookkeeping: pattern extraction |
+| wrap-ticket | 1 | haiku | Bookkeeping: session wrap |
 | goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
+Tier 1 (haiku) default owners are the three bookkeeping roles above; for every other role Tier 1 is opt-in per spawn for shallow mechanical tasks.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 
@@ -6560,16 +6562,15 @@ The 5 Mandatory Tier-3 signal categories are untouched by this carve-out and sti
 
 **Frontmatter defaults and the model param.** Each agent's frontmatter `model:` encodes its role-default tier. Resolution precedence (Claude Code): `CLAUDE_CODE_SUBAGENT_MODEL` env var > spawn-call `model` param > frontmatter `model:` > inherited session model. Therefore:
 - To accept an agent's role default, the conductor OMITS the `model` param; the frontmatter supplies the model (a skeptic spawn with no param runs Opus).
-- To OVERRIDE for a specific spawn (upgrade a Tier-2 agent to Tier 3 for a novel-architecture unit, or assert a mandated-Tier-3 Skeptic), the conductor passes an explicit `model` param, which wins.
+- To OVERRIDE for a specific spawn (upgrade a Tier-2 agent to Tier 3, or pass `fable` for a mandated-Tier-3 review), the conductor passes an explicit `model` param, which wins.
 - Every agent declares an explicit frontmatter `model:` so an omitted param is always correct and a Sonnet-intended agent never silently inherits Opus from an Opus session.
-- Budget mode: `model_profile: budget` acts ONLY through the spawn-call param, never by rewriting frontmatter. To get a Tier-1 (haiku) review on a NON-mandated skeptic spawn under budget mode, the conductor passes an explicit downgrade param; omitting the param yields the Opus frontmatter default. Budget mode never downgrades a mandated-Tier-3 Skeptic (see the escalation rule above).
-- Org allowlist caveat: if `availableModels` excludes the requested Tier-3 model (`opus` or, per DS-226, `fable`), frontmatter or an explicit `model:` param naming that model is silently dropped and the agent inherits the session model. On a mandated-Tier-3 unit in such an org, the conductor must surface that the requested Tier-3-or-above model is unavailable rather than proceed on an inherited model.
+- Budget mode: see `model_profile` above (one tier below role default, via the param only).
 
-**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces Tier 2 behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism. On Pi/omp with `role-models.yml` present and a reviewer strategy that depends on author identity (`distinct-from-author`), the conductor records, in-context, the model string it used for each engineer/architect spawn, and passes that author-model into the subsequent skeptic/security-auditor spawn so the reviewer-diversity strategy can resolve. This is in-context state only - no new state file.
+**Enforcement:** The tier declaration is not self-executing. Writing `Tier: 3` does not change the model. The conductor must also pass the corresponding `model` param in the Agent tool call. A declaration without the tool call param produces role-default behavior regardless of what is written in the text block. The declaration serves as self-documentation and review evidence; the param is the enforcement mechanism. On Pi/omp with `role-models.yml` present and a reviewer strategy that depends on author identity (`distinct-from-author`), the conductor records, in-context, the model string it used for each engineer/architect spawn, and passes that author-model into the subsequent skeptic/security-auditor spawn so the reviewer-diversity strategy can resolve. This is in-context state only - no new state file.
 
 **When to declare Tier 1:** task is clearly shallow - existence checks, simple file reads, format validation, lightweight synthesis. Only go Tier 1 when confident the output quality floor is not a concern.
 
-**When to declare Tier 3:** task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Reserve Tier 3 for these cases and include a justification parenthetical.
+**When to escalate:** upgrade a Tier-2 role to Tier 3 (or pass `fable`) when the task demands maximum reasoning depth - security adversarial review, complex architecture design with novel tradeoffs, full blast-radius analysis across a large unknown codebase. Include a justification parenthetical.
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
 
@@ -6784,7 +6785,7 @@ When classifying as Elevated, the main agent declares before acting:
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 
@@ -7547,7 +7548,7 @@ When classifying as Elevated + Cleanup, the main agent declares before acting:
 
 ```
 Risk: Elevated + Cleanup - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review with /simplify cleanup pass.
 ```
 
@@ -7725,8 +7726,9 @@ Downstream consumers: content/sections/04-risk-classification.md (inline pointer
                       content/commands/ds-init-project.md (presets.yml seeding).
 
 Failure modes: Prose + YAML schema; not auto-executed. Resolution rule 4
-               (explicit `Tier:` line wins over preset tier on collision) is the
-               common conflict path; conductor must note the override.
+               (effective tier = max(preset tier, role default) unless an
+               explicit `Tier:` line or `model_profile: budget` downgrades)
+               means a stale low preset `tier` is ignored, never honored.
 
 Performance: Standard.
 -->
@@ -7740,7 +7742,7 @@ A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared o
 **Declaration format (optional line, immediately below `Tier:`):**
 ```
 Risk: Elevated - new file creation
-Tier: 2
+Tier: 3
 Preset: engineer:default
 Spawning engineer.
 ```
@@ -7755,7 +7757,7 @@ The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tie
 
 **Schema (each preset entry):**
 - `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
-- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
+- `tier`: 1 | 2 | 3 - can only raise the spawn's tier above the agent's role default, never lower it
 - `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
 
 The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
@@ -7764,7 +7766,7 @@ The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping i
 1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
 2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
 3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
-4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
+4. The `Tier:` line equals max(preset tier, role default from the Role-default tier table in `content/references/risk-config-and-tiers.md`) unless the conductor deliberately downgrades via an explicit `Tier:` line or `model_profile: budget`, and notes that downgrade.
 
 See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
 
@@ -8243,7 +8245,7 @@ The Subagent Protocol does not replace The Skeptic Protocol — it provides the 
 
 When spawning an `engineer` Worker on an Elevated-risk task, the conductor includes an execution contract block in the spawn prompt. The canonical template lives in `METHODOLOGY.md` (Worker preamble section). Required: outputs, tool_scope, completion_conditions. Optional: budget (advisory, not enforced). Conditional: output_paths (required when pre-specified by the architect plan, otherwise "conductor-directed").
 
-The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in `content/references/risk-config-and-tiers.md`); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
+The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in `content/references/risk-config-and-tiers.md`); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3, `fable` for a mandated-Tier-3 review, a budget downgrade, or a Tier-1 mechanical task. Claude Code: `haiku`/`sonnet`/`opus`/`fable` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
 Four spawn-prompt obligations are wider than this contract and are stated in Section 11 rather than here, because they hold for every Worker on every path rather than for contract-carrying `engineer` spawns only: the `.agentic/context.md` content, the `SESSION_KEY` line, spawn-brief provenance, and the brief section form. See Section 11, "**Spawning Workers**", "**`SESSION_KEY` at spawn time**", "**Spawn-brief provenance**", and "**Brief section form**".
 
@@ -9082,14 +9084,14 @@ Applying the null-render rule: `<r>` renders `n/a` when `skeptic_rounds` is null
 | `PRIOR_ATTEMPTS` | Risk floor | Tier | Architect / Skeptic brief |
 |---|---|---|---|
 | 0 | No change - normal classification applies | No change | No callout |
-| 1 | Floored to Elevated (never Trivial, never Low) | Tier 2 (role default) | Independent top-level callout naming the prior PR, risk class, Skeptic rounds, and QA status; architect is instructed to identify what the prior attempt missed and add a `qa_criteria` scenario exercising the regression; the same callout is added to the Skeptic brief instructing it to verify that failure mode is addressed, not only review the new diff |
-| 2+ | Floored to Elevated | **Tier 3**, explicit `model: opus` | Same callout as the 1-attempt row |
+| 1 | Floored to Elevated (never Trivial, never Low) | Role default (omit param) | Independent top-level callout naming the prior PR, risk class, Skeptic rounds, and QA status; architect is instructed to identify what the prior attempt missed and add a `qa_criteria` scenario exercising the regression; the same callout is added to the Skeptic brief instructing it to verify that failure mode is addressed, not only review the new diff |
+| 2+ | Floored to Elevated | **Tier 3**: pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus` | Same callout as the 1-attempt row |
 
 The Elevated floor and the Tier-3 escalation at 2+ attempts are both command-scoped triggers, not additions to the global Elevated-signal list or the Mandatory Tier-3 escalation category count - neither widens the always-loaded signal tables that other parts of the methodology reference by exact count. The architect callout is deliberately an independent top-level block in the brief, not nested inside a "prior ticket context" section that gets omitted whenever there's nothing to summarize from tracker comments - the two situations are unrelated, and gating the rework callout on tracker-comment presence would silently drop it in the single most common case: a `TRACKER=none` project, where the ledger is exactly the kind of prior-attempt signal that has no tracker-comment equivalent to omit alongside.
 
 ## Known limitations
 
-- **Tier-3 cost on planned multi-wave tickets.** A ticket that always needed several invocations (not rework in the everyday sense, just a big ticket) will draw an Opus-tier Skeptic on its third and later waves, because `PRIOR_ATTEMPTS >= 2` cannot distinguish "this needed three waves all along" from "this came back twice because something broke." This is advisory-only, with no mechanical hook backstop - a command-scoped trigger like this one is invisible to the hook that backstops the five *global* Tier-3 signal categories, so the conductor's explicit `model: opus` declaration is the only enforcement here. If this proves costly in practice, the fix is a one-number reversal of the threshold, not a new discriminator.
+- **Tier-3 cost on planned multi-wave tickets.** A ticket that always needed several invocations (not rework in the everyday sense, just a big ticket) will draw a Fable-tier Skeptic on its third and later waves, because `PRIOR_ATTEMPTS >= 2` cannot distinguish "this needed three waves all along" from "this came back twice because something broke." This is advisory-only, with no mechanical hook backstop - a command-scoped trigger like this one is invisible to the hook that backstops the five *global* Tier-3 signal categories, so the conductor's explicit `model: fable` (or `opus` fallback) declaration is the only enforcement here - pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. If this proves costly in practice, the fix is a one-number reversal of the threshold, not a new discriminator.
 - **Pre-PR failures are never recorded.** A run that stalls before any PR opens (a Skeptic-loop cap, a QA-loop cap, a fix-loop exhaustion, before Phase 9 is ever reached) writes nothing to the ledger. This is deliberate - there is no PR number to anchor a record to - but it means "no notice" does not mean "no prior work was ever attempted," only "no prior work reached the point of opening a PR."
 - **Cold start.** Only attempts that open a PR after this feature was adopted are ever recorded; there is no backfill from git or tracker history.
 - **Machine-local ledger.** The ledger file is gitignored and local to the machine that ran the attempt. A teammate's prior attempt on the same ticket, run from a different machine, is invisible to this detector.
@@ -10770,7 +10772,7 @@ Return this pointer object as the agent's final output:
 
 ---
 name: adr-generator
-model: sonnet
+model: opus
 description: Expert agent for creating comprehensive Architectural Decision Records (ADRs) with structured formatting optimized for AI consumption and human readability.
 tools: Read, Bash, Grep, Glob, Edit, Write
 ---
@@ -11001,7 +11003,7 @@ Your work is complete when:
 
 ---
 name: architect
-model: sonnet
+model: opus
 description: Pre-implementation technical design agent. Spawn when you need a structured technical plan before writing code. Reads the codebase, identifies patterns and constraints, evaluates approaches, and produces a concrete plan a Worker can execute directly. Never writes or modifies files.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -11264,7 +11266,7 @@ qa_criteria:
 2. **Conductor walks the human through batches** at the human's pace, presenting one batch at a time and collecting answers. This is conductor orchestration, not architect behavior.
 3. **Spawn 2 - plan synthesis.** Once the human signals "enough" or all batches are answered, the conductor re-spawns the architect (`architect:default` is the default choice; `architect:grill` with a follow-up directive is acceptable when more depth is still needed) with the accumulated Q&A as input. Spawn 2 produces the actual technical plan; its Open Questions section should be empty or minimal because depth was reached interactively.
 
-Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol. Separately, the architect also escalates to Tier 3 (conductor-declared `model: opus`) when authoring a Plan+ADR-tier unit (cross-track / architecture-constraining) - see the Mandatory Tier-3 authoring escalation rule in `content/references/risk-config-and-tiers.md`.
+Runs at Tier 3 because grill mode demands the widest design-question aperture; spawn frequency is low. See `architect:grill` in the spawn-preset library (`content/references/spawn-presets-example.yml`) and the full spawn-preset protocol in `content/references/spawn-presets.md` for the surrounding declaration protocol.
 
 ---
 
@@ -11272,7 +11274,7 @@ Runs at Tier 3 because grill mode demands the widest design-question aperture; s
 
 ---
 name: debugger
-model: sonnet
+model: opus
 description: Root cause analysis agent. Spawn when a test is failing, a stack trace needs investigation, or a bug needs diagnosis. Investigates the codebase, forms and tests hypotheses, and returns a diagnosis plus a fix brief. Does NOT implement the fix.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -11663,7 +11665,7 @@ Return this pointer object as the agent's final output:
 
 ---
 name: engineer
-model: sonnet
+model: opus
 description: "General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks."
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -12637,7 +12639,7 @@ The only files you may write are:
 
 ---
 name: orchestration-planner
-model: sonnet
+model: opus
 description: Agent team composition planner. Spawn when you have a complex goal or task and need to determine the optimal combination of agents, their sequencing, handoff points, and parallelization strategy before executing. Use when the right agent team is not obvious, when multiple phases are involved, when a high-level requirement needs decomposing into a concrete execution plan, or when you want to avoid costly mid-task reclassification. Returns a structured orchestration plan the conductor can execute directly. Does not implement anything - planning only.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -12852,7 +12854,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 
 ---
 name: perf-analyst
-model: sonnet
+model: opus
 description: Performance analysis specialist. Spawn when a feature is slow, investigating a performance regression, benchmarking before/after a change, profiling CPU or memory hotspots, measuring latency or throughput against a budget, or hunting memory leaks. Distinct from debugger (correctness failures, stack traces) and qa-engineer (acceptance criteria, browser verification). Profiles, benchmarks, and bisects to find where time or memory is spent — then produces a measured findings brief the engineer can execute. Does NOT implement fixes.
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -13063,7 +13065,7 @@ Return this pointer object as the agent's final output:
 
 ---
 name: product-discovery
-model: sonnet
+model: opus
 description: Facilitated product discovery before any architecture or implementation work. Spawn when someone arrives with a product or feature idea that is not yet scoped - "I want to build...", "we should add...", "thinking about a tool that...", "here's an idea for..." - or when a project has no vision/requirements docs yet and work is about to start. Also spawn when the user asks to scope a feature, write a PRD, frame a problem, identify target users, run a competitive scan, or draft a product brief or PRFAQ. Decides WHAT to build and WHY, then stages a proposed vision.md and requirements.md for the operator to confirm. Stages proposals to docs/overview/_proposed/ only; never writes the canonical docs/overview/ files. Prefer this over jumping straight to design or code when the underlying problem, users, or scope are still fuzzy.
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
@@ -13288,7 +13290,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 
 ---
 name: qa-engineer
-model: sonnet
+model: opus
 description: "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail pointer report with evidence. Does not fix issues. Returns learned project-specific quirks as a structured payload for the invoker to append via the canonical QA knowledge capture procedure."
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
@@ -18594,7 +18596,7 @@ Apply the null-render rule when filling this block: a null `skeptic_rounds` rend
 
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) leads with `$UNIT_KEY | ` then the plan-proposed file paths, not a git diff, field 1 (architect plan) is the plan itself under review, field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet; field 7 per §4.5. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
 ---
 
@@ -18909,7 +18911,7 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
@@ -19075,13 +19077,13 @@ Spawn a `skeptic` agent with:
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/dinostack/references/skeptic-protocol.md`.
 
-**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+**Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default: role default (omit the model param).
 
-**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` — two or more prior attempts, not one — declare `Tier: 3` for this Skeptic spawn and pass an explicit `model: opus` on the Agent tool call. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (Tier 2, role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not an Opus Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem.
+**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` — two or more prior attempts, not one — declare `Tier: 3` for this Skeptic spawn and pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not a Fable Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem.
 
-This trigger is **command-scoped and advisory-only — there is no mechanical backstop.** `hooks/enforce-tier.py` backstops Tier-3 by matching the five *global* escalation signals against the spawn brief's text; `PRIOR_ATTEMPTS >= 2` is conductor-computed state that appears in no marker pattern the hook recognises, so the hook will neither detect this trigger nor deny a sub-Opus spawn under it. The conductor's explicit `model: opus` is the only enforcement. Omitting it silently downgrades the review with no error anywhere. This also does not add to the Mandatory Tier-3 escalation category count in `content/references/risk-config-and-tiers.md`.
+This trigger is **command-scoped and advisory-only — there is no mechanical backstop.** `hooks/enforce-tier.py` backstops Tier-3 by matching the five *global* escalation signals against the spawn brief's text; `PRIOR_ATTEMPTS >= 2` is conductor-computed state that appears in no marker pattern the hook recognises, so the hook will neither detect this trigger nor deny a sub-Opus spawn under it. The conductor's explicit param is the only enforcement: pass `model: fable` when the effective Claude Code settings `availableModels` key is absent or lists fable; otherwise pass `model: opus`. Omitting it silently downgrades the review with no error anywhere. This also does not add to the Mandatory Tier-3 escalation category count in `content/references/risk-config-and-tiers.md`.
 
-Known cost: a genuinely multi-wave ticket (big, always needed three passes, never actually regressed) draws an Opus Skeptic from its third wave onward, because `PRIOR_ATTEMPTS` cannot distinguish that from a ticket that came back twice. This is accepted; if it proves expensive the fix is raising this threshold, not adding a discriminator. See `content/references/ticket-rework.md` §Known limitations.
+Known cost: a genuinely multi-wave ticket (big, always needed three passes, never actually regressed) draws a Fable Skeptic from its third wave onward, because `PRIOR_ATTEMPTS` cannot distinguish that from a ticket that came back twice. This is accepted; if it proves expensive the fix is raising this threshold, not adding a discriminator. See `content/references/ticket-rework.md` §Known limitations.
 
 **Findings handling - loop contract:**
 
@@ -22133,7 +22135,7 @@ Seed with these documented defaults exactly:
 
 - `debugger_on_failure` - boolean, default `false` (opt-in). When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. The default preserves existing behavior.
 - `qa_default_skip` - reserved key, default `null` (unset). Documented for schema completeness; does not currently alter QA-gate behavior. Canonical definition lives in `content/references/planning-artifacts.md`.
-- `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` routes eligible spawns to Tier 1 to reduce cost; unrecognized values fall back to `default`.
+- `model_profile` - enum (`default` | `budget`), default `"default"`. `budget` passes a model one tier below each role's default; unrecognized values fall back to `default`.
 - `auto_merge_on_ci_green` - boolean, default `false`. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR once CI is green, the PR is marked ready, and no reviewer has requested changes. See `content/references/conventions-detail.md` §Auto-merge follow-through for the full event-keyed rule (not scoped to `/ds-implement-ticket` alone).
 - `capability_preflight_mode` - enum (`advisory` | `blocking`), default `"blocking"`. See `content/rules/conventions.md` §Project Config for semantics.
 - `perceptual_diff_enabled` - boolean, default `false`. See `content/rules/conventions.md` §Project Config for semantics.

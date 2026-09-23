@@ -15,8 +15,9 @@ Downstream consumers: content/sections/04-risk-classification.md (inline pointer
                       content/commands/ds-init-project.md (presets.yml seeding).
 
 Failure modes: Prose + YAML schema; not auto-executed. Resolution rule 4
-               (explicit `Tier:` line wins over preset tier on collision) is the
-               common conflict path; conductor must note the override.
+               (effective tier = max(preset tier, role default) unless an
+               explicit `Tier:` line or `model_profile: budget` downgrades)
+               means a stale low preset `tier` is ignored, never honored.
 
 Performance: Standard.
 -->
@@ -30,7 +31,7 @@ A **spawn preset** is a named bundle of `(agent, tier, brief_prefix)` declared o
 **Declaration format (optional line, immediately below `Tier:`):**
 ```
 Risk: Elevated - new file creation
-Tier: 2
+Tier: 3
 Preset: engineer:default
 Spawning engineer.
 ```
@@ -45,7 +46,7 @@ The `Preset:` line is OPTIONAL. When absent, the conductor selects agent and tie
 
 **Schema (each preset entry):**
 - `agent`: string - which named agent to spawn (engineer, skeptic, architect, etc.)
-- `tier`: 1 | 2 | 3 - the model tier to use for this spawn
+- `tier`: 1 | 2 | 3 - can only raise the spawn's tier above the agent's role default, never lower it
 - `brief_prefix`: string - text prepended to the conductor's inline brief; may be empty
 
 The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping is advisory documentation only (not harness-enforced), so embedding it in presets adds no enforcement value. Keep the preset surface minimal.
@@ -54,7 +55,7 @@ The preset schema deliberately excludes `tool_scope` - on Claude, tool scoping i
 1. Conductor reads `.agentic/presets.yml` if it exists; merges over `~/.agentic/presets.yml`. Project keys win on collision.
 2. If the referenced `<agent>:<variant>` is undefined, the conductor warns inline (`Preset 'engineer:foo' not found in presets library; falling back to engineer:default.`) and uses `<agent>:default`.
 3. If `<agent>:default` is also undefined, the conductor proceeds with no preset (full inline-spec behavior) and notes the absence in the spawn declaration.
-4. The `Tier:` line and the preset's tier MUST agree. If they disagree, the explicit `Tier:` line wins (operator intent overrides library default) and the conductor notes the override.
+4. The `Tier:` line equals max(preset tier, role default from the Role-default tier table in `content/references/risk-config-and-tiers.md`) unless the conductor deliberately downgrades via an explicit `Tier:` line or `model_profile: budget`, and notes that downgrade.
 
 See `content/references/spawn-presets-example.yml` for an example library to copy as a starting point.
 
