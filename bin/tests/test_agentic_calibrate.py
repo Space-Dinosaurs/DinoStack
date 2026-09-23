@@ -486,7 +486,46 @@ def test_is_meta_review_complete():
     print("PASS test_is_meta_review_complete")
 
 
+def test_density_from_worktree_merges_primary_hook_rows_unless_agentic_dir_set():
+    """QA 10: from a linked worktree with AGENTIC_DIR unset, density includes the
+    skeptic rows the hooks wrote to the primary checkout; an explicit AGENTIC_DIR
+    is read verbatim."""
+    import subprocess
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import telemetry_v2_fixtures as fx
+
+    with tempfile.TemporaryDirectory() as tmp:
+        main, worktree = fx.make_linked_worktree(Path(tmp))
+        fx.write_jsonl(main / ".agentic" / "events.jsonl", [
+            fx.v2_start("2026-09-01T10:00:00Z", "skeptic", "k1", "AUT-PRIMARY"),
+            fx.v2_complete("2026-09-01T10:05:00Z", "skeptic", "k1", "AUT-PRIMARY",
+                           cumulative=fx.tokens(output=1), model="claude-sonnet-5",
+                           findings_count={"critical": 0, "major": 1, "minor": 0},
+                           diff_lines=40, iteration=1, signed_off=False),
+        ])
+        (worktree / ".agentic").mkdir()
+        (worktree / ".agentic" / "events.jsonl").write_text(
+            _make_skeptic_spawn_complete("AUT-LOCAL", "2026-09-01T09:00:00Z",
+                                         {"critical": 0, "major": 0, "minor": 1}, 10) + "\n",
+            encoding="utf-8",
+        )
+        env = {k: v for k, v in os.environ.items() if k != "AGENTIC_DIR"}
+        proc = subprocess.run([sys.executable, str(_BIN_PATH), "density"], cwd=worktree,
+                              env=env, capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        assert "AUT-PRIMARY" in proc.stdout and "AUT-LOCAL" in proc.stdout, proc.stdout
+
+        env["AGENTIC_DIR"] = str(worktree / ".agentic")
+        proc = subprocess.run([sys.executable, str(_BIN_PATH), "density"], cwd=worktree,
+                              env=env, capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        assert "AUT-LOCAL" in proc.stdout and "AUT-PRIMARY" not in proc.stdout, proc.stdout
+    print("PASS test_density_from_worktree_merges_primary_hook_rows_unless_agentic_dir_set")
+
+
 if __name__ == "__main__":
+    test_density_from_worktree_merges_primary_hook_rows_unless_agentic_dir_set()
     test_density_missing_events_exits_one()
     test_density_empty_events_warming_up()
     test_density_renders_table_rows()

@@ -877,5 +877,282 @@ def test_ds_change_delta_regression_suite() -> None:
     run_tests()
 
 
+# ---------------------------------------------------------------------------
+# DS-246: agent_model and per_ticket over telemetry_v 2 hook spawn rows.
+# Windows: before [08-11, 08-25), after [08-25, 09-08); v2 extent 08-10..09-09.
+# ---------------------------------------------------------------------------
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import telemetry_v2_fixtures as fx
+
+_T = fx.tokens
+
+
+def _legacy_start(ts: str, agent: str, spawn_id: str, task_id: str) -> dict:
+    row = fx.v2_start(ts, agent, spawn_id, task_id)
+    del row["data"]["telemetry_v"]
+    return row
+
+
+def _ticket_fixture_events() -> list[dict]:
+    return [
+        # pre-DS-246 rows inside the after window: must never contribute
+        _legacy_start("2026-08-28T05:00:00Z", "engineer", "leg1", "AUT-LEG"),
+        fx.legacy_complete("2026-08-28T06:00:00Z", "engineer", "leg1", "AUT-LEG",
+                           cumulative=_T(input=5)),
+        # coverage anchors (no ticket)
+        fx.v2_start("2026-08-10T00:00:00Z", "investigator", "anchor-a"),
+        fx.v2_start("2026-09-09T00:00:00Z", "investigator", "anchor-b"),
+        # before: AUT-580 / AUT-581 share ledger PR 1044
+        fx.v2_start("2026-08-12T00:00:00Z", "engineer", "e580", "AUT-580"),
+        fx.v2_complete("2026-08-12T01:00:00Z", "engineer", "e580", "AUT-580",
+                       cumulative=_T(output=10_000), model="claude-sonnet-5"),
+        fx.v2_start("2026-08-12T02:00:00Z", "engineer", "e581", "AUT-581"),
+        fx.v2_complete("2026-08-12T03:00:00Z", "engineer", "e581", "AUT-581",
+                       cumulative=_T(output=20_000), model="claude-sonnet-5"),
+        # before: AUT-500 was opened before v2 coverage began
+        fx.v2_start("2026-08-15T00:00:00Z", "engineer", "e500", "AUT-500"),
+        # before: an unattributed run
+        fx.v2_start("2026-08-15T01:00:00Z", "investigator", "inv1"),
+        fx.v2_complete("2026-08-15T02:00:00Z", "investigator", "inv1",
+                       cumulative=_T(input=1_000_000), model="claude-haiku-4-5-20251001"),
+        # after: AUT-700
+        fx.v2_start("2026-08-26T00:00:00Z", "architect", "a700", "AUT-700"),
+        fx.v2_complete("2026-08-26T01:00:00Z", "architect", "a700", "AUT-700",
+                       cumulative=_T(output=1_000_000), model="claude-opus-5"),
+        fx.v2_start("2026-08-27T00:00:00Z", "engineer", "e700", "AUT-700"),
+        fx.v2_complete("2026-08-27T02:00:00Z", "engineer", "e700", "AUT-700", wall_seconds=7200.0,
+                       cumulative=_T(input=1000, output=2000, cache_read=1_000_000,
+                                     cc_5m=100_000, cc_1h=50_000)),
+        fx.legacy_complete("2026-08-27T03:00:00Z", "engineer", "e700", "AUT-700",
+                           cumulative=_T(input=99_000_000)),
+        fx.v2_start("2026-08-28T00:00:00Z", "skeptic", "k700", "AUT-700"),
+        fx.v2_complete("2026-08-28T01:00:00Z", "skeptic", "k700", "AUT-700",
+                       cumulative=_T(output=100_000), model="claude-sonnet-5",
+                       findings_count={"critical": 0, "major": 2, "minor": 1},
+                       iteration=1, signed_off=False),
+        fx.v2_complete("2026-09-02T01:00:00Z", "skeptic", "k700", "AUT-700", run_index=2,
+                       run_start_ts="2026-09-02T00:30:00Z", wall_seconds=1800.0,
+                       cumulative=_T(output=150_000), run_tokens=_T(output=50_000),
+                       model="claude-sonnet-5", pair_method="resume",
+                       findings_count={"critical": 0, "major": 1, "minor": 1},
+                       iteration=2, signed_off=True),
+        # QA 7b: a FAIL run then a PASS run of one qa-engineer spawn
+        fx.v2_start("2026-08-29T00:00:00Z", "qa-engineer", "q700", "AUT-700"),
+        fx.v2_complete("2026-08-29T01:00:00Z", "qa-engineer", "q700", "AUT-700",
+                       cumulative=_T(input=1_000_000), model="claude-sonnet-5", qa_result="FAIL"),
+        fx.v2_complete("2026-08-30T01:00:00Z", "qa-engineer", "q700", "AUT-700", run_index=2,
+                       run_start_ts="2026-08-30T00:00:00Z", cumulative=_T(input=1_500_000),
+                       run_tokens=_T(input=500_000), model="claude-sonnet-5",
+                       pair_method="resume", qa_result="PASS"),
+        # after the first merge (09-01): a re-entry whose transcript did not resolve
+        fx.v2_start("2026-09-02T12:00:00Z", "engineer", "e700b", "AUT-700"),
+        fx.v2_complete("2026-09-02T13:00:00Z", "engineer", "e700b", "AUT-700", wall_seconds=None),
+        fx.internal_stop("2026-08-27T02:30:00Z"),
+    ]
+
+
+_TICKET_PRS = [
+    {"number": 1044, "title": "Relic features", "headRefName": "feature/AUT-580-581-relic",
+     "mergedAt": "2026-08-14T00:00:00Z"},
+    {"number": 1050, "title": "[AUT-581]: fix relic", "headRefName": "x",
+     "mergedAt": "2026-08-20T00:00:00Z"},
+    {"number": 900, "title": "feat(AUT-700): thing", "headRefName": "feature/other",
+     "mergedAt": "2026-09-01T00:00:00Z"},
+    {"number": 905, "title": "[AUT-700] follow-up", "headRefName": "x",
+     "mergedAt": "2026-09-03T00:00:00Z"},
+    {"number": 906, "title": "chore: mention AUT-700 in docs", "headRefName": "docs/misc",
+     "mergedAt": "2026-09-02T00:00:00Z"},
+    {"number": 907, "title": "fix(AUT-7001): other", "headRefName": "feature/AUT-7001-x",
+     "mergedAt": "2026-09-02T00:00:00Z"},
+]
+
+
+def _build_ticket_repo(tmp: Path, name: str = "telem") -> Path:
+    repo = tmp / name
+    fx.write_jsonl(repo / ".agentic" / "events.jsonl", _ticket_fixture_events())
+    fx.write_jsonl(repo / ".agentic" / "ticket-ledger.jsonl", [
+        {"ticket_id": "AUT-580", "pr_number": 1044, "opened_ts": "2026-08-13T00:00:00Z",
+         "branch": "feature/AUT-580-581-relic", "skeptic_rounds": 3},
+        {"ticket_id": "AUT-581", "pr_number": 1044, "opened_ts": "2026-08-13T00:00:00Z",
+         "branch": "feature/AUT-580-581-relic", "skeptic_rounds": 3},
+        {"ticket_id": "AUT-500", "pr_number": 800, "opened_ts": "2026-08-05T00:00:00Z"},
+    ])
+    (repo / ".agentic" / "loop-state-AUT-700.json").write_text(json.dumps({
+        "ticket_id": "AUT-700",
+        "loop_state": {"iteration": 2, "findings_log": [
+            {"id": "f1", "severity": "Major", "re_raised": True},
+            {"id": "f2", "severity": "Major", "re_raised": False},
+        ]},
+    }), encoding="utf-8")
+    (repo / ".agentic" / "loop-state-AUT-580.json").write_text(json.dumps({
+        "ticket_id": "AUT-580", "loop_state": {"iteration": 3, "findings_log": [{"id": "g"}]},
+    }), encoding="utf-8")
+    return repo
+
+
+def _gh_stub(nodes: list[dict], gh_ok: bool = True):
+    def run(args, cwd=None, timeout=None):
+        if args[:2] == ["gh", "repo"]:
+            if not gh_ok:
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="auth")
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps({"nameWithOwner": "acme/w"}), stderr="")
+        if args[:2] == ["gh", "api"]:
+            payload = {"data": {"search": {"issueCount": len(nodes),
+                                           "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                           "nodes": nodes}}}
+            return subprocess.CompletedProcess(args, 0, stdout=json.dumps(payload), stderr="")
+        if args[:2] == ["git", "remote"]:
+            return subprocess.CompletedProcess(args, 0, stdout="https://github.com/acme/w.git\n", stderr="")
+        raise AssertionError(f"unexpected command: {args}")
+    return run
+
+
+def _ticket_report(repos: list[Path], gh_ok: bool = True) -> dict:
+    orig_run, orig_pricing = _mod._run, _mod._TELEMETRY.PRICING_PATH
+    _mod._run = _gh_stub(_TICKET_PRS, gh_ok)
+    _mod._TELEMETRY.PRICING_PATH = repos[0] / "no-pricing.yml"
+    try:
+        return _mod.build_delta(repos, CUT_DT, 14, now=NOW)
+    finally:
+        _mod._run, _mod._TELEMETRY.PRICING_PATH = orig_run, orig_pricing
+
+
+def _rows_by_ticket(side: dict) -> dict:
+    return {r["ticket_id"]: r for r in side["tickets"]}
+
+
+def test_agent_model_dollars_match_hand_computed_values():
+    """QA 5: exact-id and family-priced dollars reported separately; 1h cache at 2x input."""
+    with tempfile.TemporaryDirectory() as tmp:
+        report = _ticket_report([_build_ticket_repo(Path(tmp))])
+    after = report["agent_model"]["after"]
+    assert after["status"] == "OK", after
+    rows = {(r["agent"], r["model"]): r for r in after["rows"]}
+    assert set(rows) == {("architect", "claude-opus-5"), ("engineer", "claude-opus-5-5"),
+                         ("engineer", "(unknown)"), ("skeptic", "claude-sonnet-5"),
+                         ("qa-engineer", "claude-sonnet-5")}, sorted(rows)
+    engineer = rows[("engineer", "claude-opus-5-5")]
+    assert abs(engineer["dollars_exact"] - 1.144) < 1e-9, engineer   # legacy 99M-token row ignored
+    assert engineer["runs"] == 1 and engineer["dollars_family_estimated"] == 0
+    assert rows[("engineer", "(unknown)")]["tokens_null_runs"] == 1
+    assert rows[("engineer", "(unknown)")]["wall_null_runs"] == 1
+    architect = rows[("architect", "claude-opus-5")]
+    assert architect["dollars_family_estimated"] == 20.0 and architect["dollars_exact"] == 0
+    assert architect["family_priced_models"] == ["claude-opus-5"]
+    assert rows[("skeptic", "claude-sonnet-5")]["dollars_exact"] == 1.5
+    assert rows[("qa-engineer", "claude-sonnet-5")]["dollars_exact"] == 3.0
+    assert abs(after["dollars_exact"] - 5.644) < 1e-9, after
+    assert after["dollars_family_estimated"] == 20.0
+    assert after["family_priced_models"] == ["claude-opus-5"]
+    assert after["unpriced_models"] == []
+    before_rows = {(r["agent"], r["model"]): r for r in report["agent_model"]["before"]["rows"]}
+    assert before_rows[("investigator", "claude-haiku-4-5-20251001")]["dollars_exact"] == 1.0
+    assert report["agent_model"]["delta"]["dollars_family_estimated"] == 20.0
+
+
+def test_per_ticket_rows_loops_qa_and_escaped_defects():
+    """QA 5 and 7b: per-ticket values from U1-shaped rows, QA FAIL then PASS counted per run."""
+    with tempfile.TemporaryDirectory() as tmp:
+        report = _ticket_report([_build_ticket_repo(Path(tmp))])
+    after = report["per_ticket"]["after"]
+    assert after["status"] == "OK", after
+    assert set(_rows_by_ticket(after)) == {"AUT-700"}
+    t = _rows_by_ticket(after)["AUT-700"]
+    assert t["qa_runs"] == 2 and t["qa_fail_backs"] == 1
+    assert t["skeptic_reviews"] == 2 and t["skeptic_reviews_source"] == "telemetry"
+    assert t["max_iteration"] == 2 and t["max_iteration_source"] == "telemetry"
+    assert t["findings"] == {"critical": 0, "major": 3, "minor": 2}
+    assert t["re_raised"] == 1
+    assert t["pr_status"] == "OK"
+    assert t["prs_merged"] == 2 and t["pr_numbers"] == [900, 905]
+    assert t["follow_up_prs"] == 1
+    assert t["loops"] == 2 + 1 + 1
+    assert t["final_merge_ts"] == "2026-09-03T00:00:00+00:00"
+    assert t["e2e_wall_seconds"] == 8 * 86400
+    assert t["reentries_after_merge"] == 1
+    assert t["post_merge_findings"] == 1
+    assert abs(t["dollars_exact"] - 5.644) < 1e-9 and t["dollars_family_estimated"] == 20.0
+    assert after["summary"]["tickets"] == 1 and after["summary"]["loops_mean"] == 4
+    assert after["unattributed_runs"] == 0
+
+
+def test_per_ticket_pr_attribution_ledger_first_then_anchored_prefix():
+    """QA 9 / R10: ledger PR 1044 goes to both tickets and is not ambiguous; a ledger
+    ticket still collects a fallback follow-up; a PR merely citing T, or naming T0, is not T's."""
+    with tempfile.TemporaryDirectory() as tmp:
+        report = _ticket_report([_build_ticket_repo(Path(tmp))])
+    before = report["per_ticket"]["before"]
+    rows = _rows_by_ticket(before)
+    assert rows["AUT-580"]["pr_numbers"] == [1044]
+    assert rows["AUT-581"]["pr_numbers"] == [1044, 1050]
+    assert rows["AUT-581"]["follow_up_prs"] == 1
+    assert rows["AUT-580"]["skeptic_reviews"] == 3 and rows["AUT-580"]["skeptic_reviews_source"] == "ledger"
+    assert rows["AUT-580"]["max_iteration"] == 3 and rows["AUT-580"]["max_iteration_source"] == "loop_state"
+    assert rows["AUT-580"]["re_raised"] is None
+    assert rows["AUT-580"]["post_merge_findings"] is None   # no telemetry Skeptic runs to count
+    assert rows["AUT-580"]["findings"] is None
+    assert before["ambiguous_prs"] == []
+    assert before["excluded_pre_v2"] == ["AUT-500"] and "AUT-500" not in rows
+    assert before["unattributed_runs"] == 1
+    after_numbers = _rows_by_ticket(report["per_ticket"]["after"])["AUT-700"]["pr_numbers"]
+    assert 906 not in after_numbers and 907 not in after_numbers
+
+
+def test_pr_title_and_branch_matchers():
+    for title in ("[AUT-7] x", "[AUT-7]: x", "fix(AUT-7): x", "feat(aut-7)!: x", "AUT-7: x"):
+        assert _mod._title_matches("AUT-7", title), title
+    for title in ("fix(AUT-70): x", "AUT-70: x", "chore: AUT-7 mentioned", "[AUT-70] x"):
+        assert not _mod._title_matches("AUT-7", title), title
+    assert _mod._branch_matches("AUT-580", "feature/AUT-580-581-relic")
+    assert not _mod._branch_matches("AUT-581", "feature/AUT-580-581-relic")
+    assert not _mod._branch_matches("AUT-58", "feature/AUT-580-x")
+
+
+def test_spawn_sides_gated_by_v2_coverage():
+    """QA 6 / R9: partial v2 coverage is INSUFFICIENT_COVERAGE with nulls, no v2 rows is ABSENT,
+    and gh unavailable nulls only the PR-derived fields."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        late = tmp / "late"
+        fx.write_jsonl(late / ".agentic" / "events.jsonl", [
+            fx.v2_start("2026-08-20T00:00:00Z", "engineer", "l1", "AUT-9"),
+            fx.v2_complete("2026-08-20T01:00:00Z", "engineer", "l1", "AUT-9", cumulative=_T(output=1)),
+            fx.v2_start("2026-09-09T00:00:00Z", "engineer", "l2"),
+        ])
+        report = _ticket_report([late])
+        for key in ("agent_model", "per_ticket"):
+            before = report[key]["before"]
+            assert before["status"] == "INSUFFICIENT_COVERAGE", before
+            assert before["v2_coverage"]["earliest"] == "2026-08-20T00:00:00+00:00"
+            assert report[key]["after"]["status"] == "OK"
+        assert report["agent_model"]["before"]["rows"] is None
+        assert report["per_ticket"]["before"]["tickets"] is None
+        assert report["per_ticket"]["delta"] is None
+
+        legacy_only = tmp / "legacy"
+        fx.write_jsonl(legacy_only / ".agentic" / "events.jsonl", [
+            fx.legacy_complete("2026-08-12T00:00:00Z", "engineer", "x", "AUT-1", cumulative=_T(input=5)),
+            fx.legacy_complete("2026-09-09T00:00:00Z", "engineer", "y", "AUT-1", cumulative=_T(input=5)),
+        ])
+        report = _ticket_report([legacy_only])
+        for key in ("agent_model", "per_ticket"):
+            for side in ("before", "after"):
+                assert report[key][side]["status"] == "ABSENT", report[key][side]
+                assert report[key][side]["v2_coverage"]["rows_total"] == 0
+
+        report = _ticket_report([_build_ticket_repo(tmp)], gh_ok=False)
+        t = _rows_by_ticket(report["per_ticket"]["after"])["AUT-700"]
+        assert t["pr_status"] == "GH_UNAVAILABLE"
+        for key in ("prs_merged", "pr_numbers", "final_merge_ts", "e2e_wall_seconds",
+                    "follow_up_prs", "reentries_after_merge", "post_merge_findings", "loops"):
+            assert t[key] is None, key
+        assert t["skeptic_reviews"] == 2 and t["qa_fail_backs"] == 1 and t["re_raised"] == 1
+
+
 if __name__ == "__main__":
     run_tests()
+    for _name, _fn in list(globals().items()):
+        if _name.startswith("test_") and _name != "test_ds_change_delta_regression_suite":
+            _fn()
+    print("All DS-246 spawn-telemetry tests passed.")
