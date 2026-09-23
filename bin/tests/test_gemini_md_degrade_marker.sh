@@ -124,7 +124,7 @@
 
 set -uo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd -P)"
 
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
 . "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
