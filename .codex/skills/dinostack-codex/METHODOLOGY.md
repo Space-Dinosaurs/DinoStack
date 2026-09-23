@@ -493,12 +493,12 @@ Separately, the operator-owned product-intent layer `docs/overview/vision.md` + 
 
 ```
 Risk: Elevated - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review.
 ```
 ```
 Risk: Elevated + Cleanup - [specific signal]
-Tier: 2 (role default)
+Tier: 3 (role default)
 Applying adversarial review with the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) cleanup pass.
 ```
 
@@ -506,7 +506,7 @@ When a Brief or Plan governs the task (see $AE_CORE_SKILL_ROOT/METHODOLOGY.md §
 
 ```
 Risk: Elevated - multi-unit feature
-Tier: 2
+Tier: 3
 Brief: docs/planning/<slug>.md
 Applying adversarial review.
 ```
@@ -517,13 +517,11 @@ Plan: docs/planning/<slug>/
 Applying adversarial review.
 ```
 
-Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `$AE_REPO_DIR/hooks/enforce-tier.py` (escalate-only, fail-open); read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, tier-intent and role-routing mapping, and the role-model/cross-harness routing layers.
+Declare tier at spawn time; role defaults per the Role-default tier table, Tier 3 is mandatory for security/auth/crypto/payments/novel-architecture/high-blast-radius units; mechanical enforcement via `$AE_REPO_DIR/hooks/enforce-tier.py` (escalate-only, fail-open); read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Tier Declaration Detail for the role-default table, tier-intent and role-routing mapping, and the role-model/cross-harness routing layers.
 
 ### Spawn presets (per-spawn capability bundles)
 
 **Spawn presets (per-spawn capability bundles):** See `$AE_REPO_DIR/content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `$AE_PROJECT_DIR/.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `$AE_REPO_DIR/content/references/spawn-presets-example.yml`.
-
-For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
 
 ## QA Gate
 

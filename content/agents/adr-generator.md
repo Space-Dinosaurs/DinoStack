@@ -1,6 +1,6 @@
 ---
 name: adr-generator
-model: sonnet
+model: opus
 description: Expert agent for creating comprehensive Architectural Decision Records (ADRs) with structured formatting optimized for AI consumption and human readability.
 tools: Read, Bash, Grep, Glob, Edit, Write
 ---

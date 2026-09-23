@@ -1056,17 +1056,26 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
     model_routing_rules = (
         (
-            "pass an explicit `model: opus` on the Agent tool call",
             (
-                "state explicit Tier 3 intent in the task brief and resolve the reviewer "
-                "through role routing before `spawn_agent`"
+                "The conductor's explicit param is the only enforcement: "
+                "pass `model: fable` when the effective Claude Code settings "
+                "`availableModels` key is absent or lists fable; otherwise pass "
+                "`model: opus`."
             ),
-        ),
-        (
-            "The conductor's explicit `model: opus` is the only enforcement.",
             (
                 "Explicit Tier 3 task-brief intent plus pre-spawn role routing is the Codex "
                 "enforcement."
+            ),
+        ),
+        (
+            (
+                "pass `model: fable` when the effective Claude Code settings "
+                "`availableModels` key is absent or lists fable; otherwise pass "
+                "`model: opus`"
+            ),
+            (
+                "state explicit Tier 3 intent in the task brief and resolve the reviewer "
+                "through role routing before `spawn_agent`"
             ),
         ),
         (
@@ -1084,6 +1093,10 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         (
             "explicit `model` param",
             "explicit role-routing override",
+        ),
+        (
+            "`model: fable`",
+            "explicit Tier 3 task-brief intent",
         ),
         (
             "`model: opus`",

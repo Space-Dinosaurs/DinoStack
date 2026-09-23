@@ -8,22 +8,22 @@
 presets:
   engineer:default:
     agent: engineer
-    tier: 2
+    tier: 3
     brief_prefix: ""
 
   engineer:tight-bug:
     agent: engineer
-    tier: 2
+    tier: 3
     brief_prefix: "Bug fix: minimize scope, run tests baseline first."
 
   skeptic:standard:
     agent: skeptic
-    tier: 2
+    tier: 3
     brief_prefix: ""
 
   skeptic:plan-review:
     agent: skeptic
-    tier: 2
+    tier: 3
     brief_prefix: "Reviewing an architect plan; apply 'Document synthesis / architecture / planning' adversarial brief."
 
   skeptic:security:
@@ -33,7 +33,7 @@ presets:
 
   architect:default:
     agent: architect
-    tier: 2
+    tier: 3
     brief_prefix: ""
 
   architect:grill:

@@ -12,8 +12,8 @@ Purpose: PreToolUse hook that backstops the METHODOLOGY §Risk-Classification
          signal. Escalate-only: it never blocks the omit-the-param
          (role-default) path, and never touches non-review agents.
 
-         As of DS-77, the hook ALSO backstops the "Mandatory Tier-3 authoring
-         escalation (Plan+ADR-tier units)" rule for AUTHORING roles (architect,
+         As of DS-77, the hook ALSO backstops the "Plan+ADR-tier authoring
+         floor" rule for AUTHORING roles (architect,
          adr-generator, product-discovery): it denies an explicit
          sub-Tier-3 model param on those spawns when the brief matches an authoring
          Tier-3 escalation marker (ADR / cross-track / architecture-decision
@@ -80,23 +80,19 @@ Failure modes:
       irreversible; release/deploy/production; high blast radius/shared
       utility).
     - Authoring roles (architect / adr-generator / product-discovery) carve-out
-      (documented, intentional): the true trigger for the "Mandatory Tier-3
-      authoring escalation" rule is a STRUCTURAL signal - the unit reaches
+      (documented, intentional): the true trigger for the "Plan+ADR-tier
+      authoring floor" rule is a STRUCTURAL signal - the unit reaches
       Plan+ADR tier (cross-track span, or "architecture decision constraining
       future choices") per the Planning Artifacts trigger table
       (content/sections/03-planning-artifacts.md) - computed by the CONDUCTOR,
       not present anywhere in tool_input. This hook therefore CANNOT
-      deterministically detect an ADR-tier authoring spawn; the PRIMARY
-      control is the conductor passing model: opus explicitly (see
-      content/references/risk-config-and-tiers.md §Mandatory Tier-3 authoring
-      escalation). This hook only BACKSTOPS an explicit sub-Tier-3 downgrade
+      deterministically detect an ADR-tier authoring spawn. As of DS-247 these
+      roles' frontmatter defaults to model: opus, so an OMITTED model param
+      already yields Tier 3 and is ALLOWED; the frontmatter is the primary
+      control. This hook only BACKSTOPS an explicit sub-Tier-3 downgrade
       when the brief matches `_AUTHOR_MARKER_PATTERNS` - best-effort, and it
-      WILL MISS an ADR-tier authoring spawn whose brief omits that vocabulary.
-      Critically, an OMITTED model param on an authoring-role spawn resolves
-      to the Sonnet frontmatter default (Role-default tier table) and is
-      ALLOWED by this hook - the omit path is the conductor's responsibility
-      to get right, not this hook's; operators must not over-trust this
-      backstop as a substitute for the conductor's explicit param.
+      WILL MISS an explicitly downgraded ADR-tier authoring spawn whose brief
+      omits that vocabulary.
     - Env-var resolution (CLAUDE_CODE_SUBAGENT_MODEL) is intentionally NOT
       guarded: the hook gates the spawn-call param (intent), not the env
       override, which it cannot see in tool_input and which outranks the param.
@@ -118,14 +114,13 @@ import sys
 # content/references/risk-config-and-tiers.md Role-default tier table.
 MANDATED_TIER3 = {"skeptic", "security-auditor"}
 
-# Authoring roles whose Tier-3 escalation is CONDUCTOR-declared (model: opus) on
-# Plan+ADR-tier units (cross-track / architecture-constraining), per the
-# "Mandatory Tier-3 review escalation" rule in
-# content/references/risk-config-and-tiers.md. These roles default to Sonnet/Tier 2
-# (Role-default tier table) - the escalation is a CONDITIONAL rule, not a default.
-# This hook only backstops an explicit sub-Tier-3 downgrade when the brief names the
-# architecture/ADR signal; it CANNOT see the structural Plan+ADR trigger. See the
-# manifest Failure modes "authoring roles" carve-out.
+# Authoring roles held at Tier 3 on Plan+ADR-tier units (cross-track /
+# architecture-constraining), per the "Plan+ADR-tier authoring floor" rule in
+# content/references/risk-config-and-tiers.md. These roles default to Opus/Tier 3
+# (Role-default tier table); the floor stops an explicit downgrade (budget or
+# mistake). This hook only backstops an explicit sub-Tier-3 downgrade when the brief
+# names the architecture/ADR signal; it CANNOT see the structural Plan+ADR trigger.
+# See the manifest Failure modes "authoring roles" carve-out.
 MANDATED_TIER3_AUTHOR = {"architect", "adr-generator", "product-discovery"}
 
 # Tier-3-or-above model markers (case-insensitive substrings of the model
@@ -303,7 +298,7 @@ def would_deny(data):
 
         # Authoring roles (architect / adr-generator / product-discovery): deny
         # only when the brief matches an authoring Tier-3 escalation marker.
-        # These roles default to Sonnet - an omitted model param is ALLOWED
+        # These roles default to Opus - an omitted model param is ALLOWED
         # (see manifest Failure modes "authoring roles" carve-out). Placed
         # before the skeptic branch so an author agent never falls through to
         # skeptic-only logic.
@@ -314,15 +309,14 @@ def would_deny(data):
                     f"{tool_name} spawn blocked: {agent} was spawned with "
                     f"model={model!r}, an explicit downgrade below Tier 3, but "
                     "the brief matches an authoring Tier-3 escalation signal "
-                    f"(pattern {marker!r}). Per the Mandatory Tier-3 review "
-                    "escalation rule, an architect/adr-generator/"
-                    "product-discovery authoring a Plan+ADR-tier (cross-track "
-                    "/ architecture-constraining) unit MUST be Tier 3 (Opus or "
-                    "above). "
-                    "Fix: pass model: opus (or fable) on this spawn. (Do NOT omit the "
-                    "model param - these roles default to Sonnet. To disable "
-                    "this guard: set AE_TIER_GUARD_DISABLE=1 and restart "
-                    "Claude Code.)"
+                    f"(pattern {marker!r}). Per the Plan+ADR-tier authoring "
+                    "floor (content/references/risk-config-and-tiers.md), an "
+                    "architect/adr-generator/product-discovery authoring a "
+                    "Plan+ADR-tier unit MUST be Tier 3 (Opus or above); "
+                    "model_profile: budget never downgrades it. Fix: omit the "
+                    "model param to use the Opus role default, or pass model: "
+                    "opus (or fable). To disable this guard: set "
+                    "AE_TIER_GUARD_DISABLE=1 and restart Claude Code."
                 )
             return None
 
