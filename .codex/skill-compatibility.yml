@@ -4752,16 +4752,6 @@
       "source_token": "/dev"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "1afeffb64cef379b0307e474f50717609772c0a3c5d108a3af8693aabf792a27",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_REVERT_RISK",
       "kind": "display-only",
@@ -5190,6 +5180,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "224993faa4498fc21940df4b91342674ae473a174953d0df4221845c424a495e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "dinostack-codex-implement-ticket",

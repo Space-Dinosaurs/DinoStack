@@ -3125,7 +3125,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
 >
-> **Filling `[qa_summary]` (binding).** Copy the status line and each QA caveat line exactly as given; delete every other line (a ticket restatement, process narration, review rounds). Never add or reword a line. Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
+> **Filling `[qa_summary]` (binding).** Its reader is a human on a phone: apply `content/rules/conventions.md` §Writing Style, keep the automated-verification inventory in the PR rather than the ticket, and cap the free text at roughly 1500 characters.
 >
 > **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`content/references/tracker-writeback.md` `## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
 
