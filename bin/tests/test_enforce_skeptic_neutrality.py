@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -977,9 +978,20 @@ def test_scenario_26_task_and_agent_matchers_identical(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports 79 checks
+# Scenario 27: hooks/tests/test-hooks-pep604-guard.py reports its checks
 # --------------------------------------------------------------------------- #
-def test_scenario_27_pep604_guard_79_checks():
+# The property this asserts is anti-vacuity: the guard actually ran and
+# produced its full check set. The check count is a FLOOR, not an equality,
+# because it moves every time a hooks/*.py or hooks/tests/test-*.py file is
+# added - a hard-pinned literal reads as a regression on any such addition
+# and says nothing the floor does not. Set at the count measured when the
+# floor was introduced (79 checks, DS-187, #810); re-derive the live figure
+# with `python3 hooks/tests/test-hooks-pep604-guard.py | tail -1` and lower
+# this floor only if a file is genuinely deleted. Growth needs no edit.
+_PEP604_MIN_CHECKS = 79
+
+
+def test_scenario_27_pep604_guard_reports_its_checks():
     guard_path = _REPO_ROOT / "hooks" / "tests" / "test-hooks-pep604-guard.py"
     result = subprocess.run(
         [sys.executable, str(guard_path)],
@@ -987,7 +999,16 @@ def test_scenario_27_pep604_guard_79_checks():
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "All 79 checks passed." in result.stdout
+    match = re.search(r"All (\d+) checks passed\.", result.stdout)
+    assert match is not None, (
+        "the pep604 guard printed no 'All N checks passed.' line - it either "
+        "did not run or its summary format changed; stdout was:\n%s"
+        % result.stdout
+    )
+    assert int(match.group(1)) >= _PEP604_MIN_CHECKS, (
+        "the pep604 guard now reports %s checks, below the %d floor - a "
+        "hooks/ file stopped being scanned" % (match.group(1), _PEP604_MIN_CHECKS)
+    )
 
 
 # --------------------------------------------------------------------------- #

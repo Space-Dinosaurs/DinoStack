@@ -461,6 +461,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-worktree-write.py",
     "conductor-overreach-nudge.js",
     "post-tool-use-capture-nudge.js",
+    "session-end-reap-browsers.py",
     "session-end-wrap.js",
     "session-start-version-check.sh",
     "session-start-wrap.sh",

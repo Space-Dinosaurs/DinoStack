@@ -1113,6 +1113,31 @@ upsert_hook(
     "SessionEnd deferred-wrap hook",
 )
 
+# ---- SessionEnd hook (orphaned agent-browser reaper) ------------------------
+# Second entry in the SAME matcher-"*" block above - never a second
+# SessionEnd registration. Reaps Chrome browsers left behind by a dead
+# chrome-devtools-mcp server (or by the 5s teardown-skipping backstop) and
+# by a dead agent-browser daemon. Takes ONE `ps` snapshot, runs no
+# agent-browser command, and exits 0 on every path.
+#
+# Registered with the GUARDED command form (`test -f ... && ... || exit 0`),
+# per the rationale at .claude/install.sh:779 and the same discipline the
+# Stop-hook registrations above use: a bare `python3 <missing path>` exits
+# 2, and exit 2 on SessionEnd is the BLOCKING code, so an unguarded
+# registration would turn every session end into a failure once the script
+# is missing (a branch switch, a moved checkout, a reverted PR).
+SESSION_END_REAP_CMD = (
+    f"test -f {hooks_root}/hooks/session-end-reap-browsers.py && "
+    f"python3 {hooks_root}/hooks/session-end-reap-browsers.py || exit 0"
+)
+
+upsert_hook(
+    session_end_star["hooks"],
+    "session-end-reap-browsers.py",
+    {"type": "command", "command": SESSION_END_REAP_CMD, "timeout": 5},
+    "SessionEnd orphaned-browser reaper",
+)
+
 # ---- SessionStart hook (version notice + deferred-wrap self-heal/launch) -----
 # First SessionStart registration: the wrapper composes the version-check
 # notice with the self-healing .claude-host sentinel and the guarded daemon
