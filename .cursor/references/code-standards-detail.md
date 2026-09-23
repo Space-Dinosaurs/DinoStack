@@ -15,7 +15,10 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
                Module Manifests, DRY, and Code Quality Gates preamble
-               rules).
+               rules);
+               content/references/worktree-lifecycle.md (§Agent-spawned
+               process lifetime ownership, cited by the Browser Verification
+               block above).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation; consult Package
