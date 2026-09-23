@@ -80,8 +80,9 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
    - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
    - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
    This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
-6. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-7. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
+6. **Comment re-read.** List every comment or docstring line your diff adds or changes, plus any commit-message text you write beyond the conductor's template, and apply the Role rule above to each: cut restatement and review exhaust (round numbers, finding ids, text written to settle a reviewer), keeping any real constraint the line carries. Never cut a mandated manifest field, a comment a tool reads, or a non-obvious constraint. The reviewer runs the same test (skeptic.md step 10.5).
+7. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
+8. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
 ## Quality gates
 

@@ -506,6 +506,8 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Minor).
 
+**A comment that explains what the code makes apparent, or carries review exhaust, is a finding.** See `content/agents/skeptic.md` Step 10.5 (Minor; over-deletion of a constraint routes via `Blocking-minor:`).
+
 **A plan component with no stated requirement is a finding, on a plan review.** Before probing plan correctness, the Skeptic asks whether the plan's own "Simplest viable alternative" would satisfy the acceptance criteria, and requires each component beyond it to be tied to a stated requirement rather than an inferred motivation. See `content/agents/skeptic.md` Step 0.5 for the check (plan-review only) and severity default (Minor).
 
 **An unverified exclusion claim is a finding.** An OUT-OF-SCOPE entry, an "already shipped in X" claim, or a "handled by ticket Z" claim must be grepped and verified against the tree or tracker exactly like an in-scope claim - false exclusion claims are the cheapest way for wrong scope to survive review. See `content/agents/skeptic.md` Step 3.85 for the check and severity default (Major, Critical when it justifies deleting shipped behavior).

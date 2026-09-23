@@ -329,7 +329,7 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Four new Skeptic obligations (1/2)
+## Five new Skeptic obligations (1/2)
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.5em; }
@@ -357,7 +357,7 @@ These checks run alongside existing findings classification - not instead of it.
 
 ---
 
-## Four new Skeptic obligations (2/2)
+## Five new Skeptic obligations (2/2)
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.5em; }
@@ -380,7 +380,11 @@ No matching CI invocation = <strong>Minor</strong> finding - a test that never r
 </div>
 
 <div class="callout">
-All four obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; CI-wiring checks close the "silent dead test" gap; telemetry keeps cost and calibration dashboards accurate.
+<strong>Comment-discipline check</strong> - a comment the diff adds or changes, or supplied PR or tracker text, that restates the code or carries review exhaust = <strong>Minor</strong>, naming the exact span.
+</div>
+
+<div class="callout">
+All five obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; CI-wiring checks close the "silent dead test" gap; telemetry keeps cost and calibration dashboards accurate; comment discipline keeps review exhaust out of the permanent record.
 </div>
 
 ---

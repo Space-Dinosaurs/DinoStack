@@ -23,22 +23,21 @@ ENGINEER_MD = REPO_DIR / "content" / "agents" / "engineer.md"
 SKEPTIC_MD = REPO_DIR / "content" / "agents" / "skeptic.md"
 ARCHITECT_MD = REPO_DIR / "content" / "agents" / "architect.md"
 
-# Maps each "skeptic.md step N.N" citation found in engineer.md's pre-submit
-# self-check block to the title keyword that step must still carry in
-# skeptic.md. Derived from the live citations in engineer.md's Pre-submit
-# self-check bullets as of the content-layer transclusion fix.
+# Maps each "skeptic.md step N.N" citation found in engineer.md to the title
+# keyword that step must still carry in skeptic.md.
 CITATION_TO_TITLE_KEYWORD = {
     "4.5": "Cross-file reference-consistency check",
     "4.6": "Async error-handling check",
     "11.5": "New-test-CI-wiring check",
     "7": "Per-consumer impact check",
+    "10.5": "Comment-discipline check",
 }
 
 
 class TestEngineerCitationsLocateSkepticSteps(unittest.TestCase):
-    """Step citations in engineer.md ("step 4.5", "step 4.6", "step 11.5",
-    "step 7") still locate a step in skeptic.md bearing the expected title
-    keyword - catches renumbering/retitling on the skeptic.md side."""
+    """Step citations in engineer.md still locate a step in skeptic.md bearing
+    the expected title keyword - catches renumbering/retitling on the skeptic.md
+    side."""
 
     def setUp(self):
         self.engineer_text = ENGINEER_MD.read_text(encoding="utf-8")
