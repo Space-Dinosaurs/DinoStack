@@ -14,7 +14,7 @@ Upstream deps: content/sections/05-qa-gate.md (parent section; read that
                section first for the QA-fires invariant, skip enums,
                diff-read rule, and re-route limits);
                content/agents/qa-engineer.md (track-scoped qa.md resolution);
-               content/references/worktree-lifecycle.md (§Dev-server process
+               content/references/worktree-lifecycle.md (§Agent-spawned process
                lifetime ownership, cited by the dev-server boot pattern above).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
@@ -287,4 +287,4 @@ done
 
 Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
 
-See `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership: a server booted here is run-scoped only and will not survive the agent's run on this harness - treat it as such rather than as a durably running service.
+See `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership: a server booted here is not bounded by the agent's run - it survives it - so killing it is the booting agent's responsibility, not something the harness does on exit. Treat it as a verification aid for this run rather than as a durably running service.

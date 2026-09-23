@@ -1971,7 +1971,10 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
                Module Manifests, DRY, and Code Quality Gates preamble
-               rules).
+               rules);
+               content/references/worktree-lifecycle.md (§Agent-spawned
+               process lifetime ownership, cited by the Browser Verification
+               block above).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation; consult Package
@@ -2011,7 +2014,7 @@ agent-browser fill @e2 "text" # fill input by ref
 agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
 
 ## Discovery-Based Check Discipline
 
@@ -6002,7 +6005,7 @@ Upstream deps: content/sections/05-qa-gate.md (parent section; read that
                section first for the QA-fires invariant, skip enums,
                diff-read rule, and re-route limits);
                content/agents/qa-engineer.md (track-scoped qa.md resolution);
-               content/references/worktree-lifecycle.md (§Dev-server process
+               content/references/worktree-lifecycle.md (§Agent-spawned process
                lifetime ownership, cited by the dev-server boot pattern above).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
@@ -6275,7 +6278,7 @@ done
 
 Boot detection by fixed `sleep` is unreliable across machines and network conditions; the curl-until loop is the canonical pattern.
 
-See `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership: a server booted here is run-scoped only and will not survive the agent's run on this harness - treat it as such rather than as a durably running service.
+See `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership: a server booted here is not bounded by the agent's run - it survives it - so killing it is the booting agent's responsibility, not something the harness does on exit. Treat it as a verification aid for this run rather than as a durably running service.
 
 ---
 
@@ -9384,11 +9387,13 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          today if it crashes before its push - `head_reachable` is dead
          code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
-         triage/recovery procedure), and the Dev-server process lifetime
-         ownership section (the canonical rule that any dev server booted
-         by an agent is run-scoped only and will not survive the agent's
-         run on this harness - referenced by the qa-gate boot pattern and
-         the engineer/qa-engineer runtime smoke-test caveats).
+         triage/recovery procedure), and the Agent-spawned process
+         lifetime ownership section (the canonical rule that a process an
+         agent launches - a dev server, a browser - reparents to launchd
+         when the launching tool call returns and outlives the agent's run,
+         so closing it belongs to the spawning agent - referenced by the
+         qa-gate boot pattern and the engineer/qa-engineer runtime
+         smoke-test caveats).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -9403,12 +9408,14 @@ Public API: Read-only reference document. Cross-referenced from:
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
             (pointer to the Implicit Trivial batching section),
+            content/references/code-standards-detail.md (browser-verification
+            pointer to §Agent-spawned process lifetime ownership),
             content/references/qa-gate.md (dev-server boot pattern pointer
-            to §Dev-server process lifetime ownership),
+            to §Agent-spawned process lifetime ownership),
             content/agents/qa-engineer.md (dev-server start caveat pointer
-            to §Dev-server process lifetime ownership),
+            to §Agent-spawned process lifetime ownership),
             content/agents/engineer.md (runtime smoke-test caveat pointer
-            to §Dev-server process lifetime ownership).
+            to §Agent-spawned process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -9433,9 +9440,11 @@ Downstream consumers: conductor preflight (session-start prune script and
                       this obligation, never a substitute for it);
                       content/references/qa-gate.md (dev-server boot pattern);
                       content/agents/qa-engineer.md (dev-server start caveat);
-                      content/agents/engineer.md (runtime smoke-test caveat) -
-                      all three cross-referencing the Dev-server process
-                      lifetime ownership section.
+                      content/agents/engineer.md (runtime smoke-test caveat);
+                      content/references/code-standards-detail.md
+                      (browser-verification pointer) - all four
+                      cross-referencing the Agent-spawned process lifetime
+                      ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -10134,9 +10143,16 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
-## Dev-server process lifetime ownership
+## Agent-spawned process lifetime ownership
 
-Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
+Nothing an agent launches is bounded by that agent's run. A background process booted with a trailing `&` - qa-engineer's dev-server boot pattern, engineer's runtime smoke test, any ad-hoc verification - reparents to pid 1 (launchd) when the tool call that started it returns, and is still running after that call and after the agent's run ends. Measured directly against this repo's own documented boot pattern. The same holds for a browser an agent launches (the `chrome-devtools` MCP's Chrome, an `agent-browser` session's Chrome): its parent is not the agent that started it, and the agent's own exit reaps nothing.
+
+Closing what you spawned is therefore the spawning agent's responsibility, not a property the harness supplies. Two consequences:
+
+- **A dev server is not automatically reaped.** Nothing in this repo targets one, and no discriminator separates an agent's server from the operator's own server on the same port, so a wrong guess would kill the operator's process. The spawning agent kills what it booted - qa-engineer's teardown does this by port.
+- **A browser is not reaped at the agent's exit either.** Treat an agent-launched browser session as still open until that agent, or the tool that owns it, closes it.
+
+Treat "restarted and verified" from an agent as a claim about the moment it was verified, never as a promise of availability afterward: the process does survive the run, but the agent that booted it still owns killing it, so nothing here bounds how long it stays up.
 
 ## Standing authorizations
 
@@ -11758,7 +11774,7 @@ After every implementation:
 - Run available lint and typecheck commands. Fix any errors introduced by your changes. Do not introduce new warnings.
 - Run tests if a test command exists. All must pass. If a pre-existing test is broken by your change and the break is intentional (e.g., updating behavior), note it explicitly.
 - For new code: ensure it is exercised by the build (imported, registered, wired up). Dead code is a common mistake.
-- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route (this server is run-scoped only and will not survive your run, per `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership), run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
+- **Runtime smoke test (happy-path).** After the static gates pass, exercise the change once at runtime on its primary happy path - boot the server and hit the affected route (this server is not bounded by your run - it survives it, so killing it is yours to do, per `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership), run the CLI command you changed, render the component once, or call the modified function with a realistic input. This is a bounded sanity check that the code actually runs, not a full QA pass: one happy-path exercise, no edge-case or regression sweep. It does NOT replace the independent qa-engineer verification that runs after Skeptic sign-off - thorough and adversarial runtime checks remain qa-engineer's job; this self-smoke exists only to catch obvious breakage before review and cut QA-fail bounces. Skip it only when the change has no runtime path to exercise: a pure backend library with no entrypoint, config-only, a type-only refactor, or docs-only (note: `dep-bump-no-runtime-change` is a valid `qa_skip` enum but is intentionally excluded from the smoke skip list, because a dependency bump can still affect a runtime path worth catching here). When you skip, record which of those reasons applies in your return. Paste the smoke command and its actual output alongside the other gate output.
 - **Pre-submit self-check.** Immediately before the final quality-gate re-run below, run this consolidated check on your own diff. It covers only mechanical, no-judgment items - it does not replace the DRY/duplication self-check at step 5 above, which stays where it is. Each item is conditional on its own trigger and costs nothing when the trigger does not fire:
   - **New-test CI wiring.** If the diff adds a new test file <!-- shared:test-file-glob-list -->(matches `*/tests/*`, `test_*.py`, `*.test.*`, `*.spec.*`, or a file added to an existing test-only directory), grep `.github/workflows/*.yml` and `.github/workflows/*.yaml` for a reference to that file, its containing glob, or an auto-discovering runner covering its directory (e.g. a `pytest <dir>` invocation)<!-- /shared -->. If nothing in CI runs it, wire it in before returning - a test that never runs provides no regression protection and is a Minor Skeptic finding (skeptic.md step 11.5).
   - **Cross-file reference consistency.** If the diff <!-- shared:identifier-rename-trigger -->renames, removes, or reshapes an identifier that other parts of the repository could reference by name<!-- /shared --> (<!-- shared:identifier-type-list -->a config key, environment variable, exported symbol, database column, API field, or route name<!-- /shared -->), grep the full repository - not just the files in your diff - for the OLD identifier: shipped config/fixture files, IaC/deploy manifests, and documentation that names it. Fix every reference that would break or go stale before returning; noting rather than fixing is acceptable only for a deliberate historical keep (changelogs, archived docs) - never as a substitute for fixing a live reference. Does not apply to <!-- shared:rename-exemption-clause -->purely local variable or parameter renames that nothing outside the function can reference<!-- /shared --> (skeptic.md step 4.5).
@@ -13322,8 +13338,8 @@ capabilities:
       check: "command -v agent-browser"
       install_hint: "npm install -g agent-browser"
     - tool: "chrome-devtools-mcp"
-      check: "test -f .claude/settings.json && grep -q chrome-devtools .claude/settings.json"
-      install_hint: "add chrome-devtools MCP server to .claude/settings.json"
+      check: "python3 -c \"import json,os,sys;p=[os.path.expanduser('~/.claude.json'),'.mcp.json'];s=lambda q:((json.load(open(q)) or {}).get('mcpServers') or {}) if os.path.exists(q) else {};sys.exit(0 if any('chrome-devtools' in s(f) for f in p) else 1)\""
+      install_hint: "add the chrome-devtools MCP server to `~/.claude.json`, or to a project `.mcp.json` for a project-scoped registration"
     - tool: "storybook-dev-server"
       check: "test -f .agentic/config.json && grep -q '\"storybook_enabled\": true' .agentic/config.json && curl -sf -o /dev/null -w '%{http_code}' \"$(jq -r '.storybook_url // \"http://localhost:6006\"' .agentic/config.json 2>/dev/null || echo http://localhost:6006)/iframe.html\" | grep -q '^200$'"
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
@@ -13385,7 +13401,7 @@ prefer: local
 3. If config has `prefer: staging`: use the `staging` URL, skip dev server
 4. If no config file and no URL in prompt: report BLOCKED
 
-**Starting the dev server** (when config provides `command` and `port`). This server is run-scoped only: it will not survive your run (see `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
+**Starting the dev server** (when config provides `command` and `port`). This server is not bounded by your run: it survives it, so killing it is yours to do in teardown (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
 
 ```bash
 <command> > /tmp/qa_devserver.log 2>&1 &
@@ -13394,7 +13410,7 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session is not reaped when your run ends - it survives as a live process, consuming resources and able to collide with a concurrent run. It is headless by default, so no window is left on screen; the session's browser process is what persists (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership):
 
 ```bash
 agent-browser close --all 2>/dev/null || true   # close every agent-browser session

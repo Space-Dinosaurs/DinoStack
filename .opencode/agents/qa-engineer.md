@@ -36,8 +36,8 @@ capabilities:
       check: "command -v agent-browser"
       install_hint: "npm install -g agent-browser"
     - tool: "chrome-devtools-mcp"
-      check: "test -f .claude/settings.json && grep -q chrome-devtools .claude/settings.json"
-      install_hint: "add chrome-devtools MCP server to .claude/settings.json"
+      check: "python3 -c \"import json,os,sys;p=[os.path.expanduser('~/.claude.json'),'.mcp.json'];s=lambda q:((json.load(open(q)) or {}).get('mcpServers') or {}) if os.path.exists(q) else {};sys.exit(0 if any('chrome-devtools' in s(f) for f in p) else 1)\""
+      install_hint: "add the chrome-devtools MCP server to `~/.claude.json`, or to a project `.mcp.json` for a project-scoped registration"
     - tool: "storybook-dev-server"
       check: "test -f .agentic/config.json && grep -q '\"storybook_enabled\": true' .agentic/config.json && curl -sf -o /dev/null -w '%{http_code}' \"$(jq -r '.storybook_url // \"http://localhost:6006\"' .agentic/config.json 2>/dev/null || echo http://localhost:6006)/iframe.html\" | grep -q '^200$'"
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
@@ -99,7 +99,7 @@ prefer: local
 3. If config has `prefer: staging`: use the `staging` URL, skip dev server
 4. If no config file and no URL in prompt: report BLOCKED
 
-**Starting the dev server** (when config provides `command` and `port`). This server is run-scoped only: it will not survive your run (see `content/references/worktree-lifecycle.md` §Dev-server process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
+**Starting the dev server** (when config provides `command` and `port`). This server is not bounded by your run: it survives it, so killing it is yours to do in teardown (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership) - treat it as a verification aid for this session, never as a durably running service:
 
 ```bash
 <command> > /tmp/qa_devserver.log 2>&1 &
@@ -108,7 +108,7 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session is not reaped when your run ends - it survives as a live process, consuming resources and able to collide with a concurrent run. It is headless by default, so no window is left on screen; the session's browser process is what persists (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership):
 
 ```bash
 agent-browser close --all 2>/dev/null || true   # close every agent-browser session

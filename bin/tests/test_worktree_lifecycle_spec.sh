@@ -31,7 +31,15 @@
 #                content/sections/11-worktree-lifecycle.md (SECTION_DOC),
 #                both grepped by check_lock_caveat_pointers for the
 #                by-path pointer to bin/ds-cleanup-worktrees' canonical
-#                "Locked handling:" lock-state caveat.
+#                "Locked handling:" lock-state caveat;
+#                content/** in full (EVERY file under it, grepped
+#                whitespace-normalized by check_process_lifetime_prose) plus
+#                content/references/qa-gate.md,
+#                content/references/code-standards-detail.md,
+#                content/agents/engineer.md and
+#                content/agents/qa-engineer.md (the four points of use, each
+#                asserted to still carry a §section pointer at the canonical
+#                rule).
 #
 # Downstream consumers: CI; qa_criteria scenario 8 (this ticket's QA gate) -
 #                       "demonstrates two distinct exit codes across three
@@ -45,7 +53,13 @@
 #                       a pointer losing its target path, being deleted, or
 #                       being re-homed away from the prose it qualifies, and
 #                       against the caveat being deleted or having its
-#                       trailing clause rewritten.
+#                       trailing clause rewritten;
+#                       check_process_lifetime_prose guards the DS-254
+#                       process-lifetime repair in both directions (rubric
+#                       R5) - the canonical section plus its four pointers
+#                       present, and every retired claim absent from all of
+#                       content/, so a regenerated adapter cannot resurrect
+#                       one.
 #
 # Failure modes: exits non-zero if the observed exit-code sequence across
 #                the three runs is anything other than (0, 1, 1), OR if
@@ -95,7 +109,20 @@
 #                to a lock-released-on-agent-completion cause reddens it too;
 #                it is matched whitespace-normalized, so re-wrapping the
 #                docstring paragraph does not. Cleans up its scratch repo on
-#                exit via a trap regardless of outcome.
+#                exit via a trap regardless of outcome, OR if
+#                check_process_lifetime_prose finds
+#                content/references/worktree-lifecycle.md missing its
+#                "## Agent-spawned process lifetime ownership" heading, OR
+#                one of the four points of use missing either its
+#                §pointer or the path it points at, OR any of the retired
+#                claims - "Dev-server process lifetime ownership",
+#                "will not survive", "run-scoped only", "survive the
+#                agent's run on this harness", "lingers (visibly)",
+#                "browser lingers open" - still present in ANY file under
+#                content/. Matched whitespace-normalized, so a phrase
+#                re-wrapped across two source lines is still caught;
+#                matched as literal prefixes, never whole sentences, so
+#                rewording the surrounding prose does not redden it.
 #
 # Performance: sub-second; two `git worktree add`/`remove` calls in a
 #              throwaway repo, plus several grep passes over the doc/bin
@@ -111,6 +138,31 @@ CLEANUP_BIN="$REPO_ROOT/bin/ds-cleanup-worktrees"
 SESSION_START_WRAP="$REPO_ROOT/hooks/session-start-wrap.sh"
 CONVENTIONS_DOC="$REPO_ROOT/content/rules/conventions.md"
 SECTION_DOC="$REPO_ROOT/content/sections/11-worktree-lifecycle.md"
+
+# DS-254 R5: the canonical title the one process-lifetime rule lives under, and
+# the title it replaced. The retired title is swept for as well, because a
+# pointer at a section that no longer exists reads as a live cross-reference
+# and resolves to nothing.
+CANONICAL_LIFETIME_TITLE='Agent-spawned process lifetime ownership'
+RETIRED_LIFETIME_TITLE='Dev-server process lifetime ownership'
+
+# The four files that restate the rule at its points of use. Each must keep a
+# pointer back at the canonical section; the restatement text around it is free
+# to change, the pointer is not.
+LIFETIME_POINTER_FILES="content/agents/engineer.md
+content/agents/qa-engineer.md
+content/references/qa-gate.md
+content/references/code-standards-detail.md"
+
+# Claims measured false against the shipped mechanism (the process reparents to
+# launchd and outlives the agent's run), plus the retired section title.
+RETIRED_LIFETIME_CLAIMS="$RETIRED_LIFETIME_TITLE
+will not survive
+run-scoped only
+survive the agent's run on this harness
+lingers (visibly)
+browser lingers open"
+
 SCRATCH="$(mktemp -d)"
 
 cleanup() {
@@ -252,6 +304,92 @@ check_reap_wiring() {
   return "$ok"
 }
 
+# Whitespace-normalized read of a file, for phrase sweeps that must not be
+# defeated by a hard wrap. A line-based `grep -F` silently misses a phrase split
+# across two source lines - which is how the retired section title survived the
+# DS-254 rename inside worktree-lifecycle.md's own manifest block, where it is
+# wrapped as "...the Dev-server process" / "lifetime ownership section".
+flatten_prose() {
+  tr '\n' ' ' < "$1" | tr -s '[:space:]' ' '
+}
+
+# DS-254 R5 regression guard, asserted in BOTH directions deliberately: a
+# negative-only assertion ("$RETIRED_LIFETIME_TITLE is gone") goes silently green
+# the moment the wording changes, which is the defect class the DS-254 plan's M1
+# was itself scoped into. The absence sweep covers every file under content/,
+# not only the four the U5 edit touched - a falsified claim left behind in a file
+# outside the edit still ships, and that is precisely how M1 arose. Both sides
+# are pinned as stable structural prefixes (the section heading, the section
+# pointer), never as whole sentences, so a legitimate rewording of the prose
+# around either one does not redden this.
+check_process_lifetime_prose() {
+  local ok=0
+  local tool
+
+  # This repo's rule for a shell gate that would otherwise guard its assertions
+  # on `command -v <tool>` is to hard-fail under ${CI} rather than skip, or the
+  # job goes green having asserted nothing. Here the tools are load-bearing, so
+  # there is no skip path at all, in CI or out of it.
+  for tool in find grep tr; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      echo "PROCESS-LIFETIME VIOLATION: required tool '$tool' is not on PATH, so no verdict is available (CI=${CI:-unset}) - refusing to report a pass" >&2
+      ok=1
+    fi
+  done
+  [ "$ok" -eq 0 ] || return 1
+
+  # Positive 1: the canonical rule exists, under the canonical title.
+  if ! grep -qF "## $CANONICAL_LIFETIME_TITLE" "$LIFECYCLE_DOC"; then
+    echo "PROCESS-LIFETIME VIOLATION: $LIFECYCLE_DOC has no '## $CANONICAL_LIFETIME_TITLE' heading - the canonical rule was renamed or deleted" >&2
+    ok=1
+  fi
+
+  # Positive 2: each point of use still carries a followable pointer at it.
+  local rel
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    if [ ! -f "$REPO_ROOT/$rel" ]; then
+      echo "PROCESS-LIFETIME VIOLATION: $rel not found - it is one of the files that restates the process-lifetime rule" >&2
+      ok=1
+      continue
+    fi
+    if ! grep -qF "§$CANONICAL_LIFETIME_TITLE" "$REPO_ROOT/$rel"; then
+      echo "PROCESS-LIFETIME VIOLATION: $rel no longer carries a '§$CANONICAL_LIFETIME_TITLE' pointer at the canonical rule" >&2
+      ok=1
+    fi
+    if ! grep -qF 'content/references/worktree-lifecycle.md' "$REPO_ROOT/$rel"; then
+      echo "PROCESS-LIFETIME VIOLATION: $rel's pointer no longer names its target file (content/references/worktree-lifecycle.md), so it cannot be followed" >&2
+      ok=1
+    fi
+  done <<< "$LIFETIME_POINTER_FILES"
+
+  # Negative: no retired claim survives anywhere under content/.
+  local content_files
+  content_files="$(find "$REPO_ROOT/content" -type f 2>/dev/null)"
+  if [ -z "$content_files" ]; then
+    echo "PROCESS-LIFETIME VIOLATION: find matched no files under content/ - the absence sweep would assert nothing, so this is broken discovery, not a clean result" >&2
+    return 1
+  fi
+
+  local f flat phrase
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    flat="$(flatten_prose "$f")"
+    while IFS= read -r phrase; do
+      [ -n "$phrase" ] || continue
+      # Here-string, not a pipe into `grep -q`: under `set -o pipefail` an early
+      # grep exit can SIGPIPE the writer and turn a match into a non-zero
+      # pipeline status, which would read here as "clean".
+      if grep -qF "$phrase" <<< "$flat"; then
+        echo "PROCESS-LIFETIME VIOLATION: retired claim [$phrase] is still present in ${f#"$REPO_ROOT"/}" >&2
+        ok=1
+      fi
+    done <<< "$RETIRED_LIFETIME_CLAIMS"
+  done <<< "$content_files"
+
+  return "$ok"
+}
+
 echo "== Prose-wiring check: $CLEANUP_DOC names classify_entry/disposition_for, not branch-name classification =="
 check_prose_wiring "$CLEANUP_DOC"
 r0=$?
@@ -261,6 +399,11 @@ echo "== Reap-wiring check: $LIFECYCLE_DOC still invokes the backgrounded sessio
 check_reap_wiring "$LIFECYCLE_DOC"
 r0b=$?
 echo "reap-wiring exit=$r0b"
+
+echo "== Process-lifetime prose check: the canonical rule is present and every retired claim is gone from content/ =="
+check_process_lifetime_prose
+r0h=$?
+echo "process-lifetime-prose exit=$r0h"
 
 # DS-196 round-2 Major 1/2 regression guard: neither manifest may re-drift
 # back to the pre-fix (false) claims that full mode "is not the mode either
@@ -789,11 +932,11 @@ echo "run3 exit=$r3"
 
 git -C "$REPO" worktree remove --force "$REPO/.agentic/worktrees/spec-fixture" >/dev/null 2>&1 || true
 
-echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g run1=$r1 run2=$r2 run3=$r3"
-if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
-  echo "PASS: prose-wiring check clean, reap-wiring check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, and two distinct exit codes across three runs (0, 1, 1)"
+echo "Exit codes observed: prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g run1=$r1 run2=$r2 run3=$r3"
+if [ "$r0" = "0" ] && [ "$r0b" = "0" ] && [ "$r0h" = "0" ] && [ "$r0c" = "0" ] && [ "$r0d" = "0" ] && [ "$r0e" = "0" ] && [ "$r0f" = "0" ] && [ "$r0g" = "0" ] && [ "$r1" = "0" ] && [ "$r2" = "1" ] && [ "$r3" = "1" ]; then
+  echo "PASS: prose-wiring check clean, reap-wiring check clean, process-lifetime-prose check clean, manifest-reconciliation check clean, activity-window-prose check clean, lock-caveat-pointers check clean, unattended-callers check clean, step2-argv check clean, and two distinct exit codes across three runs (0, 1, 1)"
   exit 0
 fi
 
-echo "FAIL: expected prose-wiring=0, reap-wiring=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g $r1 $r2 $r3"
+echo "FAIL: expected prose-wiring=0, reap-wiring=0, process-lifetime-prose=0, manifest-reconciliation=0, activity-window-prose=0, lock-caveat-pointers=0, unattended-callers=0, step2-argv=0, and run exit codes 0 1 1, got prose-wiring=$r0 reap-wiring=$r0b process-lifetime-prose=$r0h manifest-reconciliation=$r0c activity-window-prose=$r0d lock-caveat-pointers=$r0e unattended-callers=$r0f step2-argv=$r0g $r1 $r2 $r3"
 exit 1

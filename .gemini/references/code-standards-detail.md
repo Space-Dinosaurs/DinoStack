@@ -15,7 +15,10 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
                Module Manifests, DRY, and Code Quality Gates preamble
-               rules).
+               rules);
+               content/references/worktree-lifecycle.md (§Agent-spawned
+               process lifetime ownership, cited by the Browser Verification
+               block above).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation; consult Package
@@ -55,7 +58,7 @@ agent-browser fill @e2 "text" # fill input by ref
 agent-browser close           # close the session when done (close --all closes every session)
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the session and its browser process are not reaped when your run ends and persist afterward. `agent-browser` is headless by default, so no window is left open; what persists is the session's live process, consuming resources and able to collide with a concurrent run (see `content/references/worktree-lifecycle.md` §Agent-spawned process lifetime ownership).
 
 ## Discovery-Based Check Discipline
 

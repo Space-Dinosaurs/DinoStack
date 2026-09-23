@@ -35,11 +35,13 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          today if it crashes before its push - `head_reachable` is dead
          code in bin/ds-cleanup-worktrees, so no leftover, pushed or not,
          currently auto-sweeps; see that section for the manual
-         triage/recovery procedure), and the Dev-server process lifetime
-         ownership section (the canonical rule that any dev server booted
-         by an agent is run-scoped only and will not survive the agent's
-         run on this harness - referenced by the qa-gate boot pattern and
-         the engineer/qa-engineer runtime smoke-test caveats).
+         triage/recovery procedure), and the Agent-spawned process
+         lifetime ownership section (the canonical rule that a process an
+         agent launches - a dev server, a browser - reparents to launchd
+         when the launching tool call returns and outlives the agent's run,
+         so closing it belongs to the spawning agent - referenced by the
+         qa-gate boot pattern and the engineer/qa-engineer runtime
+         smoke-test caveats).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -54,12 +56,14 @@ Public API: Read-only reference document. Cross-referenced from:
             paragraph, "Commit each fix immediately during testing"),
             content/sections/04-risk-classification.md §Trivial signals
             (pointer to the Implicit Trivial batching section),
+            content/references/code-standards-detail.md (browser-verification
+            pointer to §Agent-spawned process lifetime ownership),
             content/references/qa-gate.md (dev-server boot pattern pointer
-            to §Dev-server process lifetime ownership),
+            to §Agent-spawned process lifetime ownership),
             content/agents/qa-engineer.md (dev-server start caveat pointer
-            to §Dev-server process lifetime ownership),
+            to §Agent-spawned process lifetime ownership),
             content/agents/engineer.md (runtime smoke-test caveat pointer
-            to §Dev-server process lifetime ownership).
+            to §Agent-spawned process lifetime ownership).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -84,9 +88,11 @@ Downstream consumers: conductor preflight (session-start prune script and
                       this obligation, never a substitute for it);
                       content/references/qa-gate.md (dev-server boot pattern);
                       content/agents/qa-engineer.md (dev-server start caveat);
-                      content/agents/engineer.md (runtime smoke-test caveat) -
-                      all three cross-referencing the Dev-server process
-                      lifetime ownership section.
+                      content/agents/engineer.md (runtime smoke-test caveat);
+                      content/references/code-standards-detail.md
+                      (browser-verification pointer) - all four
+                      cross-referencing the Agent-spawned process lifetime
+                      ownership section.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -785,9 +791,16 @@ Migrating an existing project to pnpm (`pnpm import` from an existing lockfile, 
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock is load-bearing cross-session protection - overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
-## Dev-server process lifetime ownership
+## Agent-spawned process lifetime ownership
 
-Any dev server booted by an agent - qa-engineer's boot pattern, engineer's runtime smoke test, or any ad-hoc verification - is run-scoped only and will not survive the agent's run on this harness. The operator's own shell is the only durable owner of a dev server's lifetime, unless a future mechanism explicitly states otherwise. Treat "restarted and verified" from an agent as true only for the duration of that agent's own run, never as a claim about server availability afterward.
+Nothing an agent launches is bounded by that agent's run. A background process booted with a trailing `&` - qa-engineer's dev-server boot pattern, engineer's runtime smoke test, any ad-hoc verification - reparents to pid 1 (launchd) when the tool call that started it returns, and is still running after that call and after the agent's run ends. Measured directly against this repo's own documented boot pattern. The same holds for a browser an agent launches (the `chrome-devtools` MCP's Chrome, an `agent-browser` session's Chrome): its parent is not the agent that started it, and the agent's own exit reaps nothing.
+
+Closing what you spawned is therefore the spawning agent's responsibility, not a property the harness supplies. Two consequences:
+
+- **A dev server is not automatically reaped.** Nothing in this repo targets one, and no discriminator separates an agent's server from the operator's own server on the same port, so a wrong guess would kill the operator's process. The spawning agent kills what it booted - qa-engineer's teardown does this by port.
+- **A browser is not reaped at the agent's exit either.** Treat an agent-launched browser session as still open until that agent, or the tool that owns it, closes it.
+
+Treat "restarted and verified" from an agent as a claim about the moment it was verified, never as a promise of availability afterward: the process does survive the run, but the agent that booted it still owns killing it, so nothing here bounds how long it stays up.
 
 ## Standing authorizations
 
