@@ -65,7 +65,7 @@ Pass the signal checklist verbatim in the spawn prompt (see Signal Checklist bel
 
 ## Mandatory pre-filter - floor vs. dial
 
-Before including any candidate, apply the floor-vs-dial test from `content/references/obsolescence-signal.md`. A rule/hook that enforces a floor is never a candidate regardless of which signals fired; only harness-driven vestiges are retirement candidates. This pre-filter runs before the signal checklist below - a candidate that fails it is excluded before Signal 1 is even applied, not flagged and then discarded.
+Before including any candidate, apply the floor-vs-dial test from `content/references/obsolescence-signal.md`. A rule/hook that enforces a floor is never a candidate regardless of which signals fired, regardless of harness- or model-driven origin. A harness-driven dial is a retirement candidate without further measurement; a model-driven dial is a candidate only once measured against the weakest model actually assigned to the agent carrying it. This pre-filter runs before the signal checklist below - a candidate that fails it is excluded before Signal 1 is even applied, not flagged and then discarded.
 
 ## Signal checklist (verbatim - this is the binding contract)
 
